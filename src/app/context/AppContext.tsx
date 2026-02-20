@@ -15,6 +15,7 @@ interface User {
   interests: string[];
   profileComplete: boolean;
   emailVerified?: boolean;
+  isRegistered?: boolean;
 }
 
 interface PointEvent {
@@ -35,10 +36,12 @@ interface AppState {
   bookmarkedSessions: string[];
   completedChallenges: string[];
   pointsHistory: PointEvent[];
+  hasJoinedEvent: boolean;
 }
 
 interface AppContextType extends AppState {
   setUser: (user: User | null) => void;
+  joinEvent: () => void;
   addPoints: (points: number, activity: string) => void;
   setCompletedSurveys: (surveys: string[]) => void;
   setInProgressSurvey: (surveyId: string, data: any) => void;
@@ -131,7 +134,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [bookmarkedSessions, setBookmarkedSessions] = useState<string[]>([]);
   const [completedChallenges, setCompletedChallenges] = useState<string[]>([]);
   const [pointsHistory, setPointsHistory] = useState<PointEvent[]>([]);
+  const [hasJoinedEvent, setHasJoinedEvent] = useState(false);
   const [toast, setToast] = useState<{ message: string; points?: number } | null>(null);
+
+  const joinEvent = () => {
+    setHasJoinedEvent(true);
+    addPoints(mockGamificationConfig.pointActions.dailyLogin, 'Joined the event!');
+  };
 
   const showToast = (message: string, points?: number) => {
     setToast({ message, points });
@@ -221,7 +230,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         bookmarkedSessions,
         completedChallenges,
         pointsHistory,
+        hasJoinedEvent,
         setUser,
+        joinEvent,
         addPoints,
         setCompletedSurveys,
         setInProgressSurvey,
@@ -239,21 +250,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       {/* Global toast notification */}
       {toast && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[300] animate-in slide-in-from-top duration-300 max-w-sm w-[calc(100%-3rem)]">
-          <div className="bg-white border border-gray-200 shadow-2xl rounded-2xl p-4 backdrop-blur-xl">
+          <div className="rounded-2xl p-4" style={{ background: 'rgba(17,17,32,0.97)', border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 8px 40px rgba(0,0,0,0.6)', backdropFilter: 'blur(20px)' }}>
             <div className="flex items-center gap-3">
               {toast.points !== undefined && (
-                <div className="flex-shrink-0 w-12 h-12 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-xl flex items-center justify-center shadow-lg">
-                  <span className="font-bold text-white text-lg">+{toast.points}</span>
+                <div className="flex-shrink-0 w-11 h-11 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg,#10b981,#059669)' }}>
+                  <span style={{ fontWeight: 800, color: '#fff', fontSize: 15 }}>+{toast.points}</span>
                 </div>
               )}
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-gray-900 text-sm">{toast.message}</p>
+                <p style={{ fontWeight: 600, color: '#fff', fontSize: 13 }}>{toast.message}</p>
                 {toast.points !== undefined && (
-                  <p className="text-xs text-gray-500 mt-0.5">Points earned!</p>
+                  <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 2 }}>Points earned!</p>
                 )}
               </div>
-              <div className="flex-shrink-0">
-                <svg className="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center" style={{ background: 'rgba(16,185,129,0.2)' }}>
+                <svg style={{ width: 13, height: 13, color: '#4ade80' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                 </svg>
               </div>

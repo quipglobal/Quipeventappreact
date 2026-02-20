@@ -1,6 +1,7 @@
 import React from 'react';
 import { ArrowLeft, Trophy, Target, Clock, CheckCircle2 } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
+import { useTheme } from '@/app/context/ThemeContext';
 import { mockChallenges } from '@/app/data/mockData';
 
 interface ChallengesPageProps {
@@ -9,6 +10,7 @@ interface ChallengesPageProps {
 
 export const ChallengesPage: React.FC<ChallengesPageProps> = ({ onBack }) => {
   const { completedChallenges, completedSurveys, votedPolls, metSponsors, bookmarkedSessions, completeChallenge } = useApp();
+  const { t } = useTheme();
 
   const getChallengeProgress = (challenge: typeof mockChallenges[0]) => {
     switch (challenge.type) {
@@ -25,124 +27,92 @@ export const ChallengesPage: React.FC<ChallengesPageProps> = ({ onBack }) => {
     }
   };
 
-  const activeChallenges = mockChallenges.map(challenge => ({
-    ...challenge,
-    progress: getChallengeProgress(challenge),
-    completed: completedChallenges.includes(challenge.id) || getChallengeProgress(challenge) >= challenge.target,
+  const challenges = mockChallenges.map(c => ({
+    ...c,
+    progress: getChallengeProgress(c),
+    completed: completedChallenges.includes(c.id) || getChallengeProgress(c) >= c.target,
   }));
 
-  const handleClaimReward = (challengeId: string) => {
-    const challenge = activeChallenges.find(c => c.id === challengeId);
-    if (challenge && challenge.progress >= challenge.target && !completedChallenges.includes(challengeId)) {
-      completeChallenge(challengeId);
-    }
+  const handleClaim = (id: string) => {
+    const c = challenges.find(x => x.id === id);
+    if (c && c.progress >= c.target && !completedChallenges.includes(id)) completeChallenge(id);
   };
 
-  const activeCount = activeChallenges.filter(c => !c.completed).length;
-  const completedCount = activeChallenges.filter(c => c.completed).length;
+  const activeCount    = challenges.filter(c => !c.completed).length;
+  const completedCount = challenges.filter(c => c.completed).length;
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20">
-      {/* Header */}
-      <div className="bg-gradient-to-br from-blue-600 to-cyan-600 px-6 pt-12 pb-8 text-white sticky top-0 z-10">
-        <button onClick={onBack} className="mb-4">
-          <ArrowLeft className="w-6 h-6" />
-        </button>
-        <div className="flex items-center gap-3 mb-2">
-          <Trophy className="w-8 h-8" />
-          <h1 className="text-2xl font-bold">Challenges</h1>
+    <div className="min-h-screen pb-20" style={{ background: t.bgPage }}>
+      <div className="sticky top-0 z-10 px-5 pt-12 pb-6 text-white" style={{ background: 'linear-gradient(135deg,#3b82f6,#06b6d4)' }}>
+        <button onClick={onBack} className="mb-3"><ArrowLeft style={{ width: 22, height: 22, color: '#fff' }} /></button>
+        <div className="flex items-center gap-3 mb-1">
+          <Trophy style={{ width: 26, height: 26, color: '#fff' }} />
+          <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.03em' }}>Challenges</h1>
         </div>
-        <p className="text-white/90 text-sm">Complete challenges for bonus points</p>
+        <p style={{ color: 'rgba(255,255,255,0.75)', fontSize: 13 }}>Complete challenges for bonus points</p>
       </div>
 
-      {/* Stats */}
-      <div className="px-6 -mt-4 mb-6">
-        <div className="bg-white rounded-2xl shadow-xl p-5">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="text-center">
-              <p className="text-3xl font-bold text-blue-600">{activeCount}</p>
-              <p className="text-sm text-gray-600">Active</p>
+      <div className="px-5 -mt-4 mb-5">
+        <div className="rounded-2xl p-5" style={{ background: t.surface, boxShadow: t.shadow, border: `1px solid ${t.border}` }}>
+          <div className="grid grid-cols-2 gap-4 text-center">
+            <div>
+              <p style={{ color: '#3b82f6', fontSize: 28, fontWeight: 800, letterSpacing: '-0.04em' }}>{activeCount}</p>
+              <p style={{ color: t.textMuted, fontSize: 12, fontWeight: 600 }}>Active</p>
             </div>
-            <div className="text-center">
-              <p className="text-3xl font-bold text-emerald-600">{completedCount}</p>
-              <p className="text-sm text-gray-600">Completed</p>
+            <div>
+              <p style={{ color: t.successText, fontSize: 28, fontWeight: 800, letterSpacing: '-0.04em' }}>{completedCount}</p>
+              <p style={{ color: t.textMuted, fontSize: 12, fontWeight: 600 }}>Completed</p>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Challenges List */}
-      <div className="px-6 space-y-4">
-        {activeChallenges.map((challenge) => {
-          const progressPercentage = (challenge.progress / challenge.target) * 100;
-          const canClaim = challenge.progress >= challenge.target && !completedChallenges.includes(challenge.id);
-
+      <div className="px-5 space-y-4 mb-5">
+        {challenges.map(c => {
+          const pct      = (c.progress / c.target) * 100;
+          const canClaim = c.progress >= c.target && !completedChallenges.includes(c.id);
           return (
-            <div
-              key={challenge.id}
-              className={`bg-white rounded-2xl shadow-md p-6 ${
-                challenge.completed ? 'opacity-75' : ''
-              }`}
-            >
-              {/* Challenge Header */}
-              <div className="flex items-start justify-between gap-3 mb-4">
+            <div key={c.id} className="rounded-2xl p-5" style={{ background: t.surface, boxShadow: t.shadow, border: `1px solid ${t.border}`, opacity: c.completed ? 0.75 : 1 }}>
+              <div className="flex items-start justify-between gap-3 mb-3">
                 <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-2">
-                    <h3 className="font-bold text-gray-900 text-lg">{challenge.title}</h3>
-                    {challenge.completed && (
-                      <CheckCircle2 className="w-5 h-5 text-emerald-500 flex-shrink-0" />
-                    )}
+                  <div className="flex items-center gap-2 mb-1">
+                    <h3 style={{ color: t.text, fontSize: 16, fontWeight: 700 }}>{c.title}</h3>
+                    {c.completed && <CheckCircle2 style={{ width: 18, height: 18, color: t.successText, flexShrink: 0 }} />}
                   </div>
-                  <p className="text-sm text-gray-600 mb-3">{challenge.description}</p>
+                  <p style={{ color: t.textSec, fontSize: 13, lineHeight: 1.5 }}>{c.description}</p>
                 </div>
-                <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-xl flex items-center justify-center flex-shrink-0">
-                  <Trophy className="w-7 h-7 text-white" />
+                <div className="w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'linear-gradient(135deg,#3b82f6,#06b6d4)' }}>
+                  <Trophy style={{ width: 26, height: 26, color: '#fff' }} />
                 </div>
               </div>
 
-              {/* Progress */}
               <div className="mb-4">
-                <div className="flex items-center justify-between text-sm mb-2">
-                  <div className="flex items-center gap-1 text-gray-600">
-                    <Target className="w-4 h-4" />
-                    <span>Progress: {challenge.progress}/{challenge.target}</span>
-                  </div>
-                  <span className="font-bold text-blue-600">{Math.round(progressPercentage)}%</span>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-1.5"><Target style={{ width: 13, height: 13, color: t.textMuted }} /><span style={{ color: t.textSec, fontSize: 13 }}>Progress: {c.progress}/{c.target}</span></div>
+                  <span style={{ color: '#3b82f6', fontWeight: 700, fontSize: 13 }}>{Math.round(pct)}%</span>
                 </div>
-                <div className="bg-gray-200 rounded-full h-3 overflow-hidden">
-                  <div
-                    className={`h-full transition-all duration-500 ${
-                      challenge.completed
-                        ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
-                        : 'bg-gradient-to-r from-blue-500 to-cyan-500'
-                    }`}
-                    style={{ width: `${Math.min(progressPercentage, 100)}%` }}
-                  />
+                <div className="h-3 rounded-full overflow-hidden" style={{ background: t.surface2 }}>
+                  <div className="h-full rounded-full transition-all duration-500"
+                    style={{ width: `${Math.min(pct, 100)}%`, background: c.completed ? 'linear-gradient(135deg,#10b981,#0d9488)' : 'linear-gradient(135deg,#3b82f6,#06b6d4)' }} />
                 </div>
               </div>
 
-              {/* Footer */}
-              <div className="flex items-center justify-between pt-4 border-t border-gray-200">
-                <div className="flex items-center gap-4 text-sm">
-                  <span className="font-bold text-emerald-600">+{challenge.rewardPoints} pts</span>
-                  {challenge.expiresAt && !challenge.completed && (
-                    <div className="flex items-center gap-1 text-gray-500">
-                      <Clock className="w-4 h-4" />
-                      <span>Expires soon</span>
-                    </div>
+              <div className="flex items-center justify-between pt-3" style={{ borderTop: `1px solid ${t.divider}` }}>
+                <div className="flex items-center gap-3">
+                  <span style={{ color: t.successText, fontWeight: 700, fontSize: 13 }}>+{c.rewardPoints} pts</span>
+                  {c.expiresAt && !c.completed && (
+                    <div className="flex items-center gap-1"><Clock style={{ width: 13, height: 13, color: t.textMuted }} /><span style={{ color: t.textMuted, fontSize: 12 }}>Expires soon</span></div>
                   )}
                 </div>
                 {canClaim && (
-                  <button
-                    onClick={() => handleClaimReward(challenge.id)}
-                    className="px-5 py-2 rounded-xl font-medium bg-gradient-to-r from-emerald-500 to-teal-500 text-white hover:from-emerald-600 hover:to-teal-600 transition-all shadow-md"
-                  >
+                  <button onClick={() => handleClaim(c.id)} className="px-5 py-2 rounded-xl font-semibold text-white"
+                    style={{ background: 'linear-gradient(135deg,#10b981,#0d9488)', boxShadow: '0 4px 16px rgba(16,185,129,0.3)' }}>
                     Claim Reward
                   </button>
                 )}
-                {challenge.completed && (
-                  <div className="px-5 py-2 rounded-xl font-medium bg-emerald-100 text-emerald-700">
-                    Completed
+                {c.completed && !canClaim && (
+                  <div className="px-4 py-2 rounded-xl font-semibold" style={{ background: t.successBg, color: t.successText, fontSize: 13 }}>
+                    Completed ✓
                   </div>
                 )}
               </div>
@@ -151,15 +121,14 @@ export const ChallengesPage: React.FC<ChallengesPageProps> = ({ onBack }) => {
         })}
       </div>
 
-      {/* Info Box */}
-      <div className="px-6 mt-6">
-        <div className="bg-gradient-to-br from-blue-50 to-cyan-50 border border-blue-200 rounded-2xl p-5">
+      <div className="px-5">
+        <div className="rounded-2xl p-5" style={{ background: 'rgba(59,130,246,0.1)', border: `1px solid ${t.border}` }}>
           <div className="flex items-start gap-3">
-            <Trophy className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+            <Trophy style={{ width: 18, height: 18, color: '#60a5fa', flexShrink: 0, marginTop: 2 }} />
             <div>
-              <h3 className="font-bold text-gray-900 mb-1">How Challenges Work</h3>
-              <p className="text-sm text-gray-700">
-                Complete activities throughout the event to progress on challenges. Once you reach the target, claim your reward to earn bonus points!
+              <h3 style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 4 }}>How Challenges Work</h3>
+              <p style={{ color: t.textSec, fontSize: 13, lineHeight: 1.5 }}>
+                Complete activities throughout the event to progress. Once you reach the target, claim your reward to earn bonus points!
               </p>
             </div>
           </div>

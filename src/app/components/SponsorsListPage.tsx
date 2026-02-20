@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
-import { ArrowLeft, MapPin, ExternalLink, QrCode, CheckCircle, FileDown, Users, Calendar, X, Check } from 'lucide-react';
+import { ArrowLeft, MapPin, ExternalLink, QrCode, CheckCircle, FileDown, Calendar, X } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
+import { useTheme } from '@/app/context/ThemeContext';
 import { mockSponsors } from '@/app/data/mockData';
 
-interface SponsorsListPageProps {
-  onBack: () => void;
-}
+interface SponsorsListPageProps { onBack: () => void; }
 
 export const SponsorsListPage: React.FC<SponsorsListPageProps> = ({ onBack }) => {
   const { metSponsors, setMetSponsors, addPoints, gamificationConfig } = useApp();
+  const { t } = useTheme();
   const [selectedSponsor, setSelectedSponsor] = useState<string | null>(null);
   const [showCheckInModal, setShowCheckInModal] = useState(false);
   const [checkInCode, setCheckInCode] = useState('');
@@ -22,158 +22,95 @@ export const SponsorsListPage: React.FC<SponsorsListPageProps> = ({ onBack }) =>
     }
   };
 
-  const tierColors: Record<string, { bg: string; border: string; text: string }> = {
-    Platinum: { bg: 'bg-slate-100', border: 'border-slate-300', text: 'text-slate-700' },
-    Gold: { bg: 'bg-amber-100', border: 'border-amber-300', text: 'text-amber-700' },
-    Silver: { bg: 'bg-gray-200', border: 'border-gray-300', text: 'text-gray-700' },
+  const tierMeta: Record<string, { grad: string; dot: string }> = {
+    Platinum: { grad: 'linear-gradient(135deg,#94a3b8,#64748b)', dot: '#94a3b8' },
+    Gold:     { grad: 'linear-gradient(135deg,#f59e0b,#d97706)', dot: '#f59e0b' },
+    Silver:   { grad: 'linear-gradient(135deg,#9ca3af,#6b7280)', dot: '#9ca3af' },
   };
-
   const sponsorsByTier = {
     Platinum: mockSponsors.filter(s => s.tier === 'Platinum'),
-    Gold: mockSponsors.filter(s => s.tier === 'Gold'),
-    Silver: mockSponsors.filter(s => s.tier === 'Silver'),
+    Gold:     mockSponsors.filter(s => s.tier === 'Gold'),
+    Silver:   mockSponsors.filter(s => s.tier === 'Silver'),
   };
-
+  const GRAD = 'linear-gradient(135deg,#f97316,#ef4444)';
   const selectedSponsorData = selectedSponsor ? mockSponsors.find(s => s.id === selectedSponsor) : null;
 
   if (selectedSponsorData) {
     const hasMet = metSponsors.includes(selectedSponsorData.id);
-    const tierColor = tierColors[selectedSponsorData.tier];
-
+    const tm = tierMeta[selectedSponsorData.tier] ?? tierMeta.Silver;
     return (
-      <div className="min-h-screen bg-gray-50 pb-20">
-        {/* Header */}
-        <div className="bg-white border-b border-gray-200 px-6 pt-12 pb-4 sticky top-0 z-10">
-          <button onClick={() => setSelectedSponsor(null)} className="mb-4">
-            <ArrowLeft className="w-6 h-6 text-gray-900" />
-          </button>
+      <div className="min-h-screen pb-20" style={{ background: t.bgPage }}>
+        <div className="sticky top-0 z-10 px-5 pt-12 pb-4" style={{ background: t.surface, borderBottom: `1px solid ${t.border}` }}>
+          <button onClick={() => setSelectedSponsor(null)}><ArrowLeft style={{ width: 24, height: 24, color: t.text }} /></button>
         </div>
-
-        {/* Sponsor Header */}
-        <div className="bg-white px-6 pt-6 pb-8 border-b border-gray-200">
+        <div className="px-5 pt-5 pb-6" style={{ background: t.surface, borderBottom: `1px solid ${t.border}` }}>
           <div className="flex items-start gap-4 mb-4">
-            <img
-              src={selectedSponsorData.logo}
-              alt={selectedSponsorData.name}
-              className="w-20 h-20 rounded-2xl shadow-md"
-            />
-            <div className="flex-1">
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">{selectedSponsorData.name}</h1>
-              <span className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${tierColor.bg} ${tierColor.text} ${tierColor.border} border`}>
-                {selectedSponsorData.tier} Sponsor
-              </span>
+            <img src={selectedSponsorData.logo} alt={selectedSponsorData.name} className="w-20 h-20 rounded-2xl" style={{ border: `1px solid ${t.border}` }} />
+            <div>
+              <h1 style={{ color: t.text, fontSize: 22, fontWeight: 800, marginBottom: 6 }}>{selectedSponsorData.name}</h1>
+              <span className="px-3 py-1 rounded-full text-white text-sm font-bold" style={{ background: tm.grad }}>{selectedSponsorData.tier} Sponsor</span>
             </div>
           </div>
-          <p className="text-gray-700 italic mb-4">{selectedSponsorData.tagline}</p>
-          
-          {/* Quick Info */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex items-center gap-2 text-sm">
-              <MapPin className="w-4 h-4 text-gray-500" />
-              <span className="text-gray-600">Booth {selectedSponsorData.booth}</span>
-            </div>
-            <div className="flex items-center gap-2 text-sm">
-              <ExternalLink className="w-4 h-4 text-gray-500" />
-              <span className="text-gray-600">{selectedSponsorData.website}</span>
-            </div>
+          <p style={{ color: t.textSec, fontSize: 14, fontStyle: 'italic', marginBottom: 12 }}>{selectedSponsorData.tagline}</p>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-1.5"><MapPin style={{ width: 14, height: 14, color: t.textMuted }} /><span style={{ color: t.textSec, fontSize: 13 }}>Booth {selectedSponsorData.booth}</span></div>
+            <div className="flex items-center gap-1.5"><ExternalLink style={{ width: 14, height: 14, color: t.textMuted }} /><span style={{ color: t.textSec, fontSize: 13 }}>{selectedSponsorData.website}</span></div>
           </div>
         </div>
-
-        {/* Action Buttons */}
-        <div className="px-6 py-6 bg-white border-b border-gray-200">
+        <div className="px-5 py-5" style={{ borderBottom: `1px solid ${t.border}` }}>
           <div className="grid grid-cols-2 gap-3">
             {selectedSponsorData.meetingEnabled && (
-              <button
-                onClick={() => setShowCheckInModal(true)}
-                disabled={hasMet}
-                className={`py-3 rounded-xl font-medium flex items-center justify-center gap-2 transition-all ${
-                  hasMet
-                    ? 'bg-emerald-100 text-emerald-700 cursor-not-allowed'
-                    : 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white hover:from-indigo-700 hover:to-purple-700'
-                }`}
-              >
-                {hasMet ? (
-                  <>
-                    <CheckCircle className="w-5 h-5" />
-                    <span>Checked In</span>
-                  </>
-                ) : (
-                  <>
-                    <QrCode className="w-5 h-5" />
-                    <span>Check In (+{gamificationConfig.pointActions.sponsorCheckIn})</span>
-                  </>
-                )}
+              <button onClick={() => !hasMet && setShowCheckInModal(true)} disabled={hasMet}
+                className="py-3 rounded-xl font-semibold flex items-center justify-center gap-2"
+                style={{ background: hasMet ? t.successBg : 'linear-gradient(135deg,#7c3aed,#4f46e5)', color: hasMet ? t.successText : '#fff' }}>
+                {hasMet ? <><CheckCircle style={{ width: 18, height: 18 }} />Checked In</> : <><QrCode style={{ width: 18, height: 18 }} />Check In (+{gamificationConfig.pointActions.sponsorCheckIn})</>}
               </button>
             )}
             {selectedSponsorData.appointmentEnabled && (
-              <button className="py-3 rounded-xl font-medium flex items-center justify-center gap-2 bg-white border-2 border-indigo-600 text-indigo-600 hover:bg-indigo-50 transition-all">
-                <Calendar className="w-5 h-5" />
-                <span>Book Meeting</span>
+              <button className="py-3 rounded-xl font-semibold flex items-center justify-center gap-2"
+                style={{ background: t.surface2, border: `1.5px solid ${t.borderAcc}`, color: t.accentSoft }}>
+                <Calendar style={{ width: 18, height: 18 }} />Book Meeting
               </button>
             )}
           </div>
         </div>
-
-        {/* About */}
-        <div className="px-6 py-6">
-          <h2 className="text-lg font-bold text-gray-900 mb-3">About</h2>
-          <p className="text-gray-700 leading-relaxed">{selectedSponsorData.description}</p>
-        </div>
-
-        {/* Resources */}
-        {selectedSponsorData.resources.length > 0 && (
-          <div className="px-6 py-6 border-t border-gray-200">
-            <h2 className="text-lg font-bold text-gray-900 mb-3">Resources</h2>
-            <div className="space-y-2">
-              {selectedSponsorData.resources.map((resource) => (
-                <button
-                  key={resource.id}
-                  className="w-full flex items-center justify-between p-4 bg-white border border-gray-200 rounded-xl hover:border-indigo-300 hover:bg-indigo-50 transition-all"
-                >
-                  <div className="flex items-center gap-3">
-                    <FileDown className="w-5 h-5 text-indigo-600" />
-                    <span className="font-medium text-gray-900">{resource.title}</span>
-                  </div>
-                  <ExternalLink className="w-4 h-4 text-gray-400" />
-                </button>
-              ))}
+        <div className="px-5 py-5">
+          <h2 style={{ color: t.text, fontSize: 16, fontWeight: 700, marginBottom: 10 }}>About</h2>
+          <p style={{ color: t.textSec, fontSize: 14, lineHeight: 1.6 }}>{selectedSponsorData.description}</p>
+          {selectedSponsorData.resources.length > 0 && (
+            <div className="mt-5">
+              <h2 style={{ color: t.text, fontSize: 16, fontWeight: 700, marginBottom: 10 }}>Resources</h2>
+              <div className="space-y-2">
+                {selectedSponsorData.resources.map(r => (
+                  <button key={r.id} className="w-full flex items-center justify-between p-4 rounded-xl transition-all"
+                    style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+                    <div className="flex items-center gap-3"><FileDown style={{ width: 18, height: 18, color: t.accentSoft }} /><span style={{ color: t.text, fontSize: 14, fontWeight: 600 }}>{r.title}</span></div>
+                    <ExternalLink style={{ width: 15, height: 15, color: t.textMuted }} />
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
-
-        {/* Check-in Modal */}
+          )}
+        </div>
         {showCheckInModal && (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-6">
-            <div className="bg-white rounded-3xl p-6 w-full max-w-sm">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-xl font-bold text-gray-900">Check In</h3>
-                <button
-                  onClick={() => setShowCheckInModal(false)}
-                  className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition-all"
-                >
-                  <X className="w-5 h-5 text-gray-600" />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-6" style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(6px)' }}>
+            <div className="w-full max-w-sm rounded-3xl p-6" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+              <div className="flex items-center justify-between mb-5">
+                <h3 style={{ color: t.text, fontSize: 20, fontWeight: 700 }}>Check In</h3>
+                <button onClick={() => setShowCheckInModal(false)} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: t.surface2 }}>
+                  <X style={{ width: 15, height: 15, color: t.textSec }} />
                 </button>
               </div>
-
-              <div className="mb-6">
-                <div className="w-48 h-48 bg-gray-100 rounded-2xl mx-auto mb-4 flex items-center justify-center">
-                  <QrCode className="w-24 h-24 text-gray-400" />
-                  <p className="absolute text-sm text-gray-500 mt-32">Scan QR at booth</p>
-                </div>
-                <p className="text-center text-sm text-gray-600 mb-4">or enter code manually</p>
-                <input
-                  type="text"
-                  value={checkInCode}
-                  onChange={(e) => setCheckInCode(e.target.value)}
-                  placeholder="Enter code"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-center text-lg font-mono"
-                />
+              <div className="w-40 h-40 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: t.surface2 }}>
+                <QrCode style={{ width: 64, height: 64, color: t.emptyIcon }} />
               </div>
-
-              <button
-                onClick={() => handleCheckIn(selectedSponsorData.id)}
-                className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-3 rounded-xl font-medium hover:from-indigo-700 hover:to-purple-700 transition-all"
-              >
+              <p style={{ color: t.textMuted, fontSize: 13, textAlign: 'center', marginBottom: 12 }}>or enter code manually</p>
+              <input type="text" value={checkInCode} onChange={e => setCheckInCode(e.target.value)} placeholder="Enter code"
+                className="w-full px-4 py-3 rounded-xl outline-none text-center mb-4"
+                style={{ background: t.inputBg, border: `1.5px solid ${t.inputBorder}`, color: t.text, fontSize: 18, fontFamily: 'monospace' }} />
+              <button onClick={() => handleCheckIn(selectedSponsorData.id)}
+                className="w-full py-3 rounded-xl font-semibold text-white"
+                style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)' }}>
                 Confirm Check-In
               </button>
             </div>
@@ -184,58 +121,38 @@ export const SponsorsListPage: React.FC<SponsorsListPageProps> = ({ onBack }) =>
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20">
-      {/* Header */}
-      <div className="bg-gradient-to-br from-orange-600 to-red-600 px-6 pt-12 pb-8 text-white sticky top-0 z-10">
-        <button onClick={onBack} className="mb-4">
-          <ArrowLeft className="w-6 h-6" />
-        </button>
-        <h1 className="text-2xl font-bold mb-1">Sponsors & Companies</h1>
-        <p className="text-white/90 text-sm">Connect with sponsors to earn +{gamificationConfig.pointActions.sponsorCheckIn} points</p>
+    <div className="min-h-screen pb-20" style={{ background: t.bgPage }}>
+      <div className="sticky top-0 z-10 px-5 pt-12 pb-6 text-white" style={{ background: GRAD }}>
+        <button onClick={onBack} className="mb-3"><ArrowLeft style={{ width: 22, height: 22, color: '#fff' }} /></button>
+        <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.03em' }}>Sponsors & Companies</h1>
+        <p style={{ color: 'rgba(255,255,255,0.75)', fontSize: 13, marginTop: 4 }}>Connect to earn +{gamificationConfig.pointActions.sponsorCheckIn} points per check-in</p>
       </div>
-
-      {/* Sponsors by Tier */}
-      <div className="px-6 py-6 space-y-8">
-        {Object.entries(sponsorsByTier).map(([tier, sponsors]) => {
-          if (sponsors.length === 0) return null;
-          const tierColor = tierColors[tier];
-
+      <div className="px-5 py-5 space-y-6">
+        {(Object.entries(sponsorsByTier) as [string, typeof mockSponsors][]).map(([tier, sponsors]) => {
+          if (!sponsors.length) return null;
+          const tm2 = tierMeta[tier] ?? tierMeta.Silver;
           return (
             <div key={tier}>
-              <div className="flex items-center gap-2 mb-4">
-                <div className={`w-3 h-3 rounded-full ${tierColor.bg} ${tierColor.border} border-2`} />
-                <h2 className="text-lg font-bold text-gray-900">{tier} Sponsors</h2>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-3 h-3 rounded-full" style={{ background: tm2.dot }} />
+                <h2 style={{ color: t.text, fontSize: 16, fontWeight: 700 }}>{tier} Sponsors</h2>
               </div>
-
               <div className="space-y-3">
-                {sponsors.map((sponsor) => {
+                {sponsors.map(sponsor => {
                   const hasMet = metSponsors.includes(sponsor.id);
                   return (
-                    <button
-                      key={sponsor.id}
-                      onClick={() => setSelectedSponsor(sponsor.id)}
-                      className="w-full bg-white rounded-2xl shadow-md p-5 hover:shadow-lg transition-all text-left"
-                    >
-                      <div className="flex items-start gap-4 mb-3">
-                        <img
-                          src={sponsor.logo}
-                          alt={sponsor.name}
-                          className="w-16 h-16 rounded-xl"
-                        />
+                    <button key={sponsor.id} onClick={() => setSelectedSponsor(sponsor.id)}
+                      className="w-full rounded-2xl p-5 text-left hover:opacity-90 transition-all"
+                      style={{ background: t.surface, boxShadow: t.shadow, border: `1px solid ${t.border}` }}>
+                      <div className="flex items-start gap-4">
+                        <img src={sponsor.logo} alt={sponsor.name} className="w-14 h-14 rounded-xl flex-shrink-0" style={{ border: `1px solid ${t.border}` }} />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2 mb-1">
-                            <h3 className="font-bold text-gray-900">{sponsor.name}</h3>
-                            {hasMet && (
-                              <CheckCircle className="w-5 h-5 text-emerald-500 flex-shrink-0" />
-                            )}
+                            <h3 style={{ color: t.text, fontSize: 15, fontWeight: 700 }}>{sponsor.name}</h3>
+                            {hasMet && <CheckCircle style={{ width: 18, height: 18, color: t.successText, flexShrink: 0 }} />}
                           </div>
-                          <p className="text-sm text-gray-600 mb-2">{sponsor.tagline}</p>
-                          <div className="flex items-center gap-3 text-xs text-gray-500">
-                            <div className="flex items-center gap-1">
-                              <MapPin className="w-3 h-3" />
-                              <span>Booth {sponsor.booth}</span>
-                            </div>
-                          </div>
+                          <p style={{ color: t.textSec, fontSize: 13, marginBottom: 6 }}>{sponsor.tagline}</p>
+                          <div className="flex items-center gap-1.5"><MapPin style={{ width: 12, height: 12, color: t.textMuted }} /><span style={{ color: t.textMuted, fontSize: 12 }}>Booth {sponsor.booth}</span></div>
                         </div>
                       </div>
                     </button>

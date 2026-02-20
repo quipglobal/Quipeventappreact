@@ -36,6 +36,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
+import { useTheme } from '@/app/context/ThemeContext';
 import { EventConfig } from '@/app/types/config';
 
 // ─── Mock Event Code Registry ─────────────────────────────────────────────────
@@ -173,6 +174,7 @@ export const SwitchEventModal: React.FC<SwitchEventModalProps> = ({
   onClose,
 }) => {
   const { eventConfig, switchEvent } = useApp();
+  const { t } = useTheme();
 
   const [step, setStep] = useState<ModalStep>('entry');
   const [chars, setChars] = useState<string[]>(Array(CODE_LENGTH).fill(''));
@@ -313,7 +315,8 @@ export const SwitchEventModal: React.FC<SwitchEventModalProps> = ({
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[100] animate-in fade-in duration-200"
+        className="fixed inset-0 z-[100] animate-in fade-in duration-200"
+        style={{ background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(6px)' }}
         onClick={onClose}
         aria-hidden="true"
       />
@@ -323,12 +326,12 @@ export const SwitchEventModal: React.FC<SwitchEventModalProps> = ({
         role="dialog"
         aria-modal="true"
         aria-label="Switch Event"
-        className="fixed bottom-0 left-0 right-0 z-[110] max-w-md mx-auto animate-in slide-in-from-bottom duration-300"
+        className="fixed bottom-0 left-0 right-0 z-[110] max-w-[430px] mx-auto animate-in slide-in-from-bottom duration-300"
       >
-        <div className="bg-white rounded-t-[2rem] shadow-2xl overflow-hidden">
+        <div className="rounded-t-[2rem] overflow-hidden" style={{ background: t.surface, border: `1px solid ${t.border}`, borderBottom: 'none', boxShadow: '0 -24px 80px rgba(0,0,0,0.5)' }}>
           {/* Drag handle */}
           <div className="flex justify-center pt-3 pb-1">
-            <div className="w-10 h-1 bg-gray-200 rounded-full" />
+            <div className="w-10 h-1 rounded-full" style={{ background: t.border }} />
           </div>
 
           {/* ── Step: Code Entry ─────────────────────────────────────── */}
@@ -337,281 +340,155 @@ export const SwitchEventModal: React.FC<SwitchEventModalProps> = ({
               {/* Header */}
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center shadow-md">
+                  <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)' }}>
                     <Ticket className="w-5 h-5 text-white" />
                   </div>
                   <div>
-                    <h2 className="text-lg font-bold text-gray-900 leading-tight">Switch Event</h2>
-                    <p className="text-xs text-gray-400">Enter your event access code</p>
+                    <h2 style={{ color: t.text, fontSize: 17, fontWeight: 700 }}>Switch Event</h2>
+                    <p style={{ color: t.textMuted, fontSize: 12 }}>Enter your event access code</p>
                   </div>
                 </div>
                 <button
                   onClick={onClose}
                   aria-label="Close"
-                  className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 transition-colors"
+                  className="w-8 h-8 flex items-center justify-center rounded-full transition-colors"
+                  style={{ background: t.surface2 }}
                 >
-                  <X className="w-4 h-4" />
+                  <X style={{ width: 15, height: 15, color: t.textSec }} />
                 </button>
               </div>
 
               {/* Code hint */}
-              <div className="flex items-center gap-2 mb-5 px-3 py-2.5 bg-indigo-50 border border-indigo-100 rounded-xl">
-                <Lock className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0" />
-                <p className="text-xs text-indigo-700 leading-snug">
+              <div className="flex items-center gap-2 mb-5 px-3 py-2.5 rounded-xl" style={{ background: t.accentBg, border: `1px solid ${t.borderAcc}` }}>
+                <Lock style={{ width: 13, height: 13, color: t.accentSoft, flexShrink: 0 }} />
+                <p style={{ color: t.accentSoft, fontSize: 12, lineHeight: 1.4 }}>
                   Your 6-character code is provided by the event organiser
                 </p>
               </div>
 
-              {/* OTP-style code boxes */}
-              <div
-                className={`flex items-center justify-center gap-2.5 mb-2 transition-all ${error ? 'animate-[shake_0.35s_ease]' : ''}`}
-              >
-                {chars.map((ch, idx) => (
+              {/* OTP inputs */}
+              <div className="flex justify-center gap-2 mb-5">
+                {chars.map((char, i) => (
                   <input
-                    key={idx}
-                    ref={(el) => { inputRefs.current[idx] = el; }}
+                    key={i}
+                    ref={(el) => { inputRefs.current[i] = el; }}
                     type="text"
                     inputMode="text"
-                    maxLength={2} // allow 1 char + overtype
-                    value={ch}
-                    onChange={(e) => handleCharInput(idx, e.target.value)}
-                    onKeyDown={(e) => handleKeyDown(idx, e)}
+                    maxLength={1}
+                    value={char}
+                    onChange={(e) => handleCharInput(i, e.target.value)}
+                    onKeyDown={(e) => handleKeyDown(i, e)}
                     onPaste={handlePaste}
-                    onFocus={(e) => e.target.select()}
-                    aria-label={`Code character ${idx + 1}`}
-                    className={`w-11 h-14 text-center text-xl font-bold uppercase rounded-xl border-2 outline-none transition-all caret-transparent select-none
-                      ${ch
-                        ? error
-                          ? 'border-red-400 bg-red-50 text-red-600'
-                          : 'border-indigo-500 bg-indigo-50 text-indigo-700 shadow-sm shadow-indigo-100'
-                        : 'border-gray-200 bg-gray-50 text-gray-900 focus:border-indigo-400 focus:bg-white focus:shadow-sm focus:shadow-indigo-100'
-                      }`}
+                    className="text-center font-mono font-bold outline-none rounded-xl transition-all"
+                    style={{
+                      width: 46, height: 52, fontSize: 20,
+                      background: char ? t.accentBg : t.inputBg,
+                      border: `2px solid ${char ? t.borderAcc : error ? 'rgba(239,68,68,0.5)' : t.border}`,
+                      color: t.text,
+                    }}
+                    aria-label={`Digit ${i + 1}`}
                   />
                 ))}
               </div>
 
-              {/* Separator dots between groups of 3 */}
-              <div className="flex justify-center mb-4">
-                <div className="flex items-center gap-1">
-                  {Array.from({ length: CODE_LENGTH }).map((_, i) => (
-                    <div
-                      key={i}
-                      className={`transition-all duration-200 rounded-full ${
-                        chars[i]
-                          ? error
-                            ? 'w-2 h-2 bg-red-400'
-                            : 'w-2 h-2 bg-indigo-500'
-                          : 'w-1.5 h-1.5 bg-gray-200'
-                      }`}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              {/* Error message */}
+              {/* Error */}
               {error && (
-                <div className="flex items-center gap-2 mb-4 px-3.5 py-3 bg-red-50 border border-red-200 rounded-xl animate-in fade-in duration-200">
-                  <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
-                  <p className="text-sm text-red-700">{error}</p>
+                <div className="flex items-center gap-2 px-4 py-3 rounded-xl mb-4" style={{ background: t.errorBg, border: `1px solid rgba(239,68,68,0.25)` }}>
+                  <AlertCircle style={{ width: 14, height: 14, color: t.errorText, flexShrink: 0 }} />
+                  <p style={{ color: t.errorText, fontSize: 13, fontWeight: 500 }}>{error}</p>
                 </div>
               )}
 
+              {/* Hint codes */}
+              <p style={{ color: t.textMuted, fontSize: 11, textAlign: 'center', marginBottom: 16 }}>
+                Try: <span style={{ fontFamily: 'monospace', color: t.accentSoft }}>TECH26 · DEVCON · SUMMIT · HEALTH</span>
+              </p>
+
               {/* Verify button */}
               <button
-                type="button"
                 onClick={handleVerify}
                 disabled={!isFilled || verifying}
-                className={`w-full flex items-center justify-center gap-2.5 py-4 rounded-2xl font-semibold text-white transition-all
-                  ${isFilled && !verifying
-                    ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:shadow-lg hover:shadow-indigo-200 hover:scale-[1.02] active:scale-[0.98]'
-                    : 'bg-gradient-to-r from-indigo-300 via-purple-300 to-pink-300 opacity-60 cursor-not-allowed'
-                  }`}
+                className="w-full flex items-center justify-center gap-2 rounded-2xl font-semibold text-white transition-all"
+                style={{
+                  height: 52,
+                  background: isFilled && !verifying ? 'linear-gradient(135deg,#7c3aed,#4f46e5)' : t.surface2,
+                  color: isFilled ? '#fff' : t.textMuted,
+                  cursor: isFilled && !verifying ? 'pointer' : 'not-allowed',
+                  boxShadow: isFilled && !verifying ? '0 8px 28px rgba(124,58,237,0.4)' : 'none',
+                }}
               >
                 {verifying ? (
-                  <>
-                    <RefreshCw className="w-5 h-5 animate-spin" />
-                    Verifying code…
-                  </>
+                  <><RefreshCw style={{ width: 17, height: 17, animation: 'spin 1s linear infinite' }} /> Verifying…</>
                 ) : (
-                  <>
-                    Verify Code
-                    <ArrowRight className="w-5 h-5" />
-                  </>
+                  <><ArrowRight style={{ width: 17, height: 17 }} /> Verify Code</>
                 )}
               </button>
-
-              {/* Demo hint */}
-              <div className="mt-4 p-3.5 bg-gradient-to-r from-gray-50 to-gray-50 border border-gray-100 rounded-2xl">
-                <p className="text-[11px] text-gray-400 text-center mb-1.5 font-medium uppercase tracking-wide">
-                  Demo Codes
-                </p>
-                <div className="flex flex-wrap gap-1.5 justify-center">
-                  {Object.keys(EVENT_CODES).map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => {
-                        const filled = c.split('');
-                        setChars(filled);
-                        setError(null);
-                        inputRefs.current[CODE_LENGTH - 1]?.focus();
-                      }}
-                      className="px-2.5 py-1 bg-white border border-gray-200 rounded-lg font-mono text-[11px] font-bold text-indigo-600 hover:border-indigo-300 hover:bg-indigo-50 transition-all"
-                    >
-                      {c}
-                    </button>
-                  ))}
-                </div>
-              </div>
             </div>
           )}
 
-          {/* ── Step: Event Preview ──────────────────────────────────── */}
+          {/* ── Step: Preview ─────────────────────────────────────────── */}
           {step === 'preview' && matched && (
-            <div className="px-6 pt-2 pb-10 animate-in fade-in slide-in-from-bottom-2 duration-300">
-              {/* Header */}
-              <div className="flex items-center justify-between mb-5">
-                <button
-                  onClick={() => { setStep('entry'); setMatched(null); }}
-                  className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors"
-                >
-                  <ArrowLeft className="w-4 h-4" />
-                  Back
+            <div className="px-6 pt-4 pb-10">
+              <div className="flex items-center gap-3 mb-6">
+                <button onClick={() => setStep('entry')} className="hover:opacity-70 transition-opacity">
+                  <ArrowLeft style={{ width: 22, height: 22, color: t.textSec }} />
                 </button>
-                <button
-                  onClick={onClose}
-                  aria-label="Close"
-                  className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+                <h2 style={{ color: t.text, fontSize: 17, fontWeight: 700 }}>Event Preview</h2>
               </div>
 
-              {/* Event preview card */}
-              <div className={`bg-gradient-to-br ${matched.color} rounded-3xl p-6 text-white mb-5 shadow-xl relative overflow-hidden`}>
-                {/* Background orb */}
-                <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl" />
-                <div className="absolute bottom-0 left-0 w-24 h-24 bg-white/5 rounded-full blur-xl" />
-                <div className="relative z-10">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center">
-                      <Sparkles className="w-6 h-6 text-white" />
-                    </div>
-                    <div className="bg-white/20 backdrop-blur-sm px-3 py-1.5 rounded-full">
-                      <span className="text-xs font-bold text-white uppercase tracking-wider">
-                        {code}
-                      </span>
-                    </div>
+              {/* Event banner */}
+              <div className={`bg-gradient-to-br ${matched.color} rounded-2xl p-5 text-white mb-5`}>
+                <div className="flex items-start gap-3 mb-3">
+                  <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(255,255,255,0.25)' }}>
+                    <Sparkles style={{ width: 24, height: 24 }} />
                   </div>
-                  <h3 className="text-2xl font-bold mb-1 tracking-tight">{matched.config.name}</h3>
-                  <p className="text-white/80 text-sm leading-relaxed mb-4">
-                    {matched.description}
-                  </p>
-                  <div className="flex flex-wrap gap-3">
-                    <div className="flex items-center gap-1.5 bg-white/15 backdrop-blur-sm px-3 py-1.5 rounded-full">
-                      <Calendar className="w-3.5 h-3.5" />
-                      <span className="text-xs font-medium">{matched.config.dates}</span>
+                  <div>
+                    <h3 style={{ fontSize: 18, fontWeight: 800, marginBottom: 2 }}>{matched.config.name}</h3>
+                    <div className="flex items-center gap-2" style={{ color: 'rgba(255,255,255,0.8)', fontSize: 13 }}>
+                      <Calendar style={{ width: 13, height: 13 }} /><span>{matched.config.dates}</span>
                     </div>
-                    <div className="flex items-center gap-1.5 bg-white/15 backdrop-blur-sm px-3 py-1.5 rounded-full">
-                      <MapPin className="w-3.5 h-3.5" />
-                      <span className="text-xs font-medium">{matched.config.location}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 bg-white/15 backdrop-blur-sm px-3 py-1.5 rounded-full">
-                      <Users className="w-3.5 h-3.5" />
-                      <span className="text-xs font-medium">{matched.attendeeCount.toLocaleString()} attending</span>
+                    <div className="flex items-center gap-2 mt-1" style={{ color: 'rgba(255,255,255,0.8)', fontSize: 13 }}>
+                      <MapPin style={{ width: 13, height: 13 }} /><span>{matched.config.location}</span>
                     </div>
                   </div>
                 </div>
+                <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: 13, lineHeight: 1.5, marginBottom: 12 }}>{matched.description}</p>
+                <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: 'rgba(255,255,255,0.2)' }}>
+                  <Users style={{ width: 15, height: 15 }} />
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>{matched.attendeeCount.toLocaleString()} expected attendees</span>
+                </div>
               </div>
 
-              {/* Modules info */}
-              <div className="flex flex-wrap gap-2 mb-5">
-                {Object.entries(matched.config.modulesEnabled)
-                  .filter(([, enabled]) => enabled)
-                  .map(([mod]) => (
-                    <span
-                      key={mod}
-                      className="px-2.5 py-1 bg-indigo-50 border border-indigo-100 rounded-lg text-[11px] font-semibold text-indigo-600 uppercase tracking-wide flex items-center gap-1"
-                    >
-                      <Zap className="w-2.5 h-2.5" />
-                      {mod}
-                    </span>
-                  ))}
+              {/* Warning */}
+              <div className="flex items-start gap-2.5 px-4 py-3 rounded-xl mb-5" style={{ background: t.warningBg, border: `1px solid ${t.border}` }}>
+                <Zap style={{ width: 15, height: 15, color: t.warningText, flexShrink: 0, marginTop: 1 }} />
+                <p style={{ color: t.warningText, fontSize: 13, fontWeight: 500 }}>Your progress for the current event will be preserved.</p>
               </div>
 
-              {/* Warning about switching */}
-              <div className="flex items-start gap-2.5 mb-5 px-3.5 py-3 bg-amber-50 border border-amber-200 rounded-xl">
-                <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-amber-700 leading-relaxed">
-                  Switching will reset your current session and load{' '}
-                  <strong>{matched.config.name}</strong>. Your earned points are preserved.
-                </p>
-              </div>
-
-              {/* Confirm button */}
-              <button
-                type="button"
-                onClick={handleConfirmSwitch}
-                disabled={switching}
-                className={`w-full flex items-center justify-center gap-2.5 py-4 rounded-2xl font-semibold text-white transition-all
-                  ${!switching
-                    ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:shadow-lg hover:shadow-indigo-200 hover:scale-[1.02] active:scale-[0.98]'
-                    : 'bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 opacity-70 cursor-not-allowed'
-                  }`}
-              >
-                {switching ? (
-                  <>
-                    <RefreshCw className="w-5 h-5 animate-spin" />
-                    Switching event…
-                  </>
-                ) : (
-                  <>
-                    <Ticket className="w-5 h-5" />
-                    Switch to This Event
-                  </>
-                )}
+              <button onClick={handleConfirmSwitch} disabled={switching}
+                className="w-full flex items-center justify-center gap-2 rounded-2xl font-semibold text-white"
+                style={{ height: 52, background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', opacity: switching ? 0.7 : 1, boxShadow: '0 8px 28px rgba(124,58,237,0.4)' }}>
+                {switching
+                  ? <><RefreshCw style={{ width: 17, height: 17, animation: 'spin 1s linear infinite' }} /> Switching…</>
+                  : <><CheckCircle2 style={{ width: 17, height: 17 }} /> Confirm Switch</>}
               </button>
             </div>
           )}
 
-          {/* ── Step: Success ────────────────────────────────────────── */}
+          {/* ── Step: Success ─────────────────────────────────────────── */}
           {step === 'success' && matched && (
-            <div className="px-6 pt-6 pb-12 flex flex-col items-center text-center animate-in fade-in zoom-in-95 duration-300">
-              <div className="relative mb-5">
-                <div className={`w-20 h-20 bg-gradient-to-br ${matched.color} rounded-3xl flex items-center justify-center shadow-xl`}>
-                  <CheckCircle2 className="w-10 h-10 text-white" />
-                </div>
-                <div className={`absolute inset-0 rounded-3xl blur-xl bg-gradient-to-br ${matched.color} opacity-40 -z-10`} />
+            <div className="px-6 pt-6 pb-10 text-center">
+              <div className="w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-5" style={{ background: 'linear-gradient(135deg,#10b981,#0d9488)', boxShadow: '0 12px 40px rgba(16,185,129,0.35)' }}>
+                <CheckCircle2 style={{ width: 36, height: 36, color: '#fff' }} />
               </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-1.5">Event Switched!</h3>
-              <p className="text-sm text-gray-500 max-w-xs">
-                Welcome to <strong className="text-gray-800">{matched.config.name}</strong>
-                . Loading your new experience…
-              </p>
-              <div className="flex gap-1.5 mt-5">
-                {[0, 150, 300].map((delay) => (
-                  <div
-                    key={delay}
-                    className={`w-2 h-2 rounded-full bg-gradient-to-br ${matched.color} animate-bounce`}
-                    style={{ animationDelay: `${delay}ms` }}
-                  />
-                ))}
-              </div>
+              <h2 style={{ color: t.text, fontSize: 22, fontWeight: 800, marginBottom: 6 }}>Switched!</h2>
+              <p style={{ color: t.textSec, fontSize: 14, marginBottom: 4 }}>You're now at</p>
+              <p style={{ color: t.accentSoft, fontSize: 17, fontWeight: 700 }}>{matched.config.name}</p>
             </div>
           )}
         </div>
       </div>
-
-      {/* Shake keyframe */}
-      <style>{`
-        @keyframes shake {
-          0%, 100% { transform: translateX(0); }
-          20%       { transform: translateX(-6px); }
-          40%       { transform: translateX(6px); }
-          60%       { transform: translateX(-4px); }
-          80%       { transform: translateX(4px); }
-        }
-      `}</style>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </>
   );
 };
