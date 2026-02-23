@@ -18,6 +18,16 @@ interface User {
   isRegistered?: boolean;
 }
 
+export interface Lead {
+  id: string;
+  code: string;
+  name: string;
+  company: string;
+  title: string;
+  notes: string;
+  timestamp: Date;
+}
+
 interface PointEvent {
   id: string;
   action: string;
@@ -37,6 +47,7 @@ interface AppState {
   completedChallenges: string[];
   pointsHistory: PointEvent[];
   hasJoinedEvent: boolean;
+  leads: Lead[];
 }
 
 interface AppContextType extends AppState {
@@ -49,6 +60,7 @@ interface AppContextType extends AppState {
   setMetSponsors: (sponsors: string[]) => void;
   toggleBookmark: (sessionId: string) => void;
   completeChallenge: (challengeId: string) => void;
+  saveLead: (lead: Omit<Lead, 'id' | 'timestamp'>) => void;
   showToast: (message: string, points?: number) => void;
   updateTier: () => void;
   switchEvent: (config: EventConfig) => void;
@@ -134,6 +146,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [bookmarkedSessions, setBookmarkedSessions] = useState<string[]>([]);
   const [completedChallenges, setCompletedChallenges] = useState<string[]>([]);
   const [pointsHistory, setPointsHistory] = useState<PointEvent[]>([]);
+  const [leads, setLeads] = useState<Lead[]>([]);
   const [hasJoinedEvent, setHasJoinedEvent] = useState(false);
   const [toast, setToast] = useState<{ message: string; points?: number } | null>(null);
 
@@ -206,6 +219,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const saveLead = (leadData: Omit<Lead, 'id' | 'timestamp'>) => {
+    const newLead: Lead = {
+      ...leadData,
+      id: Date.now().toString(),
+      timestamp: new Date(),
+    };
+    setLeads(prev => [newLead, ...prev]);
+    showToast('Lead saved successfully');
+  };
+
   const switchEvent = (config: EventConfig) => {
     setActiveEventConfig(config);
     setCompletedSurveys([]);
@@ -231,6 +254,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         completedChallenges,
         pointsHistory,
         hasJoinedEvent,
+        leads,
         setUser,
         joinEvent,
         addPoints,
@@ -240,6 +264,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setMetSponsors,
         toggleBookmark,
         completeChallenge,
+        saveLead,
         showToast,
         updateTier,
         switchEvent,

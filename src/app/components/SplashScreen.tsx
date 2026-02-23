@@ -97,7 +97,7 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onComplete }) => {
           className="text-white tracking-tight mb-2"
           style={{ fontSize: 42, fontWeight: 800, letterSpacing: '-0.04em', lineHeight: 1 }}
         >
-          EventHub
+          Audience App
         </h1>
         <p style={{ color: 'rgba(255,255,255,0.38)', fontSize: 14, letterSpacing: '0.18em', fontWeight: 500, textTransform: 'uppercase' }}>
           Connect · Engage · Win

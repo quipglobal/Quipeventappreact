@@ -6,21 +6,26 @@ import { WelcomeScreen } from '@/app/components/WelcomeScreen';
 import { HomePage } from '@/app/components/HomePage';
 import { AgendaPage } from '@/app/components/AgendaPage';
 import { EngagePage } from '@/app/components/EngagePage';
+import { EventsPage } from '@/app/components/EventsPage';
 import { SponsorsListPage } from '@/app/components/SponsorsListPage';
 import { SurveysListPage } from '@/app/components/SurveysListPage';
 import { PollsListPage } from '@/app/components/PollsListPage';
 import { ChallengesPage } from '@/app/components/ChallengesPage';
 import { LeaderboardPage } from '@/app/components/LeaderboardPage';
 import { ProfilePage } from '@/app/components/ProfilePage';
+import { SponsorScannerPage } from '@/app/components/SponsorScannerPage';
+import { EventDashboardPage } from '@/app/components/EventDashboardPage';
+import { GiveawaysPage } from '@/app/components/GiveawaysPage';
+import { AudiencePage } from '@/app/components/AudiencePage';
 import { BottomNav } from '@/app/components/BottomNav';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 type Screen = 'splash' | 'welcome' | 'main';
 type Page =
-  | 'home' | 'agenda' | 'engage'
+  | 'home' | 'agenda' | 'events' | 'event-dashboard' | 'engage'
   | 'engage-sponsors' | 'engage-surveys' | 'engage-polls'
-  | 'engage-challenges' | 'engage-audience'
-  | 'leaderboard' | 'profile' | 'attendees' | 'booth';
+  | 'engage-challenges' | 'engage-audience' | 'engage-giveaways'
+  | 'leaderboard' | 'profile' | 'attendees' | 'booth' | 'scan';
 
 // ─── Error Boundary ─────────────────────────────────────────────────────────
 interface EBState { hasError: boolean; message: string }
@@ -82,22 +87,26 @@ function AppContent() {
     switch (activePage) {
       case 'home':            return <HomePage onNavigate={handleNavigate} />;
       case 'agenda':          return <AgendaPage />;
+      case 'events':          return <EventsPage onNavigate={handleNavigate} />;
+      case 'event-dashboard': return <EventDashboardPage onNavigate={handleNavigate} onBack={() => setActivePage('events')} />;
       case 'engage':          return <EngagePage onNavigate={handleNavigate} />;
       case 'engage-sponsors': return <SponsorsListPage onBack={() => setActivePage('engage')} />;
       case 'engage-surveys':  return <SurveysListPage  onBack={() => setActivePage('engage')} />;
       case 'engage-polls':    return <PollsListPage     onBack={() => setActivePage('engage')} />;
       case 'engage-challenges':return <ChallengesPage  onBack={() => setActivePage('engage')} />;
-      case 'engage-audience': return <PlaceholderPage title="Networking" desc="Connect with other attendees — coming soon!" onBack={() => setActivePage('engage')} />;
+      case 'engage-audience': return <AudiencePage onBack={() => setActivePage('engage')} />;
+      case 'engage-giveaways':return <GiveawaysPage onBack={() => setActivePage('event-dashboard')} />;
       case 'leaderboard':     return <LeaderboardPage />;
       case 'profile':         return <ProfilePage />;
       case 'attendees':       return <PlaceholderPage title="Attendee Leads" desc="View and manage attendees who checked in at your booth." onBack={() => setActivePage('home')} />;
       case 'booth':           return <PlaceholderPage title="Sponsor Booth" desc="Manage your booth profile and promotional materials." onBack={() => setActivePage('home')} />;
+      case 'scan':            return <SponsorScannerPage />;
       default:                return <HomePage onNavigate={handleNavigate} />;
     }
   };
 
   const showBottomNav = !activePage.startsWith('engage-') && !['attendees', 'booth'].includes(activePage);
-  const mainTabs = ['home', 'agenda', 'engage', 'leaderboard', 'profile', 'attendees', 'booth'];
+  const mainTabs = ['home', 'events', 'event-dashboard', 'agenda', 'engage', 'leaderboard', 'profile', 'attendees', 'booth', 'scan'];
   const isMainTab = mainTabs.includes(activePage);
 
   return (

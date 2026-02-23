@@ -149,13 +149,17 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
     if (!formValid) return;
     setLoginLoading(true); setLoginError(null);
     try {
+      // Mock Sponsor Check
+      const isSponsorEmail = form.email.toLowerCase().includes('sponsor');
+      const mockRole = isSponsorEmail ? 'sponsor' : 'attendee';
+
       const res = await loginApi({ email: form.email.trim().toLowerCase(), password: form.password });
       if (res.success && res.data?.user.emailVerified) {
         localStorage.setItem('auth_token', res.data.token);
         const u = res.data.user;
         setUser({
           id: u.id, email: u.email, name: u.name, emailVerified: true,
-          role: u.role ?? 'attendee', company: u.company ?? '', title: u.title ?? '',
+          role: mockRole, company: u.company ?? '', title: u.title ?? '',
           avatar: u.avatar ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name)}&background=7c3aed&color=fff`,
           points: u.points ?? 0, tier: u.tier ?? 'Bronze',
           interests: u.interests ?? [], profileComplete: u.profileComplete ?? false,
@@ -193,9 +197,12 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
         setTimeout(() => {
           const u = res.data!;
           localStorage.setItem('auth_token', `mock-token-${Date.now()}`);
+          const isSponsorEmail = verif.email.toLowerCase().includes('sponsor');
+          const mockRole = isSponsorEmail ? 'sponsor' : 'attendee';
+
           setUser({
             id: u.id, email: u.email, name: u.name, emailVerified: true,
-            role: u.role ?? 'attendee', company: u.company ?? '', title: u.title ?? '',
+            role: mockRole, company: u.company ?? '', title: u.title ?? '',
             avatar: u.avatar ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name)}&background=7c3aed&color=fff`,
             points: u.points ?? 0, tier: u.tier ?? 'Bronze',
             interests: u.interests ?? [], profileComplete: u.profileComplete ?? false,
@@ -303,7 +310,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
               </svg>
             </div>
             <span style={{ color: '#fff', fontWeight: 700, fontSize: 16, letterSpacing: '-0.02em' }}>
-              EventHub
+              Audience App
             </span>
           </div>
 
@@ -389,7 +396,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
             ))}
           </div>
 
-          {/* ── START NETWORKING CTA ─────────────────────────────────��── */}
+          {/* ── START NETWORKING CTA ─────────────────────────────────── */}
           <button
             onClick={() => setSheetOpen(true)}
             className="w-full relative overflow-hidden flex items-center justify-center gap-3 rounded-2xl"
@@ -725,7 +732,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
 
                 <p className="mt-4 text-center" style={{ color: 'rgba(255,255,255,0.18)', fontSize: 12 }}>
                   Check your spam folder or contact{' '}
-                  <span style={{ color: '#a78bfa' }}>support@eventhub.app</span>
+                  <span style={{ color: '#a78bfa' }}>support@audienceapp.io</span>
                 </p>
               </div>
             )}
