@@ -26,6 +26,9 @@ export interface Lead {
   title: string;
   notes: string;
   timestamp: Date;
+  avatar?: string;
+  tags: string[];
+  priority: 'hot' | 'warm' | 'cold';
 }
 
 interface PointEvent {
@@ -61,6 +64,7 @@ interface AppContextType extends AppState {
   toggleBookmark: (sessionId: string) => void;
   completeChallenge: (challengeId: string) => void;
   saveLead: (lead: Omit<Lead, 'id' | 'timestamp'>) => void;
+  updateLead: (id: string, updates: Partial<Pick<Lead, 'notes' | 'tags' | 'priority'>>) => void;
   showToast: (message: string, points?: number) => void;
   updateTier: () => void;
   switchEvent: (config: EventConfig) => void;
@@ -229,6 +233,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast('Lead saved successfully');
   };
 
+  const updateLead = (id: string, updates: Partial<Pick<Lead, 'notes' | 'tags' | 'priority'>>) => {
+    setLeads(prev => prev.map(lead => lead.id === id ? { ...lead, ...updates } : lead));
+    showToast('Lead updated successfully');
+  };
+
   const switchEvent = (config: EventConfig) => {
     setActiveEventConfig(config);
     setCompletedSurveys([]);
@@ -265,6 +274,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         toggleBookmark,
         completeChallenge,
         saveLead,
+        updateLead,
         showToast,
         updateTier,
         switchEvent,

@@ -17,6 +17,9 @@ import { SponsorScannerPage } from '@/app/components/SponsorScannerPage';
 import { EventDashboardPage } from '@/app/components/EventDashboardPage';
 import { GiveawaysPage } from '@/app/components/GiveawaysPage';
 import { AudiencePage } from '@/app/components/AudiencePage';
+import { LeadsPage } from '@/app/components/LeadsPage';
+import { SponsorEventPage } from '@/app/components/SponsorEventPage';
+import { SponsorDrawPage } from '@/app/components/SponsorDrawPage';
 import { BottomNav } from '@/app/components/BottomNav';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -25,7 +28,8 @@ type Page =
   | 'home' | 'agenda' | 'events' | 'event-dashboard' | 'engage'
   | 'engage-sponsors' | 'engage-surveys' | 'engage-polls'
   | 'engage-challenges' | 'engage-audience' | 'engage-giveaways'
-  | 'leaderboard' | 'profile' | 'attendees' | 'booth' | 'scan';
+  | 'leaderboard' | 'profile' | 'attendees' | 'booth' | 'scan'
+  | 'sponsor-event' | 'sponsor-draw';
 
 // ─── Error Boundary ─────────────────────────────────────────────────────────
 interface EBState { hasError: boolean; message: string }
@@ -94,19 +98,26 @@ function AppContent() {
       case 'engage-surveys':  return <SurveysListPage  onBack={() => setActivePage('engage')} />;
       case 'engage-polls':    return <PollsListPage     onBack={() => setActivePage('engage')} />;
       case 'engage-challenges':return <ChallengesPage  onBack={() => setActivePage('engage')} />;
-      case 'engage-audience': return <AudiencePage onBack={() => setActivePage('engage')} />;
+      case 'engage-audience': return <AudiencePage onBack={() => setActivePage(user?.role === 'sponsor' ? 'home' : 'engage')} />;
       case 'engage-giveaways':return <GiveawaysPage onBack={() => setActivePage('event-dashboard')} />;
       case 'leaderboard':     return <LeaderboardPage />;
       case 'profile':         return <ProfilePage />;
-      case 'attendees':       return <PlaceholderPage title="Attendee Leads" desc="View and manage attendees who checked in at your booth." onBack={() => setActivePage('home')} />;
+      case 'attendees':       return <LeadsPage onBack={() => setActivePage('home')} onNavigateToScan={() => setActivePage('scan')} onNavigateToDraw={() => setActivePage('sponsor-draw')} />;
       case 'booth':           return <PlaceholderPage title="Sponsor Booth" desc="Manage your booth profile and promotional materials." onBack={() => setActivePage('home')} />;
       case 'scan':            return <SponsorScannerPage />;
+      case 'sponsor-event':   return <SponsorEventPage onBack={() => setActivePage('home')} onNavigate={handleNavigate} />;
+      case 'sponsor-draw':    return <SponsorDrawPage onBack={() => setActivePage('attendees')} />;
       default:                return <HomePage onNavigate={handleNavigate} />;
     }
   };
 
-  const showBottomNav = !activePage.startsWith('engage-') && !['attendees', 'booth'].includes(activePage);
-  const mainTabs = ['home', 'events', 'event-dashboard', 'agenda', 'engage', 'leaderboard', 'profile', 'attendees', 'booth', 'scan'];
+  const showBottomNav = (() => {
+    // Hide on engage sub-pages for attendees (except engage-audience which is a sponsor tab)
+    if (activePage.startsWith('engage-') && activePage !== 'engage-audience') return false;
+    if (['booth', 'sponsor-event', 'sponsor-draw'].includes(activePage)) return false;
+    return true;
+  })();
+  const mainTabs = ['home', 'events', 'event-dashboard', 'agenda', 'engage', 'leaderboard', 'profile', 'attendees', 'booth', 'scan', 'engage-audience', 'sponsor-event', 'sponsor-draw'];
   const isMainTab = mainTabs.includes(activePage);
 
   return (

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, Calendar, Sparkles, User, Users, ScanLine } from 'lucide-react';
+import { Home, Calendar, Sparkles, User, Users, ScanLine, ClipboardList } from 'lucide-react';
 import { useTheme } from '@/app/context/ThemeContext';
 
 interface BottomNavProps {
@@ -19,13 +19,13 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabChange, us
     { id: 'profile', label: 'Profile', icon: User,     highlight: false },
   ];
 
-  // Sponsor tabs kept the same
+  // Sponsor tabs: Home, Audience, Scan (highlighted), Leads, Profile
   const sponsorTabs = [
-    { id: 'home',      label: 'Home',    icon: Home,     highlight: false },
-    { id: 'attendees', label: 'Leads',   icon: Users,    highlight: false },
-    { id: 'scan',      label: 'Scan',    icon: ScanLine, highlight: true  },
-    { id: 'engage',    label: 'Engage',  icon: Sparkles, highlight: false },
-    { id: 'profile',   label: 'Profile', icon: User,     highlight: false },
+    { id: 'home',             label: 'Home',     icon: Home,          highlight: false },
+    { id: 'engage-audience',  label: 'Audience', icon: Users,         highlight: false },
+    { id: 'scan',             label: 'Scan',     icon: ScanLine,      highlight: true  },
+    { id: 'attendees',        label: 'Leads',    icon: ClipboardList, highlight: false },
+    { id: 'profile',          label: 'Profile',  icon: User,          highlight: false },
   ];
 
   const tabs = userRole === 'attendee' ? attendeeTabs : sponsorTabs;

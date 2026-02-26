@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Bell, Search, ArrowRight, Calendar, MapPin, Ticket, X, ScanLine, QrCode } from 'lucide-react';
+import { Bell, Search, ArrowRight, Calendar, MapPin, Ticket, X, ScanLine, QrCode, Building2, ChevronRight } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import { SwitchEventModal } from '@/app/components/SwitchEventModal';
@@ -236,6 +236,33 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Sponsor Quick Event Info Card */}
+      {user.role === 'sponsor' && (
+        <div className="px-4 pt-3 pb-1">
+          <button
+            onClick={() => onNavigate('sponsor-event')}
+            className="w-full rounded-2xl p-4 text-left active:scale-[0.98] transition-all relative overflow-hidden"
+            style={{ background: 'linear-gradient(135deg,#312e81,#4f46e5)', boxShadow: '0 4px 24px rgba(79,70,229,0.2)' }}
+          >
+            <div className="absolute -top-8 -right-8 w-28 h-28 rounded-full opacity-15"
+              style={{ background: 'radial-gradient(circle, #c4b5fd, transparent 70%)' }} />
+            <div className="relative z-10 flex items-center gap-3.5">
+              <div className="w-11 h-11 rounded-xl flex items-center justify-center"
+                style={{ background: 'rgba(255,255,255,0.12)' }}>
+                <Building2 style={{ width: 20, height: 20, color: '#c4b5fd' }} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p style={{ color: '#fff', fontSize: 14, fontWeight: 800 }}>{eventConfig.name}</p>
+                <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11 }}>
+                  {eventConfig.dates} · {eventConfig.location}
+                </p>
+              </div>
+              <ChevronRight style={{ width: 18, height: 18, color: 'rgba(255,255,255,0.4)' }} />
+            </div>
+          </button>
+        </div>
+      )}
 
       {/* Main Social Feed */}
       <SocialFeed onNavigate={onNavigate} />
