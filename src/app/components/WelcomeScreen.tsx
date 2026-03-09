@@ -355,13 +355,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
         <div className="relative z-20 px-6 pb-10 flex-shrink-0">
 
           {/* Event pill */}
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full mb-4"
-            style={{ background: 'rgba(124,58,237,0.2)', border: '1px solid rgba(124,58,237,0.45)', backdropFilter: 'blur(8px)' }}>
-            <div className="w-1.5 h-1.5 rounded-full" style={{ background: '#a78bfa' }} />
-            <span style={{ color: '#c4b5fd', fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-              {eventConfig?.name ?? 'Tech Summit 2026'} · {eventConfig?.location ?? 'San Francisco'}
-            </span>
-          </div>
+          {/* removed event name pill */}
 
           {/* Headline */}
           <h1 style={{ color: '#fff', fontSize: 40, fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1.05, marginBottom: 10 }}>
@@ -374,27 +368,11 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
             </span>
           </h1>
           <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14, lineHeight: 1.55, marginBottom: 20 }}>
-            Engage with speakers, earn points, climb the leaderboard — your event experience, fully gamified.
+            Engage with leaders, earn points, climb the leaderboard — your event experience, fully gamified.
           </p>
 
           {/* Stats row */}
-          <div className="flex items-center gap-4 mb-6">
-            {[
-              { value: '2,400+', label: 'Attendees' },
-              { value: '48',     label: 'Sessions' },
-              { value: '32',     label: 'Sponsors' },
-            ].map(({ value, label }, i, arr) => (
-              <div key={label} className="flex items-center gap-4">
-                <div>
-                  <p style={{ color: '#fff', fontSize: 17, fontWeight: 800, letterSpacing: '-0.03em', lineHeight: 1 }}>{value}</p>
-                  <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 2 }}>{label}</p>
-                </div>
-                {i < arr.length - 1 && (
-                  <div style={{ width: 1, height: 28, background: 'rgba(255,255,255,0.15)' }} />
-                )}
-              </div>
-            ))}
-          </div>
+          {/* removed stats row */}
 
           {/* ── START NETWORKING CTA ─────────────────────────────────── */}
           <button
@@ -420,7 +398,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
           </button>
 
           {/* Hint text */}
-          <p className="text-center mt-3" style={{ color: 'rgba(255,255,255,0.22)', fontSize: 12 }}>
+          <p className="text-center mt-3" style={{ color: '#fff', fontSize: 12 }}>
             Sign in to your account to get started
           </p>
         </div>
