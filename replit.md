@@ -47,6 +47,7 @@ src/
 - **MyQrCodeButton**: Floating QR button (bottom-right, above nav) on all main pages. Opens modal with client-side QR code (via `qrcode.react`) containing only user ID + event code. Save downloads PNG, Share uses Web Share API with clipboard fallback.
 - **MeetingsPage** (`meetings`): Two-tab screen — "Requests" (connection requests with accept/decline) and "Messages" (conversations from accepted connections). Accessible via MessageCircle icon in global header. State managed in AppContext: `connectionRequests`, `conversations`, `sendConnectionRequest`, `acceptConnection`, `declineConnection`, `sendMessage`.
 - **Sponsor Giveaways**: LeadsPage has two tabs — "Leads" and "Giveaways". Sponsors can add giveaways with title, number of items, and uploaded picture. State in AppContext: `sponsorGiveaways`, `addSponsorGiveaway`, `removeSponsorGiveaway`. Sponsor-created giveaways also appear in the attendee-facing GiveawaysPage under "Sponsor Specials" section.
+- **Lucky Draw** (SponsorDrawPage): Sponsors select a giveaway from their created giveaways, then draw a winner. Eligible pool: scanned leads (primary), falls back to checked-in attendees if no leads exist. Pool source shown with indicator. Giveaway selection required when giveaways exist.
 
 ## Dev Server
 

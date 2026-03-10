@@ -4,7 +4,7 @@ import {
   Crown, Star, PartyPopper, Building2, Tag, Flame,
   ThermometerSun, Snowflake, ChevronDown, Plus, X, Check,
 } from 'lucide-react';
-import { useApp, Lead } from '@/app/context/AppContext';
+import { useApp, Lead, SponsorGiveaway } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -38,16 +38,47 @@ const mockPrePopulatedLeads: Lead[] = [
   },
 ];
 
+// ─── Mock checked-in attendees (fallback when no leads) ─────────────────────
+
+interface CheckedInAttendee {
+  id: string;
+  name: string;
+  company: string;
+  title: string;
+  avatar: string;
+}
+
+const mockCheckedInAttendees: CheckedInAttendee[] = [
+  { id: 'checkin-1', name: 'Alex Rivera', company: 'Startup Hub', title: 'Founder', avatar: 'https://ui-avatars.com/api/?name=Alex+Rivera&background=6366f1&color=fff' },
+  { id: 'checkin-2', name: 'Morgan Lee', company: 'CloudStack', title: 'DevOps Lead', avatar: 'https://ui-avatars.com/api/?name=Morgan+Lee&background=ec4899&color=fff' },
+  { id: 'checkin-3', name: 'Taylor Kim', company: 'DataPrime', title: 'Data Analyst', avatar: 'https://ui-avatars.com/api/?name=Taylor+Kim&background=10b981&color=fff' },
+  { id: 'checkin-4', name: 'Jordan Patel', company: 'NextWave', title: 'Product Designer', avatar: 'https://ui-avatars.com/api/?name=Jordan+Patel&background=f59e0b&color=fff' },
+  { id: 'checkin-5', name: 'Casey Brooks', company: 'AI Labs', title: 'ML Engineer', avatar: 'https://ui-avatars.com/api/?name=Casey+Brooks&background=8b5cf6&color=fff' },
+  { id: 'checkin-6', name: 'Sam Torres', company: 'FinServe', title: 'Backend Engineer', avatar: 'https://ui-avatars.com/api/?name=Sam+Torres&background=3b82f6&color=fff' },
+  { id: 'checkin-7', name: 'Avery Chen', company: 'HealthTech Co', title: 'UX Researcher', avatar: 'https://ui-avatars.com/api/?name=Avery+Chen&background=14b8a6&color=fff' },
+  { id: 'checkin-8', name: 'Riley Nguyen', company: 'SecureNet', title: 'Security Analyst', avatar: 'https://ui-avatars.com/api/?name=Riley+Nguyen&background=ef4444&color=fff' },
+];
+
 // ─── Draw history entry ──────────────────────────────────────────────────────
+
+interface DrawParticipant {
+  id: string;
+  name: string;
+  company: string;
+  title: string;
+  avatar: string;
+}
 
 interface DrawEntry {
   id: string;
   prizeName: string;
-  winner: Lead;
+  giveawayId?: string;
+  winner: DrawParticipant;
   timestamp: Date;
 }
 
 type DrawPhase = 'setup' | 'spinning' | 'winner' | 'history';
+type PoolSource = 'leads' | 'attendees';
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -56,7 +87,7 @@ interface SponsorDrawPageProps {
 }
 
 export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
-  const { leads } = useApp();
+  const { leads, sponsorGiveaways, user } = useApp();
   const { t, isDark } = useTheme();
 
   // Combine real + mock leads
@@ -66,20 +97,47 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
     return [...leads, ...uniqueMocks];
   }, [leads]);
 
+  // Sponsor's own giveaways
+  const myGiveaways = useMemo(() => {
+    return sponsorGiveaways.filter(g => g.sponsorId === (user?.id || 'sponsor'));
+  }, [sponsorGiveaways, user]);
+
   const [phase, setPhase] = useState<DrawPhase>('setup');
-  const [prizeName, setPrizeName] = useState('');
+  const [selectedGiveaway, setSelectedGiveaway] = useState<SponsorGiveaway | null>(null);
+  const [showGiveawayPicker, setShowGiveawayPicker] = useState(false);
   const [drawHistory, setDrawHistory] = useState<DrawEntry[]>([]);
-  const [winner, setWinner] = useState<Lead | null>(null);
+  const [winner, setWinner] = useState<DrawParticipant | null>(null);
   const [shuffleIndex, setShuffleIndex] = useState(0);
   const [excludeWon, setExcludeWon] = useState(true);
   const shuffleRef = useRef<any>(null);
 
+  // Determine pool source: use scanned leads (real + mock pre-populated) if any real leads exist,
+  // otherwise fall back to checked-in attendees
+  const hasScannedLeads = leads.length > 0 || mockPrePopulatedLeads.length > 0;
+  const poolSource: PoolSource = hasScannedLeads ? 'leads' : 'attendees';
+
+  // Convert to common DrawParticipant format
+  const basePool: DrawParticipant[] = useMemo(() => {
+    if (hasScannedLeads) {
+      return allLeads.map(l => ({
+        id: l.id,
+        name: l.name,
+        company: l.company,
+        title: l.title,
+        avatar: l.avatar || '',
+      }));
+    }
+    return mockCheckedInAttendees;
+  }, [allLeads, hasScannedLeads]);
+
   // Pool excluding previous winners if enabled
   const eligiblePool = useMemo(() => {
-    if (!excludeWon) return allLeads;
+    if (!excludeWon) return basePool;
     const wonIds = new Set(drawHistory.map(d => d.winner.id));
-    return allLeads.filter(l => !wonIds.has(l.id));
-  }, [allLeads, drawHistory, excludeWon]);
+    return basePool.filter(l => !wonIds.has(l.id));
+  }, [basePool, drawHistory, excludeWon]);
+
+  const prizeName = selectedGiveaway?.title || 'Lucky Draw Prize';
 
   const startDraw = () => {
     if (eligiblePool.length === 0) return;
@@ -87,14 +145,13 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
     setWinner(null);
 
     let count = 0;
-    const totalCycles = 30 + Math.floor(Math.random() * 15); // 30–45 cycles
+    const totalCycles = 30 + Math.floor(Math.random() * 15);
     const winnerIdx = Math.floor(Math.random() * eligiblePool.length);
 
     shuffleRef.current = setInterval(() => {
       count++;
       setShuffleIndex(Math.floor(Math.random() * eligiblePool.length));
 
-      // Slow down towards the end
       if (count > totalCycles - 10) {
         clearInterval(shuffleRef.current);
         shuffleRef.current = setInterval(() => {
@@ -108,7 +165,8 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
             setDrawHistory(prev => [
               {
                 id: Date.now().toString(),
-                prizeName: prizeName || 'Lucky Draw Prize',
+                prizeName,
+                giveawayId: selectedGiveaway?.id,
                 winner: selectedWinner,
                 timestamp: new Date(),
               },
@@ -129,7 +187,7 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
 
   const resetDraw = () => {
     setPhase('setup');
-    setPrizeName('');
+    setSelectedGiveaway(null);
     setWinner(null);
   };
 
@@ -172,7 +230,7 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
             Lucky Draw
           </h1>
           <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13 }}>
-            Randomly pick a winner from your scanned leads
+            Pick a winner from your leads or checked-in attendees
           </p>
 
           <div className="flex items-center gap-2.5 mt-4">
@@ -198,25 +256,115 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
           {/* ── SETUP PHASE ──────────────────────────────────── */}
           {phase === 'setup' && (
             <motion.div key="setup" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
-              {/* Prize name input */}
+              {/* Giveaway selector */}
               <div className="mb-5">
                 <label style={{ color: t.textSec, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 8 }}>
-                  Prize Name (optional)
+                  Select Giveaway
                 </label>
-                <input
-                  type="text"
-                  value={prizeName}
-                  onChange={e => setPrizeName(e.target.value)}
-                  placeholder="e.g., AirPods Pro, $100 Gift Card, Conference Pass…"
-                  className="w-full px-4 py-3 rounded-xl outline-none transition-all focus:ring-2"
-                  style={{
-                    background: t.inputBg,
-                    border: `1px solid ${t.inputBorder}`,
-                    color: t.text,
-                    fontSize: 13,
-                    ringColor: t.inputFocus,
-                  }}
-                />
+                {myGiveaways.length > 0 ? (
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowGiveawayPicker(!showGiveawayPicker)}
+                      className="w-full px-4 py-3 rounded-xl text-left flex items-center justify-between active:scale-[0.99] transition-all"
+                      style={{
+                        background: t.inputBg,
+                        border: `1px solid ${selectedGiveaway ? t.accent : t.inputBorder}`,
+                        color: selectedGiveaway ? t.text : t.textMuted,
+                        fontSize: 13,
+                      }}
+                    >
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        {selectedGiveaway?.image && (
+                          <img src={selectedGiveaway.image} alt="" className="w-8 h-8 rounded-lg object-cover flex-shrink-0" />
+                        )}
+                        <div className="min-w-0">
+                          <span className="truncate block" style={{ fontWeight: selectedGiveaway ? 600 : 400 }}>
+                            {selectedGiveaway ? selectedGiveaway.title : 'Choose a giveaway for this draw…'}
+                          </span>
+                          {selectedGiveaway && (
+                            <span style={{ color: t.textMuted, fontSize: 11 }}>
+                              {selectedGiveaway.numberOfItems} item{selectedGiveaway.numberOfItems !== 1 ? 's' : ''}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <ChevronDown style={{ width: 16, height: 16, color: t.textMuted, flexShrink: 0, transform: showGiveawayPicker ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+                    </button>
+
+                    <AnimatePresence>
+                      {showGiveawayPicker && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -4 }}
+                          className="absolute z-20 w-full mt-2 rounded-xl overflow-hidden"
+                          style={{ background: t.surface, border: `1px solid ${t.border}`, boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}
+                        >
+                          {myGiveaways.map((g, i) => (
+                            <button
+                              key={g.id}
+                              onClick={() => {
+                                setSelectedGiveaway(g);
+                                setShowGiveawayPicker(false);
+                              }}
+                              className="w-full px-4 py-3 flex items-center gap-3 text-left active:opacity-70 transition-opacity"
+                              style={{
+                                background: selectedGiveaway?.id === g.id ? t.accentBg : 'transparent',
+                                borderBottom: i < myGiveaways.length - 1 ? `1px solid ${t.divider}` : 'none',
+                              }}
+                            >
+                              {g.image ? (
+                                <img src={g.image} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
+                              ) : (
+                                <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+                                  style={{ background: 'linear-gradient(135deg,#7c3aed,#ec4899)' }}>
+                                  <Gift style={{ width: 18, height: 18, color: '#fff' }} />
+                                </div>
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <p className="truncate" style={{ color: t.text, fontSize: 13, fontWeight: 600 }}>{g.title}</p>
+                                <p style={{ color: t.textMuted, fontSize: 11 }}>
+                                  {g.numberOfItems} item{g.numberOfItems !== 1 ? 's' : ''}
+                                </p>
+                              </div>
+                              {selectedGiveaway?.id === g.id && (
+                                <Check style={{ width: 16, height: 16, color: t.accent, flexShrink: 0 }} />
+                              )}
+                            </button>
+                          ))}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                ) : (
+                  <div className="rounded-xl p-4 text-center" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+                    <Gift style={{ width: 20, height: 20, color: t.textMuted, margin: '0 auto 6px' }} />
+                    <p style={{ color: t.textSec, fontSize: 12, fontWeight: 600 }}>No giveaways created yet</p>
+                    <p style={{ color: t.textMuted, fontSize: 11 }}>Add giveaways from the Leads page first</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Pool source indicator */}
+              <div className="mb-5 rounded-xl px-4 py-3 flex items-center gap-3"
+                style={{
+                  background: poolSource === 'leads' ? 'rgba(16,185,129,0.08)' : 'rgba(245,158,11,0.08)',
+                  border: `1px solid ${poolSource === 'leads' ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.2)'}`,
+                }}>
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                  style={{ background: poolSource === 'leads' ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)' }}>
+                  <Users style={{ width: 16, height: 16, color: poolSource === 'leads' ? '#10b981' : '#f59e0b' }} />
+                </div>
+                <div>
+                  <p style={{ color: t.text, fontSize: 12, fontWeight: 600 }}>
+                    {poolSource === 'leads' ? 'Drawing from scanned leads' : 'Drawing from checked-in attendees'}
+                  </p>
+                  <p style={{ color: t.textMuted, fontSize: 11 }}>
+                    {poolSource === 'leads'
+                      ? `${eligiblePool.length} lead${eligiblePool.length !== 1 ? 's' : ''} in pool`
+                      : 'No scanned leads found — using event attendees'}
+                  </p>
+                </div>
               </div>
 
               {/* Exclude previous winners toggle */}
@@ -240,7 +388,7 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
               {/* Eligible pool preview */}
               <div className="mb-5">
                 <h3 style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 10 }}>
-                  Eligible Pool ({eligiblePool.length} leads)
+                  Eligible Pool ({eligiblePool.length} {poolSource === 'leads' ? 'lead' : 'attendee'}{eligiblePool.length !== 1 ? 's' : ''})
                 </h3>
                 {eligiblePool.length === 0 ? (
                   <div className="rounded-xl p-6 text-center" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
@@ -248,9 +396,9 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
                       style={{ background: t.surface2 }}>
                       <Users style={{ width: 24, height: 24, color: t.emptyIcon }} />
                     </div>
-                    <p style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 4 }}>No eligible leads</p>
+                    <p style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 4 }}>No eligible participants</p>
                     <p style={{ color: t.textMuted, fontSize: 12 }}>
-                      {drawHistory.length > 0 ? 'All leads have already won. Toggle off "Exclude previous winners" to re-enter them.' : 'Scan some attendee badges first to build your lead pool.'}
+                      {drawHistory.length > 0 ? 'All participants have already won. Toggle off "Exclude previous winners" to re-enter them.' : 'Scan attendee badges to build your lead pool, or check-in attendees will be used.'}
                     </p>
                   </div>
                 ) : (
@@ -277,7 +425,7 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
                     {eligiblePool.length > 5 && (
                       <div className="px-4 py-2 text-center" style={{ background: t.surface2 }}>
                         <span style={{ color: t.textMuted, fontSize: 11, fontWeight: 600 }}>
-                          +{eligiblePool.length - 5} more leads in the pool
+                          +{eligiblePool.length - 5} more in the pool
                         </span>
                       </div>
                     )}
@@ -288,7 +436,7 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
               {/* Draw button */}
               <button
                 onClick={startDraw}
-                disabled={eligiblePool.length === 0}
+                disabled={eligiblePool.length === 0 || (myGiveaways.length > 0 && !selectedGiveaway)}
                 className="w-full py-4 rounded-2xl text-white flex items-center justify-center gap-2.5 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden"
                 style={{
                   background: 'linear-gradient(135deg,#f59e0b,#d97706)',
@@ -296,7 +444,9 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
                 }}
               >
                 <Gift style={{ width: 20, height: 20 }} />
-                <span style={{ fontSize: 16, fontWeight: 800 }}>Pick a Winner!</span>
+                <span style={{ fontSize: 16, fontWeight: 800 }}>
+                  {myGiveaways.length > 0 && !selectedGiveaway ? 'Select a Giveaway First' : 'Pick a Winner!'}
+                </span>
               </button>
             </motion.div>
           )}
@@ -421,15 +571,16 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
                     <Building2 style={{ width: 12, height: 12 }} /> {winner.company}
                   </p>
 
-                  {(prizeName || 'Lucky Draw Prize') && (
-                    <div className="mt-4 px-4 py-2 rounded-xl inline-flex items-center gap-2 mx-auto"
-                      style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)' }}>
-                      <Gift style={{ width: 14, height: 14, color: '#f59e0b' }} />
-                      <span style={{ color: '#f59e0b', fontSize: 13, fontWeight: 700 }}>
-                        {prizeName || 'Lucky Draw Prize'}
-                      </span>
-                    </div>
-                  )}
+                  <div className="mt-4 px-4 py-2 rounded-xl inline-flex items-center gap-2 mx-auto"
+                    style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)' }}>
+                    {selectedGiveaway?.image && (
+                      <img src={selectedGiveaway.image} alt="" className="w-6 h-6 rounded object-cover" />
+                    )}
+                    <Gift style={{ width: 14, height: 14, color: '#f59e0b' }} />
+                    <span style={{ color: '#f59e0b', fontSize: 13, fontWeight: 700 }}>
+                      {prizeName}
+                    </span>
+                  </div>
                 </div>
               </motion.div>
 
