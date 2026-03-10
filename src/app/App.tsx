@@ -22,6 +22,7 @@ import { LeadsPage } from '@/app/components/LeadsPage';
 import { SponsorEventPage } from '@/app/components/SponsorEventPage';
 import { SponsorDrawPage } from '@/app/components/SponsorDrawPage';
 import { BottomNav } from '@/app/components/BottomNav';
+import { MyQrCodeButton } from '@/app/components/MyQrCodeButton';
 import { Bell, Search } from 'lucide-react';
 
 type Screen = 'splash' | 'welcome' | 'event-join' | 'main';
@@ -202,7 +203,10 @@ function AppContent() {
           {renderPage()}
 
           {showBottomNav && isMainTab && (
-            <BottomNav activeTab={activePage} onTabChange={handleNavigate} />
+            <>
+              <MyQrCodeButton />
+              <BottomNav activeTab={activePage} onTabChange={handleNavigate} />
+            </>
           )}
         </div>
       )}
