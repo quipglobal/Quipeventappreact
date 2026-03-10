@@ -22,6 +22,7 @@ import { LeadsPage } from '@/app/components/LeadsPage';
 import { SponsorEventPage } from '@/app/components/SponsorEventPage';
 import { SponsorDrawPage } from '@/app/components/SponsorDrawPage';
 import { BottomNav } from '@/app/components/BottomNav';
+import { Bell, Search } from 'lucide-react';
 
 type Screen = 'splash' | 'welcome' | 'event-join' | 'main';
 type Page =
@@ -29,7 +30,7 @@ type Page =
   | 'engage-sponsors' | 'engage-surveys' | 'engage-polls'
   | 'engage-challenges' | 'engage-audience' | 'engage-giveaways'
   | 'leaderboard' | 'profile' | 'attendees' | 'booth' | 'scan'
-  | 'sponsor-event' | 'sponsor-draw';
+  | 'sponsor-event' | 'sponsor-draw' | 'partners';
 
 interface EBState { hasError: boolean; message: string }
 class AppErrorBoundary extends Component<{ children: ReactNode }, EBState> {
@@ -58,6 +59,8 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, EBState> {
     return this.props.children;
   }
 }
+
+const pagesWithGlobalHeader = ['home', 'engage-audience', 'engage', 'agenda', 'partners', 'leaderboard', 'events', 'event-dashboard'];
 
 function AppContent() {
   const [screen, setScreen] = useState<Screen>('splash');
@@ -106,10 +109,11 @@ function AppContent() {
       case 'engage-surveys':  return <SurveysListPage  onBack={() => setActivePage('engage')} />;
       case 'engage-polls':    return <PollsListPage     onBack={() => setActivePage('engage')} />;
       case 'engage-challenges':return <ChallengesPage  onBack={() => setActivePage('engage')} />;
-      case 'engage-audience': return <AudiencePage onBack={() => setActivePage(user?.role === 'sponsor' ? 'home' : 'engage')} />;
+      case 'engage-audience': return <AudiencePage />;
       case 'engage-giveaways':return <GiveawaysPage onBack={() => setActivePage('event-dashboard')} />;
       case 'leaderboard':     return <LeaderboardPage />;
       case 'profile':         return <ProfilePage />;
+      case 'partners':        return <SponsorsListPage />;
       case 'attendees':       return <LeadsPage onBack={() => setActivePage('home')} onNavigateToScan={() => setActivePage('scan')} onNavigateToDraw={() => setActivePage('sponsor-draw')} />;
       case 'booth':           return <PlaceholderPage title="Sponsor Booth" desc="Manage your booth profile and promotional materials." onBack={() => setActivePage('home')} />;
       case 'scan':            return <SponsorScannerPage />;
@@ -124,8 +128,11 @@ function AppContent() {
     if (['booth', 'sponsor-event', 'sponsor-draw'].includes(activePage)) return false;
     return true;
   })();
-  const mainTabs = ['home', 'events', 'event-dashboard', 'agenda', 'engage', 'leaderboard', 'profile', 'attendees', 'booth', 'scan', 'engage-audience', 'sponsor-event', 'sponsor-draw'];
+
+  const mainTabs = ['home', 'events', 'event-dashboard', 'agenda', 'engage', 'leaderboard', 'profile', 'attendees', 'booth', 'scan', 'engage-audience', 'sponsor-event', 'sponsor-draw', 'partners'];
   const isMainTab = mainTabs.includes(activePage);
+
+  const showGlobalHeader = pagesWithGlobalHeader.includes(activePage);
 
   return (
     <div style={{ minHeight: '100svh', background: isDark ? '#000' : '#e8e4f5', fontFamily: 'Inter,sans-serif' }}>
@@ -143,9 +150,59 @@ function AppContent() {
 
       {screen === 'main' && user && (
         <div className="mx-auto relative overflow-hidden" style={{ maxWidth: 430, minHeight: '100svh', background: t.bgPage }}>
+          {showGlobalHeader && (
+            <div className="sticky top-0 z-50 px-4 pt-4 pb-2 backdrop-blur-md border-b"
+              style={{
+                background: isDark ? 'rgba(7,7,15,0.85)' : 'rgba(255,255,255,0.9)',
+                borderColor: t.border,
+              }}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-full overflow-hidden border cursor-pointer"
+                    onClick={() => handleNavigate('profile')}
+                    style={{ borderColor: t.borderAcc }}>
+                    {user.avatar ? (
+                      <img src={user.avatar} alt="Me" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-violet-600 text-white font-bold text-sm">
+                        {user.name.charAt(0)}
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <h1 className="text-sm font-bold leading-none mb-1" style={{ color: t.text }}>
+                      Hi, {user.name.split(' ')[0]}
+                    </h1>
+                    <div className="flex items-center gap-1 text-[10px]" style={{ color: t.textSec }}>
+                      <span className="font-medium px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-400">
+                        {user.points} pts
+                      </span>
+                      <span>·</span>
+                      <span>{user.tier} Tier</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button className="w-9 h-9 rounded-full flex items-center justify-center transition-colors"
+                    style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+                    <Search size={16} color={t.text} />
+                  </button>
+                  <button className="w-9 h-9 rounded-full flex items-center justify-center transition-colors relative"
+                    style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+                    <Bell size={16} color={t.text} />
+                    <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-red-500 rounded-full border-2"
+                      style={{ borderColor: isDark ? '#111120' : '#fff' }} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {renderPage()}
+
           {showBottomNav && isMainTab && (
-            <BottomNav activeTab={activePage} onTabChange={handleNavigate} userRole={user.role} />
+            <BottomNav activeTab={activePage} onTabChange={handleNavigate} />
           )}
         </div>
       )}

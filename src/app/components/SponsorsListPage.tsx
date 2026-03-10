@@ -4,7 +4,7 @@ import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import { mockSponsors } from '@/app/data/mockData';
 
-interface SponsorsListPageProps { onBack: () => void; }
+interface SponsorsListPageProps { onBack?: () => void; }
 
 export const SponsorsListPage: React.FC<SponsorsListPageProps> = ({ onBack }) => {
   const { metSponsors, setMetSponsors, addPoints, gamificationConfig } = useApp();
@@ -123,7 +123,7 @@ export const SponsorsListPage: React.FC<SponsorsListPageProps> = ({ onBack }) =>
   return (
     <div className="min-h-screen pb-20" style={{ background: t.bgPage }}>
       <div className="sticky top-0 z-10 px-5 pt-12 pb-6 text-white" style={{ background: GRAD }}>
-        <button onClick={onBack} className="mb-3"><ArrowLeft style={{ width: 22, height: 22, color: '#fff' }} /></button>
+        {onBack && <button onClick={onBack} className="mb-3"><ArrowLeft style={{ width: 22, height: 22, color: '#fff' }} /></button>}
         <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.03em' }}>Sponsors & Companies</h1>
         <p style={{ color: 'rgba(255,255,255,0.75)', fontSize: 13, marginTop: 4 }}>Connect to earn +{gamificationConfig.pointActions.sponsorCheckIn} points per check-in</p>
       </div>

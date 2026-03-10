@@ -34,6 +34,13 @@ src/
 - Valid mock event codes: `TECH26`, `DEVCON`, `SUMMIT`, `HEALTH`, `DESIGN`
 - Event codes are also used in `SwitchEventModal` for switching events within the app.
 
+## Navigation Architecture
+
+- **Global Header** (App.tsx): Sticky header with avatar, name, points, tier badge, search & bell icons. Shown on pages listed in `pagesWithGlobalHeader` (home, engage-audience, engage, agenda, partners, leaderboard, events, event-dashboard). Avatar tap navigates to profile.
+- **Bottom Nav** (BottomNav.tsx): Unified 5-tab layout — Home, Audience (`engage-audience`), Engage (highlighted center), Agenda, Partners. No `userRole` prop; same tabs for all users. Hidden on sponsor sub-pages (booth, sponsor-event, sponsor-draw) and engage sub-pages except engage-audience.
+- **Profile**: Accessible via avatar in global header. Bottom nav remains visible on profile page so users can navigate back.
+- **AudiencePage & SponsorsListPage**: `onBack` prop is optional. When used as main tabs (via bottom nav), no back button is shown. When navigated to from sub-pages, back button appears.
+
 ## Dev Server
 
 - Host: `0.0.0.0`, Port: `5000`

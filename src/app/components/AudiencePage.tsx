@@ -529,7 +529,7 @@ const AttendeeDetailPage: React.FC<{
 // ─── AudiencePage Component ──────────────────────────────────────────────────
 
 interface AudiencePageProps {
-  onBack: () => void;
+  onBack?: () => void;
 }
 
 export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
@@ -589,12 +589,14 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
           style={{ background: 'radial-gradient(circle, #c4b5fd, transparent 70%)' }} />
 
         <div className="relative z-10">
-          <button onClick={onBack}
-            className="flex items-center gap-1.5 mb-4 active:opacity-70 transition-opacity"
-            style={{ color: 'rgba(255,255,255,0.7)' }}>
-            <ArrowLeft style={{ width: 18, height: 18 }} />
-            <span style={{ fontSize: 13, fontWeight: 600 }}>Back</span>
-          </button>
+          {onBack && (
+            <button onClick={onBack}
+              className="flex items-center gap-1.5 mb-4 active:opacity-70 transition-opacity"
+              style={{ color: 'rgba(255,255,255,0.7)' }}>
+              <ArrowLeft style={{ width: 18, height: 18 }} />
+              <span style={{ fontSize: 13, fontWeight: 600 }}>Back</span>
+            </button>
+          )}
 
           <div className="flex items-center gap-2.5 mb-1">
             <Users style={{ width: 22, height: 22, color: '#c4b5fd' }} />

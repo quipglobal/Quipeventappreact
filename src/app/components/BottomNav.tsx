@@ -1,34 +1,22 @@
 import React from 'react';
-import { Home, Calendar, Sparkles, User, Users, ScanLine, ClipboardList } from 'lucide-react';
+import { Home, Calendar, Sparkles, Users, Handshake } from 'lucide-react';
 import { useTheme } from '@/app/context/ThemeContext';
 
 interface BottomNavProps {
   activeTab: string;
   onTabChange: (tab: string) => void;
-  userRole: 'attendee' | 'sponsor';
 }
 
-export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabChange, userRole }) => {
+export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabChange }) => {
   const { t } = useTheme();
 
-  // Audience: Home, Events, Engage (highlighted), Profile
-  const attendeeTabs = [
-    { id: 'home',    label: 'Home',    icon: Home,     highlight: false },
-    { id: 'events',  label: 'Events',  icon: Calendar, highlight: false },
-    { id: 'engage',  label: 'Engage',  icon: Sparkles, highlight: true  },
-    { id: 'profile', label: 'Profile', icon: User,     highlight: false },
+  const tabs = [
+    { id: 'home',      label: 'Home',     icon: Home,       highlight: false },
+    { id: 'engage-audience', label: 'Audience', icon: Users,      highlight: false },
+    { id: 'engage',    label: 'Engage',   icon: Sparkles,   highlight: true  },
+    { id: 'agenda',    label: 'Agenda',   icon: Calendar,   highlight: false },
+    { id: 'partners',  label: 'Partners', icon: Handshake,  highlight: false },
   ];
-
-  // Sponsor tabs: Home, Audience, Scan (highlighted), Leads, Profile
-  const sponsorTabs = [
-    { id: 'home',             label: 'Home',     icon: Home,          highlight: false },
-    { id: 'engage-audience',  label: 'Audience', icon: Users,         highlight: false },
-    { id: 'scan',             label: 'Scan',     icon: ScanLine,      highlight: true  },
-    { id: 'attendees',        label: 'Leads',    icon: ClipboardList, highlight: false },
-    { id: 'profile',          label: 'Profile',  icon: User,          highlight: false },
-  ];
-
-  const tabs = userRole === 'attendee' ? attendeeTabs : sponsorTabs;
 
   return (
     <div
@@ -45,7 +33,6 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabChange, us
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
 
-          // Highlighted tab (Engage for audience, Scan for sponsor) gets special treatment
           if (tab.highlight) {
             return (
               <button
@@ -53,7 +40,6 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabChange, us
                 onClick={() => onTabChange(tab.id)}
                 className="relative flex flex-col items-center gap-1 px-4 py-2 rounded-2xl transition-all active:scale-95"
               >
-                {/* Glowing background for highlighted tab */}
                 <div
                   className="absolute inset-0 rounded-2xl"
                   style={{
@@ -63,7 +49,6 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabChange, us
                     border: `1px solid ${isActive ? 'rgba(124,58,237,0.4)' : 'rgba(124,58,237,0.2)'}`,
                   }}
                 />
-                {/* Outer glow on active */}
                 {isActive && (
                   <div
                     className="absolute inset-0 rounded-2xl blur-lg"
@@ -99,7 +84,6 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabChange, us
             );
           }
 
-          // Normal tab
           return (
             <button
               key={tab.id}

@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import { Bell, Search, ArrowRight, Calendar, MapPin, Ticket, X, ScanLine, QrCode, Building2, ChevronRight } from 'lucide-react';
+import { ArrowRight, Calendar, MapPin, X, QrCode, Building2, ChevronRight } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
-import { SwitchEventModal } from '@/app/components/SwitchEventModal';
 import { SocialFeed } from '@/app/components/feed/SocialFeed';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -11,7 +10,6 @@ interface HomePageProps { onNavigate: (page: string) => void; }
 export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   const { user, eventConfig, hasJoinedEvent, joinEvent, showToast } = useApp();
   const { t } = useTheme();
-  const [switchModalOpen, setSwitchModalOpen] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
   
   // Join Flow States
@@ -61,62 +59,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   };
 
   return (
-    <div className="min-h-screen" style={{ background: t.bgPage }}>
-      {/* Cinematic Header with Blur/Glass effect */}
-      <div className="sticky top-0 z-50 px-4 pt-4 pb-2 backdrop-blur-md border-b"
-        style={{ 
-          background: 'rgba(7,7,15,0.85)', 
-          borderColor: t.border 
-        }}>
-        <div className="flex items-center justify-between mb-3">
-          {/* User Profile / Greeting */}
-          <div className="flex items-center gap-3">
-             <div className="w-9 h-9 rounded-full overflow-hidden border cursor-pointer" 
-                  onClick={() => onNavigate('profile')}
-                  style={{ borderColor: t.borderAcc }}>
-                {user.avatar ? (
-                  <img src={user.avatar} alt="Me" className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center bg-violet-600 text-white font-bold text-sm">
-                    {user.name.charAt(0)}
-                  </div>
-                )}
-             </div>
-             <div>
-               <h1 className="text-sm font-bold leading-none mb-1" style={{ color: t.text }}>Hi, {user.name.split(' ')[0]} 👋</h1>
-               <div className="flex items-center gap-1 text-[10px]" style={{ color: t.textSec }}>
-                  <span className="font-medium px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-400">
-                    {user.points} pts
-                  </span>
-                  <span>•</span>
-                  <span>{user.tier} Tier</span>
-               </div>
-             </div>
-          </div>
-
-          {/* Right Actions */}
-          <div className="flex items-center gap-2">
-            <button 
-              onClick={() => setSwitchModalOpen(true)}
-              className="w-9 h-9 rounded-full flex items-center justify-center transition-colors"
-              style={{ background: t.surface, border: `1px solid ${t.border}` }}>
-              <div className="relative">
-                <Ticket size={16} color={t.text} />
-              </div>
-            </button>
-            <button className="w-9 h-9 rounded-full flex items-center justify-center transition-colors"
-              style={{ background: t.surface, border: `1px solid ${t.border}` }}>
-              <Search size={16} color={t.text} />
-            </button>
-            <button className="w-9 h-9 rounded-full flex items-center justify-center transition-colors relative"
-              style={{ background: t.surface, border: `1px solid ${t.border}` }}>
-              <Bell size={16} color={t.text} />
-              <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-[#111120]" />
-            </button>
-          </div>
-        </div>
-      </div>
-
+    <div className="min-h-screen pb-24" style={{ background: t.bgPage }}>
       {/* Join Event Banner (Inline) */}
       <AnimatePresence>
         {!hasJoinedEvent && (
@@ -290,8 +233,6 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         )}
       </AnimatePresence>
 
-      <SwitchEventModal isOpen={switchModalOpen} onClose={() => setSwitchModalOpen(false)} />
-      
       <style>{`
         @keyframes scan {
           0% { top: 0; }
