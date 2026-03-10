@@ -37,7 +37,11 @@ src/
 ## Navigation Architecture
 
 - **Global Header** (App.tsx): Sticky header with avatar, name, points, tier badge, search & bell icons. Shown on pages listed in `pagesWithGlobalHeader` (home, engage-audience, engage, agenda, partners, leaderboard, events, event-dashboard). Avatar tap navigates to profile.
-- **Bottom Nav** (BottomNav.tsx): Unified 5-tab layout — Home, Audience (`engage-audience`), Engage (highlighted center), Agenda, Partners. No `userRole` prop; same tabs for all users. Hidden on sponsor sub-pages (booth, sponsor-event, sponsor-draw) and engage sub-pages except engage-audience.
+- **Bottom Nav** (BottomNav.tsx): Role-aware 5-tab layout. Reads `user.role` from AppContext.
+  - **Attendees**: Home, Audience, Engage (highlighted), Agenda, Partners
+  - **Sponsors**: Home, Audience, Scan Badge (highlighted), Agenda, Leads
+  - Hidden on sponsor sub-pages (booth, sponsor-event, sponsor-draw) and engage sub-pages except engage-audience.
+  - Sponsor role determined by email containing "sponsor" (mock logic in WelcomeScreen).
 - **Profile**: Accessible via avatar in global header. Bottom nav remains visible on profile page so users can navigate back.
 - **AudiencePage & SponsorsListPage**: `onBack` prop is optional. When used as main tabs (via bottom nav), no back button is shown. When navigated to from sub-pages, back button appears.
 - **MyQrCodeButton**: Floating QR button (bottom-right, above nav) on all main pages. Opens modal with client-side QR code (via `qrcode.react`) containing only user ID + event code. Save downloads PNG, Share uses Web Share API with clipboard fallback.

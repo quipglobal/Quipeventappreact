@@ -1,6 +1,7 @@
 import React from 'react';
-import { Home, Calendar, Sparkles, Users, Handshake } from 'lucide-react';
+import { Home, Calendar, Sparkles, Users, Handshake, ScanLine, UserCheck } from 'lucide-react';
 import { useTheme } from '@/app/context/ThemeContext';
+import { useApp } from '@/app/context/AppContext';
 
 interface BottomNavProps {
   activeTab: string;
@@ -9,14 +10,25 @@ interface BottomNavProps {
 
 export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabChange }) => {
   const { t } = useTheme();
+  const { user } = useApp();
 
-  const tabs = [
-    { id: 'home',      label: 'Home',     icon: Home,       highlight: false },
-    { id: 'engage-audience', label: 'Audience', icon: Users,      highlight: false },
-    { id: 'engage',    label: 'Engage',   icon: Sparkles,   highlight: true  },
-    { id: 'agenda',    label: 'Agenda',   icon: Calendar,   highlight: false },
-    { id: 'partners',  label: 'Partners', icon: Handshake,  highlight: false },
-  ];
+  const isSponsor = user?.role === 'sponsor';
+
+  const tabs = isSponsor
+    ? [
+        { id: 'home',             label: 'Home',       icon: Home,       highlight: false },
+        { id: 'engage-audience',  label: 'Audience',   icon: Users,      highlight: false },
+        { id: 'scan',             label: 'Scan Badge', icon: ScanLine,   highlight: true  },
+        { id: 'agenda',           label: 'Agenda',     icon: Calendar,   highlight: false },
+        { id: 'attendees',        label: 'Leads',      icon: UserCheck,  highlight: false },
+      ]
+    : [
+        { id: 'home',             label: 'Home',       icon: Home,       highlight: false },
+        { id: 'engage-audience',  label: 'Audience',   icon: Users,      highlight: false },
+        { id: 'engage',           label: 'Engage',     icon: Sparkles,   highlight: true  },
+        { id: 'agenda',           label: 'Agenda',     icon: Calendar,   highlight: false },
+        { id: 'partners',         label: 'Partners',   icon: Handshake,  highlight: false },
+      ];
 
   return (
     <div

@@ -376,8 +376,8 @@ const LeadDetailView: React.FC<{
 // ─── Leads Page Component ────────────────────────────────────────────────────
 
 interface LeadsPageProps {
-  onBack: () => void;
-  onNavigateToScan: () => void;
+  onBack?: () => void;
+  onNavigateToScan?: () => void;
   onNavigateToDraw?: () => void;
 }
 
@@ -438,12 +438,14 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
           style={{ background: 'radial-gradient(circle, #c4b5fd, transparent 70%)' }} />
 
         <div className="relative z-10">
-          <button onClick={onBack}
-            className="flex items-center gap-1.5 mb-4 active:opacity-70 transition-opacity"
-            style={{ color: 'rgba(255,255,255,0.7)' }}>
-            <ArrowLeft style={{ width: 18, height: 18 }} />
-            <span style={{ fontSize: 13, fontWeight: 600 }}>Back</span>
-          </button>
+          {onBack && (
+            <button onClick={onBack}
+              className="flex items-center gap-1.5 mb-4 active:opacity-70 transition-opacity"
+              style={{ color: 'rgba(255,255,255,0.7)' }}>
+              <ArrowLeft style={{ width: 18, height: 18 }} />
+              <span style={{ fontSize: 13, fontWeight: 600 }}>Back</span>
+            </button>
+          )}
 
           <div className="flex items-center justify-between mb-1">
             <div>
@@ -457,12 +459,14 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
                 My Leads
               </h1>
             </div>
-            <button onClick={onNavigateToScan}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl active:scale-95 transition-transform"
-              style={{ background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)' }}>
-              <ScanLine style={{ width: 16, height: 16, color: '#fff' }} />
-              <span style={{ color: '#fff', fontSize: 12, fontWeight: 700 }}>Scan</span>
-            </button>
+            {onNavigateToScan && (
+              <button onClick={onNavigateToScan}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl active:scale-95 transition-transform"
+                style={{ background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)' }}>
+                <ScanLine style={{ width: 16, height: 16, color: '#fff' }} />
+                <span style={{ color: '#fff', fontSize: 12, fontWeight: 700 }}>Scan</span>
+              </button>
+            )}
           </div>
 
           {/* Stats */}
@@ -664,7 +668,7 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
                 ? 'Try adjusting your search or filter'
                 : 'Start scanning attendee badges to capture leads'}
             </p>
-            {!searchQuery && filterPriority === 'all' && (
+            {!searchQuery && filterPriority === 'all' && onNavigateToScan && (
               <button onClick={onNavigateToScan}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-white active:scale-95 transition-transform"
                 style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)' }}>

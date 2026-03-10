@@ -62,7 +62,7 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, EBState> {
   }
 }
 
-const pagesWithGlobalHeader = ['home', 'engage-audience', 'engage', 'agenda', 'partners', 'leaderboard', 'events', 'event-dashboard', 'meetings'];
+const pagesWithGlobalHeader = ['home', 'engage-audience', 'engage', 'agenda', 'partners', 'leaderboard', 'events', 'event-dashboard', 'meetings', 'scan', 'attendees'];
 
 function AppContent() {
   const [screen, setScreen] = useState<Screen>('splash');
@@ -119,7 +119,7 @@ function AppContent() {
       case 'leaderboard':     return <LeaderboardPage />;
       case 'profile':         return <ProfilePage />;
       case 'partners':        return <SponsorsListPage />;
-      case 'attendees':       return <LeadsPage onBack={() => setActivePage('home')} onNavigateToScan={() => setActivePage('scan')} onNavigateToDraw={() => setActivePage('sponsor-draw')} />;
+      case 'attendees':       return <LeadsPage onNavigateToDraw={() => setActivePage('sponsor-draw')} />;
       case 'booth':           return <PlaceholderPage title="Sponsor Booth" desc="Manage your booth profile and promotional materials." onBack={() => setActivePage('home')} />;
       case 'scan':            return <SponsorScannerPage />;
       case 'sponsor-event':   return <SponsorEventPage onBack={() => setActivePage('home')} onNavigate={handleNavigate} />;
