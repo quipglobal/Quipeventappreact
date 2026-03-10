@@ -38,6 +38,32 @@ interface PointEvent {
   timestamp: Date;
 }
 
+export interface ConnectionRequest {
+  id: string;
+  fromUser: { id: string; name: string; title: string; company: string; avatar: string };
+  toUserId: string;
+  status: 'pending' | 'accepted' | 'declined';
+  timestamp: Date;
+  message?: string;
+  direction: 'incoming' | 'outgoing';
+}
+
+export interface ChatMessage {
+  id: string;
+  senderId: string;
+  text: string;
+  timestamp: Date;
+  read: boolean;
+}
+
+export interface Conversation {
+  id: string;
+  connectionId: string;
+  participant: { id: string; name: string; title: string; company: string; avatar: string };
+  messages: ChatMessage[];
+  lastActivity: Date;
+}
+
 interface AppState {
   user: User | null;
   eventConfig: EventConfig;
@@ -51,6 +77,8 @@ interface AppState {
   pointsHistory: PointEvent[];
   hasJoinedEvent: boolean;
   leads: Lead[];
+  connectionRequests: ConnectionRequest[];
+  conversations: Conversation[];
 }
 
 interface AppContextType extends AppState {
@@ -68,6 +96,11 @@ interface AppContextType extends AppState {
   showToast: (message: string, points?: number) => void;
   updateTier: () => void;
   switchEvent: (config: EventConfig) => void;
+  sendConnectionRequest: (toUser: ConnectionRequest['fromUser'], message?: string) => void;
+  acceptConnection: (requestId: string) => void;
+  declineConnection: (requestId: string) => void;
+  sendMessage: (conversationId: string, text: string) => void;
+  markConversationRead: (conversationId: string) => void;
 }
 
 // ─── Mock configs ─────────────────────────────────────────────────────────────
@@ -154,6 +187,68 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [hasJoinedEvent, setHasJoinedEvent] = useState(false);
   const [toast, setToast] = useState<{ message: string; points?: number } | null>(null);
 
+  const [connectionRequests, setConnectionRequests] = useState<ConnectionRequest[]>([
+    {
+      id: 'cr-1', direction: 'incoming', status: 'pending',
+      fromUser: { id: 'att-1', name: 'Dr. Sarah Chen', title: 'Chief AI Officer', company: 'TechCorp Solutions', avatar: 'https://ui-avatars.com/api/?name=Sarah+Chen&background=6366f1&color=fff' },
+      toUserId: 'current-user', timestamp: new Date(Date.now() - 1000 * 60 * 12),
+      message: 'Hi! I loved your talk on product design. Would love to connect and discuss collaboration opportunities.',
+    },
+    {
+      id: 'cr-2', direction: 'incoming', status: 'pending',
+      fromUser: { id: 'att-3', name: 'Priya Patel', title: 'Product Lead', company: 'DesignFlow', avatar: 'https://ui-avatars.com/api/?name=Priya+Patel&background=ec4899&color=fff' },
+      toUserId: 'current-user', timestamp: new Date(Date.now() - 1000 * 60 * 45),
+      message: 'Hey! We should chat about the UX research panel.',
+    },
+    {
+      id: 'cr-3', direction: 'incoming', status: 'pending',
+      fromUser: { id: 'att-6', name: 'James Wilson', title: 'CTO', company: 'CloudNine Systems', avatar: 'https://ui-avatars.com/api/?name=James+Wilson&background=f59e0b&color=fff' },
+      toUserId: 'current-user', timestamp: new Date(Date.now() - 1000 * 60 * 90),
+    },
+    {
+      id: 'cr-4', direction: 'outgoing', status: 'pending',
+      fromUser: { id: 'user-001', name: '', title: '', company: '', avatar: '' },
+      toUserId: 'att-5', timestamp: new Date(Date.now() - 1000 * 60 * 30),
+      message: 'Would love to connect about your infrastructure work!',
+    },
+    {
+      id: 'cr-5', direction: 'incoming', status: 'accepted',
+      fromUser: { id: 'att-2', name: 'Marcus Johnson', title: 'VP of Engineering', company: 'InnovateLab', avatar: 'https://ui-avatars.com/api/?name=Marcus+Johnson&background=8b5cf6&color=fff' },
+      toUserId: 'current-user', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 3),
+      message: 'Great meetup at the networking session!',
+    },
+    {
+      id: 'cr-6', direction: 'incoming', status: 'accepted',
+      fromUser: { id: 'att-4', name: 'Elena Rodriguez', title: 'Head of Data Science', company: 'QuantumLeap AI', avatar: 'https://ui-avatars.com/api/?name=Elena+Rodriguez&background=10b981&color=fff' },
+      toUserId: 'current-user', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 5),
+    },
+  ]);
+
+  const [conversations, setConversations] = useState<Conversation[]>([
+    {
+      id: 'conv-1', connectionId: 'cr-5',
+      participant: { id: 'att-2', name: 'Marcus Johnson', title: 'VP of Engineering', company: 'InnovateLab', avatar: 'https://ui-avatars.com/api/?name=Marcus+Johnson&background=8b5cf6&color=fff' },
+      lastActivity: new Date(Date.now() - 1000 * 60 * 8),
+      messages: [
+        { id: 'm1', senderId: 'att-2', text: 'Hey! Great connecting at the networking session earlier.', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2), read: true },
+        { id: 'm2', senderId: 'user-001', text: 'Likewise! Your talk on scaling engineering teams was really insightful.', timestamp: new Date(Date.now() - 1000 * 60 * 55), read: true },
+        { id: 'm3', senderId: 'att-2', text: 'Thanks! Would you be interested in grabbing coffee tomorrow morning before the keynote?', timestamp: new Date(Date.now() - 1000 * 60 * 30), read: true },
+        { id: 'm4', senderId: 'user-001', text: 'Absolutely! How about 8:30 AM at the lobby cafe?', timestamp: new Date(Date.now() - 1000 * 60 * 15), read: true },
+        { id: 'm5', senderId: 'att-2', text: 'Perfect, see you there!', timestamp: new Date(Date.now() - 1000 * 60 * 8), read: false },
+      ],
+    },
+    {
+      id: 'conv-2', connectionId: 'cr-6',
+      participant: { id: 'att-4', name: 'Elena Rodriguez', title: 'Head of Data Science', company: 'QuantumLeap AI', avatar: 'https://ui-avatars.com/api/?name=Elena+Rodriguez&background=10b981&color=fff' },
+      lastActivity: new Date(Date.now() - 1000 * 60 * 60 * 2),
+      messages: [
+        { id: 'm6', senderId: 'att-4', text: 'Hi there! I saw your profile and noticed we share an interest in ML applications.', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 4), read: true },
+        { id: 'm7', senderId: 'user-001', text: 'Yes! Are you attending the ML workshop tomorrow afternoon?', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 3), read: true },
+        { id: 'm8', senderId: 'att-4', text: 'Definitely! Save me a seat if you get there first.', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2), read: true },
+      ],
+    },
+  ]);
+
   const joinEvent = () => {
     setHasJoinedEvent(true);
     addPoints(mockGamificationConfig.pointActions.dailyLogin, 'Joined the event!');
@@ -238,6 +333,74 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast('Lead updated successfully');
   };
 
+  const sendConnectionRequest = (toUser: ConnectionRequest['fromUser'], message?: string) => {
+    const newReq: ConnectionRequest = {
+      id: `cr-${Date.now()}`,
+      fromUser: user ? { id: user.id, name: user.name, title: user.title, company: user.company, avatar: user.avatar } : { id: 'current-user', name: '', title: '', company: '', avatar: '' },
+      toUserId: toUser.id,
+      status: 'pending',
+      timestamp: new Date(),
+      message,
+      direction: 'outgoing',
+    };
+    setConnectionRequests(prev => [newReq, ...prev]);
+    showToast('Connection request sent!');
+  };
+
+  const acceptConnection = (requestId: string) => {
+    setConnectionRequests(prev =>
+      prev.map(r => r.id === requestId ? { ...r, status: 'accepted' as const } : r)
+    );
+    const req = connectionRequests.find(r => r.id === requestId);
+    if (req) {
+      const newConv: Conversation = {
+        id: `conv-${Date.now()}`,
+        connectionId: requestId,
+        participant: req.direction === 'incoming'
+          ? req.fromUser
+          : { id: req.toUserId, name: 'Attendee', title: '', company: '', avatar: '' },
+        messages: [],
+        lastActivity: new Date(),
+      };
+      setConversations(prev => [newConv, ...prev]);
+      addPoints(10, 'New connection accepted!');
+    }
+  };
+
+  const declineConnection = (requestId: string) => {
+    setConnectionRequests(prev =>
+      prev.map(r => r.id === requestId ? { ...r, status: 'declined' as const } : r)
+    );
+    showToast('Connection declined');
+  };
+
+  const markConversationRead = (conversationId: string) => {
+    setConversations(prev =>
+      prev.map(c =>
+        c.id === conversationId
+          ? { ...c, messages: c.messages.map(m => ({ ...m, read: true })) }
+          : c
+      )
+    );
+  };
+
+  const sendMessage = (conversationId: string, text: string) => {
+    const newMsg: ChatMessage = {
+      id: `msg-${Date.now()}`,
+      senderId: user?.id || 'current-user',
+      text,
+      timestamp: new Date(),
+      read: true,
+    };
+    setConversations(prev =>
+      prev.map(c =>
+        c.id === conversationId
+          ? { ...c, messages: [...c.messages, newMsg], lastActivity: new Date() }
+          : c
+      )
+    );
+  };
+
   const switchEvent = (config: EventConfig) => {
     setActiveEventConfig(config);
     setCompletedSurveys([]);
@@ -264,6 +427,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         pointsHistory,
         hasJoinedEvent,
         leads,
+        connectionRequests,
+        conversations,
         setUser,
         joinEvent,
         addPoints,
@@ -278,6 +443,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         showToast,
         updateTier,
         switchEvent,
+        sendConnectionRequest,
+        acceptConnection,
+        declineConnection,
+        sendMessage,
+        markConversationRead,
       }}
     >
       {children}

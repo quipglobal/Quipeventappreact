@@ -23,7 +23,8 @@ import { SponsorEventPage } from '@/app/components/SponsorEventPage';
 import { SponsorDrawPage } from '@/app/components/SponsorDrawPage';
 import { BottomNav } from '@/app/components/BottomNav';
 import { MyQrCodeButton } from '@/app/components/MyQrCodeButton';
-import { Bell, Search } from 'lucide-react';
+import { MeetingsPage } from '@/app/components/MeetingsPage';
+import { Bell, Search, MessageCircle } from 'lucide-react';
 
 type Screen = 'splash' | 'welcome' | 'event-join' | 'main';
 type Page =
@@ -31,7 +32,7 @@ type Page =
   | 'engage-sponsors' | 'engage-surveys' | 'engage-polls'
   | 'engage-challenges' | 'engage-audience' | 'engage-giveaways'
   | 'leaderboard' | 'profile' | 'attendees' | 'booth' | 'scan'
-  | 'sponsor-event' | 'sponsor-draw' | 'partners';
+  | 'sponsor-event' | 'sponsor-draw' | 'partners' | 'meetings';
 
 interface EBState { hasError: boolean; message: string }
 class AppErrorBoundary extends Component<{ children: ReactNode }, EBState> {
@@ -61,13 +62,16 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, EBState> {
   }
 }
 
-const pagesWithGlobalHeader = ['home', 'engage-audience', 'engage', 'agenda', 'partners', 'leaderboard', 'events', 'event-dashboard'];
+const pagesWithGlobalHeader = ['home', 'engage-audience', 'engage', 'agenda', 'partners', 'leaderboard', 'events', 'event-dashboard', 'meetings'];
 
 function AppContent() {
   const [screen, setScreen] = useState<Screen>('splash');
   const [activePage, setActivePage] = useState<Page>('home');
-  const { user, hasJoinedEvent } = useApp();
+  const { user, hasJoinedEvent, connectionRequests, conversations } = useApp();
   const { t, isDark } = useTheme();
+
+  const unreadCount = connectionRequests.filter(r => r.direction === 'incoming' && r.status === 'pending').length
+    + conversations.reduce((sum, c) => sum + c.messages.filter(m => m.senderId !== (user?.id || 'current-user') && !m.read).length, 0);
 
   const handleNavigate = (page: string) => setActivePage(page as Page);
 
@@ -120,6 +124,7 @@ function AppContent() {
       case 'scan':            return <SponsorScannerPage />;
       case 'sponsor-event':   return <SponsorEventPage onBack={() => setActivePage('home')} onNavigate={handleNavigate} />;
       case 'sponsor-draw':    return <SponsorDrawPage onBack={() => setActivePage('attendees')} />;
+      case 'meetings':        return <MeetingsPage />;
       default:                return <HomePage onNavigate={handleNavigate} />;
     }
   };
@@ -130,7 +135,7 @@ function AppContent() {
     return true;
   })();
 
-  const mainTabs = ['home', 'events', 'event-dashboard', 'agenda', 'engage', 'leaderboard', 'profile', 'attendees', 'booth', 'scan', 'engage-audience', 'sponsor-event', 'sponsor-draw', 'partners'];
+  const mainTabs = ['home', 'events', 'event-dashboard', 'agenda', 'engage', 'leaderboard', 'profile', 'attendees', 'booth', 'scan', 'engage-audience', 'sponsor-event', 'sponsor-draw', 'partners', 'meetings'];
   const isMainTab = mainTabs.includes(activePage);
 
   const showGlobalHeader = pagesWithGlobalHeader.includes(activePage);
@@ -188,6 +193,23 @@ function AppContent() {
                   <button className="w-9 h-9 rounded-full flex items-center justify-center transition-colors"
                     style={{ background: t.surface, border: `1px solid ${t.border}` }}>
                     <Search size={16} color={t.text} />
+                  </button>
+                  <button
+                    onClick={() => handleNavigate('meetings')}
+                    className="w-9 h-9 rounded-full flex items-center justify-center transition-colors relative"
+                    style={{
+                      background: activePage === 'meetings'
+                        ? 'linear-gradient(135deg, #7c3aed, #4f46e5)'
+                        : t.surface,
+                      border: activePage === 'meetings' ? 'none' : `1px solid ${t.border}`,
+                    }}>
+                    <MessageCircle size={16} color={activePage === 'meetings' ? '#fff' : t.text} />
+                    {unreadCount > 0 && (
+                      <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 bg-red-500 rounded-full border-2 flex items-center justify-center"
+                        style={{ borderColor: isDark ? '#111120' : '#fff', fontSize: 9, fontWeight: 700, color: '#fff' }}>
+                        {unreadCount}
+                      </span>
+                    )}
                   </button>
                   <button className="w-9 h-9 rounded-full flex items-center justify-center transition-colors relative"
                     style={{ background: t.surface, border: `1px solid ${t.border}` }}>

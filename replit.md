@@ -41,6 +41,7 @@ src/
 - **Profile**: Accessible via avatar in global header. Bottom nav remains visible on profile page so users can navigate back.
 - **AudiencePage & SponsorsListPage**: `onBack` prop is optional. When used as main tabs (via bottom nav), no back button is shown. When navigated to from sub-pages, back button appears.
 - **MyQrCodeButton**: Floating QR button (bottom-right, above nav) on all main pages. Opens modal with client-side QR code (via `qrcode.react`) containing only user ID + event code. Save downloads PNG, Share uses Web Share API with clipboard fallback.
+- **MeetingsPage** (`meetings`): Two-tab screen — "Requests" (connection requests with accept/decline) and "Messages" (conversations from accepted connections). Accessible via MessageCircle icon in global header. State managed in AppContext: `connectionRequests`, `conversations`, `sendConnectionRequest`, `acceptConnection`, `declineConnection`, `sendMessage`.
 
 ## Dev Server
 
