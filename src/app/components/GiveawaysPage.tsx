@@ -142,7 +142,7 @@ interface GiveawaysPageProps {
 }
 
 export const GiveawaysPage: React.FC<GiveawaysPageProps> = ({ onBack }) => {
-  const { addPoints, showToast } = useApp();
+  const { addPoints, showToast, sponsorGiveaways } = useApp();
   const { t, isDark } = useTheme();
   const [claimedIds, setClaimedIds] = useState<string[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -374,6 +374,40 @@ export const GiveawaysPage: React.FC<GiveawaysPageProps> = ({ onBack }) => {
           );
         })}
       </div>
+
+      {sponsorGiveaways.length > 0 && (
+        <div className="px-5 pb-6">
+          <div className="flex items-center gap-2 mb-3 mt-2">
+            <Sparkles style={{ width: 16, height: 16, color: '#f59e0b' }} />
+            <span style={{ color: t.text, fontSize: 15, fontWeight: 700 }}>Sponsor Specials</span>
+          </div>
+          <div className="space-y-3">
+            {sponsorGiveaways.map(sg => (
+              <div key={sg.id} className="rounded-2xl overflow-hidden"
+                style={{ background: t.surface, border: `1px solid ${t.border}`, boxShadow: t.shadow }}>
+                {sg.image && (
+                  <div className="relative h-32 overflow-hidden">
+                    <img src={sg.image} alt={sg.title} className="w-full h-full object-cover" />
+                    <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.5) 0%, transparent 50%)' }} />
+                  </div>
+                )}
+                <div className="p-4">
+                  <h3 style={{ color: t.text, fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{sg.title}</h3>
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-1.5">
+                      <Tag style={{ width: 12, height: 12, color: '#f59e0b' }} />
+                      <span style={{ color: t.textSec, fontSize: 12, fontWeight: 600 }}>
+                        {sg.numberOfItems} item{sg.numberOfItems !== 1 ? 's' : ''} available
+                      </span>
+                    </div>
+                    <span style={{ color: t.textMuted, fontSize: 11 }}>by {sg.sponsorName}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

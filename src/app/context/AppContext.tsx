@@ -64,6 +64,16 @@ export interface Conversation {
   lastActivity: Date;
 }
 
+export interface SponsorGiveaway {
+  id: string;
+  title: string;
+  numberOfItems: number;
+  image: string;
+  createdAt: Date;
+  sponsorName: string;
+  sponsorId: string;
+}
+
 interface AppState {
   user: User | null;
   eventConfig: EventConfig;
@@ -77,6 +87,7 @@ interface AppState {
   pointsHistory: PointEvent[];
   hasJoinedEvent: boolean;
   leads: Lead[];
+  sponsorGiveaways: SponsorGiveaway[];
   connectionRequests: ConnectionRequest[];
   conversations: Conversation[];
 }
@@ -96,6 +107,8 @@ interface AppContextType extends AppState {
   showToast: (message: string, points?: number) => void;
   updateTier: () => void;
   switchEvent: (config: EventConfig) => void;
+  addSponsorGiveaway: (giveaway: Omit<SponsorGiveaway, 'id' | 'createdAt'>) => void;
+  removeSponsorGiveaway: (id: string) => void;
   sendConnectionRequest: (toUser: ConnectionRequest['fromUser'], message?: string) => void;
   acceptConnection: (requestId: string) => void;
   declineConnection: (requestId: string) => void;
@@ -184,6 +197,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [completedChallenges, setCompletedChallenges] = useState<string[]>([]);
   const [pointsHistory, setPointsHistory] = useState<PointEvent[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
+  const [sponsorGiveaways, setSponsorGiveaways] = useState<SponsorGiveaway[]>([]);
   const [hasJoinedEvent, setHasJoinedEvent] = useState(false);
   const [toast, setToast] = useState<{ message: string; points?: number } | null>(null);
 
@@ -401,6 +415,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
   };
 
+  const addSponsorGiveaway = (giveaway: Omit<SponsorGiveaway, 'id' | 'createdAt'>) => {
+    const newGiveaway: SponsorGiveaway = {
+      ...giveaway,
+      id: `giveaway-${Date.now()}`,
+      createdAt: new Date(),
+    };
+    setSponsorGiveaways(prev => [newGiveaway, ...prev]);
+    showToast('Giveaway added successfully');
+  };
+
+  const removeSponsorGiveaway = (id: string) => {
+    setSponsorGiveaways(prev => prev.filter(g => g.id !== id));
+    showToast('Giveaway removed');
+  };
+
   const switchEvent = (config: EventConfig) => {
     setActiveEventConfig(config);
     setCompletedSurveys([]);
@@ -427,6 +456,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         pointsHistory,
         hasJoinedEvent,
         leads,
+        sponsorGiveaways,
         connectionRequests,
         conversations,
         setUser,
@@ -443,6 +473,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         showToast,
         updateTier,
         switchEvent,
+        addSponsorGiveaway,
+        removeSponsorGiveaway,
         sendConnectionRequest,
         acceptConnection,
         declineConnection,
