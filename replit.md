@@ -1,6 +1,6 @@
 # Project Overview
 
-A React + Vite + TypeScript frontend application — an event companion app with multiple screens (splash, welcome, home, agenda, events, leaderboard, profile, sponsors, surveys, polls, challenges, etc.).
+A React + Vite + TypeScript frontend application — an event companion app with multiple screens (splash, welcome, event join, home, agenda, events, leaderboard, profile, sponsors, surveys, polls, challenges, etc.).
 
 ## Tech Stack
 
@@ -16,14 +16,23 @@ A React + Vite + TypeScript frontend application — an event companion app with
 src/
   main.tsx          - Entry point
   app/
-    App.tsx         - Root component with routing logic
+    App.tsx         - Root component with screen flow & routing logic
     components/     - All page/UI components
-    context/        - AppContext, ThemeContext
+      EventJoinPage.tsx - Post-login event join screen (code entry + event lists)
+    context/        - AppContext (user, event, gamification), ThemeContext
     data/           - Static mock data
-    types/          - TypeScript types
+    types/          - TypeScript types (config.ts has EventConfig, etc.)
     utils/          - Utility helpers
   styles/           - Global CSS (index, tailwind, theme, fonts)
 ```
+
+## Screen Flow
+
+`splash` → `welcome` (login) → `event-join` (enter code or browse events) → `main` (full app with bottom nav)
+
+- **Event Join Page**: After login, users must enter an event code or select an event from the upcoming/past lists. Entering a valid code calls `switchEvent(config)` + `joinEvent()` to set up the active event context. Clicking an event card calls `switchEvent(config)` and navigates to the event dashboard.
+- Valid mock event codes: `TECH26`, `DEVCON`, `SUMMIT`, `HEALTH`, `DESIGN`
+- Event codes are also used in `SwitchEventModal` for switching events within the app.
 
 ## Dev Server
 

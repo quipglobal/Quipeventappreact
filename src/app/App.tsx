@@ -3,6 +3,7 @@ import { AppProvider, useApp } from '@/app/context/AppContext';
 import { ThemeProvider, useTheme } from '@/app/context/ThemeContext';
 import { SplashScreen } from '@/app/components/SplashScreen';
 import { WelcomeScreen } from '@/app/components/WelcomeScreen';
+import { EventJoinPage } from '@/app/components/EventJoinPage';
 import { HomePage } from '@/app/components/HomePage';
 import { AgendaPage } from '@/app/components/AgendaPage';
 import { EngagePage } from '@/app/components/EngagePage';
@@ -22,8 +23,7 @@ import { SponsorEventPage } from '@/app/components/SponsorEventPage';
 import { SponsorDrawPage } from '@/app/components/SponsorDrawPage';
 import { BottomNav } from '@/app/components/BottomNav';
 
-// ─── Types ─────────────────────────────────────────────────────────────────────
-type Screen = 'splash' | 'welcome' | 'main';
+type Screen = 'splash' | 'welcome' | 'event-join' | 'main';
 type Page =
   | 'home' | 'agenda' | 'events' | 'event-dashboard' | 'engage'
   | 'engage-sponsors' | 'engage-surveys' | 'engage-polls'
@@ -31,7 +31,6 @@ type Page =
   | 'leaderboard' | 'profile' | 'attendees' | 'booth' | 'scan'
   | 'sponsor-event' | 'sponsor-draw';
 
-// ─── Error Boundary ─────────────────────────────────────────────────────────
 interface EBState { hasError: boolean; message: string }
 class AppErrorBoundary extends Component<{ children: ReactNode }, EBState> {
   state: EBState = { hasError: false, message: '' };
@@ -60,7 +59,6 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, EBState> {
   }
 }
 
-// ─── AppContent ─────────────────────────────────────────────────────────────
 function AppContent() {
   const [screen, setScreen] = useState<Screen>('splash');
   const [activePage, setActivePage] = useState<Page>('home');
@@ -68,6 +66,16 @@ function AppContent() {
   const { t, isDark } = useTheme();
 
   const handleNavigate = (page: string) => setActivePage(page as Page);
+
+  const handleJoinEvent = () => {
+    setActivePage('home');
+    setScreen('main');
+  };
+
+  const handleViewDashboard = () => {
+    setActivePage('event-dashboard');
+    setScreen('main');
+  };
 
   const PlaceholderPage: React.FC<{ title: string; desc: string; onBack: () => void }> = ({ title, desc, onBack }) => (
     <div className="min-h-screen flex items-center justify-center p-6" style={{ background: t.bgPage }}>
@@ -112,7 +120,6 @@ function AppContent() {
   };
 
   const showBottomNav = (() => {
-    // Hide on engage sub-pages for attendees (except engage-audience which is a sponsor tab)
     if (activePage.startsWith('engage-') && activePage !== 'engage-audience') return false;
     if (['booth', 'sponsor-event', 'sponsor-draw'].includes(activePage)) return false;
     return true;
@@ -123,7 +130,16 @@ function AppContent() {
   return (
     <div style={{ minHeight: '100svh', background: isDark ? '#000' : '#e8e4f5', fontFamily: 'Inter,sans-serif' }}>
       {screen === 'splash' && <SplashScreen onComplete={() => setScreen('welcome')} />}
-      {screen === 'welcome' && <WelcomeScreen onLogin={() => setScreen('main')} />}
+      {screen === 'welcome' && <WelcomeScreen onLogin={() => setScreen('event-join')} />}
+
+      {screen === 'event-join' && user && (
+        <div className="mx-auto relative overflow-hidden" style={{ maxWidth: 430, minHeight: '100svh', background: t.bgPage }}>
+          <EventJoinPage
+            onJoinEvent={handleJoinEvent}
+            onViewDashboard={handleViewDashboard}
+          />
+        </div>
+      )}
 
       {screen === 'main' && user && (
         <div className="mx-auto relative overflow-hidden" style={{ maxWidth: 430, minHeight: '100svh', background: t.bgPage }}>
@@ -137,7 +153,6 @@ function AppContent() {
   );
 }
 
-// ─── Root App ────────────────────────────────────────────────────────────────
 function App() {
   return (
     <AppErrorBoundary>
