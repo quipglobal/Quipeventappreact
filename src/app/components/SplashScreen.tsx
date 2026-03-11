@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import cxoLogo from '@/assets/cxo-logo.jpg';
 
 interface SplashScreenProps {
   onComplete: () => void;
@@ -62,46 +63,26 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onComplete }) => {
             : 'opacity 0.5s ease, transform 0.5s ease',
         }}
       >
-        {/* Logo mark */}
-        <div className="relative mb-8">
+        {/* Logo */}
+        <div className="relative mb-6">
           {/* Outer glow */}
           <div
-            className="absolute inset-0 rounded-[2rem] blur-2xl"
-            style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', opacity: 0.5, transform: 'scale(1.4)' }}
+            className="absolute inset-0 rounded-3xl blur-2xl"
+            style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', opacity: 0.35, transform: 'scale(1.3)' }}
           />
-          {/* Icon box */}
-          <div
-            className="relative w-24 h-24 rounded-[2rem] flex items-center justify-center"
+          <img
+            src={cxoLogo}
+            alt="CXO Inc"
+            className="relative rounded-3xl"
             style={{
-              background: 'linear-gradient(145deg, #7c3aed 0%, #4f46e5 50%, #2563eb 100%)',
-              boxShadow: '0 0 0 1px rgba(255,255,255,0.12) inset, 0 24px 48px rgba(109,40,217,0.5)',
+              width: 220,
+              height: 'auto',
+              background: '#fff',
+              padding: 12,
+              boxShadow: '0 0 0 1px rgba(255,255,255,0.1) inset, 0 24px 48px rgba(0,0,0,0.5)',
             }}
-          >
-            {/* Custom sparkle / network icon */}
-            <svg width="44" height="44" viewBox="0 0 44 44" fill="none">
-              <circle cx="22" cy="22" r="5" fill="white" fillOpacity="0.95" />
-              <circle cx="8"  cy="10" r="3.5" fill="white" fillOpacity="0.7" />
-              <circle cx="36" cy="10" r="3.5" fill="white" fillOpacity="0.7" />
-              <circle cx="8"  cy="34" r="3.5" fill="white" fillOpacity="0.7" />
-              <circle cx="36" cy="34" r="3.5" fill="white" fillOpacity="0.7" />
-              <line x1="22" y1="22" x2="8"  y2="10" stroke="white" strokeOpacity="0.45" strokeWidth="1.5" strokeLinecap="round"/>
-              <line x1="22" y1="22" x2="36" y2="10" stroke="white" strokeOpacity="0.45" strokeWidth="1.5" strokeLinecap="round"/>
-              <line x1="22" y1="22" x2="8"  y2="34" stroke="white" strokeOpacity="0.45" strokeWidth="1.5" strokeLinecap="round"/>
-              <line x1="22" y1="22" x2="36" y2="34" stroke="white" strokeOpacity="0.45" strokeWidth="1.5" strokeLinecap="round"/>
-            </svg>
-          </div>
+          />
         </div>
-
-        {/* Wordmark */}
-        <h1
-          className="text-white tracking-tight mb-2"
-          style={{ fontSize: 42, fontWeight: 800, letterSpacing: '-0.04em', lineHeight: 1 }}
-        >
-          Audience App
-        </h1>
-        <p style={{ color: 'rgba(255,255,255,0.38)', fontSize: 14, letterSpacing: '0.18em', fontWeight: 500, textTransform: 'uppercase' }}>
-          Connect · Engage · Win
-        </p>
 
         {/* Loading bar */}
         <div className="mt-10 w-32 h-0.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>

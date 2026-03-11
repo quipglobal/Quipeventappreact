@@ -5,6 +5,7 @@
  * "Start Networking" CTA slides up a dark login bottom-sheet
  */
 import React, { useState, useCallback, useEffect, useRef } from 'react';
+import cxoLogo from '@/assets/cxo-logo.jpg';
 import {
   Mail, Lock, Eye, EyeOff, AlertCircle, CheckCircle2,
   RefreshCw, ArrowLeft, Send, ShieldCheck, X,
@@ -294,25 +295,17 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
         {/* ── Status bar area + Top bar ────────────────────────────────── */}
         <div className="relative z-20 flex items-center justify-between px-6 pt-14 pb-2 flex-shrink-0">
           {/* Logo */}
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
-              style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)' }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                <circle cx="12" cy="12" r="3.2" fill="white"/>
-                <circle cx="4" cy="5"   r="1.8" fill="white" fillOpacity="0.65"/>
-                <circle cx="20" cy="5"  r="1.8" fill="white" fillOpacity="0.65"/>
-                <circle cx="4" cy="19"  r="1.8" fill="white" fillOpacity="0.65"/>
-                <circle cx="20" cy="19" r="1.8" fill="white" fillOpacity="0.65"/>
-                <line x1="12" y1="12" x2="4"  y2="5"  stroke="white" strokeOpacity="0.4" strokeWidth="1.5" strokeLinecap="round"/>
-                <line x1="12" y1="12" x2="20" y2="5"  stroke="white" strokeOpacity="0.4" strokeWidth="1.5" strokeLinecap="round"/>
-                <line x1="12" y1="12" x2="4"  y2="19" stroke="white" strokeOpacity="0.4" strokeWidth="1.5" strokeLinecap="round"/>
-                <line x1="12" y1="12" x2="20" y2="19" stroke="white" strokeOpacity="0.4" strokeWidth="1.5" strokeLinecap="round"/>
-              </svg>
-            </div>
-            <span style={{ color: '#fff', fontWeight: 700, fontSize: 16, letterSpacing: '-0.02em' }}>
-              Audience App
-            </span>
-          </div>
+          <img
+            src={cxoLogo}
+            alt="CXO Inc"
+            style={{
+              height: 32,
+              width: 'auto',
+              background: '#fff',
+              borderRadius: 6,
+              padding: '3px 6px',
+            }}
+          />
 
           {/* Live pill */}
           <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full"
