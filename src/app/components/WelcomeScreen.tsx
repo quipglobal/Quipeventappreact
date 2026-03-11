@@ -5,7 +5,7 @@
  * "Start Networking" CTA slides up a dark login bottom-sheet
  */
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import cxoLogo from '@/assets/cxo-logo.jpg';
+import cxoLogo from '@/assets/cxo-logo-transparent.png';
 import {
   Mail, Lock, Eye, EyeOff, AlertCircle, CheckCircle2,
   RefreshCw, ArrowLeft, Send, ShieldCheck, X,
@@ -299,11 +299,8 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
             src={cxoLogo}
             alt="CXO Inc"
             style={{
-              height: 32,
+              height: 48,
               width: 'auto',
-              background: '#fff',
-              borderRadius: 6,
-              padding: '3px 6px',
             }}
           />
 

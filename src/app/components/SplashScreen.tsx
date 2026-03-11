@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import cxoLogo from '@/assets/cxo-logo.jpg';
+import cxoLogo from '@/assets/cxo-logo-transparent.png';
 
 interface SplashScreenProps {
   onComplete: () => void;
@@ -73,13 +73,10 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onComplete }) => {
           <img
             src={cxoLogo}
             alt="CXO Inc"
-            className="relative rounded-3xl"
+            className="relative"
             style={{
-              width: 220,
+              width: 240,
               height: 'auto',
-              background: '#fff',
-              padding: 12,
-              boxShadow: '0 0 0 1px rgba(255,255,255,0.1) inset, 0 24px 48px rgba(0,0,0,0.5)',
             }}
           />
         </div>
