@@ -3,6 +3,7 @@ import { StoriesRail } from './StoriesRail';
 import { CreatePostWidget } from './CreatePostWidget';
 import { FeedPost } from './FeedPost';
 import { FeedPoll } from './FeedPoll';
+import { FeedVideoPost } from './FeedVideoPost';
 import { mockFeedItems } from '@/app/data/mockFeed';
 import { useTheme } from '@/app/context/ThemeContext';
 
@@ -28,6 +29,9 @@ export const SocialFeed: React.FC<SocialFeedProps> = ({ onNavigate }) => {
         {mockFeedItems.map((item) => {
           if (item.type === 'poll') {
             return <FeedPoll key={item.id} poll={item} />;
+          }
+          if (item.type === 'video') {
+            return <FeedVideoPost key={item.id} post={item} />;
           }
           return <FeedPost key={item.id} post={item} />;
         })}

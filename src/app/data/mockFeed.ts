@@ -44,6 +44,26 @@ export interface FeedPollOption {
   votes: number;
 }
 
+export interface FeedVideoPost {
+  id: string;
+  type: 'video';
+  user: {
+    name: string;
+    title: string;
+    avatar: string;
+  };
+  content: string;
+  videoUrl: string;
+  thumbnail: string;
+  duration: string;
+  timestamp: string;
+  likes: number;
+  comments: Comment[];
+  shares: number;
+  isLiked?: boolean;
+  pointsReward: number;
+}
+
 export interface FeedPoll {
   id: string;
   type: 'poll';
@@ -55,7 +75,7 @@ export interface FeedPoll {
   userVotedOptionId?: string;
 }
 
-export type FeedItem = FeedPost | FeedPoll;
+export type FeedItem = FeedPost | FeedPoll | FeedVideoPost;
 
 export const mockStories: Story[] = [
   {
@@ -106,6 +126,25 @@ export const mockFeedItems: FeedItem[] = [
     isLiked: false,
   },
   {
+    id: 'v1',
+    type: 'video',
+    user: {
+      name: 'Tech Summit 2026',
+      title: 'Official Event Channel',
+      avatar: 'https://images.unsplash.com/photo-1644088379091-d574269d422f?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMHRlY2hub2xvZ3klMjBiYWNrZ3JvdW5kfGVufDF8fHx8MTc3MTUyODg4Mnww&ixlib=rb-4.1.0&q=80&w=1080',
+    },
+    content: "🎤 Opening Keynote Highlights — don't miss the best moments from this morning's session! Watch till the end for the big product reveal. 🚀",
+    videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+    thumbnail: 'https://images.unsplash.com/photo-1573339887617-d674bc961c31?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjb25mZXJlbmNlJTIwc3RhZ2UlMjBsaWdodGluZ3xlbnwxfHx8fDE3NzE1NjExNzB8MA&ixlib=rb-4.1.0&q=80&w=1080',
+    duration: '0:15',
+    timestamp: '30m ago',
+    likes: 214,
+    comments: [],
+    shares: 38,
+    isLiked: false,
+    pointsReward: 50,
+  },
+  {
     id: 'poll1',
     type: 'poll',
     question: "Which topic are you most excited about for tomorrow's sessions?",
@@ -148,5 +187,43 @@ export const mockFeedItems: FeedItem[] = [
     comments: [],
     shares: 8,
     isLiked: false,
+  },
+  {
+    id: 'v2',
+    type: 'video',
+    user: {
+      name: 'Elena Rodriguez',
+      title: 'Head of Innovation · FutureCorp',
+      avatar: 'https://images.unsplash.com/photo-1760611656007-f767a8082758?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBvZmZpY2UlMjBtZWV0aW5nfGVufDF8fHx8MTc3MTU1NDgyM3ww&ixlib=rb-4.1.0&q=80&w=1080',
+    },
+    content: "My 60-second take on why AI + human collaboration is the real game-changer this decade. Would love to hear your thoughts in the comments! 💡",
+    videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
+    thumbnail: 'https://images.unsplash.com/photo-1560439514-4e9645039924?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxuZXR3b3JraW5nJTIwZXZlbnQlMjBjcm93ZHxlbnwxfHx8fDE3NzE1NDk1OTh8MA&ixlib=rb-4.1.0&q=80&w=1080',
+    duration: '0:15',
+    timestamp: '5h ago',
+    likes: 89,
+    comments: [],
+    shares: 14,
+    isLiked: false,
+    pointsReward: 50,
+  },
+  {
+    id: 'v3',
+    type: 'video',
+    user: {
+      name: 'David Kim',
+      title: 'Founder & CEO · NeuraStack',
+      avatar: 'https://images.unsplash.com/photo-1649433658557-54cf58577c68?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBwcm9maWxlJTIwcG9ydHJhaXQlMjBtYW58ZW58MXx8fHwxNzcxNTU2MTkyfDA&ixlib=rb-4.1.0&q=80&w=1080',
+    },
+    content: "Behind the scenes of our live demo this afternoon 🎬 It almost didn't happen — watch to find out why! Huge thanks to the team for pulling it together. 🙌 #StartupLife",
+    videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4',
+    thumbnail: 'https://images.unsplash.com/photo-1573339887617-d674bc961c31?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjb25mZXJlbmNlJTIwc3RhZ2UlMjBsaWdodGluZ3xlbnwxfHx8fDE3NzE1NjExNzB8MA&ixlib=rb-4.1.0&q=80&w=400',
+    duration: '0:15',
+    timestamp: '6h ago',
+    likes: 176,
+    comments: [],
+    shares: 21,
+    isLiked: false,
+    pointsReward: 50,
   },
 ];
