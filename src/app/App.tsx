@@ -115,7 +115,7 @@ function AppContent() {
       case 'engage-polls':    return <PollsListPage     onBack={() => setActivePage('engage')} />;
       case 'engage-challenges':return <ChallengesPage  onBack={() => setActivePage('engage')} />;
       case 'engage-audience': return <AudiencePage />;
-      case 'engage-giveaways':return <GiveawaysPage onBack={() => setActivePage('event-dashboard')} />;
+      case 'engage-giveaways':return <GiveawaysPage onBack={() => setActivePage('home')} />;
       case 'leaderboard':     return <LeaderboardPage />;
       case 'profile':         return <ProfilePage />;
       case 'partners':        return <SponsorsListPage />;
