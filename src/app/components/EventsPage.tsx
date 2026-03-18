@@ -218,9 +218,10 @@ type TabFilter = 'all' | 'live' | 'upcoming' | 'past';
 
 interface EventsPageProps {
   onNavigate?: (page: string) => void;
+  compact?: boolean;
 }
 
-export const EventsPage: React.FC<EventsPageProps> = ({ onNavigate }) => {
+export const EventsPage: React.FC<EventsPageProps> = ({ onNavigate, compact = false }) => {
   const { eventConfig, showToast } = useApp();
   const { t, isDark } = useTheme();
 
@@ -260,53 +261,49 @@ export const EventsPage: React.FC<EventsPageProps> = ({ onNavigate }) => {
   // ── Featured / live event (hero) ──
   const heroEvent = mockOrganizerEvents.find(e => e.status === 'live') ?? mockOrganizerEvents.find(e => e.isFeatured);
 
-  return (
-    <div className="pb-24 min-h-screen" style={{ background: t.bgPage }}>
-      {/* ── Header ──────────────────────────────────────────────────── */}
-      <div
-        className="relative overflow-hidden px-5 pt-12 pb-5"
-        style={{ background: 'linear-gradient(160deg,#1e1b4b 0%,#312e81 40%,#4f46e5 75%,#7c3aed 100%)' }}
-      >
-        {/* Decorative blurs */}
-        <div className="absolute -top-12 -right-12 w-44 h-44 rounded-full opacity-15"
-          style={{ background: 'radial-gradient(circle, #c4b5fd, transparent 70%)' }} />
-        <div className="absolute bottom-4 -left-10 w-36 h-36 rounded-full opacity-10"
-          style={{ background: 'radial-gradient(circle, #818cf8, transparent 70%)' }} />
-
-        <div className="relative z-10">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <Calendar style={{ width: 18, height: 18, color: '#c4b5fd' }} />
-                <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-                  Event Calendar
-                </span>
-              </div>
-              <h1 style={{ color: '#fff', fontSize: 26, fontWeight: 800, letterSpacing: '-0.03em' }}>
-                Events
-              </h1>
+  const headerSection = compact ? null : (
+    <div
+      className="relative overflow-hidden px-5 pt-12 pb-5"
+      style={{ background: 'linear-gradient(160deg,#1e1b4b 0%,#312e81 40%,#4f46e5 75%,#7c3aed 100%)' }}
+    >
+      <div className="absolute -top-12 -right-12 w-44 h-44 rounded-full opacity-15"
+        style={{ background: 'radial-gradient(circle, #c4b5fd, transparent 70%)' }} />
+      <div className="absolute bottom-4 -left-10 w-36 h-36 rounded-full opacity-10"
+        style={{ background: 'radial-gradient(circle, #818cf8, transparent 70%)' }} />
+      <div className="relative z-10">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <Calendar style={{ width: 18, height: 18, color: '#c4b5fd' }} />
+              <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                Event Calendar
+              </span>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="px-3 py-1.5 rounded-xl flex items-center gap-2"
-                style={{ background: 'rgba(255,255,255,0.12)', backdropFilter: 'blur(8px)' }}>
-                <Ticket style={{ width: 14, height: 14, color: '#c4b5fd' }} />
-                <span style={{ color: '#fff', fontSize: 13, fontWeight: 700 }}>
-                  {mockOrganizerEvents.length}
-                </span>
-                <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12 }}>Events</span>
-              </div>
+            <h1 style={{ color: '#fff', fontSize: 26, fontWeight: 800, letterSpacing: '-0.03em' }}>Events</h1>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="px-3 py-1.5 rounded-xl flex items-center gap-2"
+              style={{ background: 'rgba(255,255,255,0.12)', backdropFilter: 'blur(8px)' }}>
+              <Ticket style={{ width: 14, height: 14, color: '#c4b5fd' }} />
+              <span style={{ color: '#fff', fontSize: 13, fontWeight: 700 }}>{mockOrganizerEvents.length}</span>
+              <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12 }}>Events</span>
             </div>
           </div>
-
-          <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, lineHeight: 1.5, marginBottom: 4 }}>
-            Browse all events by <span style={{ color: '#c4b5fd', fontWeight: 600 }}>TechConnect Global</span>
-          </p>
         </div>
+        <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, lineHeight: 1.5, marginBottom: 4 }}>
+          Browse all events by <span style={{ color: '#c4b5fd', fontWeight: 600 }}>TechConnect Global</span>
+        </p>
       </div>
+    </div>
+  );
+
+  return (
+    <div className="pb-24 min-h-screen" style={{ background: t.bgPage }}>
+      {headerSection}
 
       {/* ── Hero Card (Current / Featured Event) ──────────────────── */}
       {heroEvent && (
-        <div className="px-5 -mt-1 mb-4 pt-4">
+        <div className={`px-5 mb-4 ${compact ? 'pt-4 mt-0' : '-mt-1 pt-4'}`}>
           <div
             className="relative rounded-2xl overflow-hidden"
             style={{
@@ -434,11 +431,11 @@ export const EventsPage: React.FC<EventsPageProps> = ({ onNavigate }) => {
       )}
 
       {/* ── Tabs + Search ──────────────────────────────────────────── */}
-      <div className="sticky top-0 z-20 px-5 pt-3 pb-3 border-b"
+      <div className={`${compact ? '' : 'sticky top-0 z-20'} px-5 pt-3 pb-3 border-b`}
         style={{
           background: isDark ? 'rgba(7,7,15,0.95)' : 'rgba(255,255,255,0.95)',
           borderColor: t.border,
-          backdropFilter: 'blur(12px)',
+          backdropFilter: compact ? 'none' : 'blur(12px)',
         }}
       >
         {/* Status tabs */}

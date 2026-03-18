@@ -93,7 +93,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           </motion.div>
         ) : (
           <motion.div key="events" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.18 }}>
-            <EventsPage onNavigate={onNavigate} />
+            <EventsPage onNavigate={onNavigate} compact />
           </motion.div>
         )}
       </AnimatePresence>

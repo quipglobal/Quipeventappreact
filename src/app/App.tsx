@@ -107,8 +107,8 @@ function AppContent() {
     switch (activePage) {
       case 'home':            return <HomePage onNavigate={handleNavigate} />;
       case 'agenda':          return <AgendaPage />;
-      case 'events':          return <EventsPage onNavigate={handleNavigate} />;
-      case 'event-dashboard': return <EventDashboardPage onNavigate={handleNavigate} onBack={() => setActivePage('events')} />;
+      case 'events':          return <HomePage onNavigate={handleNavigate} />;
+      case 'event-dashboard': return <EventDashboardPage onNavigate={handleNavigate} onBack={() => setActivePage('home')} />;
       case 'engage':          return <EngagePage onNavigate={handleNavigate} />;
       case 'engage-sponsors': return <SponsorsListPage onBack={() => setActivePage('engage')} />;
       case 'engage-surveys':  return <SurveysListPage  onBack={() => setActivePage('engage')} />;
