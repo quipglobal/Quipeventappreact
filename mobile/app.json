@@ -4,40 +4,79 @@
     "slug": "cxo-events",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/cxo-logo.png",
+    "icon": "./assets/icon.png",
     "scheme": "cxoevents",
     "userInterfaceStyle": "dark",
+    "backgroundColor": "#07070F",
     "splash": {
-      "image": "./assets/cxo-logo.png",
+      "image": "./assets/splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#07070F"
     },
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.cxoinc.events",
+      "buildNumber": "1",
       "infoPlist": {
-        "NSCameraUsageDescription": "Used to scan attendee badges and QR codes."
-      }
+        "NSCameraUsageDescription": "CXO Events uses the camera to scan attendee QR badge codes at sponsor booths.",
+        "NSPhotoLibraryUsageDescription": "CXO Events may access your photo library to set a profile picture.",
+        "UIViewControllerBasedStatusBarAppearance": false,
+        "UIStatusBarStyle": "UIStatusBarStyleLightContent"
+      },
+      "associatedDomains": [
+        "applinks:cxoinc.com"
+      ]
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/cxo-logo.png",
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#07070F"
       },
       "package": "com.cxoinc.events",
-      "permissions": ["android.permission.CAMERA"]
+      "versionCode": 1,
+      "softwareKeyboardLayoutMode": "resize",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.VIBRATE",
+        "android.permission.READ_EXTERNAL_STORAGE"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "cxoinc.com",
+              "pathPrefix": "/join"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "web": {
       "bundler": "metro",
       "output": "single",
-      "favicon": "./assets/cxo-logo.png"
+      "favicon": "./assets/icon.png"
     },
     "plugins": [
       "expo-router",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "CXO Events uses the camera to scan attendee QR badge codes at sponsor booths."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "cxo-events-placeholder"
+      }
     }
   }
 }

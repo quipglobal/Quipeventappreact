@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEvents, useJoinEvent } from '@/hooks/useEvents';
 import { DataState } from '@/components/DataState';
@@ -20,7 +20,12 @@ import { colors, spacing, radius } from '@/constants/theme';
 
 export default function SwitchEventScreen() {
   const insets = useSafeAreaInsets();
-  const [code, setCode] = useState('');
+  const params = useLocalSearchParams<{ code?: string }>();
+  const [code, setCode] = useState(params.code ?? '');
+
+  useEffect(() => {
+    if (params.code) setCode(params.code.toUpperCase());
+  }, [params.code]);
 
   const { data: events = [], isLoading: eventsLoading, isError: eventsError, refetch } = useEvents();
   const { mutate: joinEvent, isPending: joining } = useJoinEvent();

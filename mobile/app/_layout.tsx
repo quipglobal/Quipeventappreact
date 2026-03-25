@@ -61,6 +61,7 @@ export default function RootLayout() {
                   <Stack.Screen name="meetings" />
                   <Stack.Screen name="qr-badge" />
                   <Stack.Screen name="switch-event" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+                  <Stack.Screen name="join" options={{ headerShown: false }} />
                   <Stack.Screen name="event-dashboard" />
                   <Stack.Screen name="+not-found" />
                 </Stack>

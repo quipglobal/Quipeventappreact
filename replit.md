@@ -1,5 +1,9 @@
 # CXO Inc. Event Companion App
 
+## Project Status: App Store Launch Ready
+
+The mobile app is feature-complete and App Store ready. Run `eas build --profile production --platform all` to produce a signed `.ipa` and `.aab`.
+
 ## Project Overview
 
 Full-stack event companion platform with:
