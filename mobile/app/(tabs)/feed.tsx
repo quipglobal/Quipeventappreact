@@ -1,387 +1,295 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import {
   View,
   Text,
-  ScrollView,
+  FlatList,
   StyleSheet,
   TouchableOpacity,
   Dimensions,
+  RefreshControl,
+  Animated,
 } from 'react-native';
+import { Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
-import { colors, spacing, radius } from '@/constants/theme';
+import { colors, spacing, radius, typography } from '@/constants/theme';
 
 const { width: SW } = Dimensions.get('window');
+const SAMPLE_VIDEO = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
 
-const MOCK_VIDEOS = [
+const MOCK_FEED: FeedItem[] = [
   {
-    id: 'v1',
+    id: 'v1', type: 'video',
     title: 'Opening Keynote: The Future of AI',
-    speaker: 'Dr. Sarah Chen',
-    company: 'TechCorp Solutions',
-    duration: '58:22',
-    views: '1.2K',
-    thumbnail: null,
-    accentColor: '#7c3aed',
-    live: true,
+    speaker: 'Dr. Sarah Chen', company: 'TechCorp Solutions',
+    duration: '58:22', views: '1.2K', accentColor: '#7c3aed', live: true,
+    videoUrl: SAMPLE_VIDEO,
   },
   {
-    id: 'v2',
+    id: 'poll1', type: 'poll',
+    question: 'Which topic are you most excited about today?',
+    session: 'Opening Keynote',
+    options: [
+      { id: 'o1', text: 'AI & Machine Learning', votes: 48 },
+      { id: 'o2', text: 'Startup Ecosystem', votes: 31 },
+      { id: 'o3', text: 'Sustainable Tech', votes: 22 },
+      { id: 'o4', text: 'Leadership & Culture', votes: 19 },
+    ],
+  },
+  {
+    id: 'v2', type: 'video',
     title: 'Scaling Engineering Teams in a Remote World',
-    speaker: 'Marcus Johnson',
-    company: 'InnovateLab',
-    duration: '42:10',
-    views: '847',
-    thumbnail: null,
-    accentColor: '#06b6d4',
-    live: false,
+    speaker: 'Marcus Johnson', company: 'InnovateLab',
+    duration: '42:10', views: '847', accentColor: '#06b6d4', live: false,
+    videoUrl: SAMPLE_VIDEO,
   },
   {
-    id: 'v3',
+    id: 'poll2', type: 'poll',
+    question: 'How productive is your remote team vs. in-office?',
+    session: 'Engineering Workshop',
+    options: [
+      { id: 'o1', text: 'More productive', votes: 62 },
+      { id: 'o2', text: 'About the same', votes: 28 },
+      { id: 'o3', text: 'Slightly less', votes: 18 },
+      { id: 'o4', text: 'Much less', votes: 9 },
+    ],
+  },
+  {
+    id: 'v3', type: 'video',
     title: 'UX Research That Actually Influences Product',
-    speaker: 'Priya Patel',
-    company: 'DesignFlow',
-    duration: '29:45',
-    views: '532',
-    thumbnail: null,
-    accentColor: '#ec4899',
-    live: false,
+    speaker: 'Priya Patel', company: 'DesignFlow',
+    duration: '29:45', views: '532', accentColor: '#ec4899', live: false,
+    videoUrl: SAMPLE_VIDEO,
+  },
+  {
+    id: 'v4', type: 'video',
+    title: 'ML Applications in Enterprise Products',
+    speaker: 'Elena Rodriguez', company: 'QuantumLeap AI',
+    duration: '35:00', views: '412', accentColor: '#10b981', live: false,
+    videoUrl: SAMPLE_VIDEO,
   },
 ];
 
-const MOCK_POLLS = [
-  {
-    id: 'p1',
-    question: 'What is your biggest challenge in 2026?',
-    options: [
-      { id: 'o1', text: 'Talent acquisition', votes: 142 },
-      { id: 'o2', text: 'AI adoption', votes: 218 },
-      { id: 'o3', text: 'Market uncertainty', votes: 89 },
-      { id: 'o4', text: 'Budget constraints', votes: 77 },
-    ],
-    totalVotes: 526,
-    sponsored: false,
-  },
-  {
-    id: 'p2',
-    question: 'How would you rate AI tools in your workflow?',
-    options: [
-      { id: 'o5', text: 'Essential — use daily', votes: 198 },
-      { id: 'o6', text: 'Sometimes helpful', votes: 134 },
-      { id: 'o7', text: 'Not yet relevant', votes: 43 },
-    ],
-    totalVotes: 375,
-    sponsored: true,
-    sponsor: 'QuantumLeap AI',
-  },
-];
+type VideoItem = { id: string; type: 'video'; title: string; speaker: string; company: string; duration: string; views: string; accentColor: string; live: boolean; videoUrl: string };
+type PollItem = { id: string; type: 'poll'; question: string; session: string; options: { id: string; text: string; votes: number }[] };
+type FeedItem = VideoItem | PollItem;
 
-interface VideoCardProps {
-  video: typeof MOCK_VIDEOS[0];
-}
+function VideoCard({ item, isVisible }: { item: VideoItem; isVisible: boolean }) {
+  const videoRef = useRef<Video>(null);
+  const [showPlayer, setShowPlayer] = useState(false);
+  const [playing, setPlaying] = useState(false);
 
-function VideoCard({ video }: VideoCardProps) {
-  const [liked, setLiked] = useState(false);
+  const handlePlay = useCallback(async () => {
+    if (!showPlayer) { setShowPlayer(true); setPlaying(true); return; }
+    if (playing) {
+      await videoRef.current?.pauseAsync();
+      setPlaying(false);
+    } else {
+      await videoRef.current?.playAsync();
+      setPlaying(true);
+    }
+  }, [showPlayer, playing]);
 
   return (
-    <View style={vStyles.card}>
-      <LinearGradient
-        colors={[video.accentColor + '33', colors.bgCard]}
-        style={vStyles.thumbnail}
-      >
-        <View style={vStyles.thumbInner}>
-          <View style={[vStyles.playBtn, { backgroundColor: video.accentColor }]}>
-            <Ionicons name="play" size={18} color="#fff" />
-          </View>
-          <Text style={vStyles.duration}>{video.duration}</Text>
-        </View>
-        {video.live && (
-          <View style={vStyles.liveBadge}>
-            <View style={vStyles.liveDot} />
-            <Text style={vStyles.liveText}>LIVE</Text>
+    <View style={[styles.videoCard, { borderColor: item.accentColor + '50' }]}>
+      <View style={[styles.videoThumb, { backgroundColor: item.accentColor + '18' }]}>
+        {showPlayer ? (
+          <Video
+            ref={videoRef}
+            source={{ uri: item.videoUrl }}
+            style={StyleSheet.absoluteFill}
+            resizeMode={ResizeMode.COVER}
+            isLooping
+            isMuted
+            shouldPlay={playing}
+          />
+        ) : (
+          <View style={styles.thumbCenter}>
+            <View style={[styles.playCircle, { backgroundColor: item.accentColor + '30' }]}>
+              <Ionicons name="play" size={28} color={item.accentColor} />
+            </View>
           </View>
         )}
-      </LinearGradient>
-
-      <View style={vStyles.meta}>
-        <View style={[vStyles.trackDot, { backgroundColor: video.accentColor }]} />
-        <View style={vStyles.info}>
-          <Text style={vStyles.title} numberOfLines={2}>{video.title}</Text>
-          <Text style={vStyles.speaker}>{video.speaker} · {video.company}</Text>
-          <View style={vStyles.actions}>
-            <View style={vStyles.views}>
-              <Ionicons name="eye-outline" size={12} color={colors.textMuted} />
-              <Text style={vStyles.viewsText}>{video.views} views</Text>
-            </View>
-            <TouchableOpacity
-              style={vStyles.likeBtn}
-              onPress={() => setLiked(!liked)}
-            >
-              <Ionicons
-                name={liked ? 'heart' : 'heart-outline'}
-                size={14}
-                color={liked ? '#f43f5e' : colors.textMuted}
-              />
-            </TouchableOpacity>
-            <TouchableOpacity style={vStyles.shareBtn}>
-              <Ionicons name="share-outline" size={14} color={colors.textMuted} />
-            </TouchableOpacity>
+        {item.live && (
+          <View style={styles.liveBadge}>
+            <View style={styles.liveDot} />
+            <Text style={styles.liveText}>LIVE</Text>
           </View>
+        )}
+        <LinearGradient colors={['transparent', 'rgba(7,7,15,0.88)']} style={styles.videoOverlay} />
+        <View style={styles.videoMetaRow}>
+          <Text style={styles.videoDuration}>{item.duration}</Text>
+          <Text style={styles.videoViews}>{item.views} views</Text>
+        </View>
+      </View>
+
+      <View style={styles.videoBody}>
+        <Text style={styles.videoTitle} numberOfLines={2}>{item.title}</Text>
+        <Text style={styles.videoSpeaker}>{item.speaker} · {item.company}</Text>
+        <View style={styles.videoActions}>
+          <TouchableOpacity onPress={handlePlay} style={[styles.playBtn, { backgroundColor: item.accentColor }]}>
+            <Ionicons name={playing ? 'pause' : 'play'} size={13} color="#fff" />
+            <Text style={styles.playBtnText}>{playing ? 'Pause' : showPlayer ? 'Resume' : 'Watch'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.iconBtn}>
+            <Ionicons name="bookmark-outline" size={18} color={colors.textSecondary} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.iconBtn}>
+            <Ionicons name="share-outline" size={18} color={colors.textSecondary} />
+          </TouchableOpacity>
         </View>
       </View>
     </View>
   );
 }
 
-interface PollCardProps {
-  poll: typeof MOCK_POLLS[0];
-}
-
-function PollCard({ poll }: PollCardProps) {
-  const { votedPolls, markPollVoted } = useAuth();
-  const hasVoted = votedPolls.includes(poll.id);
-  const [selectedOption, setSelectedOption] = useState<string | null>(null);
-
-  const handleVote = (optId: string) => {
-    if (hasVoted) return;
-    setSelectedOption(optId);
-    markPollVoted(poll.id);
-  };
+function PollCard({ item, votedOptionId, onVote }: { item: PollItem; votedOptionId: string | null; onVote: (id: string) => void }) {
+  const total = item.options.reduce((s, o) => s + o.votes, 0);
+  const hasVoted = !!votedOptionId;
 
   return (
-    <View style={pStyles.card}>
-      {poll.sponsored && (
-        <View style={pStyles.sponsoredRow}>
-          <Ionicons name="star" size={10} color={colors.warning} />
-          <Text style={pStyles.sponsoredText}>Sponsored by {poll.sponsor}</Text>
+    <View style={styles.pollCard}>
+      <View style={styles.pollHeader}>
+        <View style={styles.pollBadge}>
+          <Ionicons name="bar-chart" size={11} color={colors.accent} />
+          <Text style={styles.pollBadgeText}>LIVE POLL</Text>
         </View>
-      )}
-      <Text style={pStyles.question}>{poll.question}</Text>
-      <View style={pStyles.options}>
-        {poll.options.map((opt) => {
-          const pct = Math.round((opt.votes / poll.totalVotes) * 100);
-          const isSelected = selectedOption === opt.id;
-          const showResults = hasVoted;
+        <Text style={styles.pollSession}>{item.session}</Text>
+      </View>
+      <Text style={styles.pollQuestion}>{item.question}</Text>
+      <View style={styles.pollOptions}>
+        {item.options.map((opt) => {
+          const pct = total > 0 ? Math.round((opt.votes / total) * 100) : 0;
+          const selected = votedOptionId === opt.id;
           return (
             <TouchableOpacity
               key={opt.id}
-              style={[pStyles.option, isSelected && pStyles.optionSelected]}
-              onPress={() => handleVote(opt.id)}
-              disabled={hasVoted}
-              activeOpacity={0.7}
+              style={[styles.pollOpt, selected && styles.pollOptSelected]}
+              onPress={() => !hasVoted && onVote(opt.id)}
+              activeOpacity={hasVoted ? 1 : 0.7}
             >
-              <View style={[pStyles.optionFill, { width: showResults ? `${pct}%` : '0%' }]} />
-              <View style={pStyles.optionContent}>
-                <Text style={[pStyles.optionText, isSelected && pStyles.optionTextSelected]}>
-                  {opt.text}
-                </Text>
-                {showResults && (
-                  <Text style={pStyles.optionPct}>{pct}%</Text>
-                )}
+              <View style={styles.pollOptRow}>
+                <Text style={[styles.pollOptText, selected && { color: colors.accent }]}>{opt.text}</Text>
+                {hasVoted && <Text style={styles.pollPct}>{pct}%</Text>}
               </View>
+              {hasVoted && (
+                <View style={styles.pollBar}>
+                  <View style={[styles.pollBarFill, { width: `${pct}%` as any, backgroundColor: selected ? colors.accent : 'rgba(255,255,255,0.12)' }]} />
+                </View>
+              )}
             </TouchableOpacity>
           );
         })}
       </View>
-      <Text style={pStyles.totalVotes}>{poll.totalVotes.toLocaleString()} votes</Text>
+      {!hasVoted && <Text style={styles.pollHint}>Tap to vote · {total} total votes</Text>}
     </View>
   );
 }
 
 export default function FeedScreen() {
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
-  const [activeFilter, setActiveFilter] = useState<'all' | 'videos' | 'polls'>('all');
+  const { markPollVoted } = useAuth();
+  const [refreshing, setRefreshing] = useState(false);
+  const [pollVotes, setPollVotes] = useState<Record<string, string>>({});
+  const [visibleIds, setVisibleIds] = useState<string[]>([]);
 
-  const filters: { key: typeof activeFilter; label: string }[] = [
-    { key: 'all', label: 'All' },
-    { key: 'videos', label: 'Sessions' },
-    { key: 'polls', label: 'Polls' },
-  ];
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await new Promise<void>((r) => setTimeout(r, 1000));
+    setRefreshing(false);
+  }, []);
+
+  const handleVote = useCallback((pollId: string, optId: string) => {
+    if (pollVotes[pollId]) return;
+    setPollVotes((p) => ({ ...p, [pollId]: optId }));
+    markPollVoted(pollId);
+  }, [pollVotes, markPollVoted]);
+
+  const onViewableItemsChanged = useCallback(({ viewableItems }: any) => {
+    setVisibleIds(viewableItems.map((i: any) => i.item.id));
+  }, []);
+
+  const renderItem = useCallback(({ item }: { item: FeedItem }) => {
+    if (item.type === 'video') {
+      return <VideoCard item={item} isVisible={visibleIds.includes(item.id)} />;
+    }
+    return (
+      <PollCard
+        item={item}
+        votedOptionId={pollVotes[item.id] ?? null}
+        onVote={(oid) => handleVote(item.id, oid)}
+      />
+    );
+  }, [visibleIds, pollVotes, handleVote]);
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.lg }]}
-      showsVerticalScrollIndicator={false}
-    >
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.greeting}>Hello, {user?.name?.split(' ')[0]} 👋</Text>
-          <Text style={styles.subtitle}>Tech Summit 2026 · Day 1</Text>
-        </View>
-        <View style={styles.headerRight}>
-          <View style={styles.pointsChip}>
-            <Ionicons name="flash" size={12} color={colors.warning} />
-            <Text style={styles.pointsText}>{user?.points ?? 0} pts</Text>
-          </View>
-          <TouchableOpacity style={styles.profileBtn} onPress={() => router.push('/profile')}>
-            <Text style={styles.profileBtnText}>{user?.name?.[0] ?? '?'}</Text>
-          </TouchableOpacity>
+    <View style={[styles.root, { paddingTop: insets.top }]}>
+      <View style={styles.topBar}>
+        <Text style={styles.topTitle}>Live Feed</Text>
+        <View style={styles.liveChip}>
+          <View style={styles.livePulse} />
+          <Text style={styles.liveChipText}>LIVE</Text>
         </View>
       </View>
-
-      <View style={styles.filterRow}>
-        {filters.map((f) => (
-          <TouchableOpacity
-            key={f.key}
-            style={[styles.filterBtn, activeFilter === f.key && styles.filterBtnActive]}
-            onPress={() => setActiveFilter(f.key)}
-          >
-            <Text style={[styles.filterText, activeFilter === f.key && styles.filterTextActive]}>
-              {f.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {(activeFilter === 'all' || activeFilter === 'videos') && (
-        <>
-          <Text style={styles.sectionTitle}>Sessions</Text>
-          {MOCK_VIDEOS.map((v) => <VideoCard key={v.id} video={v} />)}
-        </>
-      )}
-
-      {(activeFilter === 'all' || activeFilter === 'polls') && (
-        <>
-          <Text style={styles.sectionTitle}>Live Polls</Text>
-          {MOCK_POLLS.map((p) => <PollCard key={p.id} poll={p} />)}
-        </>
-      )}
-    </ScrollView>
+      <FlatList
+        data={MOCK_FEED}
+        keyExtractor={(i) => i.id}
+        renderItem={renderItem}
+        contentContainerStyle={styles.list}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />
+        }
+        onViewableItemsChanged={onViewableItemsChanged}
+        viewabilityConfig={{ itemVisiblePercentThreshold: 60 }}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg },
-  content: { paddingHorizontal: spacing.xl, paddingBottom: 100 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: spacing.xl },
-  greeting: { color: colors.textPrimary, fontSize: 22, fontWeight: '700' },
-  subtitle: { color: colors.textMuted, fontSize: 12, marginTop: 4 },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  profileBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(124,58,237,0.3)', borderWidth: 1, borderColor: 'rgba(124,58,237,0.5)', alignItems: 'center', justifyContent: 'center' },
-  profileBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
-  pointsChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: radius.full,
-    backgroundColor: 'rgba(245,158,11,0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(245,158,11,0.25)',
-  },
-  pointsText: { color: colors.warning, fontSize: 12, fontWeight: '700' },
-  filterRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xl },
-  filterBtn: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: 8,
-    borderRadius: radius.full,
-    backgroundColor: colors.bgCard,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  filterBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  filterText: { color: colors.textSecondary, fontSize: 13, fontWeight: '600' },
-  filterTextActive: { color: '#fff' },
-  sectionTitle: { color: colors.textPrimary, fontSize: 16, fontWeight: '700', marginBottom: spacing.md },
-});
+  root: { flex: 1, backgroundColor: colors.bg },
+  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.xl, paddingVertical: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
+  topTitle: { color: colors.textPrimary, ...typography.h2 },
+  liveChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.full, backgroundColor: 'rgba(239,68,68,0.12)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)' },
+  livePulse: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#ef4444' },
+  liveChipText: { color: '#ef4444', fontSize: 10, fontWeight: '800', letterSpacing: 1 },
+  list: { padding: spacing.xl, paddingBottom: 100, gap: spacing.lg },
 
-const vStyles = StyleSheet.create({
-  card: {
-    borderRadius: radius.xl,
-    backgroundColor: colors.bgCard,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginBottom: spacing.md,
-    overflow: 'hidden',
-  },
-  thumbnail: {
-    height: 160,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  thumbInner: {
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  playBtn: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  duration: { color: 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: '600' },
-  liveBadge: {
-    position: 'absolute',
-    top: spacing.md,
-    right: spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: radius.full,
-    backgroundColor: '#ef4444',
-  },
-  liveDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#fff' },
-  liveText: { color: '#fff', fontSize: 10, fontWeight: '800' },
-  meta: { flexDirection: 'row', padding: spacing.lg, gap: spacing.md },
-  trackDot: { width: 3, borderRadius: 2, alignSelf: 'stretch' },
-  info: { flex: 1 },
-  title: { color: colors.textPrimary, fontSize: 14, fontWeight: '700', lineHeight: 20, marginBottom: 4 },
-  speaker: { color: colors.textSecondary, fontSize: 12, marginBottom: spacing.md },
-  actions: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  views: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1 },
-  viewsText: { color: colors.textMuted, fontSize: 11 },
-  likeBtn: { padding: 4 },
-  shareBtn: { padding: 4 },
-});
+  videoCard: { borderRadius: radius.xl, backgroundColor: colors.bgCard, borderWidth: 1, overflow: 'hidden' },
+  videoThumb: { height: 190, position: 'relative', alignItems: 'center', justifyContent: 'center' },
+  thumbCenter: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
+  playCircle: { width: 68, height: 68, borderRadius: 34, alignItems: 'center', justifyContent: 'center' },
+  liveBadge: { position: 'absolute', top: 10, left: 10, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#ef4444', paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.full },
+  liveDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: '#fff' },
+  liveText: { color: '#fff', fontSize: 9, fontWeight: '800', letterSpacing: 1 },
+  videoOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 60 },
+  videoMetaRow: { position: 'absolute', bottom: 10, left: 12, right: 12, flexDirection: 'row', justifyContent: 'space-between' },
+  videoDuration: { color: '#fff', fontSize: 11, fontWeight: '600' },
+  videoViews: { color: 'rgba(255,255,255,0.7)', fontSize: 11 },
+  videoBody: { padding: spacing.lg },
+  videoTitle: { color: colors.textPrimary, fontSize: 15, fontWeight: '700', lineHeight: 22, marginBottom: spacing.sm },
+  videoSpeaker: { color: colors.textSecondary, fontSize: 12, marginBottom: spacing.md },
+  videoActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  playBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.full },
+  playBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  iconBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center' },
 
-const pStyles = StyleSheet.create({
-  card: {
-    borderRadius: radius.xl,
-    backgroundColor: colors.bgCard,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.lg,
-    marginBottom: spacing.md,
-  },
-  sponsoredRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: spacing.sm },
-  sponsoredText: { color: colors.warning, fontSize: 10, fontWeight: '600' },
-  question: { color: colors.textPrimary, fontSize: 15, fontWeight: '700', lineHeight: 21, marginBottom: spacing.lg },
-  options: { gap: spacing.sm },
-  option: {
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    overflow: 'hidden',
-    position: 'relative',
-    minHeight: 44,
-    justifyContent: 'center',
-  },
-  optionSelected: { borderColor: colors.primary },
-  optionFill: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(124,58,237,0.15)',
-  },
-  optionContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  optionText: { color: colors.textSecondary, fontSize: 13, flex: 1 },
-  optionTextSelected: { color: colors.textPrimary, fontWeight: '600' },
-  optionPct: { color: colors.primary, fontSize: 12, fontWeight: '700' },
-  totalVotes: { color: colors.textMuted, fontSize: 11, marginTop: spacing.md },
+  pollCard: { borderRadius: radius.xl, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.accent + '40', padding: spacing.lg },
+  pollHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md },
+  pollBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.full, backgroundColor: colors.accent + '15', borderWidth: 1, borderColor: colors.accent + '40' },
+  pollBadgeText: { color: colors.accent, fontSize: 9, fontWeight: '800', letterSpacing: 1 },
+  pollSession: { color: colors.textMuted, fontSize: 11 },
+  pollQuestion: { color: colors.textPrimary, fontSize: 15, fontWeight: '700', lineHeight: 22, marginBottom: spacing.lg },
+  pollOptions: { gap: spacing.sm },
+  pollOpt: { borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.md, overflow: 'hidden' },
+  pollOptSelected: { borderColor: colors.accent + '80', backgroundColor: colors.accent + '10' },
+  pollOptRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  pollOptText: { color: colors.textPrimary, fontSize: 13, fontWeight: '500', flex: 1 },
+  pollPct: { color: colors.textSecondary, fontSize: 13, fontWeight: '700' },
+  pollBar: { height: 3, backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 2, marginTop: spacing.sm, overflow: 'hidden' },
+  pollBarFill: { height: 3, borderRadius: 2 },
+  pollHint: { color: colors.textMuted, fontSize: 11, textAlign: 'center', marginTop: spacing.md },
 });

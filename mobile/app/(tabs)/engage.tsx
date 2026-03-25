@@ -35,9 +35,20 @@ const MOCK_GIVEAWAYS = [
   { id: 'g2', title: '$500 AWS Credits', sponsor: 'CloudNine Systems', entries: 89, ends: '5:00 PM', entered: false, color: '#06b6d4' },
 ];
 
+const MOCK_POLLS = [
+  { id: 'p1', question: 'Which AI use case excites you most in 2026?', session: 'Keynote', options: [{ id: 'o1', text: 'Generative AI', votes: 87 }, { id: 'o2', text: 'AI Agents', votes: 61 }, { id: 'o3', text: 'Computer Vision', votes: 29 }, { id: 'o4', text: 'Predictive Analytics', votes: 42 }], points: 10 },
+  { id: 'p2', question: 'How satisfied are you with the event so far?', session: 'General', options: [{ id: 'o1', text: 'Very satisfied', votes: 134 }, { id: 'o2', text: 'Satisfied', votes: 67 }, { id: 'o3', text: 'Neutral', votes: 21 }, { id: 'o4', text: 'Not satisfied', votes: 8 }], points: 10 },
+];
+
+const MOCK_SURVEYS = [
+  { id: 'sv1', title: 'Morning Workshop Feedback', desc: 'Rate the workshop sessions you attended this morning.', questions: 5, points: 50, completed: false },
+  { id: 'sv2', title: 'Speaker Evaluation', desc: 'Rate the keynote speakers and their presentations.', questions: 8, points: 75, completed: false },
+];
+
 function AttendeeEngage() {
-  const { user, completedChallenges, completeChallenge, votedPolls, showToast } = useAuth();
-  const [activeTab, setActiveTab] = useState<'challenges' | 'leaderboard' | 'giveaways'>('challenges');
+  const { user, completedChallenges, completeChallenge, votedPolls, markPollVoted, markSurveyDone, completedSurveys, showToast } = useAuth();
+  const [activeTab, setActiveTab] = useState<'challenges' | 'polls' | 'leaderboard' | 'giveaways'>('challenges');
+  const [pollVotes, setPollVotes] = useState<Record<string, string>>({});
   const [giveawayEntries, setGiveawayEntries] = useState<string[]>([]);
 
   const myRank = MOCK_LEADERBOARD.findIndex((l) => l.name === user?.name) + 1;
@@ -77,19 +88,19 @@ function AttendeeEngage() {
         </LinearGradient>
       </View>
 
-      <View style={styles.tabRow}>
-        {(['challenges', 'leaderboard', 'giveaways'] as const).map((t) => (
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabScrollRow} contentContainerStyle={styles.tabScrollContent}>
+        {(['challenges', 'polls', 'leaderboard', 'giveaways'] as const).map((t) => (
           <TouchableOpacity
             key={t}
             style={[styles.tab, activeTab === t && styles.tabActive]}
             onPress={() => setActiveTab(t)}
           >
             <Text style={[styles.tabText, activeTab === t && styles.tabTextActive]}>
-              {t === 'challenges' ? 'Challenges' : t === 'leaderboard' ? 'Leaderboard' : 'Giveaways'}
+              {t === 'challenges' ? 'Challenges' : t === 'polls' ? 'Polls & Surveys' : t === 'leaderboard' ? 'Leaderboard' : 'Giveaways'}
             </Text>
           </TouchableOpacity>
         ))}
-      </View>
+      </ScrollView>
 
       {activeTab === 'challenges' && MOCK_CHALLENGES.map((c) => {
         const done = completedChallenges.includes(c.id);
@@ -151,6 +162,85 @@ function AttendeeEngage() {
             <Text style={styles.myRankLabel}>Your rank</Text>
             <Text style={styles.myRankValue}>#{myRank > 0 ? myRank : '—'}</Text>
           </View>
+        </>
+      )}
+
+      {activeTab === 'polls' && (
+        <>
+          <Text style={styles.pollSectionLabel}>LIVE POLLS</Text>
+          {MOCK_POLLS.map((poll) => {
+            const voted = pollVotes[poll.id];
+            const totalVotes = poll.options.reduce((s, o) => s + o.votes, 0);
+            return (
+              <View key={poll.id} style={styles.pollCard}>
+                <View style={styles.pollHeader}>
+                  <View style={styles.liveChip}>
+                    <View style={styles.liveDot} />
+                    <Text style={styles.liveText}>LIVE</Text>
+                  </View>
+                  <Text style={styles.pollSession}>{poll.session}</Text>
+                  <View style={styles.pointsPill}>
+                    <Text style={styles.pointsPillText}>+{poll.points} pts</Text>
+                  </View>
+                </View>
+                <Text style={styles.pollQuestion}>{poll.question}</Text>
+                <View style={styles.pollOptions}>
+                  {poll.options.map((opt) => {
+                    const pct = totalVotes > 0 ? (opt.votes / totalVotes) * 100 : 0;
+                    const isVoted = voted === opt.id;
+                    return (
+                      <TouchableOpacity
+                        key={opt.id}
+                        style={[styles.pollOption, voted && isVoted && styles.pollOptionVoted, voted && !isVoted && styles.pollOptionDim]}
+                        onPress={() => {
+                          if (voted) return;
+                          setPollVotes((p) => ({ ...p, [poll.id]: opt.id }));
+                          markPollVoted(poll.id);
+                          showToast(`Vote cast! +${poll.points} pts`, poll.points);
+                        }}
+                        disabled={!!voted}
+                      >
+                        <Text style={[styles.pollOptionText, isVoted && { color: colors.primary }]}>{opt.text}</Text>
+                        {voted && (
+                          <View style={styles.pollBarBg}>
+                            <View style={[styles.pollBarFill, { width: `${pct}%`, backgroundColor: isVoted ? colors.primary : 'rgba(255,255,255,0.15)' }]} />
+                          </View>
+                        )}
+                        {voted && <Text style={styles.pollPct}>{Math.round(pct)}%</Text>}
+                        {!voted && <Ionicons name="radio-button-off" size={18} color={colors.textMuted} />}
+                        {isVoted && <Ionicons name="checkmark-circle" size={18} color={colors.primary} />}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            );
+          })}
+
+          <Text style={styles.pollSectionLabel}>SURVEYS</Text>
+          {MOCK_SURVEYS.map((sv) => {
+            const done = completedSurveys.includes(sv.id);
+            return (
+              <View key={sv.id} style={[styles.surveyCard, done && { opacity: 0.6 }]}>
+                <View style={styles.surveyLeft}>
+                  <View style={styles.surveyIcon}>
+                    <Ionicons name={done ? 'checkmark-circle' : 'document-text'} size={22} color={done ? colors.success : colors.primary} />
+                  </View>
+                  <View style={styles.surveyBody}>
+                    <Text style={styles.surveyTitle}>{sv.title}</Text>
+                    <Text style={styles.surveyDesc} numberOfLines={2}>{sv.desc}</Text>
+                    <Text style={styles.surveyMeta}>{sv.questions} questions · +{sv.points} pts</Text>
+                  </View>
+                </View>
+                {!done && (
+                  <TouchableOpacity style={styles.surveyBtn} onPress={() => { markSurveyDone(sv.id); showToast(`Survey submitted! +${sv.points} pts`, sv.points); }}>
+                    <Text style={styles.surveyBtnText}>Start</Text>
+                  </TouchableOpacity>
+                )}
+                {done && <Text style={styles.surveyDoneText}>Done</Text>}
+              </View>
+            );
+          })}
         </>
       )}
 
@@ -440,10 +530,40 @@ const styles = StyleSheet.create({
   nextTierText: { color: 'rgba(255,255,255,0.5)', fontSize: 11 },
 
   tabRow: { flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.xl, marginBottom: spacing.lg },
-  tab: { flex: 1, paddingVertical: spacing.sm, alignItems: 'center', borderRadius: radius.full, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border },
+  tabScrollRow: { marginBottom: spacing.lg },
+  tabScrollContent: { gap: spacing.sm, paddingHorizontal: spacing.xl },
+  tab: { paddingVertical: spacing.sm, paddingHorizontal: spacing.md, alignItems: 'center', borderRadius: radius.full, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border },
   tabActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   tabText: { color: colors.textSecondary, fontSize: 12, fontWeight: '600' },
   tabTextActive: { color: '#fff' },
+
+  pollSectionLabel: { color: colors.textMuted, fontSize: 10, fontWeight: '700', letterSpacing: 1.2, marginHorizontal: spacing.xl, marginTop: spacing.md, marginBottom: spacing.sm },
+  pollCard: { marginHorizontal: spacing.xl, marginBottom: spacing.md, padding: spacing.lg, borderRadius: radius.xl, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border },
+  pollHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm },
+  liveChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 7, paddingVertical: 3, borderRadius: radius.full, backgroundColor: 'rgba(239,68,68,0.12)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)' },
+  liveDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#ef4444' },
+  liveText: { color: '#ef4444', fontSize: 9, fontWeight: '800', letterSpacing: 0.8 },
+  pollSession: { flex: 1, color: colors.textMuted, fontSize: 11 },
+  pollQuestion: { color: colors.textPrimary, fontSize: 15, fontWeight: '700', marginBottom: spacing.md },
+  pollOptions: { gap: spacing.sm },
+  pollOption: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderRadius: radius.lg, backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 1, borderColor: colors.border },
+  pollOptionVoted: { borderColor: colors.primary + '60', backgroundColor: 'rgba(124,58,237,0.08)' },
+  pollOptionDim: { opacity: 0.5 },
+  pollOptionText: { flex: 1, color: colors.textPrimary, fontSize: 13, fontWeight: '500' },
+  pollBarBg: { position: 'absolute', left: 0, top: 0, bottom: 0, right: 0, borderRadius: radius.lg, overflow: 'hidden' },
+  pollBarFill: { height: '100%', borderRadius: radius.lg },
+  pollPct: { color: colors.textMuted, fontSize: 11, fontWeight: '600', minWidth: 32, textAlign: 'right' },
+
+  surveyCard: { flexDirection: 'row', alignItems: 'center', marginHorizontal: spacing.xl, marginBottom: spacing.sm, padding: spacing.lg, borderRadius: radius.xl, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border },
+  surveyLeft: { flex: 1, flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
+  surveyIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(124,58,237,0.12)', alignItems: 'center', justifyContent: 'center' },
+  surveyBody: { flex: 1 },
+  surveyTitle: { color: colors.textPrimary, fontSize: 14, fontWeight: '700', marginBottom: 4 },
+  surveyDesc: { color: colors.textMuted, fontSize: 12, marginBottom: 4 },
+  surveyMeta: { color: colors.textSecondary, fontSize: 11 },
+  surveyBtn: { paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, borderRadius: radius.full, backgroundColor: colors.primary },
+  surveyBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  surveyDoneText: { color: colors.success, fontSize: 13, fontWeight: '700' },
 
   challengeCard: { flexDirection: 'row', alignItems: 'center', marginHorizontal: spacing.xl, marginBottom: spacing.sm, padding: spacing.lg, borderRadius: radius.xl, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border, gap: spacing.md },
   challengeDone: { opacity: 0.6 },

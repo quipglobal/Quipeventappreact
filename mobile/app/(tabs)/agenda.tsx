@@ -1,114 +1,269 @@
-import React, { useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useState, useCallback } from 'react';
+import {
+  View,
+  Text,
+  FlatList,
+  StyleSheet,
+  TouchableOpacity,
+  Modal,
+  ScrollView,
+  Dimensions,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
 import { colors, spacing, radius, typography } from '@/constants/theme';
 
-const MOCK_SESSIONS = [
-  { id: 's1', time: '9:00 AM', duration: '60 min', title: 'Opening Keynote: The Future of AI', speaker: 'Dr. Sarah Chen', company: 'TechCorp Solutions', track: 'Main Stage', color: colors.primary },
-  { id: 's2', time: '10:30 AM', duration: '45 min', title: 'Scaling Engineering Teams in a Remote World', speaker: 'Marcus Johnson', company: 'InnovateLab', track: 'Engineering', color: '#06b6d4' },
-  { id: 's3', time: '11:30 AM', duration: '30 min', title: 'UX Research That Actually Influences Product', speaker: 'Priya Patel', company: 'DesignFlow', track: 'Design', color: '#ec4899' },
-  { id: 's4', time: '2:00 PM', duration: '60 min', title: 'ML Applications in Enterprise Products', speaker: 'Elena Rodriguez', company: 'QuantumLeap AI', track: 'AI/ML', color: '#10b981' },
-  { id: 's5', time: '3:30 PM', duration: '45 min', title: 'Cloud Infrastructure for Startups', speaker: 'James Wilson', company: 'CloudNine Systems', track: 'Engineering', color: '#f59e0b' },
+const { height: SH } = Dimensions.get('window');
+
+type Session = {
+  id: string; day: number; time: string; duration: string;
+  title: string; speaker: string; company: string;
+  track: string; color: string; room: string;
+  description: string; tags: string[];
+};
+
+const MOCK_SESSIONS: Session[] = [
+  { id: 's1', day: 0, time: '9:00 AM', duration: '60 min', title: 'Opening Keynote: The Future of AI', speaker: 'Dr. Sarah Chen', company: 'TechCorp', track: 'Main Stage', color: '#7c3aed', room: 'Main Hall', description: 'An exploration of how artificial intelligence is reshaping industries and the human experience.', tags: ['AI', 'Keynote', 'Innovation'] },
+  { id: 's2', day: 0, time: '10:30 AM', duration: '45 min', title: 'Scaling Engineering Teams in a Remote World', speaker: 'Marcus Johnson', company: 'InnovateLab', track: 'Engineering', color: '#06b6d4', room: 'Room A', description: 'Practical strategies for hiring, onboarding, and leading distributed engineering teams at scale.', tags: ['Remote', 'Leadership', 'Engineering'] },
+  { id: 's3', day: 0, time: '11:30 AM', duration: '30 min', title: 'UX Research That Influences Product', speaker: 'Priya Patel', company: 'DesignFlow', track: 'Design', color: '#ec4899', room: 'Room B', description: 'How to embed user research into the product development cycle to drive real business outcomes.', tags: ['UX', 'Design', 'Product'] },
+  { id: 's4', day: 0, time: '2:00 PM', duration: '60 min', title: 'ML Applications in Enterprise Products', speaker: 'Elena Rodriguez', company: 'QuantumLeap AI', track: 'AI/ML', color: '#10b981', room: 'Main Hall', description: 'Real-world deployments of machine learning models at enterprise scale with lessons learned.', tags: ['ML', 'Enterprise', 'AI'] },
+  { id: 's5', day: 0, time: '3:30 PM', duration: '45 min', title: 'Cloud Infrastructure for Startups', speaker: 'James Wilson', company: 'CloudNine Systems', track: 'Engineering', color: '#f59e0b', room: 'Room A', description: 'Cost-effective cloud architecture patterns for early-stage and growth-stage startups.', tags: ['Cloud', 'Startups', 'Infrastructure'] },
+  { id: 's6', day: 0, time: '5:00 PM', duration: '90 min', title: 'Networking Happy Hour', speaker: 'CXO Events Team', company: 'CXO Inc', track: 'Social', color: '#6366f1', room: 'Rooftop Terrace', description: 'Join fellow attendees for drinks and casual networking before the evening keynote.', tags: ['Networking', 'Social'] },
+
+  { id: 's7', day: 1, time: '9:00 AM', duration: '50 min', title: 'Startup Pitch Competition Finals', speaker: 'Panel of Judges', company: 'Multiple VCs', track: 'Startups', color: '#f43f5e', room: 'Innovation Stage', description: 'Top 10 startups pitch their ideas to a panel of top-tier venture capitalists and angel investors.', tags: ['Startups', 'Pitch', 'VC'] },
+  { id: 's8', day: 1, time: '10:30 AM', duration: '60 min', title: 'Sustainable Tech & ESG Imperative', speaker: 'Emma Wilson', company: 'GreenTech Inc', track: 'Sustainability', color: '#34d399', room: 'Room C', description: 'Why ESG reporting is now mission-critical and how technology companies can lead the transition.', tags: ['Sustainability', 'ESG', 'Green'] },
+  { id: 's9', day: 1, time: '2:00 PM', duration: '45 min', title: 'Building Developer Communities at Scale', speaker: 'Carlos Mendez', company: 'Stripe', track: 'Community', color: '#60a5fa', room: 'Room A', description: 'Lessons from building one of the world\'s largest developer ecosystems with >3M members.', tags: ['DevRel', 'Community', 'APIs'] },
+  { id: 's10', day: 1, time: '4:00 PM', duration: '60 min', title: 'Closing Keynote: What\'s Next', speaker: 'Aisha Kamara', company: 'Launchpad Inc', track: 'Main Stage', color: '#a78bfa', room: 'Main Hall', description: 'A forward-looking session on the trends that will define the next five years of tech.', tags: ['Trends', 'Future', 'Keynote'] },
+
+  { id: 's11', day: 2, time: '10:00 AM', duration: '120 min', title: 'Workshop: Building with GPT-4', speaker: 'Dev Sharma', company: 'Nexus Labs', track: 'Workshops', color: '#fb923c', room: 'Workshop Lab', description: 'Hands-on workshop. Bring your laptop. We\'ll build a production-ready AI feature end-to-end.', tags: ['Workshop', 'AI', 'Hands-on'] },
+  { id: 's12', day: 2, time: '2:00 PM', duration: '45 min', title: 'Founder Panel: Lessons from $0 to $100M', speaker: 'Multiple Founders', company: 'Various', track: 'Startups', color: '#fbbf24', room: 'Main Hall', description: 'Three founders share the unfiltered truth about what it takes to scale a company.', tags: ['Founders', 'Growth', 'Startups'] },
 ];
+
+const DAYS = ['Jan 16', 'Jan 17', 'Jan 18'];
+const TRACK_FILTERS = ['All', 'Main Stage', 'Engineering', 'AI/ML', 'Design', 'Startups', 'Workshops'];
 
 export default function AgendaScreen() {
   const insets = useSafeAreaInsets();
-  const { bookmarkedSessions, toggleBookmark } = useAuth();
+  const { bookmarkedSessions, toggleBookmark, showToast } = useAuth();
   const [activeDay, setActiveDay] = useState(0);
+  const [trackFilter, setTrackFilter] = useState('All');
+  const [selectedSession, setSelectedSession] = useState<Session | null>(null);
+  const [sheetVisible, setSheetVisible] = useState(false);
 
-  const days = ['Jan 16', 'Jan 17', 'Jan 18'];
+  const sessions = MOCK_SESSIONS.filter(
+    (s) => s.day === activeDay && (trackFilter === 'All' || s.track === trackFilter)
+  );
 
-  return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.xl }]}
-      showsVerticalScrollIndicator={false}
-    >
-      <Text style={styles.pageTitle}>Agenda</Text>
+  const openSession = useCallback((s: Session) => {
+    setSelectedSession(s);
+    setSheetVisible(true);
+  }, []);
 
-      <View style={styles.dayTabs}>
-        {days.map((day, i) => (
-          <TouchableOpacity
-            key={day}
-            style={[styles.dayTab, activeDay === i && styles.dayTabActive]}
-            onPress={() => setActiveDay(i)}
-          >
-            <Text style={[styles.dayTabText, activeDay === i && styles.dayTabTextActive]}>{day}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+  const closeSheet = useCallback(() => {
+    setSheetVisible(false);
+    setTimeout(() => setSelectedSession(null), 300);
+  }, []);
 
-      {MOCK_SESSIONS.map((session) => {
-        const bookmarked = bookmarkedSessions.includes(session.id);
-        return (
-          <View key={session.id} style={styles.sessionCard}>
-            <View style={[styles.trackBar, { backgroundColor: session.color }]} />
-            <View style={styles.sessionBody}>
-              <View style={styles.sessionMeta}>
-                <Text style={styles.sessionTime}>{session.time}</Text>
-                <Text style={styles.sessionDuration}>{session.duration}</Text>
-                <View style={styles.trackBadge}>
-                  <Text style={styles.trackBadgeText}>{session.track}</Text>
-                </View>
-              </View>
-              <Text style={styles.sessionTitle}>{session.title}</Text>
-              <View style={styles.sessionFooter}>
-                <Text style={styles.sessionSpeaker}>{session.speaker} · {session.company}</Text>
-                <TouchableOpacity onPress={() => toggleBookmark(session.id)} style={styles.bookmarkBtn}>
-                  <Text style={[styles.bookmarkIcon, bookmarked && { color: colors.warning }]}>
-                    {bookmarked ? '🔖' : '📌'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
+  const handleBookmark = useCallback((id: string) => {
+    const isBookmarked = bookmarkedSessions.includes(id);
+    toggleBookmark(id);
+    showToast(isBookmarked ? 'Removed from bookmarks' : 'Session bookmarked!');
+  }, [bookmarkedSessions, toggleBookmark, showToast]);
+
+  const renderSession = useCallback(({ item }: { item: Session }) => {
+    const bookmarked = bookmarkedSessions.includes(item.id);
+    return (
+      <TouchableOpacity style={styles.sessionCard} onPress={() => openSession(item)} activeOpacity={0.78}>
+        <View style={[styles.trackBar, { backgroundColor: item.color }]} />
+        <View style={styles.sessionBody}>
+          <View style={styles.sessionMeta}>
+            <Text style={styles.sessionTime}>{item.time}</Text>
+            <Text style={styles.sessionDur}>{item.duration}</Text>
+            <View style={[styles.trackBadge, { backgroundColor: item.color + '18', borderColor: item.color + '40' }]}>
+              <Text style={[styles.trackBadgeText, { color: item.color }]}>{item.track}</Text>
             </View>
           </View>
-        );
-      })}
-    </ScrollView>
+          <Text style={styles.sessionTitle} numberOfLines={2}>{item.title}</Text>
+          <View style={styles.sessionFooter}>
+            <View style={styles.speakerRow}>
+              <View style={[styles.speakerAvatar, { backgroundColor: item.color + '25' }]}>
+                <Text style={[styles.speakerAvatarText, { color: item.color }]}>{item.speaker[0]}</Text>
+              </View>
+              <Text style={styles.sessionSpeaker}>{item.speaker}</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.bookmarkBtn}
+              onPress={() => handleBookmark(item.id)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons
+                name={bookmarked ? 'bookmark' : 'bookmark-outline'}
+                size={18}
+                color={bookmarked ? '#f59e0b' : colors.textMuted}
+              />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  }, [bookmarkedSessions, handleBookmark, openSession]);
+
+  return (
+    <View style={[styles.root, { paddingTop: insets.top }]}>
+      <View style={styles.header}>
+        <Text style={styles.pageTitle}>Agenda</Text>
+
+        <View style={styles.dayTabs}>
+          {DAYS.map((day, i) => (
+            <TouchableOpacity
+              key={day}
+              style={[styles.dayTab, activeDay === i && styles.dayTabActive]}
+              onPress={() => setActiveDay(i)}
+            >
+              <Text style={[styles.dayTabText, activeDay === i && styles.dayTabTextActive]}>{day}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trackFilters}>
+          {TRACK_FILTERS.map((t) => (
+            <TouchableOpacity
+              key={t}
+              style={[styles.trackChip, trackFilter === t && styles.trackChipActive]}
+              onPress={() => setTrackFilter(t)}
+            >
+              <Text style={[styles.trackChipText, trackFilter === t && styles.trackChipTextActive]}>{t}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+
+      <FlatList
+        data={sessions}
+        keyExtractor={(s) => s.id}
+        renderItem={renderSession}
+        contentContainerStyle={styles.list}
+        showsVerticalScrollIndicator={false}
+        ListEmptyComponent={
+          <View style={styles.empty}>
+            <Ionicons name="calendar-outline" size={40} color={colors.textMuted} />
+            <Text style={styles.emptyText}>No sessions for this track</Text>
+          </View>
+        }
+      />
+
+      <Modal visible={sheetVisible} animationType="slide" transparent onRequestClose={closeSheet}>
+        <TouchableOpacity style={styles.backdrop} onPress={closeSheet} activeOpacity={1} />
+        {selectedSession && (
+          <View style={[styles.sheet, { paddingBottom: insets.bottom + 24 }]}>
+            <View style={styles.sheetHandle} />
+            <LinearGradient colors={[selectedSession.color + '30', '#0e0e1a']} style={styles.sheetHero}>
+              <View style={styles.sheetTopRow}>
+                <View style={[styles.sheetTrackBadge, { backgroundColor: selectedSession.color + '20', borderColor: selectedSession.color + '50' }]}>
+                  <Text style={[styles.sheetTrackText, { color: selectedSession.color }]}>{selectedSession.track}</Text>
+                </View>
+                <TouchableOpacity onPress={() => handleBookmark(selectedSession.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Ionicons
+                    name={bookmarkedSessions.includes(selectedSession.id) ? 'bookmark' : 'bookmark-outline'}
+                    size={22}
+                    color={bookmarkedSessions.includes(selectedSession.id) ? '#f59e0b' : colors.textMuted}
+                  />
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.sheetTitle}>{selectedSession.title}</Text>
+              <View style={styles.sheetMetaRow}>
+                <Ionicons name="time-outline" size={14} color={colors.textMuted} />
+                <Text style={styles.sheetMeta}>{selectedSession.time} · {selectedSession.duration}</Text>
+                <Ionicons name="location-outline" size={14} color={colors.textMuted} />
+                <Text style={styles.sheetMeta}>{selectedSession.room}</Text>
+              </View>
+            </LinearGradient>
+
+            <ScrollView style={styles.sheetBody}>
+              <View style={styles.sheetSpeakerRow}>
+                <View style={[styles.sheetSpeakerAvatar, { backgroundColor: selectedSession.color + '25' }]}>
+                  <Text style={[styles.sheetSpeakerInitial, { color: selectedSession.color }]}>{selectedSession.speaker[0]}</Text>
+                </View>
+                <View>
+                  <Text style={styles.sheetSpeakerName}>{selectedSession.speaker}</Text>
+                  <Text style={styles.sheetSpeakerCompany}>{selectedSession.company}</Text>
+                </View>
+              </View>
+
+              <Text style={styles.sheetDesc}>{selectedSession.description}</Text>
+
+              <View style={styles.sheetTags}>
+                {selectedSession.tags.map((tag) => (
+                  <View key={tag} style={styles.sheetTag}>
+                    <Text style={styles.sheetTagText}>{tag}</Text>
+                  </View>
+                ))}
+              </View>
+            </ScrollView>
+          </View>
+        )}
+      </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: spacing.xl, paddingBottom: 100 },
-  pageTitle: { color: colors.textPrimary, ...typography.h1, marginBottom: spacing.lg },
-  dayTabs: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xl },
-  dayTab: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.full,
-    backgroundColor: colors.bgCard,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
+  root: { flex: 1, backgroundColor: colors.bg },
+  header: { paddingHorizontal: spacing.xl, paddingTop: spacing.lg, paddingBottom: spacing.sm },
+  pageTitle: { color: colors.textPrimary, fontSize: 26, fontWeight: '800', marginBottom: spacing.lg },
+
+  dayTabs: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
+  dayTab: { paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, borderRadius: radius.full, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border },
   dayTabActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   dayTabText: { color: colors.textSecondary, fontSize: 13, fontWeight: '600' },
   dayTabTextActive: { color: '#fff' },
-  sessionCard: {
-    flexDirection: 'row',
-    borderRadius: radius.xl,
-    backgroundColor: colors.bgCard,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginBottom: spacing.md,
-    overflow: 'hidden',
-  },
+
+  trackFilters: { gap: spacing.sm, paddingBottom: spacing.md },
+  trackChip: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: radius.full, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border },
+  trackChipActive: { backgroundColor: 'rgba(124,58,237,0.18)', borderColor: colors.primary },
+  trackChipText: { color: colors.textSecondary, fontSize: 11, fontWeight: '600' },
+  trackChipTextActive: { color: colors.primary },
+
+  list: { paddingHorizontal: spacing.xl, paddingBottom: 100, gap: spacing.md },
+  sessionCard: { flexDirection: 'row', borderRadius: radius.xl, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
   trackBar: { width: 4 },
   sessionBody: { flex: 1, padding: spacing.lg },
   sessionMeta: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm },
   sessionTime: { color: colors.textSecondary, fontSize: 12, fontWeight: '600' },
-  sessionDuration: { color: colors.textMuted, fontSize: 11 },
-  trackBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: radius.full,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-  },
-  trackBadgeText: { color: colors.textMuted, fontSize: 10, fontWeight: '600' },
-  sessionTitle: { color: colors.textPrimary, fontSize: 14, fontWeight: '700', lineHeight: 20, marginBottom: spacing.sm },
+  sessionDur: { color: colors.textMuted, fontSize: 11 },
+  trackBadge: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: radius.full, borderWidth: 1 },
+  trackBadgeText: { fontSize: 10, fontWeight: '700' },
+  sessionTitle: { color: colors.textPrimary, fontSize: 14, fontWeight: '700', lineHeight: 20, marginBottom: spacing.md },
   sessionFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  speakerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 },
+  speakerAvatar: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  speakerAvatarText: { fontSize: 10, fontWeight: '700' },
   sessionSpeaker: { color: colors.textSecondary, fontSize: 12, flex: 1 },
   bookmarkBtn: { padding: 4 },
-  bookmarkIcon: { fontSize: 16, color: colors.textMuted },
+
+  empty: { alignItems: 'center', paddingVertical: 60, gap: spacing.md },
+  emptyText: { color: colors.textMuted, fontSize: 14 },
+
+  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.65)' },
+  sheet: { backgroundColor: '#0e0e1a', borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: SH * 0.8 },
+  sheetHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.18)', alignSelf: 'center', marginTop: 12 },
+  sheetHero: { padding: spacing.xl },
+  sheetTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
+  sheetTrackBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.full, borderWidth: 1 },
+  sheetTrackText: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
+  sheetTitle: { color: colors.textPrimary, fontSize: 18, fontWeight: '800', lineHeight: 26, marginBottom: spacing.md },
+  sheetMetaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  sheetMeta: { color: colors.textMuted, fontSize: 12 },
+  sheetBody: { padding: spacing.xl },
+  sheetSpeakerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.lg },
+  sheetSpeakerAvatar: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  sheetSpeakerInitial: { fontSize: 16, fontWeight: '700' },
+  sheetSpeakerName: { color: colors.textPrimary, fontSize: 15, fontWeight: '700' },
+  sheetSpeakerCompany: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+  sheetDesc: { color: colors.textSecondary, fontSize: 14, lineHeight: 22, marginBottom: spacing.lg },
+  sheetTags: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  sheetTag: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.full, backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: colors.border },
+  sheetTagText: { color: colors.textMuted, fontSize: 11, fontWeight: '600' },
 });

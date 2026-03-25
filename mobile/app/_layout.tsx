@@ -58,6 +58,10 @@ export default function RootLayout() {
                   <Stack.Screen name="(auth)/welcome" />
                   <Stack.Screen name="(tabs)" />
                   <Stack.Screen name="profile" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+                  <Stack.Screen name="meetings" />
+                  <Stack.Screen name="qr-badge" />
+                  <Stack.Screen name="switch-event" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+                  <Stack.Screen name="event-dashboard" />
                   <Stack.Screen name="+not-found" />
                 </Stack>
                 {!splashDone && (
