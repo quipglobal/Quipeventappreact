@@ -11,6 +11,7 @@ import {
   Platform,
   Dimensions,
   Image,
+  KeyboardTypeOptions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
@@ -444,7 +445,7 @@ function CreateAccount({ form, setForm, error, loading, onSubmit, onBack }: {
   onSubmit: () => void;
   onBack: () => void;
 }) {
-  const fields: Array<{ key: keyof typeof form; label: string; placeholder: string; keyboard?: any }> = [
+  const fields: Array<{ key: keyof typeof form; label: string; placeholder: string; keyboard?: KeyboardTypeOptions }> = [
     { key: 'name', label: 'FULL NAME', placeholder: 'Jane Doe' },
     { key: 'email', label: 'EMAIL', placeholder: 'jane@company.com', keyboard: 'email-address' },
     { key: 'title', label: 'JOB TITLE', placeholder: 'Product Manager' },
