@@ -12,9 +12,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
-import { useChallenges, usePolls, useSurveys, useGiveaways } from '@/hooks/useEngage';
+import { useChallenges, useCompleteChallenge, usePolls, useVotePoll, useSurveys, useSubmitSurvey, useGiveaways, useEnterGiveaway } from '@/hooks/useEngage';
 import { useLeaderboard } from '@/hooks/useAudience';
-import { useLeads } from '@/hooks/useLeads';
+import { useLeads, useSubmitScan } from '@/hooks/useLeads';
 import { DataState } from '@/components/DataState';
 import { colors, spacing, radius } from '@/constants/theme';
 
@@ -55,28 +55,34 @@ function AttendeeEngage() {
   const [pollVotes, setPollVotes] = useState<Record<string, string>>({});
   const [giveawayEntries, setGiveawayEntries] = useState<string[]>([]);
 
-  const { data: challengesData, isLoading: loadingChallenges, isError: errorChallenges, refetch: refetchChallenges } = useChallenges();
-  const { data: pollsData, isLoading: loadingPolls, isError: errorPolls, refetch: refetchPolls } = usePolls();
-  const { data: surveysData } = useSurveys();
-  const { data: giveawaysData } = useGiveaways();
+  const { data: challengesData = [], isLoading: loadingChallenges, isError: errorChallenges, refetch: refetchChallenges } = useChallenges();
+  const { data: pollsData = [], isLoading: loadingPolls, isError: errorPolls, refetch: refetchPolls } = usePolls();
+  const { data: surveysData = [] } = useSurveys();
+  const { data: giveawaysData = [] } = useGiveaways();
   const { data: leaderboardData = [] } = useLeaderboard();
+
+  const { mutate: completeChallengeMutation } = useCompleteChallenge();
+  const { mutate: votePollMutation } = useVotePoll();
+  const { mutate: submitSurveyMutation } = useSubmitSurvey();
+  const { mutate: enterGiveawayMutation } = useEnterGiveaway();
 
   const isLoading = loadingChallenges || loadingPolls;
   const isError = errorChallenges || errorPolls;
   const refetch = () => { refetchChallenges(); refetchPolls(); };
 
-  const challenges = challengesData?.length ? challengesData : MOCK_CHALLENGES;
-  const polls = pollsData?.length ? pollsData : MOCK_POLLS;
-  const surveys = surveysData?.length ? surveysData : MOCK_SURVEYS;
-  const giveaways = giveawaysData?.length ? giveawaysData : MOCK_GIVEAWAYS;
-  const leaderboard = leaderboardData.length ? leaderboardData : MOCK_LEADERBOARD;
+  const challenges = challengesData;
+  const polls = pollsData;
+  const surveys = surveysData;
+  const giveaways = giveawaysData;
+  const leaderboard = leaderboardData;
 
   const myRank = leaderboard.findIndex((l: { name: string }) => l.name === user?.name) + 1;
 
   const enterGiveaway = (id: string) => {
     if (giveawayEntries.includes(id)) return;
     setGiveawayEntries((prev) => [...prev, id]);
-    showToast('Entered giveaway! Good luck! 🎁', 10);
+    enterGiveawayMutation(id);
+    showToast('Entered giveaway! Good luck!', 10);
   };
 
   return (
@@ -150,7 +156,10 @@ function AttendeeEngage() {
             {!done && c.progress === c.total && (
               <TouchableOpacity
                 style={styles.claimBtn}
-                onPress={() => completeChallenge(c.id)}
+                onPress={() => {
+                  completeChallenge(c.id);
+                  completeChallengeMutation(c.id);
+                }}
               >
                 <Text style={styles.claimBtnText}>Claim</Text>
               </TouchableOpacity>
@@ -218,6 +227,7 @@ function AttendeeEngage() {
                           if (voted) return;
                           setPollVotes((p) => ({ ...p, [poll.id]: opt.id }));
                           markPollVoted(poll.id);
+                          votePollMutation({ pollId: poll.id, optionId: opt.id });
                           showToast(`Vote cast! +${poll.points} pts`, poll.points);
                         }}
                         disabled={!!voted}
@@ -255,7 +265,7 @@ function AttendeeEngage() {
                   </View>
                 </View>
                 {!done && (
-                  <TouchableOpacity style={styles.surveyBtn} onPress={() => { markSurveyDone(sv.id); showToast(`Survey submitted! +${sv.points} pts`, sv.points); }}>
+                  <TouchableOpacity style={styles.surveyBtn} onPress={() => { markSurveyDone(sv.id); submitSurveyMutation({ surveyId: sv.id, answers: {} }); showToast(`Survey submitted! +${sv.points} pts`, sv.points); }}>
                     <Text style={styles.surveyBtnText}>Start</Text>
                   </TouchableOpacity>
                 )}
@@ -306,28 +316,24 @@ const MOCK_LEADS = [
 function SponsorEngage() {
   const insets = useSafeAreaInsets();
   const [mode, setMode] = useState<'tools' | 'scanner' | 'leads' | 'draw'>('tools');
-  const [localLeads, setLocalLeads] = useState(MOCK_LEADS);
   const [scanning, setScanning] = useState(false);
   const [drawWinner, setDrawWinner] = useState<string | null>(null);
 
-  const { data: leadsData = [] } = useLeads();
-  const leads = leadsData.length > 0 ? leadsData : localLeads;
+  const { data: leadsData = [], refetch: refetchLeads } = useLeads();
+  const { mutate: submitScan } = useSubmitScan();
+  const leads = leadsData;
 
   const simulateScan = () => {
     setScanning(true);
     setTimeout(() => {
       setScanning(false);
-      const newLead = {
-        id: `l${Date.now()}`,
-        name: 'New Contact',
-        title: 'Director',
-        company: 'Demo Corp',
-        scannedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        color: '#f59e0b',
-        status: 'warm' as const,
-      };
-      setLocalLeads((prev) => [newLead, ...prev]);
-      Alert.alert('Lead Captured!', 'Contact saved to your leads list.');
+      submitScan(
+        { badgeData: `demo-${Date.now()}`, attendeeId: undefined },
+        {
+          onSuccess: () => { refetchLeads(); Alert.alert('Lead Captured!', 'Contact saved to your leads list.'); },
+          onError: () => Alert.alert('Scan Failed', 'Could not capture contact. Try again.'),
+        }
+      );
     }, 1500);
   };
 

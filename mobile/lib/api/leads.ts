@@ -20,7 +20,8 @@ export async function listLeads(): Promise<ApiResponse<Lead[]>> {
 }
 
 export interface ScanPayload {
-  attendeeId: string;
+  badgeData?: string;
+  attendeeId?: string;
   name?: string;
   company?: string;
   title?: string;

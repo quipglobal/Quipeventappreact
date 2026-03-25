@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
-import { useFeed } from '@/hooks/useFeed';
+import { useFeed, useMarkVideoWatched, useSubmitPollVote } from '@/hooks/useFeed';
 import { DataState } from '@/components/DataState';
 import { colors, spacing, radius, typography } from '@/constants/theme';
 
@@ -208,8 +208,10 @@ export default function FeedScreen() {
   const [visibleIds, setVisibleIds] = useState<string[]>([]);
 
   const { data, isLoading, isError, refetch, isFetchingNextPage, fetchNextPage, hasNextPage } = useFeed();
+  const { mutate: submitPollVote } = useSubmitPollVote();
+  const { mutate: markVideoWatched } = useMarkVideoWatched();
 
-  const feedItems: FeedItem[] = data?.items?.length ? data.items as FeedItem[] : MOCK_FEED;
+  const feedItems: FeedItem[] = data?.items ?? [];
 
   const onRefresh = useCallback(async () => {
     await refetch();
@@ -225,11 +227,17 @@ export default function FeedScreen() {
     if (pollVotes[pollId]) return;
     setPollVotes((p) => ({ ...p, [pollId]: optId }));
     markPollVoted(pollId);
-  }, [pollVotes, markPollVoted]);
+    submitPollVote({ pollId, optionId: optId });
+  }, [pollVotes, markPollVoted, submitPollVote]);
 
   const onViewableItemsChanged = useCallback(({ viewableItems }: any) => {
-    setVisibleIds(viewableItems.map((i: any) => i.item.id));
-  }, []);
+    const ids = viewableItems.map((i: any) => i.item.id) as string[];
+    setVisibleIds(ids);
+    ids.forEach((id) => {
+      const item = feedItems.find((f) => f.id === id);
+      if (item?.type === 'video') markVideoWatched(id);
+    });
+  }, [feedItems, markVideoWatched]);
 
   const renderItem = useCallback(({ item }: { item: FeedItem }) => {
     if (item.type === 'video') {

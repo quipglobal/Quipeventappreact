@@ -54,7 +54,7 @@ export default function AudienceScreen() {
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    return (attendeesData.length > 0 ? attendeesData : MOCK_ATTENDEES).filter((a) => {
+    return attendeesData.filter((a) => {
       const matchSearch =
         a.name.toLowerCase().includes(q) ||
         a.company.toLowerCase().includes(q) ||
@@ -116,7 +116,7 @@ export default function AudienceScreen() {
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Text style={styles.pageTitle}>Audience</Text>
-        <Text style={styles.subtitle}>{MOCK_ATTENDEES.length} attendees · Tech Summit 2026</Text>
+        <Text style={styles.subtitle}>{attendeesData.length > 0 ? `${attendeesData.length} attendees` : 'Attendees'} · Tech Summit 2026</Text>
       </View>
 
       <View style={styles.searchWrap}>

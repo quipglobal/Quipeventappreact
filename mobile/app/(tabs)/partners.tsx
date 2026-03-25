@@ -94,8 +94,7 @@ function AttendeePartners() {
   const [savedPartners, setSavedPartners] = useState<string[]>([]);
   const [activeFilter, setActiveFilter] = useState('All');
 
-  const { data: sponsorsData = [], isLoading, isError, refetch } = usePartners();
-  const sponsors = sponsorsData.length > 0 ? sponsorsData : MOCK_SPONSORS;
+  const { data: sponsors = [], isLoading, isError, refetch } = usePartners();
 
   const tiers = useMemo(() => ['All', ...TIER_ORDER.filter((t) => sponsors.some((s) => s.tier === t))], [sponsors]);
   const filtered = useMemo(() => activeFilter === 'All' ? sponsors : sponsors.filter((s) => s.tier === activeFilter), [sponsors, activeFilter]);
@@ -120,7 +119,7 @@ function AttendeePartners() {
     >
       <View style={styles.header}>
         <Text style={styles.pageTitle}>Partners</Text>
-        <Text style={styles.subtitle}>{sponsors.length} sponsors · Tech Summit 2026</Text>
+        <Text style={styles.subtitle}>{sponsors.length > 0 ? `${sponsors.length} sponsors` : 'Sponsors'} · Tech Summit 2026</Text>
       </View>
 
       <DataState

@@ -61,7 +61,6 @@ const ATTENDEES = [
 export default function MeetingsScreen() {
   const insets = useSafeAreaInsets();
   const { showToast } = useAuth();
-  const [localMeetings, setLocalMeetings] = useState<Meeting[]>(INITIAL_MEETINGS);
   const [tab, setTab] = useState<'all' | 'incoming' | 'outgoing'>('all');
   const [requestVisible, setRequestVisible] = useState(false);
   const [reqAttendee, setReqAttendee] = useState(ATTENDEES[0]);
@@ -73,27 +72,24 @@ export default function MeetingsScreen() {
   const { mutate: respond } = useRespondToMeeting();
   const { mutate: sendRequest } = useSendMeetingRequest();
 
-  const meetings = useMemo(() => meetingsData.length > 0
-    ? meetingsData.map((m) => ({
-        id: m.id,
-        with: m.attendee.name,
-        company: m.attendee.company,
-        title: m.attendee.title,
-        color: '#7c3aed',
-        time: m.proposedTime ?? '',
-        date: new Date(m.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        location: 'TBD',
-        note: m.message ?? '',
-        direction: m.type as 'incoming' | 'outgoing',
-        status: (m.status === 'accepted' ? 'confirmed' : m.status) as MeetingStatus,
-      }))
-    : localMeetings, [meetingsData, localMeetings]);
+  const meetings = useMemo(() => meetingsData.map((m) => ({
+    id: m.id,
+    with: m.attendee.name,
+    company: m.attendee.company,
+    title: m.attendee.title,
+    color: '#7c3aed',
+    time: m.proposedTime ?? '',
+    date: new Date(m.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+    location: 'TBD',
+    note: m.message ?? '',
+    direction: m.type as 'incoming' | 'outgoing',
+    status: (m.status === 'accepted' ? 'confirmed' : m.status) as MeetingStatus,
+  })), [meetingsData]);
 
   const filtered = useMemo(() => meetings.filter((m) => tab === 'all' || m.direction === tab), [meetings, tab]);
 
   const handleAccept = useCallback((id: string) => {
     respond({ meetingId: id, action: 'accept' });
-    setLocalMeetings((prev) => prev.map((m) => m.id === id ? { ...m, status: 'confirmed' } : m));
     showToast('Meeting confirmed!', 20);
   }, [showToast, respond]);
 
@@ -102,28 +98,15 @@ export default function MeetingsScreen() {
       { text: 'Cancel', style: 'cancel' },
       { text: 'Decline', style: 'destructive', onPress: () => {
         respond({ meetingId: id, action: 'decline' });
-        setLocalMeetings((prev) => prev.map((m) => m.id === id ? { ...m, status: 'declined' } : m));
       }},
     ]);
   }, [respond]);
 
   const handleSendRequest = useCallback(() => {
     if (!reqTime.trim()) { Alert.alert('Add a time preference'); return; }
-    const newMeeting: Meeting = {
-      id: `m-${Date.now()}`,
-      with: reqAttendee.name,
-      company: reqAttendee.company,
-      title: reqAttendee.title,
-      color: reqAttendee.color,
-      time: reqTime,
-      date: 'Jan 16',
-      location: reqLocation || 'TBD',
-      note: reqNote,
-      direction: 'outgoing',
-      status: 'pending',
-    };
-    setLocalMeetings((prev) => [newMeeting, ...prev]);
-    sendRequest({ attendeeId: reqAttendee.id, proposedTime: reqTime, message: reqNote });
+    sendRequest({ attendeeId: reqAttendee.id, proposedTime: reqTime, message: reqNote }, {
+      onSuccess: () => refetch(),
+    });
     setRequestVisible(false);
     setReqTime('');
     setReqNote('');

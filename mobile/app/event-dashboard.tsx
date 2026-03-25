@@ -46,7 +46,7 @@ export default function EventDashboardScreen() {
   const { user } = useAuth();
   const [myRank] = useState(14);
   const { data: leaderboardData = [] } = useLeaderboard();
-  const leaderboard = leaderboardData.length > 0 ? leaderboardData.slice(0, 3) : LEADERBOARD_PREVIEW;
+  const leaderboard = leaderboardData.slice(0, 3);
 
   return (
     <ScrollView
