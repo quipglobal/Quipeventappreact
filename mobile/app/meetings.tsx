@@ -17,6 +17,7 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
 import { useMeetings, useRespondToMeeting, useSendMeetingRequest } from '@/hooks/useMeetings';
+import { useAudience } from '@/hooks/useAudience';
 import { DataState } from '@/components/DataState';
 import { colors, spacing, radius, typography } from '@/constants/theme';
 
@@ -50,12 +51,10 @@ const STATUS_COLORS: Record<MeetingStatus, string> = {
   declined: '#ef4444',
 };
 
-const ATTENDEES = [
+const FALLBACK_ATTENDEES = [
   { id: 'a1', name: 'Dr. Sarah Chen', title: 'Chief AI Officer', company: 'TechCorp Solutions', color: '#6366f1' },
   { id: 'a2', name: 'Marcus Johnson', title: 'VP Engineering', company: 'InnovateLab', color: '#8b5cf6' },
   { id: 'a3', name: 'Priya Patel', title: 'Product Lead', company: 'DesignFlow', color: '#ec4899' },
-  { id: 'a4', name: 'James Wilson', title: 'CTO', company: 'CloudNine', color: '#f59e0b' },
-  { id: 'a5', name: 'Aisha Kamara', title: 'Growth Director', company: 'Launchpad Inc', color: '#06b6d4' },
 ];
 
 export default function MeetingsScreen() {
@@ -63,7 +62,7 @@ export default function MeetingsScreen() {
   const { showToast } = useAuth();
   const [tab, setTab] = useState<'all' | 'incoming' | 'outgoing'>('all');
   const [requestVisible, setRequestVisible] = useState(false);
-  const [reqAttendee, setReqAttendee] = useState(ATTENDEES[0]);
+  const [reqAttendeeId, setReqAttendeeId] = useState<string | null>(null);
   const [reqTime, setReqTime] = useState('');
   const [reqNote, setReqNote] = useState('');
   const [reqLocation, setReqLocation] = useState('');
@@ -71,6 +70,10 @@ export default function MeetingsScreen() {
   const { data: meetingsData = [], isLoading, isError, refetch } = useMeetings();
   const { mutate: respond } = useRespondToMeeting();
   const { mutate: sendRequest } = useSendMeetingRequest();
+  const { data: audienceData = [] } = useAudience();
+  const attendees = audienceData.length > 0
+    ? audienceData.map((a) => ({ id: a.id, name: a.name, title: a.title, company: a.company, color: '#7c3aed' }))
+    : FALLBACK_ATTENDEES;
 
   const meetings = useMemo(() => meetingsData.map((m) => ({
     id: m.id,
@@ -103,16 +106,19 @@ export default function MeetingsScreen() {
   }, [respond]);
 
   const handleSendRequest = useCallback(() => {
+    const selectedId = reqAttendeeId ?? attendees[0]?.id;
+    if (!selectedId) { Alert.alert('Select an attendee'); return; }
     if (!reqTime.trim()) { Alert.alert('Add a time preference'); return; }
-    sendRequest({ attendeeId: reqAttendee.id, proposedTime: reqTime, message: reqNote }, {
+    sendRequest({ attendeeId: selectedId, proposedTime: reqTime, message: reqNote }, {
       onSuccess: () => refetch(),
     });
     setRequestVisible(false);
+    setReqAttendeeId(null);
     setReqTime('');
     setReqNote('');
     setReqLocation('');
     showToast('Meeting request sent!', 15);
-  }, [reqAttendee, reqTime, reqNote, reqLocation, showToast]);
+  }, [reqAttendeeId, attendees, reqTime, reqNote, reqLocation, showToast, sendRequest, refetch]);
 
   const renderMeeting = useCallback(({ item }: { item: Meeting }) => (
     <View style={styles.card}>
@@ -219,18 +225,21 @@ export default function MeetingsScreen() {
           <ScrollView showsVerticalScrollIndicator={false}>
             <Text style={styles.sheetLabel}>WITH</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.attendeeRow}>
-              {ATTENDEES.map((a) => (
-                <TouchableOpacity
-                  key={a.id}
-                  style={[styles.attendeeChip, reqAttendee.id === a.id && styles.attendeeChipActive]}
-                  onPress={() => setReqAttendee(a)}
-                >
-                  <View style={[styles.chipAvatar, { backgroundColor: a.color + '25' }]}>
-                    <Text style={[styles.chipAvatarText, { color: a.color }]}>{a.name[0]}</Text>
-                  </View>
-                  <Text style={[styles.chipName, reqAttendee.id === a.id && styles.chipNameActive]}>{a.name.split(' ')[0]}</Text>
-                </TouchableOpacity>
-              ))}
+              {attendees.map((a) => {
+                const isSelected = (reqAttendeeId ?? attendees[0]?.id) === a.id;
+                return (
+                  <TouchableOpacity
+                    key={a.id}
+                    style={[styles.attendeeChip, isSelected && styles.attendeeChipActive]}
+                    onPress={() => setReqAttendeeId(a.id)}
+                  >
+                    <View style={[styles.chipAvatar, { backgroundColor: a.color + '25' }]}>
+                      <Text style={[styles.chipAvatarText, { color: a.color }]}>{a.name[0]}</Text>
+                    </View>
+                    <Text style={[styles.chipName, isSelected && styles.chipNameActive]}>{a.name.split(' ')[0]}</Text>
+                  </TouchableOpacity>
+                );
+              })}
             </ScrollView>
 
             <Text style={styles.sheetLabel}>TIME PREFERENCE</Text>
