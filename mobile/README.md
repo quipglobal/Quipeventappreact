@@ -37,7 +37,7 @@ eas login                    # Log in with your Expo account
 eas build:configure          # Creates/updates the projectId in app.json
 ```
 
-This will set the real `extra.eas.projectId` in `app.json`. The current placeholder `cxo-events-placeholder` **must** be replaced before builds will succeed.
+This links your local project to your Expo account. The `extra.eas.projectId` is already set to `83d2b604-c6aa-45fe-a707-16f09d2c578c` in `app.json`, so `eas login` followed by `eas build` is all that's needed.
 
 ## Building with EAS
 
