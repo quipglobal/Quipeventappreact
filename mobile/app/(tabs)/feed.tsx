@@ -81,6 +81,17 @@ function VideoCard({ item, isVisible }: { item: VideoItem; isVisible: boolean })
   const [showPlayer, setShowPlayer] = useState(false);
   const [playing, setPlaying] = useState(false);
 
+  React.useEffect(() => {
+    if (isVisible && !showPlayer) {
+      setShowPlayer(true);
+      setPlaying(true);
+    } else if (isVisible && showPlayer) {
+      videoRef.current?.playAsync().then(() => setPlaying(true)).catch(() => {});
+    } else if (!isVisible && showPlayer) {
+      videoRef.current?.pauseAsync().then(() => setPlaying(false)).catch(() => {});
+    }
+  }, [isVisible]);
+
   const handlePlay = useCallback(async () => {
     if (!showPlayer) { setShowPlayer(true); setPlaying(true); return; }
     if (playing) {
@@ -176,7 +187,7 @@ function PollCard({ item, votedOptionId, onVote }: { item: PollItem; votedOption
               </View>
               {hasVoted && (
                 <View style={styles.pollBar}>
-                  <View style={[styles.pollBarFill, { width: `${pct}%` as any, backgroundColor: selected ? colors.accent : 'rgba(255,255,255,0.12)' }]} />
+                  <View style={[styles.pollBarFill, { width: `${pct}%` as `${number}%`, backgroundColor: selected ? colors.accent : 'rgba(255,255,255,0.12)' }]} />
                 </View>
               )}
             </TouchableOpacity>

@@ -203,7 +203,7 @@ function AttendeeEngage() {
                         <Text style={[styles.pollOptionText, isVoted && { color: colors.primary }]}>{opt.text}</Text>
                         {voted && (
                           <View style={styles.pollBarBg}>
-                            <View style={[styles.pollBarFill, { width: `${pct}%`, backgroundColor: isVoted ? colors.primary : 'rgba(255,255,255,0.15)' }]} />
+                            <View style={[styles.pollBarFill, { width: `${pct}%` as `${number}%`, backgroundColor: isVoted ? colors.primary : 'rgba(255,255,255,0.15)' }]} />
                           </View>
                         )}
                         {voted && <Text style={styles.pollPct}>{Math.round(pct)}%</Text>}

@@ -90,7 +90,7 @@ export default function EventDashboardScreen() {
         {EVENT_STATS.map((stat) => (
           <View key={stat.label} style={[styles.statCard, { width: COL }]}>
             <View style={[styles.statIcon, { backgroundColor: stat.color + '20' }]}>
-              <Ionicons name={stat.icon as any} size={22} color={stat.color} />
+              <Ionicons name={stat.icon as React.ComponentProps<typeof Ionicons>['name']} size={22} color={stat.color} />
             </View>
             <Text style={styles.statValue}>{stat.value}</Text>
             <Text style={styles.statLabel}>{stat.label}</Text>
