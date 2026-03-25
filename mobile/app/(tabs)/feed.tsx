@@ -207,7 +207,7 @@ export default function FeedScreen() {
   const [pollVotes, setPollVotes] = useState<Record<string, string>>({});
   const [visibleIds, setVisibleIds] = useState<string[]>([]);
 
-  const { data, isLoading, isError, refetch, isFetchingNextPage, fetchNextPage, hasNextPage } = useFeed();
+  const { data, isLoading, isError, isRefetching, refetch, isFetchingNextPage, fetchNextPage, hasNextPage } = useFeed();
   const { mutate: submitPollVote } = useSubmitPollVote();
   const { mutate: markVideoWatched } = useMarkVideoWatched();
   const watchedVideoIds = React.useRef<Set<string>>(new Set());
@@ -277,7 +277,7 @@ export default function FeedScreen() {
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={isLoading} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />
+          <RefreshControl refreshing={isRefetching && !isLoading} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />
         }
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={{ itemVisiblePercentThreshold: 60 }}

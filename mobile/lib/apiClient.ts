@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? '';
+
 export const USE_MOCK = process.env.EXPO_PUBLIC_USE_MOCK_API !== 'false';
 
 let _unauthorizedHandler: (() => void) | null = null;
