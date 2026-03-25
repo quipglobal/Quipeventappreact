@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "scheme": "cxoevents",
+    "scheme": "cxoinc",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#07070F",
     "splash": {

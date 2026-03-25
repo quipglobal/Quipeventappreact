@@ -90,8 +90,8 @@ The app handles the following deep link schemes:
 
 | URL | Action |
 |-----|--------|
-| `cxoevents://join?code=EVENT123` | Opens switch-event screen with code pre-filled |
-| `cxoevents://switch-event?code=EVENT123` | Same — direct route |
+| `cxoinc://join?code=EVENT123` | Opens switch-event screen with code pre-filled |
+| `cxoinc://switch-event?code=EVENT123` | Same — direct route |
 | `https://cxoinc.com/join?code=EVENT123` | Universal link (iOS) / App Link (Android) — opens switch-event |
 
 ## Environment Variables

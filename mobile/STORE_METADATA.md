@@ -219,7 +219,7 @@ EXPO_PUBLIC_USE_MOCK_API=false
 
 | URL | Opens |
 |---|---|
-| `cxoevents://join?code=CXOSUMMIT26` | Switch Event screen with code pre-filled |
+| `cxoinc://join?code=CXOSUMMIT26` | Switch Event screen with code pre-filled |
 | `https://cxoinc.com/join?code=CXOSUMMIT26` | Same (universal link / app link) |
 
 Configure universal links (iOS) and app links (Android) by:
