@@ -114,6 +114,22 @@ const MOCK_USERS: Record<string, { user: AuthUser; token: string }> = {
 };
 
 const DEMO_OTP = '123456';
+const MOCK_SESSIONS_KEY = 'cxo_mock_sessions';
+
+async function getMockSessions(): Promise<Record<string, AuthUser>> {
+  try {
+    const raw = await AsyncStorage.getItem(MOCK_SESSIONS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+async function saveMockSession(token: string, user: AuthUser): Promise<void> {
+  const sessions = await getMockSessions();
+  sessions[token] = user;
+  await AsyncStorage.setItem(MOCK_SESSIONS_KEY, JSON.stringify(sessions));
+}
 
 export async function sendOtp(phone: string): Promise<ApiResponse<{ message: string }>> {
   if (USE_MOCK) {
@@ -170,7 +186,9 @@ export async function register(input: RegisterInput): Promise<ApiResponse<{ toke
       interests: [],
       profileComplete: true,
     };
-    return { success: true, data: { token: `mock-token-${digits}-new`, user } };
+    const token = `mock-token-${digits}-new`;
+    await saveMockSession(token, user);
+    return { success: true, data: { token, user } };
   }
   return request('/auth/register', { method: 'POST', body: JSON.stringify(input) });
 }
@@ -182,6 +200,8 @@ export async function getMe(): Promise<ApiResponse<AuthUser>> {
     if (!token) return { success: false, error: { code: 'NO_TOKEN', message: 'Not authenticated' } };
     const found = Object.values(MOCK_USERS).find((u) => u.token === token);
     if (found) return { success: true, data: found.user };
+    const sessions = await getMockSessions();
+    if (sessions[token]) return { success: true, data: sessions[token] };
     return { success: false, error: { code: 'INVALID_TOKEN', message: 'Token expired' } };
   }
   return request<AuthUser>('/auth/me');
