@@ -203,14 +203,33 @@ export default function FeedScreen() {
   const insets = useSafeAreaInsets();
   const { markPollVoted } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [feedItems, setFeedItems] = useState<FeedItem[]>(MOCK_FEED);
+  const [page, setPage] = useState(1);
   const [pollVotes, setPollVotes] = useState<Record<string, string>>({});
   const [visibleIds, setVisibleIds] = useState<string[]>([]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await new Promise<void>((r) => setTimeout(r, 1000));
+    setFeedItems(MOCK_FEED);
+    setPage(1);
     setRefreshing(false);
   }, []);
+
+  const onEndReached = useCallback(async () => {
+    if (loadingMore) return;
+    setLoadingMore(true);
+    await new Promise<void>((r) => setTimeout(r, 800));
+    const nextPage = page + 1;
+    const more: FeedItem[] = MOCK_FEED.map((item) => ({
+      ...item,
+      id: `${item.id}_p${nextPage}`,
+    }));
+    setFeedItems((prev) => [...prev, ...more]);
+    setPage(nextPage);
+    setLoadingMore(false);
+  }, [loadingMore, page]);
 
   const handleVote = useCallback((pollId: string, optId: string) => {
     if (pollVotes[pollId]) return;
@@ -245,7 +264,7 @@ export default function FeedScreen() {
         </View>
       </View>
       <FlatList
-        data={MOCK_FEED}
+        data={feedItems}
         keyExtractor={(i) => i.id}
         renderItem={renderItem}
         contentContainerStyle={styles.list}
@@ -255,6 +274,13 @@ export default function FeedScreen() {
         }
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={{ itemVisiblePercentThreshold: 60 }}
+        onEndReached={onEndReached}
+        onEndReachedThreshold={0.4}
+        ListFooterComponent={loadingMore ? (
+          <View style={styles.loadingMore}>
+            <Text style={styles.loadingMoreText}>Loading more...</Text>
+          </View>
+        ) : null}
       />
     </View>
   );
@@ -268,6 +294,8 @@ const styles = StyleSheet.create({
   livePulse: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#ef4444' },
   liveChipText: { color: '#ef4444', fontSize: 10, fontWeight: '800', letterSpacing: 1 },
   list: { padding: spacing.xl, paddingBottom: 100, gap: spacing.lg },
+  loadingMore: { paddingVertical: spacing.xl, alignItems: 'center' },
+  loadingMoreText: { color: colors.textMuted, fontSize: 12 },
 
   videoCard: { borderRadius: radius.xl, backgroundColor: colors.bgCard, borderWidth: 1, overflow: 'hidden' },
   videoThumb: { height: 190, position: 'relative', alignItems: 'center', justifyContent: 'center' },
