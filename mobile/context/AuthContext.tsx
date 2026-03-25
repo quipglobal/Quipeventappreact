@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AuthUser, getMe, setToken, clearToken } from '@/lib/apiClient';
+import { router } from 'expo-router';
+import { AuthUser, getMe, setToken, clearToken, setUnauthorizedHandler, clearUnauthorizedHandler } from '@/lib/apiClient';
 
 interface AppContextValue {
   user: AuthUser | null;
@@ -44,6 +45,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     restoreSession();
+  }, []);
+
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      setTokenState(null);
+      setUserState(null);
+      setCompletedChallenges([]);
+      setBookmarkedSessions([]);
+      setVotedPolls([]);
+      setCompletedSurveys([]);
+      router.replace('/(auth)/welcome');
+    });
+    return () => clearUnauthorizedHandler();
   }, []);
 
   async function restoreSession() {

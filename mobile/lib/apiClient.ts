@@ -3,6 +3,16 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? 'https://api.cxoinc.com/v1';
 const USE_MOCK = process.env.EXPO_PUBLIC_USE_MOCK_API !== 'false';
 
+let _unauthorizedHandler: (() => void) | null = null;
+
+export function setUnauthorizedHandler(handler: () => void): void {
+  _unauthorizedHandler = handler;
+}
+
+export function clearUnauthorizedHandler(): void {
+  _unauthorizedHandler = null;
+}
+
 const TOKEN_KEY = 'cxo_auth_token';
 
 export async function getToken(): Promise<string | null> {
@@ -38,6 +48,7 @@ async function request<T>(
     const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
     if (res.status === 401) {
       await clearToken();
+      _unauthorizedHandler?.();
       return { success: false, error: { code: 'UNAUTHORIZED', message: 'Session expired' } };
     }
     return res.json() as Promise<ApiResponse<T>>;
