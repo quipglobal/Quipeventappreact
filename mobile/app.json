@@ -1,0 +1,43 @@
+{
+  "expo": {
+    "name": "CXO Events",
+    "slug": "cxo-events",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/cxo-logo.png",
+    "scheme": "cxoevents",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/cxo-logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#07070F"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.cxoinc.events",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Used to scan attendee badges and QR codes."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/cxo-logo.png",
+        "backgroundColor": "#07070F"
+      },
+      "package": "com.cxoinc.events",
+      "permissions": ["android.permission.CAMERA"]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/cxo-logo.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

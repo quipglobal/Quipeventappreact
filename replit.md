@@ -1,61 +1,126 @@
-# Project Overview
+# CXO Inc. Event Companion App
 
-A React + Vite + TypeScript frontend application — an event companion app with multiple screens (splash, welcome, event join, home, agenda, events, leaderboard, profile, sponsors, surveys, polls, challenges, etc.).
+## Project Overview
 
-## Tech Stack
+Full-stack event companion platform with:
+- **Web App**: React + Vite + TypeScript (original web UI, runs on port 5000)
+- **Mobile App**: React Native (Expo SDK 52) with Expo Router (runs on port 8080 / Expo Go QR)
 
-- **Framework**: React 18 + TypeScript
-- **Build Tool**: Vite 6
-- **Styling**: Tailwind CSS v4 + CSS custom properties
-- **UI Libraries**: Radix UI, MUI, Lucide React, Recharts, Framer Motion
-- **State**: React Context (AppContext, ThemeContext)
+The mobile app is the primary product being developed. The web app at the root is the original reference implementation.
 
-## Project Layout
+---
+
+## Mobile App (Primary)
+
+**Location**: `/mobile/`
+
+### Tech Stack
+- **Framework**: React Native 0.76.3 + TypeScript
+- **Navigation**: Expo Router v4 (file-based routing)
+- **UI**: Custom dark cinematic theme, LinearGradient, Ionicons
+- **State**: React Context (AuthContext with gamification)
+- **API**: Custom fetch client with mock layer (`EXPO_PUBLIC_USE_MOCK_API`)
+- **Storage**: AsyncStorage (auth token)
+
+### Architecture
 
 ```
-src/
-  main.tsx          - Entry point
+mobile/
   app/
-    App.tsx         - Root component with screen flow & routing logic
-    components/     - All page/UI components
-      EventJoinPage.tsx - Post-login event join screen (code entry + event lists)
-    context/        - AppContext (user, event, gamification), ThemeContext
-    data/           - Static mock data
-    types/          - TypeScript types (config.ts has EventConfig, etc.)
-    utils/          - Utility helpers
-  styles/           - Global CSS (index, tailwind, theme, fonts)
+    _layout.tsx         - Root stack layout (fonts, providers, SplashScreen)
+    index.tsx           - Auth gate → redirect to (auth) or (tabs)
+    profile.tsx         - Profile modal screen
+    +not-found.tsx      - 404 screen
+    (auth)/
+      welcome.tsx       - Phone OTP login + registration
+    (tabs)/
+      _layout.tsx       - Role-aware bottom tabs (attendee vs sponsor)
+      feed.tsx          - Video/poll feed with live interactions
+      audience.tsx      - Searchable attendee directory
+      engage.tsx        - Gamification (attendee) / Sponsor tools (QR+leads+draw)
+      agenda.tsx        - Session schedule with bookmarking
+      partners.tsx      - Sponsor showcase with meeting booking
+  components/
+    auth/
+      WelcomeScreen.tsx - Complete phone OTP auth UI
+      OtpInput.tsx      - Custom 6-digit OTP input
+    ErrorBoundary.tsx   - Global error boundary
+    ToastNotification.tsx - Points toast animation
+  constants/
+    theme.ts            - Colors, spacing, radius, typography
+  context/
+    AuthContext.tsx     - Auth + gamification state (points, challenges, bookmarks)
+  lib/
+    apiClient.ts        - HTTP client + mock layer
 ```
 
-## Screen Flow
+### Tab Structure (Role-Based)
+- **Attendee tabs**: Feed · Audience · Engage · Agenda · Partners
+- **Sponsor tabs**: Feed · Audience · Scan Badge · Agenda · Leads
 
-`splash` → `welcome` (login) → `event-join` (enter code or browse events) → `main` (full app with bottom nav)
+### Screen Features
 
-- **Event Join Page**: After login, users must enter an event code or select an event from the upcoming/past lists. Entering a valid code calls `switchEvent(config)` + `joinEvent()` to set up the active event context. Clicking an event card calls `switchEvent(config)` and navigates to the event dashboard.
-- Valid mock event codes: `TECH26`, `DEVCON`, `SUMMIT`, `HEALTH`, `DESIGN`
-- Event codes are also used in `SwitchEventModal` for switching events within the app.
+**Feed**: Video session cards (live indicator, like/share), live poll voting with animated results, filter by sessions/polls, points display, profile avatar button
 
-## Navigation Architecture
+**Audience**: Full attendee list with search, connection requests, connection counter
 
-- **Global Header** (App.tsx): Sticky header with avatar, name, points, tier badge, search & bell icons. Shown on pages listed in `pagesWithGlobalHeader` (home, engage-audience, engage, agenda, partners, leaderboard, events, event-dashboard). Avatar tap navigates to profile.
-- **Bottom Nav** (BottomNav.tsx): Role-aware 5-tab layout. Reads `user.role` from AppContext.
-  - **Attendees**: Home, Audience, Engage (highlighted), Agenda, Partners
-  - **Sponsors**: Home, Audience, Scan Badge (highlighted), Agenda, Leads
-  - Hidden on sponsor sub-pages (booth, sponsor-event, sponsor-draw) and engage sub-pages except engage-audience.
-  - Sponsor role determined by email containing "sponsor" (mock logic in WelcomeScreen).
-- **Profile**: Accessible via avatar in global header. Bottom nav remains visible on profile page so users can navigate back.
-- **AudiencePage & SponsorsListPage**: `onBack` prop is optional. When used as main tabs (via bottom nav), no back button is shown. When navigated to from sub-pages, back button appears.
-- **MyQrCodeButton**: Floating QR button (bottom-right, above nav) on all main pages. Opens modal with client-side QR code (via `qrcode.react`) containing only user ID + event code. Save downloads PNG, Share uses Web Share API with clipboard fallback.
-- **MeetingsPage** (`meetings`): Two-tab screen — "Requests" (connection requests with accept/decline) and "Messages" (conversations from accepted connections). Accessible via MessageCircle icon in global header. State managed in AppContext: `connectionRequests`, `conversations`, `sendConnectionRequest`, `acceptConnection`, `declineConnection`, `sendMessage`.
-- **Sponsor Giveaways**: LeadsPage has two tabs — "Leads" and "Giveaways". Sponsors can add giveaways with title, number of items, and uploaded picture. State in AppContext: `sponsorGiveaways`, `addSponsorGiveaway`, `removeSponsorGiveaway`. Sponsor-created giveaways also appear in the attendee-facing GiveawaysPage under "Sponsor Specials" section.
-- **Lucky Draw** (SponsorDrawPage): Sponsors select a giveaway from their created giveaways, then draw a winner. Eligible pool: scanned leads (primary), falls back to checked-in attendees if no leads exist. Pool source shown with indicator. Giveaway selection required when giveaways exist.
+**Engage (Attendee)**: Points + tier progress card, challenges with progress bars and claim, leaderboard top-5 with medals, giveaway draw entry
 
-## Dev Server
+**Engage (Sponsor)**: Stats dashboard (leads/visits/engagement), QR scanner with simulated scan, leads list with hot/warm/cold status, lucky draw with random winner picker, analytics placeholder
 
-- Host: `0.0.0.0`, Port: `5000`
-- Command: `npm run dev`
-- Vite config sets `allowedHosts: true` for Replit proxy compatibility
+**Agenda**: Day-tab session schedule with track color coding, bookmarking
 
-## Deployment
+**Partners**: Tier-filtered sponsor cards with giveaway info, bookmark, book meeting, website
 
-- Target: **static** (pure client-side SPA)
-- Build: `npm run build` → outputs to `dist/`
+**Profile**: Avatar with tier ring, stats (points/challenges/bookmarks), preferences toggles (notifications, reminders), event info (venue/WiFi), logout
+
+### Authentication
+- Phone number → OTP flow (6-digit)
+- Mock phone numbers: `5550000001` (Jessica/attendee, Silver), `5550000002` (Michael/attendee, Gold), `8156699646` (Alex/attendee, Bronze), `5550009999` (Sarah/sponsor)
+- Demo OTP: `123456`
+- New phone = registration form (name, email, title, company)
+
+### Environment Variables
+| Variable | Purpose | Default |
+|---|---|---|
+| `EXPO_PUBLIC_USE_MOCK_API` | Use mock data (`true`) or real API | `true` |
+| `EXPO_PUBLIC_API_BASE_URL` | Laravel backend URL | `https://api.cxoinc.com/v1` |
+
+### Workflows
+- **Start Mobile**: `cd mobile && npx expo start --web --port 8080` (console mode)
+  - Web preview: switch to port 8080 in Replit preview pane
+  - Device testing: scan QR code with Expo Go app
+- **Start application**: `npm run dev` (web app, port 5000)
+
+---
+
+## Web App (Legacy Reference)
+
+**Location**: Root `/`
+- React 18 + Vite + TypeScript + Tailwind CSS
+- Mock event codes: `TECH26`, `DEVCON`, `SUMMIT`, `HEALTH`, `DESIGN`
+- Port: 5000
+
+---
+
+## Backend
+
+- **Laravel PHP 8.4** at `https://bef44c34-7df5-4c09-93a2-5684b5888527-00-3s6pvdiz19h8o.spock.replit.dev/`
+- Note: CORS must be configured on backend before enabling live API (set `EXPO_PUBLIC_USE_MOCK_API=false`)
+
+---
+
+## Deployment Target
+
+- **iOS App Store** + **Google Play Store** via EAS Build (Expo Application Services)
+- Bundle ID: `com.cxoinc.events`
+- App name: CXO Events
+
+---
+
+## npm Install Notes
+
+Always use `--legacy-peer-deps` flag when installing packages in `/mobile`:
+```bash
+cd mobile && npm install <package> --legacy-peer-deps
+```
