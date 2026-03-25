@@ -13,6 +13,7 @@ import {
   Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { OtpInput } from './OtpInput';
 import { sendOtp, verifyOtp, register, AuthUser } from '@/lib/apiClient';
@@ -133,6 +134,7 @@ export function WelcomeScreen() {
   const handleProfileConfirm = async () => {
     if (!resolvedUser) return;
     await login(resolvedToken, resolvedUser);
+    router.replace('/(tabs)/feed');
   };
 
   const handleCreateAccount = useCallback(async () => {
@@ -147,6 +149,7 @@ export function WelcomeScreen() {
     setCreateLoading(false);
     if (!res.success || !res.data) { setCreateError(res.error?.message ?? 'Registration failed.'); return; }
     await login(res.data.token, res.data.user);
+    router.replace('/(tabs)/feed');
   }, [createForm, phoneDigits, login]);
 
   const sheetTranslate = sheetAnim.interpolate({

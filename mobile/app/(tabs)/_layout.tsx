@@ -1,9 +1,11 @@
+import { useRef } from 'react';
 import { Tabs, Redirect } from 'expo-router';
 import { Platform, View, StyleSheet } from 'react-native';
+import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
+import { useTheme } from '@/context/ThemeContext';
 import { ToastNotification } from '@/components/ToastNotification';
-import { colors } from '@/constants/theme';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -30,12 +32,27 @@ const SPONSOR_TABS: TabConfig[] = [
   { name: 'partners', title: 'Leads', icon: 'list-outline', iconFocused: 'list' },
 ];
 
+function GlassTabBar({ style }: { style?: any }) {
+  if (Platform.OS === 'web') return null;
+  return (
+    <BlurView
+      intensity={80}
+      tint="dark"
+      style={[StyleSheet.absoluteFill, style]}
+    />
+  );
+}
+
 export default function TabsLayout() {
   const { user, toast } = useAuth();
+  const { colors, spacing } = useTheme();
 
   if (!user) return <Redirect href="/(auth)/welcome" />;
 
   const tabs = user.role === 'sponsor' ? SPONSOR_TABS : ATTENDEE_TABS;
+
+  const tabBarHeight = Platform.OS === 'ios' ? 84 : 64;
+  const tabBarPaddingBottom = Platform.OS === 'ios' ? 28 : 8;
 
   return (
     <View style={styles.root}>
@@ -44,13 +61,24 @@ export default function TabsLayout() {
         screenOptions={{
           headerShown: false,
           tabBarStyle: {
-            backgroundColor: 'rgba(7,7,15,0.97)',
+            position: 'absolute',
+            backgroundColor: Platform.OS === 'web'
+              ? 'rgba(7,7,15,0.97)'
+              : 'transparent',
             borderTopColor: 'rgba(255,255,255,0.08)',
-            borderTopWidth: 1,
-            height: Platform.OS === 'ios' ? 84 : 64,
-            paddingBottom: Platform.OS === 'ios' ? 28 : 8,
+            borderTopWidth: 0.5,
+            height: tabBarHeight,
+            paddingBottom: tabBarPaddingBottom,
             paddingTop: 8,
           },
+          tabBarBackground: () =>
+            Platform.OS !== 'web' ? (
+              <BlurView
+                intensity={90}
+                tint="dark"
+                style={StyleSheet.absoluteFill}
+              />
+            ) : null,
           tabBarActiveTintColor: colors.primary,
           tabBarInactiveTintColor: 'rgba(255,255,255,0.35)',
           tabBarLabelStyle: {
@@ -83,5 +111,5 @@ export default function TabsLayout() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.bg },
+  root: { flex: 1, backgroundColor: '#07070F' },
 });
