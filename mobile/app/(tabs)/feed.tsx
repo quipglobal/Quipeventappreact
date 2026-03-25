@@ -210,6 +210,7 @@ export default function FeedScreen() {
   const { data, isLoading, isError, refetch, isFetchingNextPage, fetchNextPage, hasNextPage } = useFeed();
   const { mutate: submitPollVote } = useSubmitPollVote();
   const { mutate: markVideoWatched } = useMarkVideoWatched();
+  const watchedVideoIds = React.useRef<Set<string>>(new Set());
 
   const feedItems: FeedItem[] = data?.items ?? [];
 
@@ -235,7 +236,10 @@ export default function FeedScreen() {
     setVisibleIds(ids);
     ids.forEach((id) => {
       const item = feedItems.find((f) => f.id === id);
-      if (item?.type === 'video') markVideoWatched(id);
+      if (item?.type === 'video' && !watchedVideoIds.current.has(id)) {
+        watchedVideoIds.current.add(id);
+        markVideoWatched(id);
+      }
     });
   }, [feedItems, markVideoWatched]);
 

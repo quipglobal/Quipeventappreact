@@ -49,11 +49,16 @@ export async function request<T>(
     if (res.status === 401) {
       await clearToken();
       _unauthorizedHandler?.();
-      return { success: false, error: { code: 'UNAUTHORIZED', message: 'Session expired' } };
+      throw new Error('Session expired. Please log in again.');
     }
-    return res.json() as Promise<ApiResponse<T>>;
-  } catch {
-    return { success: false, error: { code: 'NETWORK_ERROR', message: 'Network request failed' } };
+    const json: ApiResponse<T> = await res.json();
+    if (!json.success) {
+      throw new Error(json.error?.message ?? 'Request failed');
+    }
+    return json;
+  } catch (err) {
+    if (err instanceof Error) throw err;
+    throw new Error('Network request failed');
   }
 }
 
