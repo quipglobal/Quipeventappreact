@@ -225,4 +225,4 @@ EXPO_PUBLIC_USE_MOCK_API=false
 Configure universal links (iOS) and app links (Android) by:
 1. Hosting `/.well-known/apple-app-site-association` on `cxoinc.com`
 2. Hosting `/.well-known/assetlinks.json` on `cxoinc.com`
-3. Replacing `"cxo-events-placeholder"` in `app.json` → `extra.eas.projectId` with the real EAS project ID after running `eas build:configure`
+3. Confirming `app.json` → `extra.eas.projectId` is set (currently `83d2b604-c6aa-45fe-a707-16f09d2c578c`) and running `eas login` before builds

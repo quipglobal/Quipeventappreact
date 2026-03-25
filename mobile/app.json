@@ -37,8 +37,7 @@
       "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "android.permission.CAMERA",
-        "android.permission.VIBRATE",
-        "android.permission.READ_EXTERNAL_STORAGE"
+        "android.permission.VIBRATE"
       ],
       "intentFilters": [
         {
