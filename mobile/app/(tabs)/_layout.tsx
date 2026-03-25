@@ -1,4 +1,3 @@
-import { useRef } from 'react';
 import { Tabs, Redirect } from 'expo-router';
 import { Platform, View, StyleSheet } from 'react-native';
 import { BlurView } from 'expo-blur';
@@ -31,17 +30,6 @@ const SPONSOR_TABS: TabConfig[] = [
   { name: 'agenda', title: 'Agenda', icon: 'calendar-outline', iconFocused: 'calendar' },
   { name: 'partners', title: 'Leads', icon: 'list-outline', iconFocused: 'list' },
 ];
-
-function GlassTabBar({ style }: { style?: any }) {
-  if (Platform.OS === 'web') return null;
-  return (
-    <BlurView
-      intensity={80}
-      tint="dark"
-      style={[StyleSheet.absoluteFill, style]}
-    />
-  );
-}
 
 export default function TabsLayout() {
   const { user, toast } = useAuth();

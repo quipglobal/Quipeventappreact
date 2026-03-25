@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { useEffect, useState } from 'react';
+import { StyleSheet } from 'react-native';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
@@ -10,6 +10,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from '@/context/AuthContext';
 import { ThemeProvider } from '@/context/ThemeContext';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { AppSplashScreen } from '@/components/AppSplashScreen';
 import { colors } from '@/constants/theme';
 
 SplashScreen.preventAutoHideAsync();
@@ -28,6 +29,7 @@ export default function RootLayout() {
     Inter_600SemiBold,
     Inter_700Bold,
   });
+  const [splashDone, setSplashDone] = useState(false);
 
   useEffect(() => {
     if (fontsLoaded || fontError) {
@@ -43,22 +45,25 @@ export default function RootLayout() {
         <SafeAreaProvider>
           <QueryClientProvider client={queryClient}>
             <ThemeProvider>
-            <AuthProvider>
-              <StatusBar style="light" />
-              <Stack
-                screenOptions={{
-                  headerShown: false,
-                  contentStyle: { backgroundColor: colors.bg },
-                  animation: 'fade',
-                }}
-              >
-                <Stack.Screen name="index" />
-                <Stack.Screen name="(auth)/welcome" />
-                <Stack.Screen name="(tabs)" />
-                <Stack.Screen name="profile" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-                <Stack.Screen name="+not-found" />
-              </Stack>
-            </AuthProvider>
+              <AuthProvider>
+                <StatusBar style="light" />
+                <Stack
+                  screenOptions={{
+                    headerShown: false,
+                    contentStyle: { backgroundColor: colors.bg },
+                    animation: 'fade',
+                  }}
+                >
+                  <Stack.Screen name="index" />
+                  <Stack.Screen name="(auth)/welcome" />
+                  <Stack.Screen name="(tabs)" />
+                  <Stack.Screen name="profile" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+                  <Stack.Screen name="+not-found" />
+                </Stack>
+                {!splashDone && (
+                  <AppSplashScreen onFinish={() => setSplashDone(true)} />
+                )}
+              </AuthProvider>
             </ThemeProvider>
           </QueryClientProvider>
         </SafeAreaProvider>
