@@ -43,7 +43,7 @@ export async function joinEventByCode(code: string): Promise<ApiResponse<Event>>
   if (USE_MOCK) {
     await delay(1000);
     const event = MOCK_EVENTS.find((e) => e.code === code.toUpperCase());
-    if (!event) return { success: false, error: { code: 'NOT_FOUND', message: 'No event found with that code' } };
+    if (!event) throw new Error(`No event found for code "${code.toUpperCase()}"`);
     return { success: true, data: event };
   }
   return request<Event>('/api/events/join', { method: 'POST', body: JSON.stringify({ code }) });

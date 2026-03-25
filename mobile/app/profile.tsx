@@ -15,6 +15,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
+import { useUserPoints } from '@/hooks/useEvents';
 import { colors, spacing, radius } from '@/constants/theme';
 
 const TIER_COLORS: Record<string, string> = {
@@ -30,7 +31,10 @@ export default function ProfileScreen() {
   const [notifications, setNotifications] = useState(true);
   const [sessionReminders, setSessionReminders] = useState(true);
 
-  const tierColor = user?.tier ? TIER_COLORS[user.tier] ?? colors.primary : colors.primary;
+  const { data: pointsData } = useUserPoints();
+  const livePoints = pointsData?.points ?? user?.points ?? 0;
+  const liveTier = pointsData?.tier ?? user?.tier ?? 'Bronze';
+  const tierColor = TIER_COLORS[liveTier] ?? colors.primary;
   const qrData = JSON.stringify({ id: user?.id, name: user?.name, event: 'cxo-summit-2026' });
 
   const handleLogout = () => {
@@ -75,7 +79,7 @@ export default function ProfileScreen() {
 
         <View style={styles.statsRow}>
           <View style={styles.statItem}>
-            <Text style={styles.statValue}>{user?.points ?? 0}</Text>
+            <Text style={styles.statValue}>{livePoints}</Text>
             <Text style={styles.statLabel}>Points</Text>
           </View>
           <View style={styles.statDivider} />
@@ -97,7 +101,7 @@ export default function ProfileScreen() {
 
         <View style={[styles.tierPill, { borderColor: tierColor + '44', backgroundColor: tierColor + '15' }]}>
           <View style={[styles.tierDot, { backgroundColor: tierColor }]} />
-          <Text style={[styles.tierText, { color: tierColor }]}>{user?.tier ?? 'Bronze'} Tier</Text>
+          <Text style={[styles.tierText, { color: tierColor }]}>{liveTier} Tier</Text>
         </View>
       </LinearGradient>
 

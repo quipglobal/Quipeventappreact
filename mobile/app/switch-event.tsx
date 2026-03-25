@@ -9,39 +9,45 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useEvents, useJoinEvent } from '@/hooks/useEvents';
+import { DataState } from '@/components/DataState';
 import { colors, spacing, radius } from '@/constants/theme';
-
-const RECENT_EVENTS = [
-  { code: 'CXOSUMMIT26', name: 'CXO Tech Summit 2026', date: 'Jan 16–18, 2026', location: 'San Francisco, CA', active: true },
-  { code: 'STARTUPX25', name: 'StartupX Conference 2025', date: 'Nov 10–12, 2025', location: 'New York, NY', active: false },
-  { code: 'AIWORLD25', name: 'AI World Expo 2025', date: 'Sep 5–7, 2025', location: 'Austin, TX', active: false },
-];
 
 export default function SwitchEventScreen() {
   const insets = useSafeAreaInsets();
   const [code, setCode] = useState('');
-  const [loading, setLoading] = useState(false);
 
-  const handleJoin = async () => {
+  const { data: events = [], isLoading: eventsLoading, isError: eventsError, refetch } = useEvents();
+  const { mutate: joinEvent, isPending: joining } = useJoinEvent();
+
+  const handleJoin = () => {
     if (!code.trim()) { Alert.alert('Enter an event code'); return; }
-    setLoading(true);
-    await new Promise((r) => setTimeout(r, 1200));
-    setLoading(false);
-    Alert.alert('Event Not Found', `No event found for code "${code.toUpperCase()}". Check the code and try again.`);
+    joinEvent(code.trim(), {
+      onSuccess: (res) => {
+        const event = res.data;
+        Alert.alert('Event Joined!', `You have joined "${event?.name}".`, [
+          { text: 'OK', onPress: () => router.back() },
+        ]);
+      },
+      onError: (err) => {
+        Alert.alert('Event Not Found', err.message ?? `No event found for code "${code.toUpperCase()}".`);
+      },
+    });
   };
 
-  const handleSelectRecent = (event: typeof RECENT_EVENTS[0]) => {
-    if (event.active) {
-      Alert.alert('Already Here', 'You are already registered for this event.');
+  const handleSelectEvent = (event: NonNullable<typeof events>[0]) => {
+    if (event.status === 'live') {
+      Alert.alert('Already Here', 'You are currently in this event.');
       return;
     }
-    Alert.alert('Join Event', `Switch to "${event.name}"?\n\nYou can switch back at any time.`, [
+    Alert.alert('Switch Event', `Switch to "${event.name}"?\n\nYou can switch back at any time.`, [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Switch', onPress: () => { router.back(); } },
+      { text: 'Switch', onPress: () => router.back() },
     ]);
   };
 
@@ -62,7 +68,7 @@ export default function SwitchEventScreen() {
               <Ionicons name="swap-horizontal" size={32} color={colors.primary} />
             </View>
             <Text style={styles.heroTitle}>Join a Different Event</Text>
-            <Text style={styles.heroSub}>Enter your event code to access a new event, or select from your recent events below.</Text>
+            <Text style={styles.heroSub}>Enter your event code to access a new event, or select from your events below.</Text>
           </View>
 
           <Text style={styles.label}>EVENT CODE</Text>
@@ -79,11 +85,14 @@ export default function SwitchEventScreen() {
               onSubmitEditing={handleJoin}
             />
             <TouchableOpacity
-              style={[styles.joinBtn, loading && { opacity: 0.6 }]}
+              style={[styles.joinBtn, joining && { opacity: 0.6 }]}
               onPress={handleJoin}
-              disabled={loading}
+              disabled={joining}
             >
-              <Text style={styles.joinBtnText}>{loading ? '...' : 'Join'}</Text>
+              {joining
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <Text style={styles.joinBtnText}>Join</Text>
+              }
             </TouchableOpacity>
           </View>
 
@@ -94,34 +103,44 @@ export default function SwitchEventScreen() {
           </View>
 
           <Text style={styles.label}>YOUR EVENTS</Text>
+
+          <DataState
+            loading={eventsLoading}
+            error={eventsError ? 'Failed to load events.' : null}
+            onRetry={refetch}
+          />
+
           <View style={styles.eventsList}>
-            {RECENT_EVENTS.map((event) => (
-              <TouchableOpacity
-                key={event.code}
-                style={[styles.eventCard, event.active && styles.eventCardActive]}
-                onPress={() => handleSelectRecent(event)}
-                activeOpacity={0.75}
-              >
-                <View style={styles.eventLeft}>
-                  <View style={[styles.eventIcon, { backgroundColor: event.active ? colors.primary + '25' : 'rgba(255,255,255,0.06)' }]}>
-                    <Ionicons name="calendar" size={18} color={event.active ? colors.primary : colors.textMuted} />
-                  </View>
-                  <View style={styles.eventInfo}>
-                    <View style={styles.eventNameRow}>
-                      <Text style={styles.eventName} numberOfLines={1}>{event.name}</Text>
-                      {event.active && (
-                        <View style={styles.activeBadge}>
-                          <Text style={styles.activeBadgeText}>CURRENT</Text>
-                        </View>
-                      )}
+            {events.map((event) => {
+              const isActive = event.status === 'live';
+              return (
+                <TouchableOpacity
+                  key={event.id}
+                  style={[styles.eventCard, isActive && styles.eventCardActive]}
+                  onPress={() => handleSelectEvent(event)}
+                  activeOpacity={0.75}
+                >
+                  <View style={styles.eventLeft}>
+                    <View style={[styles.eventIcon, { backgroundColor: isActive ? colors.primary + '25' : 'rgba(255,255,255,0.06)' }]}>
+                      <Ionicons name="calendar" size={18} color={isActive ? colors.primary : colors.textMuted} />
                     </View>
-                    <Text style={styles.eventDate}>{event.date}</Text>
-                    <Text style={styles.eventLocation}>{event.location}</Text>
+                    <View style={styles.eventInfo}>
+                      <View style={styles.eventNameRow}>
+                        <Text style={styles.eventName} numberOfLines={1}>{event.name}</Text>
+                        {isActive && (
+                          <View style={styles.activeBadge}>
+                            <Text style={styles.activeBadgeText}>CURRENT</Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={styles.eventDate}>{event.startDate} – {event.endDate}</Text>
+                      <Text style={styles.eventLocation}>{event.location}</Text>
+                    </View>
                   </View>
-                </View>
-                <Ionicons name="chevron-forward" size={16} color={event.active ? colors.primary : colors.textMuted} />
-              </TouchableOpacity>
-            ))}
+                  <Ionicons name="chevron-forward" size={16} color={isActive ? colors.primary : colors.textMuted} />
+                </TouchableOpacity>
+              );
+            })}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -158,7 +177,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     letterSpacing: 1,
   },
-  joinBtn: { paddingHorizontal: 24, borderRadius: radius.xl, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  joinBtn: { paddingHorizontal: 24, borderRadius: radius.xl, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', minWidth: 64 },
   joinBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
 
   dividerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.xl },
