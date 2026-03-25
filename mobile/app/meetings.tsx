@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
+import { useMeetings, useRespondToMeeting, useSendMeetingRequest } from '@/hooks/useMeetings';
+import { DataState } from '@/components/DataState';
 import { colors, spacing, radius, typography } from '@/constants/theme';
 
 const { height: SH } = Dimensions.get('window');
@@ -59,7 +61,7 @@ const ATTENDEES = [
 export default function MeetingsScreen() {
   const insets = useSafeAreaInsets();
   const { showToast } = useAuth();
-  const [meetings, setMeetings] = useState<Meeting[]>(INITIAL_MEETINGS);
+  const [localMeetings, setLocalMeetings] = useState<Meeting[]>(INITIAL_MEETINGS);
   const [tab, setTab] = useState<'all' | 'incoming' | 'outgoing'>('all');
   const [requestVisible, setRequestVisible] = useState(false);
   const [reqAttendee, setReqAttendee] = useState(ATTENDEES[0]);
@@ -67,21 +69,43 @@ export default function MeetingsScreen() {
   const [reqNote, setReqNote] = useState('');
   const [reqLocation, setReqLocation] = useState('');
 
-  const filtered = meetings.filter((m) => tab === 'all' || m.direction === tab);
+  const { data: meetingsData = [], isLoading, isError, refetch } = useMeetings();
+  const { mutate: respond } = useRespondToMeeting();
+  const { mutate: sendRequest } = useSendMeetingRequest();
+
+  const meetings = useMemo(() => meetingsData.length > 0
+    ? meetingsData.map((m) => ({
+        id: m.id,
+        with: m.attendee.name,
+        company: m.attendee.company,
+        title: m.attendee.title,
+        color: '#7c3aed',
+        time: m.proposedTime ?? '',
+        date: new Date(m.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        location: 'TBD',
+        note: m.message ?? '',
+        direction: m.type as 'incoming' | 'outgoing',
+        status: (m.status === 'accepted' ? 'confirmed' : m.status) as MeetingStatus,
+      }))
+    : localMeetings, [meetingsData, localMeetings]);
+
+  const filtered = useMemo(() => meetings.filter((m) => tab === 'all' || m.direction === tab), [meetings, tab]);
 
   const handleAccept = useCallback((id: string) => {
-    setMeetings((prev) => prev.map((m) => m.id === id ? { ...m, status: 'confirmed' } : m));
+    respond({ meetingId: id, action: 'accept' });
+    setLocalMeetings((prev) => prev.map((m) => m.id === id ? { ...m, status: 'confirmed' } : m));
     showToast('Meeting confirmed!', 20);
-  }, [showToast]);
+  }, [showToast, respond]);
 
   const handleDecline = useCallback((id: string) => {
     Alert.alert('Decline Meeting', 'Are you sure you want to decline this meeting?', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Decline', style: 'destructive', onPress: () => {
-        setMeetings((prev) => prev.map((m) => m.id === id ? { ...m, status: 'declined' } : m));
+        respond({ meetingId: id, action: 'decline' });
+        setLocalMeetings((prev) => prev.map((m) => m.id === id ? { ...m, status: 'declined' } : m));
       }},
     ]);
-  }, []);
+  }, [respond]);
 
   const handleSendRequest = useCallback(() => {
     if (!reqTime.trim()) { Alert.alert('Add a time preference'); return; }
@@ -98,7 +122,8 @@ export default function MeetingsScreen() {
       direction: 'outgoing',
       status: 'pending',
     };
-    setMeetings((prev) => [newMeeting, ...prev]);
+    setLocalMeetings((prev) => [newMeeting, ...prev]);
+    sendRequest({ attendeeId: reqAttendee.id, proposedTime: reqTime, message: reqNote });
     setRequestVisible(false);
     setReqTime('');
     setReqNote('');
@@ -178,6 +203,12 @@ export default function MeetingsScreen() {
           </TouchableOpacity>
         ))}
       </View>
+
+      <DataState
+        loading={isLoading}
+        error={isError ? 'Failed to load meetings. Check your connection.' : null}
+        onRetry={refetch}
+      />
 
       <FlatList
         data={filtered}

@@ -12,6 +12,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
+import { useLeaderboard } from '@/hooks/useAudience';
 import { colors, spacing, radius } from '@/constants/theme';
 
 const { width: SW } = Dimensions.get('window');
@@ -44,6 +45,8 @@ export default function EventDashboardScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const [myRank] = useState(14);
+  const { data: leaderboardData = [] } = useLeaderboard();
+  const leaderboard = leaderboardData.length > 0 ? leaderboardData.slice(0, 3) : LEADERBOARD_PREVIEW;
 
   return (
     <ScrollView
@@ -124,7 +127,7 @@ export default function EventDashboardScreen() {
 
       <Text style={styles.sectionTitle}>TOP PERFORMERS</Text>
       <View style={styles.leaderList}>
-        {LEADERBOARD_PREVIEW.map((l) => (
+        {leaderboard.map((l: typeof LEADERBOARD_PREVIEW[0]) => (
           <View key={l.rank} style={styles.leaderRow}>
             <View style={[styles.rankBadge, l.rank <= 3 && { backgroundColor: l.color + '20', borderColor: l.color + '60' }]}>
               <Text style={[styles.rankText, l.rank <= 3 && { color: l.color }]}>#{l.rank}</Text>

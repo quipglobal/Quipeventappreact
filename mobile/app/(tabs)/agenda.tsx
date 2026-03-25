@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
+import { useAgenda, useBookmarkSession } from '@/hooks/useAgenda';
+import { DataState } from '@/components/DataState';
 import { colors, spacing, radius, typography } from '@/constants/theme';
 
 const { height: SH } = Dimensions.get('window');
@@ -52,9 +54,23 @@ export default function AgendaScreen() {
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [sheetVisible, setSheetVisible] = useState(false);
 
-  const sessions = MOCK_SESSIONS.filter(
-    (s) => s.day === activeDay && (trackFilter === 'All' || s.track === trackFilter)
-  );
+  const { data: allSessions = [], isLoading, isError, refetch } = useAgenda();
+  const { mutate: bookmarkSession } = useBookmarkSession();
+
+  const sessions = useMemo(() => allSessions.map((s) => ({
+    id: s.id,
+    day: (s.day ?? 1) - 1,
+    time: s.startTime,
+    duration: '',
+    title: s.title,
+    speaker: s.speaker,
+    company: s.speakerCompany ?? '',
+    track: s.track,
+    color: s.accentColor ?? '#7c3aed',
+    room: s.room,
+    description: s.description ?? '',
+    tags: s.tags ?? [],
+  })).filter((s) => s.day === activeDay && (trackFilter === 'All' || s.track === trackFilter)), [allSessions, activeDay, trackFilter]);
 
   const openSession = useCallback((s: Session) => {
     setSelectedSession(s);
@@ -69,8 +85,9 @@ export default function AgendaScreen() {
   const handleBookmark = useCallback((id: string) => {
     const isBookmarked = bookmarkedSessions.includes(id);
     toggleBookmark(id);
+    bookmarkSession({ sessionId: id, bookmarked: !isBookmarked });
     showToast(isBookmarked ? 'Removed from bookmarks' : 'Session bookmarked!');
-  }, [bookmarkedSessions, toggleBookmark, showToast]);
+  }, [bookmarkedSessions, toggleBookmark, showToast, bookmarkSession]);
 
   const renderSession = useCallback(({ item }: { item: Session }) => {
     const bookmarked = bookmarkedSessions.includes(item.id);
@@ -140,6 +157,12 @@ export default function AgendaScreen() {
         </ScrollView>
       </View>
 
+      <DataState
+        loading={isLoading}
+        error={isError ? 'Failed to load sessions. Check your connection.' : null}
+        onRetry={refetch}
+      />
+      {!isLoading && !isError && (
       <FlatList
         data={sessions}
         keyExtractor={(s) => s.id}
@@ -205,6 +228,7 @@ export default function AgendaScreen() {
           </View>
         )}
       </Modal>
+      )}
     </View>
   );
 }

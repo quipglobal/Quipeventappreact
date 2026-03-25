@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
+import { usePartners } from '@/hooks/usePartners';
+import { DataState } from '@/components/DataState';
 import { colors, spacing, radius } from '@/constants/theme';
 
 const MOCK_SPONSORS = [
@@ -92,8 +94,11 @@ function AttendeePartners() {
   const [savedPartners, setSavedPartners] = useState<string[]>([]);
   const [activeFilter, setActiveFilter] = useState('All');
 
-  const tiers = ['All', ...TIER_ORDER.filter((t) => MOCK_SPONSORS.some((s) => s.tier === t))];
-  const filtered = activeFilter === 'All' ? MOCK_SPONSORS : MOCK_SPONSORS.filter((s) => s.tier === activeFilter);
+  const { data: sponsorsData = [], isLoading, isError, refetch } = usePartners();
+  const sponsors = sponsorsData.length > 0 ? sponsorsData : MOCK_SPONSORS;
+
+  const tiers = useMemo(() => ['All', ...TIER_ORDER.filter((t) => sponsors.some((s) => s.tier === t))], [sponsors]);
+  const filtered = useMemo(() => activeFilter === 'All' ? sponsors : sponsors.filter((s) => s.tier === activeFilter), [sponsors, activeFilter]);
 
   const toggleSave = (id: string, name: string) => {
     setSavedPartners((prev) => {
@@ -115,8 +120,14 @@ function AttendeePartners() {
     >
       <View style={styles.header}>
         <Text style={styles.pageTitle}>Partners</Text>
-        <Text style={styles.subtitle}>{MOCK_SPONSORS.length} sponsors · Tech Summit 2026</Text>
+        <Text style={styles.subtitle}>{sponsors.length} sponsors · Tech Summit 2026</Text>
       </View>
+
+      <DataState
+        loading={isLoading}
+        error={isError ? 'Failed to load partners. Check your connection.' : null}
+        onRetry={refetch}
+      />
 
       <View style={styles.filterRow}>
         {tiers.map((t) => (

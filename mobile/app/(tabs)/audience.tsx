@@ -15,6 +15,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
+import { useAudience } from '@/hooks/useAudience';
+import { DataState } from '@/components/DataState';
 import { colors, spacing, radius, typography } from '@/constants/theme';
 
 const { height: SH } = Dimensions.get('window');
@@ -48,9 +50,11 @@ export default function AudienceScreen() {
   const [selected, setSelected] = useState<Attendee | null>(null);
   const [sheetVisible, setSheetVisible] = useState(false);
 
+  const { data: attendeesData = [], isLoading, isError, refetch } = useAudience();
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    return MOCK_ATTENDEES.filter((a) => {
+    return (attendeesData.length > 0 ? attendeesData : MOCK_ATTENDEES).filter((a) => {
       const matchSearch =
         a.name.toLowerCase().includes(q) ||
         a.company.toLowerCase().includes(q) ||
@@ -58,7 +62,7 @@ export default function AudienceScreen() {
       const matchTier = filterTier === 'All' || a.tier === filterTier;
       return matchSearch && matchTier;
     });
-  }, [search, filterTier]);
+  }, [search, filterTier, attendeesData]);
 
   const openProfile = useCallback((a: Attendee) => {
     setSelected(a);
@@ -155,6 +159,12 @@ export default function AudienceScreen() {
           <Text style={styles.connBarText}>{connections.length} pending connection{connections.length > 1 ? 's' : ''}</Text>
         </View>
       )}
+
+      <DataState
+        loading={isLoading}
+        error={isError ? 'Failed to load attendees. Check your connection.' : null}
+        onRetry={refetch}
+      />
 
       <FlatList
         data={filtered}

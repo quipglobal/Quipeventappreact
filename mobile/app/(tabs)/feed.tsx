@@ -14,6 +14,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
+import { useFeed } from '@/hooks/useFeed';
+import { DataState } from '@/components/DataState';
 import { colors, spacing, radius, typography } from '@/constants/theme';
 
 const { width: SW } = Dimensions.get('window');
@@ -202,34 +204,22 @@ function PollCard({ item, votedOptionId, onVote }: { item: PollItem; votedOption
 export default function FeedScreen() {
   const insets = useSafeAreaInsets();
   const { markPollVoted } = useAuth();
-  const [refreshing, setRefreshing] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [feedItems, setFeedItems] = useState<FeedItem[]>(MOCK_FEED);
-  const [page, setPage] = useState(1);
   const [pollVotes, setPollVotes] = useState<Record<string, string>>({});
   const [visibleIds, setVisibleIds] = useState<string[]>([]);
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await new Promise<void>((r) => setTimeout(r, 1000));
-    setFeedItems(MOCK_FEED);
-    setPage(1);
-    setRefreshing(false);
-  }, []);
+  const { data, isLoading, isError, refetch, isFetchingNextPage, fetchNextPage, hasNextPage } = useFeed();
 
-  const onEndReached = useCallback(async () => {
-    if (loadingMore) return;
-    setLoadingMore(true);
-    await new Promise<void>((r) => setTimeout(r, 800));
-    const nextPage = page + 1;
-    const more: FeedItem[] = MOCK_FEED.map((item) => ({
-      ...item,
-      id: `${item.id}_p${nextPage}`,
-    }));
-    setFeedItems((prev) => [...prev, ...more]);
-    setPage(nextPage);
-    setLoadingMore(false);
-  }, [loadingMore, page]);
+  const feedItems: FeedItem[] = data?.items?.length ? data.items as FeedItem[] : MOCK_FEED;
+
+  const onRefresh = useCallback(async () => {
+    await refetch();
+  }, [refetch]);
+
+  const onEndReached = useCallback(() => {
+    if (!isFetchingNextPage && hasNextPage) {
+      fetchNextPage();
+    }
+  }, [isFetchingNextPage, hasNextPage, fetchNextPage]);
 
   const handleVote = useCallback((pollId: string, optId: string) => {
     if (pollVotes[pollId]) return;
@@ -263,6 +253,11 @@ export default function FeedScreen() {
           <Text style={styles.liveChipText}>LIVE</Text>
         </View>
       </View>
+      <DataState
+        loading={isLoading}
+        error={isError ? 'Failed to load feed. Pull down to retry.' : null}
+        onRetry={refetch}
+      />
       <FlatList
         data={feedItems}
         keyExtractor={(i) => i.id}
@@ -270,13 +265,13 @@ export default function FeedScreen() {
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />
+          <RefreshControl refreshing={isLoading} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />
         }
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={{ itemVisiblePercentThreshold: 60 }}
         onEndReached={onEndReached}
         onEndReachedThreshold={0.4}
-        ListFooterComponent={loadingMore ? (
+        ListFooterComponent={isFetchingNextPage ? (
           <View style={styles.loadingMore}>
             <Text style={styles.loadingMoreText}>Loading more...</Text>
           </View>

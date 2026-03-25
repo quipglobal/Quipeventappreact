@@ -12,6 +12,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
+import { useChallenges, usePolls, useSurveys, useGiveaways } from '@/hooks/useEngage';
+import { useLeaderboard } from '@/hooks/useAudience';
+import { useLeads } from '@/hooks/useLeads';
+import { DataState } from '@/components/DataState';
 import { colors, spacing, radius } from '@/constants/theme';
 
 const MOCK_CHALLENGES = [
@@ -51,7 +55,23 @@ function AttendeeEngage() {
   const [pollVotes, setPollVotes] = useState<Record<string, string>>({});
   const [giveawayEntries, setGiveawayEntries] = useState<string[]>([]);
 
-  const myRank = MOCK_LEADERBOARD.findIndex((l) => l.name === user?.name) + 1;
+  const { data: challengesData, isLoading: loadingChallenges, isError: errorChallenges, refetch: refetchChallenges } = useChallenges();
+  const { data: pollsData, isLoading: loadingPolls, isError: errorPolls, refetch: refetchPolls } = usePolls();
+  const { data: surveysData } = useSurveys();
+  const { data: giveawaysData } = useGiveaways();
+  const { data: leaderboardData = [] } = useLeaderboard();
+
+  const isLoading = loadingChallenges || loadingPolls;
+  const isError = errorChallenges || errorPolls;
+  const refetch = () => { refetchChallenges(); refetchPolls(); };
+
+  const challenges = challengesData?.length ? challengesData : MOCK_CHALLENGES;
+  const polls = pollsData?.length ? pollsData : MOCK_POLLS;
+  const surveys = surveysData?.length ? surveysData : MOCK_SURVEYS;
+  const giveaways = giveawaysData?.length ? giveawaysData : MOCK_GIVEAWAYS;
+  const leaderboard = leaderboardData.length ? leaderboardData : MOCK_LEADERBOARD;
+
+  const myRank = leaderboard.findIndex((l: { name: string }) => l.name === user?.name) + 1;
 
   const enterGiveaway = (id: string) => {
     if (giveawayEntries.includes(id)) return;
@@ -102,7 +122,9 @@ function AttendeeEngage() {
         ))}
       </ScrollView>
 
-      {activeTab === 'challenges' && MOCK_CHALLENGES.map((c) => {
+      <DataState loading={isLoading} error={isError ? 'Failed to load content.' : null} onRetry={refetch} />
+
+      {activeTab === 'challenges' && challenges.map((c) => {
         const done = completedChallenges.includes(c.id);
         const pct = Math.min((c.progress / c.total) * 100, 100);
         return (
@@ -140,7 +162,7 @@ function AttendeeEngage() {
 
       {activeTab === 'leaderboard' && (
         <>
-          {MOCK_LEADERBOARD.map((l) => (
+          {leaderboard.map((l: typeof MOCK_LEADERBOARD[0]) => (
             <View key={l.rank} style={[styles.rankRow, l.rank <= 3 && styles.rankRowTop]}>
               <View style={styles.rankNum}>
                 {l.rank === 1 ? <Text style={styles.rankEmoji}>🥇</Text> :
@@ -168,7 +190,7 @@ function AttendeeEngage() {
       {activeTab === 'polls' && (
         <>
           <Text style={styles.pollSectionLabel}>LIVE POLLS</Text>
-          {MOCK_POLLS.map((poll) => {
+          {polls.map((poll) => {
             const voted = pollVotes[poll.id];
             const totalVotes = poll.options.reduce((s, o) => s + o.votes, 0);
             return (
@@ -218,7 +240,7 @@ function AttendeeEngage() {
           })}
 
           <Text style={styles.pollSectionLabel}>SURVEYS</Text>
-          {MOCK_SURVEYS.map((sv) => {
+          {surveys.map((sv) => {
             const done = completedSurveys.includes(sv.id);
             return (
               <View key={sv.id} style={[styles.surveyCard, done && { opacity: 0.6 }]}>
@@ -244,7 +266,7 @@ function AttendeeEngage() {
         </>
       )}
 
-      {activeTab === 'giveaways' && MOCK_GIVEAWAYS.map((g) => {
+      {activeTab === 'giveaways' && giveaways.map((g) => {
         const entered = giveawayEntries.includes(g.id);
         return (
           <View key={g.id} style={styles.giveawayCard}>
@@ -284,9 +306,12 @@ const MOCK_LEADS = [
 function SponsorEngage() {
   const insets = useSafeAreaInsets();
   const [mode, setMode] = useState<'tools' | 'scanner' | 'leads' | 'draw'>('tools');
-  const [leads, setLeads] = useState(MOCK_LEADS);
+  const [localLeads, setLocalLeads] = useState(MOCK_LEADS);
   const [scanning, setScanning] = useState(false);
   const [drawWinner, setDrawWinner] = useState<string | null>(null);
+
+  const { data: leadsData = [] } = useLeads();
+  const leads = leadsData.length > 0 ? leadsData : localLeads;
 
   const simulateScan = () => {
     setScanning(true);
@@ -301,7 +326,7 @@ function SponsorEngage() {
         color: '#f59e0b',
         status: 'warm' as const,
       };
-      setLeads((prev) => [newLead, ...prev]);
+      setLocalLeads((prev) => [newLead, ...prev]);
       Alert.alert('Lead Captured!', 'Contact saved to your leads list.');
     }, 1500);
   };
@@ -309,7 +334,7 @@ function SponsorEngage() {
   const runDraw = () => {
     const all = [...leads];
     const winner = all[Math.floor(Math.random() * all.length)];
-    setDrawWinner(winner.name);
+    setDrawWinner((winner as { name: string }).name);
   };
 
   if (mode === 'scanner') {
