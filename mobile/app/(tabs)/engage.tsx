@@ -14,7 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
 import { useChallenges, useCompleteChallenge, usePolls, useVotePoll, useSurveys, useSubmitSurvey, useGiveaways, useEnterGiveaway } from '@/hooks/useEngage';
 import { useLeaderboard } from '@/hooks/useAudience';
-import { useLeads, useSubmitScan } from '@/hooks/useLeads';
+import { useLeads, useSubmitScan, useLuckyDraw } from '@/hooks/useLeads';
 import { DataState } from '@/components/DataState';
 import { colors, spacing, radius } from '@/constants/theme';
 
@@ -321,6 +321,7 @@ function SponsorEngage() {
 
   const { data: leadsData = [], refetch: refetchLeads } = useLeads();
   const { mutate: submitScan } = useSubmitScan();
+  const { mutate: triggerDraw, isPending: drawPending } = useLuckyDraw();
   const leads = leadsData;
 
   const simulateScan = () => {
@@ -338,9 +339,13 @@ function SponsorEngage() {
   };
 
   const runDraw = () => {
-    const all = [...leads];
-    const winner = all[Math.floor(Math.random() * all.length)];
-    setDrawWinner((winner as { name: string }).name);
+    triggerDraw(undefined, {
+      onSuccess: (res) => {
+        const winner = res.data?.winner;
+        setDrawWinner(winner?.name ?? 'Unknown');
+      },
+      onError: () => Alert.alert('Draw Failed', 'Could not pick a winner. Try again.'),
+    });
   };
 
   if (mode === 'scanner') {
@@ -439,12 +444,13 @@ function SponsorEngage() {
           </LinearGradient>
 
           <TouchableOpacity
-            style={styles.drawBtn}
+            style={[styles.drawBtn, drawPending && { opacity: 0.6 }]}
             onPress={runDraw}
+            disabled={drawPending}
           >
             <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.drawBtnGrad}>
               <Ionicons name="shuffle" size={18} color="#fff" />
-              <Text style={styles.drawBtnText}>{drawWinner ? 'Draw Again' : 'Pick Winner'}</Text>
+              <Text style={styles.drawBtnText}>{drawPending ? 'Picking...' : drawWinner ? 'Draw Again' : 'Pick Winner'}</Text>
             </LinearGradient>
           </TouchableOpacity>
         </View>
