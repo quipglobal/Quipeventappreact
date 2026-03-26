@@ -178,6 +178,7 @@ export default function AgendaScreen() {
       />
 
       <Modal visible={sheetVisible} animationType="slide" transparent onRequestClose={closeSheet}>
+        <>
         <TouchableOpacity style={styles.backdrop} onPress={closeSheet} activeOpacity={1} />
         {selectedSession && (
           <View style={[styles.sheet, { paddingBottom: insets.bottom + 24 }]}>
@@ -227,6 +228,7 @@ export default function AgendaScreen() {
             </ScrollView>
           </View>
         )}
+        </>
       </Modal>
       )}
     </View>
