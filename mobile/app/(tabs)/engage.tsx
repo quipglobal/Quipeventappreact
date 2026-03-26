@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
 import { useChallenges, useCompleteChallenge, usePolls, useVotePoll, useSurveys, useSubmitSurvey, useGiveaways, useEnterGiveaway } from '@/hooks/useEngage';
@@ -49,9 +50,137 @@ const MOCK_SURVEYS = [
   { id: 'sv2', title: 'Speaker Evaluation', desc: 'Rate the keynote speakers and their presentations.', questions: 8, points: 75, completed: false },
 ];
 
+function BadgeScanPanel({ onScanPress }: { onScanPress: () => void }) {
+  return (
+    <View style={styles.badgePanel}>
+      <TouchableOpacity style={styles.badgePanelBtn} onPress={() => router.push('/qr-badge')}>
+        <LinearGradient colors={['rgba(124,58,237,0.25)', 'rgba(79,70,229,0.15)']} style={styles.badgePanelBtnGrad}>
+          <View style={[styles.badgePanelIcon, { backgroundColor: 'rgba(124,58,237,0.2)' }]}>
+            <Ionicons name="qr-code" size={22} color={colors.primary} />
+          </View>
+          <Text style={styles.badgePanelLabel}>My Badge</Text>
+          <Text style={styles.badgePanelSub}>Show your QR code</Text>
+        </LinearGradient>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={styles.badgePanelBtn} onPress={onScanPress}>
+        <LinearGradient colors={['rgba(6,182,212,0.25)', 'rgba(79,70,229,0.15)']} style={styles.badgePanelBtnGrad}>
+          <View style={[styles.badgePanelIcon, { backgroundColor: 'rgba(6,182,212,0.2)' }]}>
+            <Ionicons name="scan" size={22} color={colors.accent} />
+          </View>
+          <Text style={styles.badgePanelLabel}>Scan Badge</Text>
+          <Text style={styles.badgePanelSub}>Capture contact info</Text>
+        </LinearGradient>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function LeadsView({ leads, onBack }: { leads: Array<{ id: string; name: string; title: string; company: string; scannedAt: string; color: string; status: string }>; onBack: () => void }) {
+  const insets = useSafeAreaInsets();
+  return (
+    <ScrollView style={styles.container} contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.xl }]}>
+      <TouchableOpacity style={styles.backBtn} onPress={onBack}>
+        <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
+        <Text style={styles.backText}>Back</Text>
+      </TouchableOpacity>
+      <Text style={styles.scannerTitle}>Scanned Contacts</Text>
+      <Text style={styles.scannerSubtitle}>{leads.length} contact{leads.length !== 1 ? 's' : ''} captured</Text>
+      {leads.length === 0 && (
+        <View style={styles.emptyLeads}>
+          <Ionicons name="people-outline" size={48} color={colors.textMuted} />
+          <Text style={styles.emptyLeadsText}>No contacts yet</Text>
+          <Text style={styles.emptyLeadsSub}>Scan attendee badges to build your list</Text>
+        </View>
+      )}
+      {leads.map((l) => (
+        <View key={l.id} style={styles.leadCard}>
+          <View style={[styles.leadAvatar, { backgroundColor: l.color + '22', borderColor: l.color + '44' }]}>
+            <Text style={[styles.leadAvatarText, { color: l.color }]}>{l.name[0]}</Text>
+          </View>
+          <View style={styles.leadInfo}>
+            <Text style={styles.leadName}>{l.name}</Text>
+            <Text style={styles.leadRole}>{l.title} · {l.company}</Text>
+            <Text style={styles.leadTime}>Scanned at {l.scannedAt}</Text>
+          </View>
+          <View style={[styles.statusDot, {
+            backgroundColor: l.status === 'hot' ? '#ef4444' : l.status === 'warm' ? '#f59e0b' : '#6b7280'
+          }]} />
+        </View>
+      ))}
+    </ScrollView>
+  );
+}
+
+function ScannerView({ onBack, onScanSuccess }: { onBack: () => void; onScanSuccess: () => void }) {
+  const insets = useSafeAreaInsets();
+  const [scanning, setScanning] = useState(false);
+  const { mutate: submitScan } = useSubmitScan();
+
+  const simulateScan = () => {
+    setScanning(true);
+    setTimeout(() => {
+      setScanning(false);
+      submitScan(
+        { badgeData: `demo-${Date.now()}`, attendeeId: undefined },
+        {
+          onSuccess: () => {
+            Alert.alert('Contact Captured!', 'Saved to your contacts list.', [
+              { text: 'View Contacts', onPress: onScanSuccess },
+              { text: 'Scan Another', style: 'cancel' },
+            ]);
+          },
+          onError: () => Alert.alert('Scan Failed', 'Could not capture contact. Try again.'),
+        }
+      );
+    }, 1500);
+  };
+
+  return (
+    <View style={styles.container}>
+      <View style={[styles.scannerPage, { paddingTop: insets.top + spacing.xl }]}>
+        <TouchableOpacity style={styles.backBtn} onPress={onBack}>
+          <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
+          <Text style={styles.backText}>Back</Text>
+        </TouchableOpacity>
+        <Text style={styles.scannerTitle}>Scan Attendee Badge</Text>
+        <Text style={styles.scannerSubtitle}>Point camera at attendee QR code</Text>
+
+        <View style={styles.scannerFrame}>
+          <LinearGradient colors={['#1a0d2e', '#0d1a2e']} style={styles.scannerBg}>
+            <View style={styles.qrCorners}>
+              <View style={[styles.corner, styles.cornerTL]} />
+              <View style={[styles.corner, styles.cornerTR]} />
+              <View style={[styles.corner, styles.cornerBL]} />
+              <View style={[styles.corner, styles.cornerBR]} />
+            </View>
+            {scanning ? (
+              <Text style={styles.scanningText}>Scanning…</Text>
+            ) : (
+              <Text style={styles.scanHintText}>Align QR code here</Text>
+            )}
+          </LinearGradient>
+        </View>
+
+        <TouchableOpacity
+          style={[styles.simulateBtn, scanning && styles.simulateBtnDisabled]}
+          onPress={simulateScan}
+          disabled={scanning}
+        >
+          <Ionicons name="qr-code" size={18} color="#fff" />
+          <Text style={styles.simulateBtnText}>
+            {scanning ? 'Scanning…' : 'Simulate Scan (Demo)'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
 function AttendeeEngage() {
   const { user, completedChallenges, completeChallenge, votedPolls, markPollVoted, markSurveyDone, completedSurveys, showToast } = useAuth();
   const [activeTab, setActiveTab] = useState<'challenges' | 'polls' | 'leaderboard' | 'giveaways'>('challenges');
+  const [scanMode, setScanMode] = useState<'none' | 'scanner' | 'leads'>('none');
   const [pollVotes, setPollVotes] = useState<Record<string, string>>({});
   const [giveawayEntries, setGiveawayEntries] = useState<string[]>([]);
 
@@ -60,6 +189,7 @@ function AttendeeEngage() {
   const { data: surveysData = [] } = useSurveys();
   const { data: giveawaysData = [] } = useGiveaways();
   const { data: leaderboardData = [] } = useLeaderboard();
+  const { data: leadsData = [], refetch: refetchLeads } = useLeads();
 
   const { mutate: completeChallengeMutation } = useCompleteChallenge();
   const { mutate: votePollMutation } = useVotePoll();
@@ -85,12 +215,27 @@ function AttendeeEngage() {
     showToast('Entered giveaway! Good luck!', 10);
   };
 
+  if (scanMode === 'scanner') {
+    return (
+      <ScannerView
+        onBack={() => setScanMode('none')}
+        onScanSuccess={() => { refetchLeads(); setScanMode('leads'); }}
+      />
+    );
+  }
+
+  if (scanMode === 'leads') {
+    return <LeadsView leads={leadsData} onBack={() => setScanMode('none')} />;
+  }
+
   return (
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
     >
+      <BadgeScanPanel onScanPress={() => setScanMode('scanner')} />
+
       <View style={styles.pointsCard}>
         <LinearGradient colors={['#3b1d8a', '#1e3a5f']} style={styles.pointsGrad}>
           <View style={styles.pointsRow}>
@@ -307,36 +452,14 @@ function AttendeeEngage() {
   );
 }
 
-const MOCK_LEADS = [
-  { id: 'l1', name: 'Alex Thompson', title: 'CTO', company: 'StartupXYZ', scannedAt: '9:32 AM', color: '#7c3aed', status: 'hot' },
-  { id: 'l2', name: 'Rachel Kim', title: 'VP Product', company: 'ScaleUp Co', scannedAt: '10:15 AM', color: '#06b6d4', status: 'warm' },
-  { id: 'l3', name: 'Tom Bradley', title: 'Head of IT', company: 'Enterprise Corp', scannedAt: '11:48 AM', color: '#10b981', status: 'cold' },
-];
-
 function SponsorEngage() {
   const insets = useSafeAreaInsets();
   const [mode, setMode] = useState<'tools' | 'scanner' | 'leads' | 'draw'>('tools');
-  const [scanning, setScanning] = useState(false);
   const [drawWinner, setDrawWinner] = useState<string | null>(null);
 
   const { data: leadsData = [], refetch: refetchLeads } = useLeads();
-  const { mutate: submitScan } = useSubmitScan();
   const { mutate: triggerDraw, isPending: drawPending } = useLuckyDraw();
   const leads = leadsData;
-
-  const simulateScan = () => {
-    setScanning(true);
-    setTimeout(() => {
-      setScanning(false);
-      submitScan(
-        { badgeData: `demo-${Date.now()}`, attendeeId: undefined },
-        {
-          onSuccess: () => { refetchLeads(); Alert.alert('Lead Captured!', 'Contact saved to your leads list.'); },
-          onError: () => Alert.alert('Scan Failed', 'Could not capture contact. Try again.'),
-        }
-      );
-    }, 1500);
-  };
 
   const runDraw = () => {
     triggerDraw(undefined, {
@@ -350,72 +473,15 @@ function SponsorEngage() {
 
   if (mode === 'scanner') {
     return (
-      <View style={styles.container}>
-        <View style={[styles.scannerPage, { paddingTop: insets.top + spacing.xl }]}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => setMode('tools')}>
-            <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
-            <Text style={styles.backText}>Back</Text>
-          </TouchableOpacity>
-          <Text style={styles.scannerTitle}>Scan Attendee Badge</Text>
-          <Text style={styles.scannerSubtitle}>Point camera at attendee QR code</Text>
-
-          <View style={styles.scannerFrame}>
-            <LinearGradient colors={['#1a0d2e', '#0d1a2e']} style={styles.scannerBg}>
-              <View style={styles.qrCorners}>
-                <View style={[styles.corner, styles.cornerTL]} />
-                <View style={[styles.corner, styles.cornerTR]} />
-                <View style={[styles.corner, styles.cornerBL]} />
-                <View style={[styles.corner, styles.cornerBR]} />
-              </View>
-              {scanning ? (
-                <Text style={styles.scanningText}>Scanning…</Text>
-              ) : (
-                <Text style={styles.scanHintText}>Align QR code here</Text>
-              )}
-            </LinearGradient>
-          </View>
-
-          <TouchableOpacity
-            style={[styles.simulateBtn, scanning && styles.simulateBtnDisabled]}
-            onPress={simulateScan}
-            disabled={scanning}
-          >
-            <Ionicons name="qr-code" size={18} color="#fff" />
-            <Text style={styles.simulateBtnText}>
-              {scanning ? 'Scanning…' : 'Simulate Scan (Demo)'}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+      <ScannerView
+        onBack={() => setMode('tools')}
+        onScanSuccess={() => { refetchLeads(); setMode('leads'); }}
+      />
     );
   }
 
   if (mode === 'leads') {
-    return (
-      <ScrollView style={styles.container} contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.xl }]}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => setMode('tools')}>
-          <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
-          <Text style={styles.backText}>Back</Text>
-        </TouchableOpacity>
-        <Text style={styles.scannerTitle}>My Leads</Text>
-        <Text style={styles.scannerSubtitle}>{leads.length} contacts captured</Text>
-        {leads.map((l) => (
-          <View key={l.id} style={styles.leadCard}>
-            <View style={[styles.leadAvatar, { backgroundColor: l.color + '22', borderColor: l.color + '44' }]}>
-              <Text style={[styles.leadAvatarText, { color: l.color }]}>{l.name[0]}</Text>
-            </View>
-            <View style={styles.leadInfo}>
-              <Text style={styles.leadName}>{l.name}</Text>
-              <Text style={styles.leadRole}>{l.title} · {l.company}</Text>
-              <Text style={styles.leadTime}>Scanned at {l.scannedAt}</Text>
-            </View>
-            <View style={[styles.statusDot, {
-              backgroundColor: l.status === 'hot' ? '#ef4444' : l.status === 'warm' ? '#f59e0b' : '#6b7280'
-            }]} />
-          </View>
-        ))}
-      </ScrollView>
-    );
+    return <LeadsView leads={leads} onBack={() => setMode('tools')} />;
   }
 
   if (mode === 'draw') {
@@ -432,7 +498,7 @@ function SponsorEngage() {
           <LinearGradient colors={['#3b1d8a', '#0d1a2e']} style={styles.drawBox}>
             {drawWinner ? (
               <>
-                <Text style={styles.drawWinnerLabel}>🎉 Winner!</Text>
+                <Text style={styles.drawWinnerLabel}>Winner!</Text>
                 <Text style={styles.drawWinnerName}>{drawWinner}</Text>
               </>
             ) : (
@@ -467,6 +533,8 @@ function SponsorEngage() {
       <Text style={styles.pageTitle}>Sponsor Tools</Text>
       <Text style={styles.pageSubtitle}>Manage your booth and leads</Text>
 
+      <BadgeScanPanel onScanPress={() => setMode('scanner')} />
+
       <View style={styles.statsRow}>
         <View style={styles.statBox}>
           <Text style={styles.statValue}>{leads.length}</Text>
@@ -483,19 +551,6 @@ function SponsorEngage() {
           <Text style={styles.statLabel}>Engagement</Text>
         </View>
       </View>
-
-      <TouchableOpacity style={styles.primaryTool} onPress={() => setMode('scanner')}>
-        <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.primaryToolGrad}>
-          <View style={styles.primaryToolIcon}>
-            <Ionicons name="qr-code" size={28} color="#fff" />
-          </View>
-          <View>
-            <Text style={styles.primaryToolTitle}>Scan Badge</Text>
-            <Text style={styles.primaryToolSub}>Capture attendee contact info</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color="rgba(255,255,255,0.7)" />
-        </LinearGradient>
-      </TouchableOpacity>
 
       <View style={styles.toolGrid}>
         <TouchableOpacity style={styles.toolCard} onPress={() => setMode('leads')}>
@@ -702,4 +757,15 @@ const styles = StyleSheet.create({
   drawBtn: { width: '100%', borderRadius: radius.xl, overflow: 'hidden' },
   drawBtnGrad: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, padding: spacing.xl },
   drawBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+
+  badgePanel: { flexDirection: 'row', gap: spacing.md, marginHorizontal: spacing.xl, marginBottom: spacing.lg },
+  badgePanelBtn: { flex: 1, borderRadius: radius.xl, overflow: 'hidden' },
+  badgePanelBtnGrad: { alignItems: 'center', padding: spacing.lg, borderRadius: radius.xl, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
+  badgePanelIcon: { width: 48, height: 48, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.sm },
+  badgePanelLabel: { color: colors.textPrimary, fontSize: 13, fontWeight: '700', marginBottom: 2 },
+  badgePanelSub: { color: colors.textMuted, fontSize: 10, textAlign: 'center' },
+
+  emptyLeads: { alignItems: 'center', paddingVertical: 60, gap: spacing.md },
+  emptyLeadsText: { color: colors.textSecondary, fontSize: 16, fontWeight: '700' },
+  emptyLeadsSub: { color: colors.textMuted, fontSize: 12, textAlign: 'center' },
 });

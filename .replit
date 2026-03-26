@@ -67,3 +67,7 @@ publicDir = "dist"
 [userenv.shared]
 VITE_API_BASE_URL = "https://bef44c34-7df5-4c09-93a2-5684b5888527-00-3s6pvdiz19h8o.spock.replit.dev"
 VITE_USE_MOCK_API = "true"
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 120000
