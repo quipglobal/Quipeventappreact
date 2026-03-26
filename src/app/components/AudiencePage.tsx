@@ -533,7 +533,7 @@ interface AudiencePageProps {
 }
 
 export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
-  const { addPoints } = useApp();
+  const { addPoints, sendConnectionRequest } = useApp();
   const { t, isDark } = useTheme();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -560,10 +560,20 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
   const onlineCount = mockAttendees.filter(a => a.isOnline).length;
 
   const handleConnect = (id: string) => {
-    if (!connectedIds.includes(id)) {
-      setConnectedIds(prev => [...prev, id]);
-      addPoints(10, 'New connection made!');
-    }
+    if (connectedIds.includes(id)) return;
+    const att = mockAttendees.find(a => a.id === id);
+    if (!att) return;
+    setConnectedIds(prev => [...prev, id]);
+    sendConnectionRequest({
+      id: att.id,
+      name: att.name,
+      title: att.title,
+      company: att.company,
+      avatar: att.avatar,
+    }).catch(() => {
+      setConnectedIds(prev => prev.filter(cid => cid !== id));
+    });
+    addPoints(10, 'New connection made!');
   };
 
   // Top interests for quick filter

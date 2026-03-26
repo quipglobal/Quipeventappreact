@@ -3,6 +3,7 @@ import { ArrowLeft, CheckCircle, TrendingUp, Clock } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import { mockPolls } from '@/app/data/mockData';
+import { submitPollVote } from '@/app/api/engageClient';
 
 interface PollsListPageProps { onBack: () => void; }
 
@@ -10,14 +11,40 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
   const { votedPolls, setVotedPolls, addPoints, gamificationConfig } = useApp();
   const { t } = useTheme();
   const [selectedOptions, setSelectedOptions] = useState<Record<string, string>>({});
+  const [submittingPollId, setSubmittingPollId] = useState<string | null>(null);
+  const [liveVoteCounts, setLiveVoteCounts] = useState<Record<string, Record<string, number>>>({});
 
-  const handleVote = (pollId: string) => {
-    if (!votedPolls.includes(pollId) && selectedOptions[pollId]) {
+  const handleVote = async (pollId: string) => {
+    const optionId = selectedOptions[pollId];
+    if (votedPolls.includes(pollId) || !optionId || submittingPollId) return;
+
+    const poll = mockPolls.find(p => p.id === pollId);
+    if (!poll) return;
+
+    setSubmittingPollId(pollId);
+    const res = await submitPollVote(pollId, optionId, poll.options.map(o => ({ id: o.id, text: o.text, votes: o.votes })));
+    setSubmittingPollId(null);
+
+    if (res.success && res.data) {
+      const counts: Record<string, number> = {};
+      res.data.options.forEach(o => { counts[o.id] = o.votes; });
+      setLiveVoteCounts(prev => ({ ...prev, [pollId]: counts }));
       setVotedPolls([...votedPolls, pollId]);
       addPoints(gamificationConfig.pointActions.votePoll, 'Poll vote submitted!');
+    } else if (!res.success) {
+      alert(res.error?.message ?? 'Failed to submit vote. Please try again.');
     }
   };
-  const totalVotes = (poll: typeof mockPolls[0]) => poll.options.reduce((s, o) => s + o.votes, 0);
+
+  const getOptionVotes = (pollId: string, optionId: string, defaultVotes: number): number => {
+    return liveVoteCounts[pollId]?.[optionId] ?? defaultVotes;
+  };
+
+  const totalVotes = (poll: typeof mockPolls[0]) => {
+    const liveCounts = liveVoteCounts[poll.id];
+    if (liveCounts) return Object.values(liveCounts).reduce((s, v) => s + v, 0);
+    return poll.options.reduce((s, o) => s + o.votes, 0);
+  };
 
   return (
     <div className="min-h-screen pb-20" style={{ background: t.bgPage }}>
@@ -32,7 +59,6 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
           const hasVoted    = votedPolls.includes(poll.id);
           const total       = totalVotes(poll);
           const userChoice  = selectedOptions[poll.id];
-          const winVotes    = Math.max(...poll.options.map(o => o.votes));
 
           return (
             <div key={poll.id} className="rounded-2xl p-5" style={{ background: t.surface, boxShadow: t.shadow, border: `1px solid ${t.border}` }}>
@@ -54,14 +80,16 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
               {/* Options */}
               <div className="space-y-3 mb-4">
                 {poll.options.map(option => {
-                  const pct       = total > 0 ? Math.round((option.votes / total) * 100) : 0;
+                  const liveVotes = getOptionVotes(poll.id, option.id, option.votes);
+                  const pct       = total > 0 ? Math.round((liveVotes / total) * 100) : 0;
                   const isChosen  = userChoice === option.id;
-                  const isWinning = hasVoted && option.votes === winVotes;
+                  const winVotesLive = Math.max(...poll.options.map(o => getOptionVotes(poll.id, o.id, o.votes)));
+                  const isWinning = hasVoted && liveVotes === winVotesLive;
 
                   return (
                     <button key={option.id}
                       onClick={() => !hasVoted && setSelectedOptions({ ...selectedOptions, [poll.id]: option.id })}
-                      disabled={hasVoted}
+                      disabled={hasVoted || submittingPollId === poll.id}
                       className="w-full text-left rounded-xl relative overflow-hidden transition-all"
                       style={{
                         padding: '14px 16px',
@@ -84,7 +112,7 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
                         </div>
                         {hasVoted && (
                           <div className="flex items-center gap-2 flex-shrink-0">
-                            <span style={{ color: t.textSec, fontSize: 13 }}>{option.votes.toLocaleString()}</span>
+                            <span style={{ color: t.textSec, fontSize: 13 }}>{liveVotes.toLocaleString()}</span>
                             <span style={{ color: isWinning ? t.accentSoft : t.textSec, fontWeight: 700, fontSize: 13, minWidth: 40, textAlign: 'right' }}>{pct}%</span>
                             {isWinning && <TrendingUp style={{ width: 14, height: 14, color: t.accentSoft }} />}
                           </div>
@@ -101,10 +129,10 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
                   ? <p className="flex items-center gap-1.5" style={{ color: t.textMuted, fontSize: 13 }}><Clock style={{ width: 14, height: 14 }} />Total votes: {total.toLocaleString()}</p>
                   : <p style={{ color: t.successText, fontSize: 13, fontWeight: 600 }}>+{poll.rewardPoints} points</p>}
                 {!hasVoted && (
-                  <button onClick={() => handleVote(poll.id)} disabled={!userChoice}
+                  <button onClick={() => handleVote(poll.id)} disabled={!userChoice || submittingPollId === poll.id}
                     className="px-5 py-2 rounded-xl font-semibold text-white transition-all"
-                    style={{ background: userChoice ? 'linear-gradient(135deg,#7c3aed,#ec4899)' : t.surface2, color: userChoice ? '#fff' : t.textMuted, cursor: userChoice ? 'pointer' : 'not-allowed' }}>
-                    Submit Vote
+                    style={{ background: userChoice ? 'linear-gradient(135deg,#7c3aed,#ec4899)' : t.surface2, color: userChoice ? '#fff' : t.textMuted, cursor: userChoice ? 'pointer' : 'not-allowed', opacity: submittingPollId === poll.id ? 0.7 : 1 }}>
+                    {submittingPollId === poll.id ? 'Submitting…' : 'Submit Vote'}
                   </button>
                 )}
               </div>

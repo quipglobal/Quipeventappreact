@@ -3,6 +3,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { EventConfig, GamificationConfig } from '@/app/types/config';
 import { getMeApi } from '@/app/api/authClient';
 import { clearToken } from '@/app/api/client';
+import { sendMeetingRequest as sendMeetingRequestApi } from '@/app/api/meetingsClient';
 
 interface User {
   id: string;
@@ -104,19 +105,20 @@ interface AppContextType extends AppState {
   setVotedPolls: (polls: string[]) => void;
   setMetSponsors: (sponsors: string[]) => void;
   toggleBookmark: (sessionId: string) => void;
-  completeChallenge: (challengeId: string) => void;
-  saveLead: (lead: Omit<Lead, 'id' | 'timestamp'>) => void;
+  completeChallenge: (challengeId: string, skipPoints?: boolean) => void;
+  saveLead: (lead: Omit<Lead, 'id' | 'timestamp'> & { id?: string }) => void;
   updateLead: (id: string, updates: Partial<Pick<Lead, 'notes' | 'tags' | 'priority'>>) => void;
   showToast: (message: string, points?: number) => void;
   updateTier: () => void;
   switchEvent: (config: EventConfig) => void;
   addSponsorGiveaway: (giveaway: Omit<SponsorGiveaway, 'id' | 'createdAt'>) => void;
   removeSponsorGiveaway: (id: string) => void;
-  sendConnectionRequest: (toUser: ConnectionRequest['fromUser'], message?: string) => void;
+  sendConnectionRequest: (toUser: ConnectionRequest['fromUser'], message?: string) => Promise<void>;
   acceptConnection: (requestId: string) => void;
   declineConnection: (requestId: string) => void;
   sendMessage: (conversationId: string, text: string) => void;
   markConversationRead: (conversationId: string) => void;
+  setConnectionRequests: React.Dispatch<React.SetStateAction<ConnectionRequest[]>>;
 }
 
 // ─── Mock configs ─────────────────────────────────────────────────────────────
@@ -205,67 +207,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [hasJoinedEvent, setHasJoinedEvent] = useState(false);
   const [toast, setToast] = useState<{ message: string; points?: number } | null>(null);
 
-  const [connectionRequests, setConnectionRequests] = useState<ConnectionRequest[]>([
-    {
-      id: 'cr-1', direction: 'incoming', status: 'pending',
-      fromUser: { id: 'att-1', name: 'Dr. Sarah Chen', title: 'Chief AI Officer', company: 'TechCorp Solutions', avatar: 'https://ui-avatars.com/api/?name=Sarah+Chen&background=6366f1&color=fff' },
-      toUserId: 'current-user', timestamp: new Date(Date.now() - 1000 * 60 * 12),
-      message: 'Hi! I loved your talk on product design. Would love to connect and discuss collaboration opportunities.',
-    },
-    {
-      id: 'cr-2', direction: 'incoming', status: 'pending',
-      fromUser: { id: 'att-3', name: 'Priya Patel', title: 'Product Lead', company: 'DesignFlow', avatar: 'https://ui-avatars.com/api/?name=Priya+Patel&background=ec4899&color=fff' },
-      toUserId: 'current-user', timestamp: new Date(Date.now() - 1000 * 60 * 45),
-      message: 'Hey! We should chat about the UX research panel.',
-    },
-    {
-      id: 'cr-3', direction: 'incoming', status: 'pending',
-      fromUser: { id: 'att-6', name: 'James Wilson', title: 'CTO', company: 'CloudNine Systems', avatar: 'https://ui-avatars.com/api/?name=James+Wilson&background=f59e0b&color=fff' },
-      toUserId: 'current-user', timestamp: new Date(Date.now() - 1000 * 60 * 90),
-    },
-    {
-      id: 'cr-4', direction: 'outgoing', status: 'pending',
-      fromUser: { id: 'user-001', name: '', title: '', company: '', avatar: '' },
-      toUserId: 'att-5', timestamp: new Date(Date.now() - 1000 * 60 * 30),
-      message: 'Would love to connect about your infrastructure work!',
-    },
-    {
-      id: 'cr-5', direction: 'incoming', status: 'accepted',
-      fromUser: { id: 'att-2', name: 'Marcus Johnson', title: 'VP of Engineering', company: 'InnovateLab', avatar: 'https://ui-avatars.com/api/?name=Marcus+Johnson&background=8b5cf6&color=fff' },
-      toUserId: 'current-user', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 3),
-      message: 'Great meetup at the networking session!',
-    },
-    {
-      id: 'cr-6', direction: 'incoming', status: 'accepted',
-      fromUser: { id: 'att-4', name: 'Elena Rodriguez', title: 'Head of Data Science', company: 'QuantumLeap AI', avatar: 'https://ui-avatars.com/api/?name=Elena+Rodriguez&background=10b981&color=fff' },
-      toUserId: 'current-user', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 5),
-    },
-  ]);
+  const [connectionRequests, setConnectionRequests] = useState<ConnectionRequest[]>([]);
 
-  const [conversations, setConversations] = useState<Conversation[]>([
-    {
-      id: 'conv-1', connectionId: 'cr-5',
-      participant: { id: 'att-2', name: 'Marcus Johnson', title: 'VP of Engineering', company: 'InnovateLab', avatar: 'https://ui-avatars.com/api/?name=Marcus+Johnson&background=8b5cf6&color=fff' },
-      lastActivity: new Date(Date.now() - 1000 * 60 * 8),
-      messages: [
-        { id: 'm1', senderId: 'att-2', text: 'Hey! Great connecting at the networking session earlier.', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2), read: true },
-        { id: 'm2', senderId: 'user-001', text: 'Likewise! Your talk on scaling engineering teams was really insightful.', timestamp: new Date(Date.now() - 1000 * 60 * 55), read: true },
-        { id: 'm3', senderId: 'att-2', text: 'Thanks! Would you be interested in grabbing coffee tomorrow morning before the keynote?', timestamp: new Date(Date.now() - 1000 * 60 * 30), read: true },
-        { id: 'm4', senderId: 'user-001', text: 'Absolutely! How about 8:30 AM at the lobby cafe?', timestamp: new Date(Date.now() - 1000 * 60 * 15), read: true },
-        { id: 'm5', senderId: 'att-2', text: 'Perfect, see you there!', timestamp: new Date(Date.now() - 1000 * 60 * 8), read: false },
-      ],
-    },
-    {
-      id: 'conv-2', connectionId: 'cr-6',
-      participant: { id: 'att-4', name: 'Elena Rodriguez', title: 'Head of Data Science', company: 'QuantumLeap AI', avatar: 'https://ui-avatars.com/api/?name=Elena+Rodriguez&background=10b981&color=fff' },
-      lastActivity: new Date(Date.now() - 1000 * 60 * 60 * 2),
-      messages: [
-        { id: 'm6', senderId: 'att-4', text: 'Hi there! I saw your profile and noticed we share an interest in ML applications.', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 4), read: true },
-        { id: 'm7', senderId: 'user-001', text: 'Yes! Are you attending the ML workshop tomorrow afternoon?', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 3), read: true },
-        { id: 'm8', senderId: 'att-4', text: 'Definitely! Save me a seat if you get there first.', timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2), read: true },
-      ],
-    },
-  ]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
 
   useEffect(() => {
     getMeApi().then(res => {
@@ -357,17 +301,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const completeChallenge = (challengeId: string) => {
+  const completeChallenge = (challengeId: string, skipPoints?: boolean) => {
     if (!completedChallenges.includes(challengeId)) {
       setCompletedChallenges((prev) => [...prev, challengeId]);
-      addPoints(mockGamificationConfig.pointActions.completeChallenge, 'Challenge completed!');
+      if (!skipPoints) {
+        addPoints(mockGamificationConfig.pointActions.completeChallenge, 'Challenge completed!');
+      }
     }
   };
 
-  const saveLead = (leadData: Omit<Lead, 'id' | 'timestamp'>) => {
+  const saveLead = (leadData: Omit<Lead, 'id' | 'timestamp'> & { id?: string }) => {
+    const { id: providedId, ...rest } = leadData;
     const newLead: Lead = {
-      ...leadData,
-      id: Date.now().toString(),
+      ...rest,
+      id: providedId ?? Date.now().toString(),
       timestamp: new Date(),
     };
     setLeads(prev => [newLead, ...prev]);
@@ -379,9 +326,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast('Lead updated successfully');
   };
 
-  const sendConnectionRequest = (toUser: ConnectionRequest['fromUser'], message?: string) => {
+  const sendConnectionRequest = async (toUser: ConnectionRequest['fromUser'], message?: string): Promise<void> => {
+    const tempId = `cr-${Date.now()}`;
     const newReq: ConnectionRequest = {
-      id: `cr-${Date.now()}`,
+      id: tempId,
       fromUser: user ? { id: user.id, name: user.name, title: user.title, company: user.company, avatar: user.avatar } : { id: 'current-user', name: '', title: '', company: '', avatar: '' },
       toUserId: toUser.id,
       status: 'pending',
@@ -390,7 +338,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       direction: 'outgoing',
     };
     setConnectionRequests(prev => [newReq, ...prev]);
-    showToast('Connection request sent!');
+    const res = await sendMeetingRequestApi({ toUserId: toUser.id, message, toUser });
+    if (res.success) {
+      if (res.data && res.data.id !== tempId) {
+        setConnectionRequests(prev => prev.map(r => r.id === tempId ? { ...r, id: res.data!.id } : r));
+      }
+      showToast('Connection request sent!');
+    } else {
+      setConnectionRequests(prev => prev.filter(r => r.id !== tempId));
+      showToast(res.error?.message ?? 'Failed to send connection request.');
+    }
   };
 
   const acceptConnection = (requestId: string) => {
@@ -513,6 +470,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         declineConnection,
         sendMessage,
         markConversationRead,
+        setConnectionRequests,
       }}
     >
       {children}

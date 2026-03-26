@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   ArrowLeft, Check, X, Clock, Send, MessageCircle,
   UserPlus, UserCheck, UserX, ChevronRight, Circle,
@@ -7,6 +7,12 @@ import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import { motion, AnimatePresence } from 'motion/react';
 import type { ConnectionRequest, Conversation } from '@/app/context/AppContext';
+import {
+  listMeetingRequests,
+  sendMeetingRequest,
+  acceptMeetingRequest,
+  declineMeetingRequest,
+} from '@/app/api/meetingsClient';
 
 type Tab = 'requests' | 'messages';
 
@@ -287,13 +293,47 @@ const ChatDetailView: React.FC<{
 
 export const MeetingsPage: React.FC = () => {
   const { t, isDark } = useTheme();
-  const { user, connectionRequests, conversations, acceptConnection, declineConnection, markConversationRead } = useApp();
+  const { user, connectionRequests, conversations, acceptConnection, declineConnection, markConversationRead, setConnectionRequests } = useApp();
   const [activeTab, setActiveTab] = useState<Tab>('requests');
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const handleOpenChat = (convId: string) => {
     setActiveChatId(convId);
     markConversationRead(convId);
+  };
+
+  const fetchRequests = useCallback(async () => {
+    const res = await listMeetingRequests();
+    if (res.success && res.data) {
+      setConnectionRequests(prev => {
+        const serverIds = new Set(res.data!.map(r => r.id));
+        const localOnly = prev.filter(r => !serverIds.has(r.id));
+        return [...localOnly, ...res.data!];
+      });
+    }
+  }, [setConnectionRequests]);
+
+  useEffect(() => {
+    fetchRequests();
+    pollIntervalRef.current = setInterval(fetchRequests, 30000);
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    };
+  }, [fetchRequests]);
+
+  const handleAccept = async (requestId: string) => {
+    const res = await acceptMeetingRequest(requestId);
+    if (res.success) {
+      acceptConnection(requestId);
+    }
+  };
+
+  const handleDecline = async (requestId: string) => {
+    const res = await declineMeetingRequest(requestId);
+    if (res.success) {
+      declineConnection(requestId);
+    }
   };
 
   const incomingPending = connectionRequests.filter(r => r.direction === 'incoming' && r.status === 'pending');
@@ -388,7 +428,7 @@ export const MeetingsPage: React.FC = () => {
                   </span>
                 </div>
                 {incomingPending.map(req => (
-                  <RequestCard key={req.id} req={req} onAccept={acceptConnection} onDecline={declineConnection} />
+                  <RequestCard key={req.id} req={req} onAccept={handleAccept} onDecline={handleDecline} />
                 ))}
               </div>
             )}
@@ -405,7 +445,7 @@ export const MeetingsPage: React.FC = () => {
                   </span>
                 </div>
                 {outgoingPending.map(req => (
-                  <RequestCard key={req.id} req={req} onAccept={acceptConnection} onDecline={declineConnection} />
+                  <RequestCard key={req.id} req={req} onAccept={handleAccept} onDecline={handleDecline} />
                 ))}
               </div>
             )}
@@ -419,7 +459,7 @@ export const MeetingsPage: React.FC = () => {
                   <h3 style={{ color: t.text, fontSize: 13, fontWeight: 700 }}>History</h3>
                 </div>
                 {history.map(req => (
-                  <RequestCard key={req.id} req={req} onAccept={acceptConnection} onDecline={declineConnection} />
+                  <RequestCard key={req.id} req={req} onAccept={handleAccept} onDecline={handleDecline} />
                 ))}
               </div>
             )}

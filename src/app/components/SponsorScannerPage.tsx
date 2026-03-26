@@ -6,6 +6,7 @@ import {
 import { useTheme } from '@/app/context/ThemeContext';
 import { useApp } from '@/app/context/AppContext';
 import { motion, AnimatePresence } from 'motion/react';
+import { scanBadgeLead } from '@/app/api/leadsClient';
 
 // ─── Mock attendee pool for simulated scans ──────────────────────────────────
 
@@ -86,23 +87,39 @@ export const SponsorScannerPage: React.FC = () => {
     handleCodeDetected(manualCode.toUpperCase());
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!scannedData) return;
     setIsSaving(true);
-    setTimeout(() => {
+
+    const res = await scanBadgeLead({
+      code: scannedData.code,
+      name: scannedData.name,
+      company: scannedData.company,
+      title: scannedData.title,
+      notes,
+      avatar: scannedData.avatar,
+      tags: selectedTags,
+      priority,
+    });
+
+    setIsSaving(false);
+
+    if (res.success && res.data) {
       saveLead({
-        code: scannedData.code,
-        name: scannedData.name,
-        company: scannedData.company,
-        title: scannedData.title,
-        notes,
-        avatar: scannedData.avatar,
-        tags: selectedTags,
-        priority,
+        id: res.data.id,
+        code: res.data.code,
+        name: res.data.name,
+        company: res.data.company,
+        title: res.data.title,
+        notes: res.data.notes,
+        avatar: res.data.avatar,
+        tags: res.data.tags,
+        priority: res.data.priority,
       });
-      setIsSaving(false);
       resetScanner();
-    }, 800);
+    } else {
+      alert(res.error?.message ?? 'Failed to save lead. Please try again.');
+    }
   };
 
   const resetScanner = () => {

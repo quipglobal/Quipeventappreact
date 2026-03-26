@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   ArrowLeft, Search, Users, Clock, Building2, ChevronRight,
   Flame, ThermometerSun, Snowflake, Tag, ScanLine, FileText,
@@ -9,6 +9,7 @@ import {
 import { useApp, Lead, SponsorGiveaway } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import { motion, AnimatePresence } from 'motion/react';
+import { listLeads, updateLeadApi } from '@/app/api/leadsClient';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -45,71 +46,6 @@ function timeAgo(date: Date): string {
   if (hrs < 24) return `${hrs}h ago`;
   return `${Math.floor(hrs / 24)}d ago`;
 }
-
-// ─── Mock pre-populated leads ────────────────────────────────────────────────
-
-const mockPrePopulatedLeads: Lead[] = [
-  {
-    id: 'pre-1',
-    code: 'ATT-4419',
-    name: 'Olivia Martinez',
-    title: 'Head of Procurement',
-    company: 'Global Logistics Corp',
-    avatar: 'https://ui-avatars.com/api/?name=Olivia+Martinez&background=ec4899&color=fff',
-    notes: 'Very interested in our enterprise plan. Manages $2M annual software budget. Wants a custom demo next week. Currently using competitor product but contract ends Q2.',
-    tags: ['Decision Maker', 'Demo Requested', 'Send Pricing'],
-    priority: 'hot',
-    timestamp: new Date(Date.now() - 45 * 60000), // 45 min ago
-  },
-  {
-    id: 'pre-2',
-    code: 'ATT-2781',
-    name: 'James Park',
-    title: 'Senior DevOps Engineer',
-    company: 'Fintech Innovations',
-    avatar: 'https://ui-avatars.com/api/?name=James+Park&background=3b82f6&color=fff',
-    notes: 'Technical evaluation phase. Needs API docs and sandbox access. Will loop in his team lead for a follow-up call.',
-    tags: ['Technical Lead', 'Follow Up'],
-    priority: 'warm',
-    timestamp: new Date(Date.now() - 90 * 60000), // 1.5 hrs ago
-  },
-  {
-    id: 'pre-3',
-    code: 'ATT-6155',
-    name: 'Amara Osei',
-    title: 'Innovation Manager',
-    company: 'Deloitte Digital',
-    avatar: 'https://ui-avatars.com/api/?name=Amara+Osei&background=10b981&color=fff',
-    notes: 'Exploring partnerships for client engagements. Gave her our partner program brochure.',
-    tags: ['Referral'],
-    priority: 'warm',
-    timestamp: new Date(Date.now() - 150 * 60000), // 2.5 hrs ago
-  },
-  {
-    id: 'pre-4',
-    code: 'ATT-8830',
-    name: 'Chen Wei',
-    title: 'Staff Software Engineer',
-    company: 'ByteScale',
-    avatar: 'https://ui-avatars.com/api/?name=Chen+Wei&background=8b5cf6&color=fff',
-    notes: 'Just browsing, picked up stickers. Might be relevant for their infrastructure team but no immediate need.',
-    tags: [],
-    priority: 'cold',
-    timestamp: new Date(Date.now() - 200 * 60000), // 3+ hrs ago
-  },
-  {
-    id: 'pre-5',
-    code: 'ATT-3372',
-    name: 'Fatima Al-Rashid',
-    title: 'VP of Technology',
-    company: 'Emirates Digital',
-    avatar: 'https://ui-avatars.com/api/?name=Fatima+AlRashid&background=f59e0b&color=fff',
-    notes: 'Enterprise buyer — managing digital transformation for a 5,000-person org. Wants a follow-up video call next Tuesday. Extremely high value.',
-    tags: ['Decision Maker', 'Budget Holder', 'Interested in Enterprise', 'Follow Up'],
-    priority: 'hot',
-    timestamp: new Date(Date.now() - 25 * 60000), // 25 min ago
-  },
-];
 
 // ─── Lead Detail Component ───────────────────────────────────────────────────
 
@@ -608,20 +544,33 @@ interface LeadsPageProps {
 }
 
 export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, onNavigateToDraw }) => {
-  const { leads, updateLead, sponsorGiveaways, addSponsorGiveaway, removeSponsorGiveaway, user } = useApp();
+  const { leads: contextLeads, updateLead, sponsorGiveaways, addSponsorGiveaway, removeSponsorGiveaway, user } = useApp();
   const { t, isDark } = useTheme();
 
   const [activeTab, setActiveTab] = useState<LeadsTab>('leads');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterPriority, setFilterPriority] = useState<Priority | 'all'>('all');
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [apiLeads, setApiLeads] = useState<Lead[] | null>(null);
 
-  // Combine real leads with pre-populated ones
+  useEffect(() => {
+    listLeads().then(res => {
+      if (res.success && res.data) {
+        setApiLeads(res.data);
+      }
+    });
+  }, []);
+
+  // If API returned leads, use those + context leads for newly scanned ones;
+  // otherwise fall back to context leads only
   const allLeads = useMemo(() => {
-    const realLeadCodes = leads.map(l => l.code);
-    const uniqueMocks = mockPrePopulatedLeads.filter(m => !realLeadCodes.includes(m.code));
-    return [...leads, ...uniqueMocks];
-  }, [leads]);
+    if (apiLeads !== null) {
+      const apiIds = new Set(apiLeads.map(l => l.id));
+      const newlyScanned = contextLeads.filter(l => !apiIds.has(l.id));
+      return [...newlyScanned, ...apiLeads];
+    }
+    return [...contextLeads];
+  }, [apiLeads, contextLeads]);
 
   // Filter
   const filteredLeads = useMemo(() => {
@@ -644,12 +593,14 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
   const coldCount = allLeads.filter(l => l.priority === 'cold').length;
 
   const handleUpdateLead = (id: string, updates: Partial<Pick<Lead, 'notes' | 'tags' | 'priority'>>) => {
-    // For mock leads, update in the selected view only
     updateLead(id, updates);
-    // Also update selectedLead in place
     if (selectedLead && selectedLead.id === id) {
       setSelectedLead({ ...selectedLead, ...updates });
     }
+    if (apiLeads !== null) {
+      setApiLeads(prev => prev ? prev.map(l => l.id === id ? { ...l, ...updates } : l) : prev);
+    }
+    updateLeadApi(id, updates).catch(() => {});
   };
 
   return (

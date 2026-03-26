@@ -4,6 +4,7 @@ import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import { mockSurveys } from '@/app/data/mockData';
 import { Survey, SurveyQuestion } from '@/app/types/config';
+import { submitSurveyResponse } from '@/app/api/engageClient';
 
 interface SurveysListPageProps {
   onBack: () => void;
@@ -26,11 +27,21 @@ export const SurveysListPage: React.FC<SurveysListPageProps> = ({ onBack }) => {
     }
   };
   const handlePrevious = () => { if (currentQuestion > 0) setCurrentQuestion(currentQuestion - 1); };
-  const handleSubmit = () => {
-    if (selectedSurvey && !completedSurveys.includes(selectedSurvey)) {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    if (!selectedSurvey || completedSurveys.includes(selectedSurvey) || isSubmitting) return;
+
+    setIsSubmitting(true);
+    const res = await submitSurveyResponse(selectedSurvey, answers);
+    setIsSubmitting(false);
+
+    if (res.success) {
       setCompletedSurveys([...completedSurveys, selectedSurvey]);
       addPoints(gamificationConfig.pointActions.completeSurvey, 'Survey completed!');
       setSelectedSurvey(null); setCurrentQuestion(0); setAnswers({});
+    } else {
+      alert(res.error?.message ?? 'Failed to submit survey. Please try again.');
     }
   };
 
@@ -121,10 +132,10 @@ export const SurveysListPage: React.FC<SurveysListPageProps> = ({ onBack }) => {
               <button onClick={handlePrevious} className="flex-1 py-3 rounded-xl font-semibold"
                 style={{ background: t.surface2, border: `1.5px solid ${t.border}`, color: t.textSec }}>Previous</button>
             )}
-            <button onClick={isLast ? handleSubmit : handleNext} disabled={q.required && !canProceed}
+            <button onClick={isLast ? handleSubmit : handleNext} disabled={(q.required && !canProceed) || isSubmitting}
               className="flex-1 py-3 rounded-xl font-semibold text-white"
-              style={{ background: 'linear-gradient(135deg,#10b981,#0d9488)', opacity: q.required && !canProceed ? 0.5 : 1, cursor: q.required && !canProceed ? 'not-allowed' : 'pointer' }}>
-              {isLast ? `Submit (+${gamificationConfig.pointActions.completeSurvey} pts)` : 'Next'}
+              style={{ background: 'linear-gradient(135deg,#10b981,#0d9488)', opacity: (q.required && !canProceed) || isSubmitting ? 0.5 : 1, cursor: (q.required && !canProceed) || isSubmitting ? 'not-allowed' : 'pointer' }}>
+              {isLast ? (isSubmitting ? 'Submitting…' : `Submit (+${gamificationConfig.pointActions.completeSurvey} pts)`) : 'Next'}
             </button>
           </div>
         </div>

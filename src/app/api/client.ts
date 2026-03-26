@@ -129,3 +129,16 @@ export async function apiPost<T>(path: string, body: unknown): Promise<ApiEnvelo
     return { success: false, error: { code: 'NETWORK_ERROR', message: 'Network error. Please check your connection.' } };
   }
 }
+
+export async function apiPut<T>(path: string, body: unknown): Promise<ApiEnvelope<T>> {
+  try {
+    const res = await fetchWithRetry(`${API_BASE_URL}${path}`, {
+      method: 'PUT',
+      headers: buildHeaders(),
+      body: JSON.stringify(body),
+    });
+    return parseResponse<T>(res);
+  } catch {
+    return { success: false, error: { code: 'NETWORK_ERROR', message: 'Network error. Please check your connection.' } };
+  }
+}

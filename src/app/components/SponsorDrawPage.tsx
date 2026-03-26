@@ -7,57 +7,7 @@ import {
 import { useApp, Lead, SponsorGiveaway } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import { motion, AnimatePresence } from 'motion/react';
-
-// ─── Mock pre-populated leads (same as LeadsPage for consistency) ────────────
-
-const mockPrePopulatedLeads: Lead[] = [
-  {
-    id: 'pre-1', code: 'ATT-4419', name: 'Olivia Martinez', title: 'Head of Procurement',
-    company: 'Global Logistics Corp', avatar: 'https://ui-avatars.com/api/?name=Olivia+Martinez&background=ec4899&color=fff',
-    notes: '', tags: ['Decision Maker'], priority: 'hot', timestamp: new Date(Date.now() - 45 * 60000),
-  },
-  {
-    id: 'pre-2', code: 'ATT-2781', name: 'James Park', title: 'Senior DevOps Engineer',
-    company: 'Fintech Innovations', avatar: 'https://ui-avatars.com/api/?name=James+Park&background=3b82f6&color=fff',
-    notes: '', tags: ['Technical Lead'], priority: 'warm', timestamp: new Date(Date.now() - 90 * 60000),
-  },
-  {
-    id: 'pre-3', code: 'ATT-6155', name: 'Amara Osei', title: 'Innovation Manager',
-    company: 'Deloitte Digital', avatar: 'https://ui-avatars.com/api/?name=Amara+Osei&background=10b981&color=fff',
-    notes: '', tags: ['Referral'], priority: 'warm', timestamp: new Date(Date.now() - 150 * 60000),
-  },
-  {
-    id: 'pre-4', code: 'ATT-8830', name: 'Chen Wei', title: 'Staff Software Engineer',
-    company: 'ByteScale', avatar: 'https://ui-avatars.com/api/?name=Chen+Wei&background=8b5cf6&color=fff',
-    notes: '', tags: [], priority: 'cold', timestamp: new Date(Date.now() - 200 * 60000),
-  },
-  {
-    id: 'pre-5', code: 'ATT-3372', name: 'Fatima Al-Rashid', title: 'VP of Technology',
-    company: 'Emirates Digital', avatar: 'https://ui-avatars.com/api/?name=Fatima+AlRashid&background=f59e0b&color=fff',
-    notes: '', tags: ['Decision Maker', 'Budget Holder'], priority: 'hot', timestamp: new Date(Date.now() - 25 * 60000),
-  },
-];
-
-// ─── Mock checked-in attendees (fallback when no leads) ─────────────────────
-
-interface CheckedInAttendee {
-  id: string;
-  name: string;
-  company: string;
-  title: string;
-  avatar: string;
-}
-
-const mockCheckedInAttendees: CheckedInAttendee[] = [
-  { id: 'checkin-1', name: 'Alex Rivera', company: 'Startup Hub', title: 'Founder', avatar: 'https://ui-avatars.com/api/?name=Alex+Rivera&background=6366f1&color=fff' },
-  { id: 'checkin-2', name: 'Morgan Lee', company: 'CloudStack', title: 'DevOps Lead', avatar: 'https://ui-avatars.com/api/?name=Morgan+Lee&background=ec4899&color=fff' },
-  { id: 'checkin-3', name: 'Taylor Kim', company: 'DataPrime', title: 'Data Analyst', avatar: 'https://ui-avatars.com/api/?name=Taylor+Kim&background=10b981&color=fff' },
-  { id: 'checkin-4', name: 'Jordan Patel', company: 'NextWave', title: 'Product Designer', avatar: 'https://ui-avatars.com/api/?name=Jordan+Patel&background=f59e0b&color=fff' },
-  { id: 'checkin-5', name: 'Casey Brooks', company: 'AI Labs', title: 'ML Engineer', avatar: 'https://ui-avatars.com/api/?name=Casey+Brooks&background=8b5cf6&color=fff' },
-  { id: 'checkin-6', name: 'Sam Torres', company: 'FinServe', title: 'Backend Engineer', avatar: 'https://ui-avatars.com/api/?name=Sam+Torres&background=3b82f6&color=fff' },
-  { id: 'checkin-7', name: 'Avery Chen', company: 'HealthTech Co', title: 'UX Researcher', avatar: 'https://ui-avatars.com/api/?name=Avery+Chen&background=14b8a6&color=fff' },
-  { id: 'checkin-8', name: 'Riley Nguyen', company: 'SecureNet', title: 'Security Analyst', avatar: 'https://ui-avatars.com/api/?name=Riley+Nguyen&background=ef4444&color=fff' },
-];
+import { triggerLuckyDraw, listLeads } from '@/app/api/leadsClient';
 
 // ─── Draw history entry ──────────────────────────────────────────────────────
 
@@ -78,7 +28,6 @@ interface DrawEntry {
 }
 
 type DrawPhase = 'setup' | 'spinning' | 'winner' | 'history';
-type PoolSource = 'leads' | 'attendees';
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -87,15 +36,17 @@ interface SponsorDrawPageProps {
 }
 
 export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
-  const { leads, sponsorGiveaways, user } = useApp();
+  const { sponsorGiveaways, user, showToast } = useApp();
   const { t, isDark } = useTheme();
+  const [poolLeads, setPoolLeads] = useState<Lead[]>([]);
 
-  // Combine real + mock leads
-  const allLeads = useMemo(() => {
-    const realCodes = leads.map(l => l.code);
-    const uniqueMocks = mockPrePopulatedLeads.filter(m => !realCodes.includes(m.code));
-    return [...leads, ...uniqueMocks];
-  }, [leads]);
+  useEffect(() => {
+    listLeads().then(res => {
+      if (res.success && res.data) {
+        setPoolLeads(res.data);
+      }
+    });
+  }, []);
 
   // Sponsor's own giveaways
   const myGiveaways = useMemo(() => {
@@ -109,26 +60,18 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
   const [winner, setWinner] = useState<DrawParticipant | null>(null);
   const [shuffleIndex, setShuffleIndex] = useState(0);
   const [excludeWon, setExcludeWon] = useState(true);
-  const shuffleRef = useRef<any>(null);
+  const shuffleRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Determine pool source: use scanned leads (real + mock pre-populated) if any real leads exist,
-  // otherwise fall back to checked-in attendees
-  const hasScannedLeads = leads.length > 0 || mockPrePopulatedLeads.length > 0;
-  const poolSource: PoolSource = hasScannedLeads ? 'leads' : 'attendees';
-
-  // Convert to common DrawParticipant format
+  // Convert backend leads to common DrawParticipant format
   const basePool: DrawParticipant[] = useMemo(() => {
-    if (hasScannedLeads) {
-      return allLeads.map(l => ({
-        id: l.id,
-        name: l.name,
-        company: l.company,
-        title: l.title,
-        avatar: l.avatar || '',
-      }));
-    }
-    return mockCheckedInAttendees;
-  }, [allLeads, hasScannedLeads]);
+    return poolLeads.map(l => ({
+      id: l.id,
+      name: l.name,
+      company: l.company,
+      title: l.title,
+      avatar: l.avatar || '',
+    }));
+  }, [poolLeads]);
 
   // Pool excluding previous winners if enabled
   const eligiblePool = useMemo(() => {
@@ -139,44 +82,68 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
 
   const prizeName = selectedGiveaway?.title || 'Lucky Draw Prize';
 
-  const startDraw = () => {
+  const startDraw = async () => {
     if (eligiblePool.length === 0) return;
     setPhase('spinning');
     setWinner(null);
 
+    const excludeIds = drawHistory.map(d => d.winner.id);
+    const drawPromise = triggerLuckyDraw({
+      giveawayId: selectedGiveaway?.id,
+      excludeIds: excludeWon ? excludeIds : undefined,
+    });
+
     let count = 0;
     const totalCycles = 30 + Math.floor(Math.random() * 15);
-    const winnerIdx = Math.floor(Math.random() * eligiblePool.length);
 
-    shuffleRef.current = setInterval(() => {
-      count++;
-      setShuffleIndex(Math.floor(Math.random() * eligiblePool.length));
+    const runShuffle = () => {
+      shuffleRef.current = setInterval(() => {
+        count++;
+        setShuffleIndex(Math.floor(Math.random() * eligiblePool.length));
 
-      if (count > totalCycles - 10) {
-        clearInterval(shuffleRef.current);
-        shuffleRef.current = setInterval(() => {
-          count++;
-          setShuffleIndex(Math.floor(Math.random() * eligiblePool.length));
-          if (count >= totalCycles) {
-            clearInterval(shuffleRef.current);
-            setShuffleIndex(winnerIdx);
-            const selectedWinner = eligiblePool[winnerIdx];
-            setWinner(selectedWinner);
-            setDrawHistory(prev => [
-              {
-                id: Date.now().toString(),
-                prizeName,
-                giveawayId: selectedGiveaway?.id,
-                winner: selectedWinner,
-                timestamp: new Date(),
-              },
-              ...prev,
-            ]);
-            setTimeout(() => setPhase('winner'), 300);
-          }
-        }, 200);
-      }
-    }, 60);
+        if (count > totalCycles - 10) {
+          clearInterval(shuffleRef.current);
+          shuffleRef.current = setInterval(() => {
+            count++;
+            setShuffleIndex(Math.floor(Math.random() * eligiblePool.length));
+            if (count >= totalCycles) {
+              clearInterval(shuffleRef.current);
+              drawPromise.then(res => {
+                if (!res.success || !res.data) {
+                  setPhase('setup');
+                  showToast(res.error?.message ?? 'Draw failed. Please try again.');
+                  return;
+                }
+                const selectedWinner: DrawParticipant = {
+                  id: res.data.id,
+                  name: res.data.name,
+                  company: res.data.company,
+                  title: res.data.title,
+                  avatar: res.data.avatar,
+                };
+
+                const winnerPoolIdx = eligiblePool.findIndex(p => p.id === selectedWinner.id);
+                setShuffleIndex(winnerPoolIdx >= 0 ? winnerPoolIdx : 0);
+                setWinner(selectedWinner);
+                setDrawHistory(prev => [
+                  {
+                    id: Date.now().toString(),
+                    prizeName,
+                    giveawayId: selectedGiveaway?.id,
+                    winner: selectedWinner,
+                    timestamp: new Date(),
+                  },
+                  ...prev,
+                ]);
+                setTimeout(() => setPhase('winner'), 300);
+              });
+            }
+          }, 200);
+        }
+      }, 60);
+    };
+
+    runShuffle();
   };
 
   useEffect(() => {
@@ -348,21 +315,19 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
               {/* Pool source indicator */}
               <div className="mb-5 rounded-xl px-4 py-3 flex items-center gap-3"
                 style={{
-                  background: poolSource === 'leads' ? 'rgba(16,185,129,0.08)' : 'rgba(245,158,11,0.08)',
-                  border: `1px solid ${poolSource === 'leads' ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.2)'}`,
+                  background: 'rgba(16,185,129,0.08)',
+                  border: '1px solid rgba(16,185,129,0.2)',
                 }}>
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                  style={{ background: poolSource === 'leads' ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)' }}>
-                  <Users style={{ width: 16, height: 16, color: poolSource === 'leads' ? '#10b981' : '#f59e0b' }} />
+                  style={{ background: 'rgba(16,185,129,0.15)' }}>
+                  <Users style={{ width: 16, height: 16, color: '#10b981' }} />
                 </div>
                 <div>
                   <p style={{ color: t.text, fontSize: 12, fontWeight: 600 }}>
-                    {poolSource === 'leads' ? 'Drawing from scanned leads' : 'Drawing from checked-in attendees'}
+                    Drawing from scanned leads
                   </p>
                   <p style={{ color: t.textMuted, fontSize: 11 }}>
-                    {poolSource === 'leads'
-                      ? `${eligiblePool.length} lead${eligiblePool.length !== 1 ? 's' : ''} in pool`
-                      : 'No scanned leads found — using event attendees'}
+                    {`${eligiblePool.length} lead${eligiblePool.length !== 1 ? 's' : ''} in pool`}
                   </p>
                 </div>
               </div>
@@ -388,7 +353,7 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
               {/* Eligible pool preview */}
               <div className="mb-5">
                 <h3 style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 10 }}>
-                  Eligible Pool ({eligiblePool.length} {poolSource === 'leads' ? 'lead' : 'attendee'}{eligiblePool.length !== 1 ? 's' : ''})
+                  Eligible Pool ({eligiblePool.length} lead{eligiblePool.length !== 1 ? 's' : ''})
                 </h3>
                 {eligiblePool.length === 0 ? (
                   <div className="rounded-xl p-6 text-center" style={{ background: t.surface, border: `1px solid ${t.border}` }}>

@@ -4,6 +4,7 @@ import { motion } from 'motion/react';
 import { useTheme } from '@/app/context/ThemeContext';
 import { FeedPoll as FeedPollType } from '@/app/data/mockFeed';
 import { useApp } from '@/app/context/AppContext';
+import { submitPollVote } from '@/app/api/engageClient';
 
 interface FeedPollProps {
   poll: FeedPollType;
@@ -15,14 +16,29 @@ export const FeedPoll: React.FC<FeedPollProps> = ({ poll }) => {
   const [hasVoted, setHasVoted] = useState(poll.hasVoted);
   const [selectedOptionId, setSelectedOptionId] = useState<string | undefined>(poll.userVotedOptionId);
   const [totalVotes, setTotalVotes] = useState(poll.totalVotes);
+  const [liveOptions, setLiveOptions] = useState(poll.options);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleVote = (optionId: string) => {
-    if (hasVoted) return;
-    
-    setHasVoted(true);
-    setSelectedOptionId(optionId);
-    setTotalVotes(prev => prev + 1);
-    addPoints(10, 'Voted in a poll');
+  const handleVote = async (optionId: string) => {
+    if (hasVoted || isSubmitting) return;
+
+    setIsSubmitting(true);
+    const res = await submitPollVote(poll.id, optionId, liveOptions.map(o => ({ id: o.id, text: o.text, votes: o.votes })));
+    setIsSubmitting(false);
+
+    if (res.success && res.data) {
+      const updatedOptions = liveOptions.map(o => {
+        const serverOption = res.data!.options.find(so => so.id === o.id);
+        return serverOption ? { ...o, votes: serverOption.votes } : o;
+      });
+      setLiveOptions(updatedOptions);
+      setTotalVotes(res.data.totalVotes);
+      setHasVoted(true);
+      setSelectedOptionId(optionId);
+      addPoints(10, 'Voted in a poll');
+    } else {
+      alert(res.error?.message ?? 'Failed to submit vote. Please try again.');
+    }
   };
 
   return (
@@ -50,15 +66,15 @@ export const FeedPoll: React.FC<FeedPollProps> = ({ poll }) => {
 
         {/* Options */}
         <div className="space-y-2.5">
-          {poll.options.map((option) => {
+          {liveOptions.map((option) => {
             const isSelected = selectedOptionId === option.id;
-            const percentage = hasVoted ? Math.round(((option.votes + (isSelected ? 1 : 0)) / totalVotes) * 100) : 0;
+            const percentage = hasVoted ? Math.round((option.votes / totalVotes) * 100) : 0;
             
             return (
               <button
                 key={option.id}
                 onClick={() => handleVote(option.id)}
-                disabled={hasVoted}
+                disabled={hasVoted || isSubmitting}
                 className="w-full relative group"
               >
                 {/* Background Progress Bar (Visible after vote) */}

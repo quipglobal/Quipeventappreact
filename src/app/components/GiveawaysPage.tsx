@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ArrowLeft, Gift, MapPin, Clock, Star, ChevronRight,
   Ticket, CheckCircle, Sparkles, Users, Tag,
@@ -6,119 +6,7 @@ import {
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import { ImageWithFallback } from '@/app/components/figma/ImageWithFallback';
-
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-interface Giveaway {
-  id: string;
-  sponsorName: string;
-  sponsorLogo: string;
-  sponsorTier: 'Platinum' | 'Gold' | 'Silver';
-  booth: string;
-  title: string;
-  description: string;
-  image: string;
-  type: 'raffle' | 'swag' | 'offer' | 'demo';
-  requirement: string;
-  pointsBonus: number;
-  claimed: boolean;
-  claimCount: number;
-  totalAvailable: number | null;
-  endsAt: string;
-  featured?: boolean;
-}
-
-// ─── Mock Data ───────────────────────────────────────────────────────────────
-
-const mockGiveaways: Giveaway[] = [
-  {
-    id: 'g1',
-    sponsorName: 'TechCorp Solutions',
-    sponsorLogo: 'https://ui-avatars.com/api/?name=TechCorp&background=6366f1&color=fff&size=128',
-    sponsorTier: 'Platinum',
-    booth: 'A-12',
-    title: 'Win a MacBook Pro M4',
-    description: 'Visit our booth for a product demo and enter the raffle for a brand new MacBook Pro with M4 chip.',
-    image: 'https://images.unsplash.com/photo-1764650909534-ebe7b1206466?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxnaWZ0JTIwYm94JTIwZ2l2ZWF3YXklMjBwcml6ZSUyMHJhZmZsZXxlbnwxfHx8fDE3NzE4MzkxNTJ8MA&ixlib=rb-4.1.0&q=80&w=1080',
-    type: 'raffle',
-    requirement: 'Complete a booth demo',
-    pointsBonus: 50,
-    claimed: false,
-    claimCount: 342,
-    totalAvailable: null,
-    endsAt: 'Jan 18, 5:00 PM',
-    featured: true,
-  },
-  {
-    id: 'g2',
-    sponsorName: 'InnovateLab',
-    sponsorLogo: 'https://ui-avatars.com/api/?name=InnovateLab&background=8b5cf6&color=fff&size=128',
-    sponsorTier: 'Gold',
-    booth: 'B-05',
-    title: 'Free Cloud Credits — $500',
-    description: 'Get $500 in free cloud credits when you sign up for a trial at our booth. Limited to first 200 attendees.',
-    image: 'https://images.unsplash.com/photo-1746937618165-c8dc7f11dd77?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx0ZWNoJTIwY29uZmVyZW5jZSUyMGV4cG8lMjBib290aCUyMGRpc3BsYXl8ZW58MXx8fHwxNzcxODM5MTUyfDA&ixlib=rb-4.1.0&q=80&w=1080',
-    type: 'offer',
-    requirement: 'Sign up for trial',
-    pointsBonus: 30,
-    claimed: false,
-    claimCount: 147,
-    totalAvailable: 200,
-    endsAt: 'Jan 18, 5:00 PM',
-    featured: true,
-  },
-  {
-    id: 'g3',
-    sponsorName: 'DataFlow Systems',
-    sponsorLogo: 'https://ui-avatars.com/api/?name=DataFlow&background=ec4899&color=fff&size=128',
-    sponsorTier: 'Gold',
-    booth: 'A-08',
-    title: 'Exclusive T-Shirt & Sticker Pack',
-    description: 'Grab a limited-edition DataFlow t-shirt and developer sticker pack at our booth.',
-    image: '',
-    type: 'swag',
-    requirement: 'Check in at booth',
-    pointsBonus: 20,
-    claimed: false,
-    claimCount: 89,
-    totalAvailable: 150,
-    endsAt: 'While supplies last',
-  },
-  {
-    id: 'g4',
-    sponsorName: 'SecureNet Inc',
-    sponsorLogo: 'https://ui-avatars.com/api/?name=SecureNet&background=10b981&color=fff&size=128',
-    sponsorTier: 'Silver',
-    booth: 'C-15',
-    title: 'Free Security Audit Report',
-    description: 'Get a complimentary security audit report for your infrastructure. Book a 15-minute consultation at our booth.',
-    image: '',
-    type: 'demo',
-    requirement: 'Book a consultation',
-    pointsBonus: 40,
-    claimed: false,
-    claimCount: 34,
-    totalAvailable: 50,
-    endsAt: 'Jan 17, 6:00 PM',
-  },
-  {
-    id: 'g5',
-    sponsorName: 'CloudStream',
-    sponsorLogo: 'https://ui-avatars.com/api/?name=CloudStream&background=f59e0b&color=fff&size=128',
-    sponsorTier: 'Silver',
-    booth: 'B-22',
-    title: '3 Months Premium Free',
-    description: 'Scan the QR code at our booth to claim 3 months of CloudStream Premium absolutely free.',
-    image: '',
-    type: 'offer',
-    requirement: 'Scan QR at booth',
-    pointsBonus: 25,
-    claimed: false,
-    claimCount: 210,
-    totalAvailable: null,
-    endsAt: 'Jan 18, 5:00 PM',
-  },
-];
+import { enterGiveaway, fetchGiveawayStatus, listGiveaways, type GiveawayItem } from '@/app/api/engageClient';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -144,18 +32,52 @@ interface GiveawaysPageProps {
 export const GiveawaysPage: React.FC<GiveawaysPageProps> = ({ onBack }) => {
   const { addPoints, showToast, sponsorGiveaways } = useApp();
   const { t, isDark } = useTheme();
+  const [giveaways, setGiveaways] = useState<GiveawayItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const [claimedIds, setClaimedIds] = useState<string[]>([]);
+  const [claimingId, setClaimingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>('all');
 
-  const handleClaim = (giveaway: Giveaway) => {
-    if (claimedIds.includes(giveaway.id)) return;
-    setClaimedIds(prev => [...prev, giveaway.id]);
-    addPoints(giveaway.pointsBonus, `Claimed: ${giveaway.title}`);
+  useEffect(() => {
+    listGiveaways().then(async res => {
+      if (res.success && res.data) {
+        setGiveaways(res.data);
+        const statusResults = await Promise.all(
+          res.data.map(g => fetchGiveawayStatus(g.id))
+        );
+        const claimed: string[] = [];
+        statusResults.forEach((sr, i) => {
+          if (sr.success && sr.data?.entered) {
+            claimed.push(res.data![i].id);
+          }
+        });
+        setClaimedIds(claimed);
+      }
+      setLoading(false);
+    });
+  }, []);
+
+  const handleClaim = async (giveaway: GiveawayItem) => {
+    if (claimedIds.includes(giveaway.id) || claimingId) return;
+
+    setClaimingId(giveaway.id);
+    const res = await enterGiveaway(giveaway.id);
+    setClaimingId(null);
+
+    if (res.success) {
+      setClaimedIds(prev => [...prev, giveaway.id]);
+      addPoints(giveaway.pointsBonus, `Claimed: ${giveaway.title}`);
+      setGiveaways(prev => prev.map(g =>
+        g.id === giveaway.id ? { ...g, claimCount: g.claimCount + 1 } : g
+      ));
+    } else {
+      showToast(res.error?.message ?? 'Failed to claim giveaway');
+    }
   };
 
   const types = ['all', 'raffle', 'swag', 'offer', 'demo'];
-  const filtered = mockGiveaways.filter(g => filter === 'all' || g.type === filter);
+  const filtered = giveaways.filter(g => filter === 'all' || g.type === filter);
 
   return (
     <div className="pb-24 min-h-screen" style={{ background: t.bgPage }}>
@@ -192,14 +114,14 @@ export const GiveawaysPage: React.FC<GiveawaysPageProps> = ({ onBack }) => {
             <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
               style={{ background: 'rgba(255,255,255,0.12)', backdropFilter: 'blur(8px)' }}>
               <Gift style={{ width: 14, height: 14, color: '#fde68a' }} />
-              <span style={{ color: '#fff', fontSize: 13, fontWeight: 700 }}>{mockGiveaways.length}</span>
+              <span style={{ color: '#fff', fontSize: 13, fontWeight: 700 }}>{loading ? '…' : giveaways.length}</span>
               <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>Available</span>
             </div>
             <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
               style={{ background: 'rgba(255,255,255,0.12)', backdropFilter: 'blur(8px)' }}>
               <Sparkles style={{ width: 14, height: 14, color: '#fde68a' }} />
               <span style={{ color: '#fff', fontSize: 13, fontWeight: 700 }}>
-                {mockGiveaways.reduce((s, g) => s + g.pointsBonus, 0)}
+                {loading ? '…' : giveaways.reduce((s, g) => s + g.pointsBonus, 0)}
               </span>
               <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>Pts available</span>
             </div>
@@ -229,6 +151,16 @@ export const GiveawaysPage: React.FC<GiveawaysPageProps> = ({ onBack }) => {
 
       {/* ── Giveaway Cards ────────────────────────────────────────── */}
       <div className="px-5 space-y-4 pb-6">
+        {loading && (
+          <div className="flex justify-center py-10">
+            <div className="w-8 h-8 border-2 border-amber-500/30 border-t-amber-500 rounded-full animate-spin" />
+          </div>
+        )}
+        {!loading && filtered.length === 0 && (
+          <div className="text-center py-10" style={{ color: t.textSec, fontSize: 14 }}>
+            No giveaways available.
+          </div>
+        )}
         {filtered.map(g => {
           const cfg = typeConfig[g.type] ?? typeConfig.swag;
           const TypeIcon = cfg.icon;
@@ -360,11 +292,20 @@ export const GiveawaysPage: React.FC<GiveawaysPageProps> = ({ onBack }) => {
                     ) : (
                       <div
                         onClick={(e) => { e.stopPropagation(); handleClaim(g); }}
-                        className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-white cursor-pointer active:scale-[0.98] transition-transform"
-                        style={{ background: 'linear-gradient(135deg,#d97706,#f59e0b)' }}>
-                        <Gift style={{ width: 16, height: 16 }} />
-                        <span style={{ fontSize: 14, fontWeight: 700 }}>Claim Giveaway</span>
-                        <span style={{ fontSize: 12, opacity: 0.8 }}>· +{g.pointsBonus} pts</span>
+                        className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-white cursor-pointer active:scale-[0.98] transition-all"
+                        style={{ background: 'linear-gradient(135deg,#d97706,#f59e0b)', opacity: claimingId === g.id ? 0.7 : 1 }}>
+                        {claimingId === g.id ? (
+                          <>
+                            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                            <span style={{ fontSize: 14, fontWeight: 700 }}>Claiming…</span>
+                          </>
+                        ) : (
+                          <>
+                            <Gift style={{ width: 16, height: 16 }} />
+                            <span style={{ fontSize: 14, fontWeight: 700 }}>Claim Giveaway</span>
+                            <span style={{ fontSize: 12, opacity: 0.8 }}>· +{g.pointsBonus} pts</span>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>

@@ -1,16 +1,18 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ArrowLeft, Trophy, Target, Clock, CheckCircle2 } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import { mockChallenges } from '@/app/data/mockData';
+import { completeChallenge as completeChallengeApi } from '@/app/api/engageClient';
 
 interface ChallengesPageProps {
   onBack: () => void;
 }
 
 export const ChallengesPage: React.FC<ChallengesPageProps> = ({ onBack }) => {
-  const { completedChallenges, completedSurveys, votedPolls, metSponsors, bookmarkedSessions, completeChallenge } = useApp();
+  const { completedChallenges, completedSurveys, votedPolls, metSponsors, bookmarkedSessions, completeChallenge, addPoints, showToast } = useApp();
   const { t } = useTheme();
+  const [claimingId, setClaimingId] = useState<string | null>(null);
 
   const getChallengeProgress = (challenge: typeof mockChallenges[0]) => {
     switch (challenge.type) {
@@ -33,9 +35,21 @@ export const ChallengesPage: React.FC<ChallengesPageProps> = ({ onBack }) => {
     completed: completedChallenges.includes(c.id) || getChallengeProgress(c) >= c.target,
   }));
 
-  const handleClaim = (id: string) => {
+  const handleClaim = async (id: string) => {
     const c = challenges.find(x => x.id === id);
-    if (c && c.progress >= c.target && !completedChallenges.includes(id)) completeChallenge(id);
+    if (!c || c.progress < c.target || completedChallenges.includes(id) || claimingId) return;
+
+    setClaimingId(id);
+    const res = await completeChallengeApi(id);
+    setClaimingId(null);
+
+    if (res.success) {
+      const pts = res.data?.pointsAwarded ?? c.rewardPoints ?? 0;
+      addPoints(pts, `Challenge complete: ${c.title}`);
+      completeChallenge(id, true);
+    } else {
+      showToast(res.error?.message ?? 'Failed to complete challenge. Please try again.');
+    }
   };
 
   const activeCount    = challenges.filter(c => !c.completed).length;
@@ -105,9 +119,10 @@ export const ChallengesPage: React.FC<ChallengesPageProps> = ({ onBack }) => {
                   )}
                 </div>
                 {canClaim && (
-                  <button onClick={() => handleClaim(c.id)} className="px-5 py-2 rounded-xl font-semibold text-white"
-                    style={{ background: 'linear-gradient(135deg,#10b981,#0d9488)', boxShadow: '0 4px 16px rgba(16,185,129,0.3)' }}>
-                    Claim Reward
+                  <button onClick={() => handleClaim(c.id)} disabled={claimingId === c.id}
+                    className="px-5 py-2 rounded-xl font-semibold text-white transition-opacity"
+                    style={{ background: 'linear-gradient(135deg,#10b981,#0d9488)', boxShadow: '0 4px 16px rgba(16,185,129,0.3)', opacity: claimingId === c.id ? 0.7 : 1 }}>
+                    {claimingId === c.id ? 'Claiming…' : 'Claim Reward'}
                   </button>
                 )}
                 {c.completed && !canClaim && (
