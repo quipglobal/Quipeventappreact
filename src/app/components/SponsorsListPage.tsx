@@ -1,17 +1,41 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ArrowLeft, MapPin, ExternalLink, QrCode, CheckCircle, FileDown, Calendar, X } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
-import { mockSponsors } from '@/app/data/mockData';
+import { listSponsorsApi } from '@/app/api/sponsorsClient';
+import { Sponsor } from '@/app/types/config';
+import { DataState } from '@/app/components/ui/DataState';
 
 interface SponsorsListPageProps { onBack?: () => void; }
 
 export const SponsorsListPage: React.FC<SponsorsListPageProps> = ({ onBack }) => {
   const { metSponsors, setMetSponsors, addPoints, gamificationConfig } = useApp();
   const { t } = useTheme();
+
+  const [sponsors, setSponsors] = useState<Sponsor[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedSponsor, setSelectedSponsor] = useState<string | null>(null);
   const [showCheckInModal, setShowCheckInModal] = useState(false);
   const [checkInCode, setCheckInCode] = useState('');
+
+  const fetchSponsors = useCallback(async () => {
+    try {
+      setError(null);
+      const res = await listSponsorsApi();
+      if (!res.success || !res.data) throw new Error(res.error?.message ?? 'Failed to load sponsors');
+      setSponsors(res.data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load sponsors');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    fetchSponsors();
+  }, [fetchSponsors]);
 
   const handleCheckIn = (sponsorId: string) => {
     if (!metSponsors.includes(sponsorId)) {
@@ -27,13 +51,15 @@ export const SponsorsListPage: React.FC<SponsorsListPageProps> = ({ onBack }) =>
     Gold:     { grad: 'linear-gradient(135deg,#f59e0b,#d97706)', dot: '#f59e0b' },
     Silver:   { grad: 'linear-gradient(135deg,#9ca3af,#6b7280)', dot: '#9ca3af' },
   };
+
   const sponsorsByTier = {
-    Platinum: mockSponsors.filter(s => s.tier === 'Platinum'),
-    Gold:     mockSponsors.filter(s => s.tier === 'Gold'),
-    Silver:   mockSponsors.filter(s => s.tier === 'Silver'),
+    Platinum: sponsors.filter(s => s.tier === 'Platinum'),
+    Gold:     sponsors.filter(s => s.tier === 'Gold'),
+    Silver:   sponsors.filter(s => s.tier === 'Silver'),
   };
+
   const GRAD = 'linear-gradient(135deg,#f97316,#ef4444)';
-  const selectedSponsorData = selectedSponsor ? mockSponsors.find(s => s.id === selectedSponsor) : null;
+  const selectedSponsorData = selectedSponsor ? sponsors.find(s => s.id === selectedSponsor) : null;
 
   if (selectedSponsorData) {
     const hasMet = metSponsors.includes(selectedSponsorData.id);
@@ -127,41 +153,48 @@ export const SponsorsListPage: React.FC<SponsorsListPageProps> = ({ onBack }) =>
         <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.03em' }}>Sponsors & Companies</h1>
         <p style={{ color: 'rgba(255,255,255,0.75)', fontSize: 13, marginTop: 4 }}>Connect to earn +{gamificationConfig.pointActions.sponsorCheckIn} points per check-in</p>
       </div>
+
       <div className="px-5 py-5 space-y-6">
-        {(Object.entries(sponsorsByTier) as [string, typeof mockSponsors][]).map(([tier, sponsors]) => {
-          if (!sponsors.length) return null;
-          const tm2 = tierMeta[tier] ?? tierMeta.Silver;
-          return (
-            <div key={tier}>
-              <div className="flex items-center gap-2 mb-3">
-                <div className="w-3 h-3 rounded-full" style={{ background: tm2.dot }} />
-                <h2 style={{ color: t.text, fontSize: 16, fontWeight: 700 }}>{tier} Sponsors</h2>
-              </div>
-              <div className="space-y-3">
-                {sponsors.map(sponsor => {
-                  const hasMet = metSponsors.includes(sponsor.id);
-                  return (
-                    <button key={sponsor.id} onClick={() => setSelectedSponsor(sponsor.id)}
-                      className="w-full rounded-2xl p-5 text-left hover:opacity-90 transition-all"
-                      style={{ background: t.surface, boxShadow: t.shadow, border: `1px solid ${t.border}` }}>
-                      <div className="flex items-start gap-4">
-                        <img src={sponsor.logo} alt={sponsor.name} className="w-14 h-14 rounded-xl flex-shrink-0" style={{ border: `1px solid ${t.border}` }} />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between gap-2 mb-1">
-                            <h3 style={{ color: t.text, fontSize: 15, fontWeight: 700 }}>{sponsor.name}</h3>
-                            {hasMet && <CheckCircle style={{ width: 18, height: 18, color: t.successText, flexShrink: 0 }} />}
+        {loading ? (
+          <DataState loading loadingRows={3} />
+        ) : error ? (
+          <DataState error={error} onRetry={() => { setLoading(true); fetchSponsors(); }} />
+        ) : (
+          (Object.entries(sponsorsByTier) as [string, Sponsor[]][]).map(([tier, tierSponsors]) => {
+            if (!tierSponsors.length) return null;
+            const tm2 = tierMeta[tier] ?? tierMeta.Silver;
+            return (
+              <div key={tier}>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-3 h-3 rounded-full" style={{ background: tm2.dot }} />
+                  <h2 style={{ color: t.text, fontSize: 16, fontWeight: 700 }}>{tier} Sponsors</h2>
+                </div>
+                <div className="space-y-3">
+                  {tierSponsors.map(sponsor => {
+                    const hasMet = metSponsors.includes(sponsor.id);
+                    return (
+                      <button key={sponsor.id} onClick={() => setSelectedSponsor(sponsor.id)}
+                        className="w-full rounded-2xl p-5 text-left hover:opacity-90 transition-all"
+                        style={{ background: t.surface, boxShadow: t.shadow, border: `1px solid ${t.border}` }}>
+                        <div className="flex items-start gap-4">
+                          <img src={sponsor.logo} alt={sponsor.name} className="w-14 h-14 rounded-xl flex-shrink-0" style={{ border: `1px solid ${t.border}` }} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-2 mb-1">
+                              <h3 style={{ color: t.text, fontSize: 15, fontWeight: 700 }}>{sponsor.name}</h3>
+                              {hasMet && <CheckCircle style={{ width: 18, height: 18, color: t.successText, flexShrink: 0 }} />}
+                            </div>
+                            <p style={{ color: t.textSec, fontSize: 13, marginBottom: 6 }}>{sponsor.tagline}</p>
+                            <div className="flex items-center gap-1.5"><MapPin style={{ width: 12, height: 12, color: t.textMuted }} /><span style={{ color: t.textMuted, fontSize: 12 }}>Booth {sponsor.booth}</span></div>
                           </div>
-                          <p style={{ color: t.textSec, fontSize: 13, marginBottom: 6 }}>{sponsor.tagline}</p>
-                          <div className="flex items-center gap-1.5"><MapPin style={{ width: 12, height: 12, color: t.textMuted }} /><span style={{ color: t.textMuted, fontSize: 12 }}>Booth {sponsor.booth}</span></div>
                         </div>
-                      </div>
-                    </button>
-                  );
-                })}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })
+        )}
       </div>
     </div>
   );

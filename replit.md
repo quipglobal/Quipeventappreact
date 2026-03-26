@@ -127,6 +127,19 @@ New files added under `src/app/api/`:
 | `VITE_API_BASE_URL` | CXO backend URL (`https://bef44c34-...spock.replit.dev`) |
 | `VITE_USE_MOCK_API` | `"true"` = mock layer active (safe for development) |
 
+### Web App API Clients (src/app/api/)
+- `authClient.ts` — Login, resend verification, get me (existing)
+- `eventsClient.ts` — List events (with status filter), get event, join by code
+- `feedClient.ts` — Paginated feed (video+poll), mark video watched
+- `userClient.ts` — Get profile, update profile fields, get points/tier
+- `agendaClient.ts` — List sessions (with day/track filters), get session, bookmark
+- `sponsorsClient.ts` — List sponsors (by tier), get sponsor detail
+
+All clients have a mock layer that mirrors the expected API contract. Swap mock blocks for real `fetch()` calls when backend is wired. Base URL is `VITE_API_BASE_URL` env var.
+
+### Web App DataState Component
+`src/app/components/ui/DataState.tsx` — Reusable loading skeleton + error retry UI applied to: Feed, Events, Agenda, Sponsors pages.
+
 ---
 
 ## Backend

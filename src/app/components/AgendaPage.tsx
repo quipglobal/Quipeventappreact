@@ -1,22 +1,47 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Clock, MapPin, Bookmark, Search, Filter, Tag } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
-import { mockSessions } from '@/app/data/mockData';
+import { Session } from '@/app/types/config';
+import { listSessionsApi } from '@/app/api/agendaClient';
+import { DataState } from '@/app/components/ui/DataState';
 
 export const AgendaPage: React.FC = () => {
   const { bookmarkedSessions, toggleBookmark } = useApp();
   const { t } = useTheme();
+
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
   const [searchQuery, setSearchQuery]   = useState('');
   const [selectedTrack, setSelectedTrack] = useState('all');
   const [selectedType, setSelectedType]   = useState('all');
   const [showFilters, setShowFilters]   = useState(false);
   const [viewMode, setViewMode]         = useState<'all' | 'bookmarked'>('all');
 
-  const tracks = ['All Tracks', 'Keynote', 'AI & ML', 'Sustainability', 'Startups'];
-  const types  = ['All Types', 'Keynote', 'Workshop', 'Panel', 'Competition'];
+  const fetchSessions = useCallback(async () => {
+    try {
+      setError(null);
+      const res = await listSessionsApi();
+      if (!res.success || !res.data) throw new Error(res.error?.message ?? 'Failed to load sessions');
+      setSessions(res.data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load sessions');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const filteredSessions = mockSessions.filter(s => {
+  useEffect(() => {
+    setLoading(true);
+    fetchSessions();
+  }, [fetchSessions]);
+
+  const tracks = ['All Tracks', ...Array.from(new Set(sessions.map(s => s.track)))];
+  const types  = ['All Types',  ...Array.from(new Set(sessions.map(s => s.type)))];
+
+  const filteredSessions = sessions.filter(s => {
     const q = searchQuery.toLowerCase();
     return (
       (s.title.toLowerCase().includes(q) || s.description.toLowerCase().includes(q)) &&
@@ -83,7 +108,11 @@ export const AgendaPage: React.FC = () => {
 
       {/* Sessions */}
       <div className="px-5 py-5">
-        {filteredSessions.length === 0 ? (
+        {loading ? (
+          <DataState loading loadingRows={3} />
+        ) : error ? (
+          <DataState error={error} onRetry={() => { setLoading(true); fetchSessions(); }} />
+        ) : filteredSessions.length === 0 ? (
           <div className="text-center py-16">
             <Bookmark style={{ width: 48, height: 48, color: t.emptyIcon, margin: '0 auto 12px' }} />
             <h3 style={{ color: t.text, fontSize: 17, fontWeight: 700, marginBottom: 6 }}>
