@@ -67,8 +67,16 @@ const pagesWithGlobalHeader = ['home', 'engage-audience', 'engage', 'agenda', 'p
 function AppContent() {
   const [screen, setScreen] = useState<Screen>('splash');
   const [activePage, setActivePage] = useState<Page>('home');
-  const { user, hasJoinedEvent, connectionRequests, conversations } = useApp();
+  const { user, sessionRestored, hasJoinedEvent, connectionRequests, conversations } = useApp();
   const { t, isDark } = useTheme();
+
+  React.useEffect(() => {
+    if (!sessionRestored) return;
+    if (screen === 'splash') return;
+    if (user && screen === 'welcome') {
+      setScreen('event-join');
+    }
+  }, [sessionRestored, user, screen]);
 
   const unreadCount = connectionRequests.filter(r => r.direction === 'incoming' && r.status === 'pending').length
     + conversations.reduce((sum, c) => sum + c.messages.filter(m => m.senderId !== (user?.id || 'current-user') && !m.read).length, 0);

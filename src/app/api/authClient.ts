@@ -1,278 +1,299 @@
 /**
- * Auth API Client
+ * Auth API Client — Phone OTP flow
  * ─────────────────────────────────────────────────────────────────────────────
- * Replace BASE_URL and remove the mock layer once a real backend is wired.
- * All public methods map 1-to-1 to the documented API contract.
+ * API CONTRACT (real backend):
+ *   POST /api/auth/send-otp     → { phone }                 → { success }
+ *   POST /api/auth/verify-otp   → { phone, otp }            → { token, user, isNewUser }
+ *   POST /api/auth/register     → { phone, name, email, title, company } → { token, user }
+ *   GET  /api/auth/me                                        → { user }
  *
- * API CONTRACT:
- *   POST /auth/login             → LoginRequest  → LoginResponse
- *   POST /auth/resend-verification → { email }   → { success: true }
- *   GET  /auth/me                               → MeResponse
+ * Set VITE_USE_MOCK_API=true in .env to run without a live backend.
  */
 
-export const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'https://api.eventhub.app/v1';
+import { apiGet, apiPost, saveToken, clearToken, TOKEN_KEY } from './client';
 
-// ─── Request / Response Types ───────────────────────────────────────────────
+const USE_MOCK = import.meta.env.VITE_USE_MOCK_API === 'true';
 
-export interface LoginRequest {
-  email: string;
-  password: string;
-}
+// ─── Shared Types ─────────────────────────────────────────────────────────────
 
 export interface AuthUser {
   id: string;
-  email: string;
   name: string;
-  emailVerified: boolean;
-  role: 'attendee' | 'sponsor';
-  company?: string;
+  email: string;
+  phone?: string;
   title?: string;
+  company?: string;
+  role: 'attendee' | 'sponsor';
   avatar?: string;
   points?: number;
   tier?: string;
   interests?: string[];
   profileComplete?: boolean;
+  emailVerified?: boolean;
 }
 
-export interface LoginResponse {
+export interface SendOtpResponse {
+  success: boolean;
+  error?: { code?: string; message: string };
+}
+
+export interface VerifyOtpResponse {
+  success: boolean;
+  data?: {
+    token: string;
+    user: AuthUser | null;
+    isNewUser: boolean;
+  };
+  error?: { code?: string; message: string };
+}
+
+export interface RegisterResponse {
   success: boolean;
   data?: {
     token: string;
     user: AuthUser;
   };
-  error?: {
-    code: string;
-    message: string;
-  };
-}
-
-export interface ResendVerificationResponse {
-  success: boolean;
-  error?: { message: string };
+  error?: { code?: string; message: string };
 }
 
 export interface MeResponse {
   success: boolean;
   data?: AuthUser;
-  error?: { message: string };
+  error?: { code?: string; message: string };
 }
 
-// ─── Mock Data (remove when backend is live) ─────────────────────────────────
+// ─── Mock Database ────────────────────────────────────────────────────────────
 
-/**
- * SEED CREDENTIALS (mock only):
- *   attendee@demo.com  / demo123  → attendee, email verified
- *   sponsor@demo.com   / demo123  → sponsor,  email verified
- *   unverified@demo.com / demo123 → attendee, email NOT verified  ← triggers gating UI
- *
- * Any other well-formed email + password (min 6 chars) returns a generic
- * verified attendee so designers / testers can explore freely.
- */
-const MOCK_DB: Record<
-  string,
-  { password: string; user: AuthUser; token: string }
-> = {
-  'attendee@demo.com': {
-    password: 'demo123',
-    token: 'mock-token-attendee-abc123',
+interface MockRecord {
+  user: AuthUser;
+  token: string;
+}
+
+const MOCK_USERS: Record<string, MockRecord> = {
+  '5550000001': {
+    token: 'mock-token-jessica-abc123',
     user: {
-      id: 'user-001',
-      email: 'attendee@demo.com',
-      name: 'Alex Johnson',
-      emailVerified: true,
+      id: 'user-5550000001',
+      name: 'Jessica Williams',
+      email: 'jessica@stripe.com',
+      phone: '5550000001',
+      title: 'Product Designer',
+      company: 'Stripe',
       role: 'attendee',
-      company: 'Innovation Inc.',
-      title: 'Product Manager',
-      avatar: 'https://ui-avatars.com/api/?name=Alex+Johnson&background=6366f1&color=fff',
-      points: 0,
-      tier: 'Bronze',
-      interests: ['AI', 'Cloud', 'Sustainability'],
-      profileComplete: true,
-    },
-  },
-  'sponsor@demo.com': {
-    password: 'demo123',
-    token: 'mock-token-sponsor-xyz789',
-    user: {
-      id: 'user-002',
-      email: 'sponsor@demo.com',
-      name: 'Sarah Martinez',
-      emailVerified: true,
-      role: 'sponsor',
-      company: 'TechCorp Solutions',
-      title: 'Partnership Director',
-      avatar: 'https://ui-avatars.com/api/?name=Sarah+Martinez&background=8b5cf6&color=fff',
-      points: 0,
-      tier: 'Bronze',
-      interests: ['Partnerships', 'Enterprise', 'Cloud'],
-      profileComplete: true,
-    },
-  },
-  'unverified@demo.com': {
-    password: 'demo123',
-    token: '', // no token until verified
-    user: {
-      id: 'user-003',
-      email: 'unverified@demo.com',
-      name: 'Unverified User',
-      emailVerified: false,
-      role: 'attendee',
+      avatar: 'https://ui-avatars.com/api/?name=Jessica+Williams&background=6366f1&color=fff',
       points: 0,
       tier: 'Bronze',
       interests: [],
-      profileComplete: false,
+      profileComplete: true,
+      emailVerified: true,
+    },
+  },
+  '5550000002': {
+    token: 'mock-token-michael-def456',
+    user: {
+      id: 'user-5550000002',
+      name: 'Michael Chen',
+      email: 'michael@startupx.com',
+      phone: '5550000002',
+      title: 'CTO',
+      company: 'StartupX',
+      role: 'attendee',
+      avatar: 'https://ui-avatars.com/api/?name=Michael+Chen&background=8b5cf6&color=fff',
+      points: 0,
+      tier: 'Bronze',
+      interests: [],
+      profileComplete: true,
+      emailVerified: true,
+    },
+  },
+  '8156699646': {
+    token: 'mock-token-alex-ghi789',
+    user: {
+      id: 'user-8156699646',
+      name: 'Alex Thompson',
+      email: 'alex@demo.com',
+      phone: '8156699646',
+      title: 'Director of Sales',
+      company: 'NovaTech',
+      role: 'attendee',
+      avatar: 'https://ui-avatars.com/api/?name=Alex+Thompson&background=0ea5e9&color=fff',
+      points: 0,
+      tier: 'Bronze',
+      interests: [],
+      profileComplete: true,
+      emailVerified: true,
+    },
+  },
+  '5550009999': {
+    token: 'mock-token-sarah-jkl012',
+    user: {
+      id: 'user-5550009999',
+      name: 'Sarah Sponsor',
+      email: 'sponsor@acmecorp.com',
+      phone: '5550009999',
+      title: 'VP Partnerships',
+      company: 'AcmeCorp',
+      role: 'sponsor',
+      avatar: 'https://ui-avatars.com/api/?name=Sarah+Sponsor&background=ec4899&color=fff',
+      points: 0,
+      tier: 'Bronze',
+      interests: [],
+      profileComplete: true,
+      emailVerified: true,
     },
   },
 };
 
-/** Simulate network latency */
-const delay = (ms = 900) => new Promise<void>((res) => setTimeout(res, ms));
+const MOCK_OTP = '123456';
 
-// ─── API Methods ─────────────────────────────────────────────────────────────
+const delay = (ms = 800) => new Promise<void>(r => setTimeout(r, ms));
 
-/**
- * POST /auth/login
- * Returns a token + user object on success, or an error with code on failure.
- */
-export async function loginApi(req: LoginRequest): Promise<LoginResponse> {
-  await delay();
-
-  /* ── Real implementation (uncomment when backend is ready) ──────────────
-  const response = await fetch(`${BASE_URL}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req),
-  });
-  return response.json() as Promise<LoginResponse>;
-  ─────────────────────────────────────────────────────────────────────── */
-
-  // ── Mock layer ──────────────────────────────────────────────────────────
-  const normalised = req.email.toLowerCase().trim();
-  const record = MOCK_DB[normalised];
-
-  // Unverified email check (before password validation, matching real backend)
-  if (record && !record.user.emailVerified) {
-    return {
-      success: false,
-      error: {
-        code: 'EMAIL_NOT_VERIFIED',
-        message: 'Email not verified',
-      },
-      data: { token: '', user: record.user },
-    };
-  }
-
-  if (record) {
-    if (record.password !== req.password) {
-      return {
-        success: false,
-        error: { code: 'INVALID_CREDENTIALS', message: 'Incorrect password' },
-      };
-    }
-    return { success: true, data: { token: record.token, user: record.user } };
-  }
-
-  // Fallback: any well-formed email + password ≥ 6 chars = demo attendee
-  if (req.password.length >= 6) {
-    const firstName = normalised.split('@')[0];
-    const displayName =
-      firstName.charAt(0).toUpperCase() + firstName.slice(1);
-    return {
-      success: true,
-      data: {
-        token: `mock-token-${Date.now()}`,
-        user: {
-          id: `user-${Date.now()}`,
-          email: normalised,
-          name: displayName,
-          emailVerified: true,
-          role: 'attendee',
-          company: 'Demo Corp',
-          title: 'Event Attendee',
-          avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=6366f1&color=fff`,
-          points: 0,
-          tier: 'Bronze',
-          interests: ['Technology', 'Networking'],
-          profileComplete: false,
-        },
-      },
-    };
-  }
-
-  return {
-    success: false,
-    error: { code: 'INVALID_CREDENTIALS', message: 'Invalid email or password' },
-  };
-}
+// ─── API Methods ──────────────────────────────────────────────────────────────
 
 /**
- * POST /auth/resend-verification
- * Triggers a verification email re-send for the given address.
+ * POST /api/auth/send-otp
+ * Triggers an SMS OTP to the given phone number.
  */
-export async function resendVerificationApi(
-  email: string
-): Promise<ResendVerificationResponse> {
-  await delay(700);
+export async function sendOtp(phone: string): Promise<SendOtpResponse> {
+  if (USE_MOCK) {
+    await delay(900);
+    console.log(`[Mock] OTP sent to +1${phone} — use ${MOCK_OTP}`);
+    return { success: true };
+  }
 
-  /* ── Real implementation ────────────────────────────────────────────────
-  const response = await fetch(`${BASE_URL}/auth/resend-verification`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email }),
-  });
-  return response.json();
-  ─────────────────────────────────────────────────────────────────────── */
-
-  // Mock: always succeeds
-  console.log(`[Mock] Verification email re-sent to: ${email}`);
+  const res = await apiPost<void>('/api/auth/send-otp', { phone });
+  if (!res.success && res.error) {
+    return { success: false, error: res.error };
+  }
   return { success: true };
 }
 
 /**
- * GET /auth/me
- * Checks the current verification status of the user.
- * Pass the stored token in the Authorization header when wiring real backend.
+ * POST /api/auth/verify-otp
+ * Verifies the OTP and returns a token + user (or isNewUser flag).
  */
-export async function getMeApi(email: string): Promise<MeResponse> {
-  await delay(800);
+export async function verifyOtp(phone: string, otp: string): Promise<VerifyOtpResponse> {
+  if (USE_MOCK) {
+    await delay(800);
 
-  /* ── Real implementation ────────────────────────────────────────────────
-  const token = localStorage.getItem('auth_token');
-  const response = await fetch(`${BASE_URL}/auth/me`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  return response.json();
-  ─────────────────────────────────────────────────────────────────────── */
+    if (otp !== MOCK_OTP) {
+      return { success: false, error: { code: 'INVALID_OTP', message: 'Incorrect code. Please try again.' } };
+    }
 
-  // Mock: flip the unverified user to verified after 1 resend (simulate email click)
-  const normalised = email.toLowerCase().trim();
-  const record = MOCK_DB[normalised];
-  if (record) {
-    // Simulate that after calling resend the user has now verified
-    record.user.emailVerified = true;
-    record.token = `mock-token-verified-${Date.now()}`;
-    return { success: true, data: record.user };
+    const record = MOCK_USERS[phone];
+    if (record) {
+      saveToken(record.token);
+      return { success: true, data: { token: record.token, user: record.user, isNewUser: false } };
+    }
+
+    return { success: true, data: { token: '', user: null, isNewUser: true } };
   }
-  return { success: false, error: { message: 'User not found' } };
+
+  const res = await apiPost<{ token: string; user: AuthUser; isNewUser: boolean }>(
+    '/api/auth/verify-otp',
+    { phone, otp }
+  );
+
+  if (!res.success || !res.data) {
+    return {
+      success: false,
+      error: res.error ?? { code: 'VERIFY_FAILED', message: 'OTP verification failed.' },
+    };
+  }
+
+  saveToken(res.data.token);
+  return { success: true, data: res.data };
 }
 
 /**
- * ─── OAuth stubs ─────────────────────────────────────────────────────────────
- * TODO: Wire these to your OAuth provider (Google / LinkedIn) when ready.
- * Expected flow:
- *   1. Redirect user to provider authorization URL
- *   2. Provider redirects back to /auth/callback?code=...
- *   3. Exchange code for token via POST /auth/oauth/callback
- *   4. Store token → navigate to main app
+ * POST /api/auth/register
+ * Creates a new user account for a verified phone number.
  */
+export async function registerUser(params: {
+  phone: string;
+  name: string;
+  email: string;
+  title?: string;
+  company?: string;
+}): Promise<RegisterResponse> {
+  if (USE_MOCK) {
+    await delay(900);
+
+    const token = `mock-token-${params.phone}-${Date.now()}`;
+    const user: AuthUser = {
+      id: `user-${params.phone}-new`,
+      name: params.name.trim(),
+      email: params.email.trim(),
+      phone: params.phone,
+      title: params.title?.trim() ?? '',
+      company: params.company?.trim() ?? '',
+      role: 'attendee',
+      avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(params.name.trim())}&background=7c3aed&color=fff`,
+      points: 0,
+      tier: 'Bronze',
+      interests: [],
+      profileComplete: true,
+      emailVerified: true,
+    };
+
+    MOCK_USERS[params.phone] = { token, user };
+    saveToken(token);
+    return { success: true, data: { token, user } };
+  }
+
+  const res = await apiPost<{ token: string; user: AuthUser }>('/api/auth/register', params);
+
+  if (!res.success || !res.data) {
+    return {
+      success: false,
+      error: res.error ?? { code: 'REGISTER_FAILED', message: 'Registration failed.' },
+    };
+  }
+
+  saveToken(res.data.token);
+  return { success: true, data: res.data };
+}
+
+/**
+ * GET /api/auth/me
+ * Restores the current user session from the stored token.
+ * Returns null if no token is stored or token is invalid/expired.
+ */
+export async function getMeApi(): Promise<MeResponse> {
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (!token) {
+    return { success: false, error: { code: 'NO_TOKEN', message: 'No auth token found.' } };
+  }
+
+  if (USE_MOCK) {
+    await delay(600);
+    const record = Object.values(MOCK_USERS).find(r => r.token === token);
+    if (record) {
+      return { success: true, data: record.user };
+    }
+    clearToken();
+    return { success: false, error: { code: 'INVALID_TOKEN', message: 'Session expired.' } };
+  }
+
+  const res = await apiGet<AuthUser>('/api/auth/me');
+
+  if (!res.success || !res.data) {
+    clearToken();
+    return {
+      success: false,
+      error: res.error ?? { code: 'ME_FAILED', message: 'Could not restore session.' },
+    };
+  }
+
+  return { success: true, data: res.data };
+}
+
+// ─── OAuth stubs ──────────────────────────────────────────────────────────────
+
 export async function initiateGoogleOAuth(): Promise<void> {
-  // TODO: Replace with real Google OAuth redirect
-  // window.location.href = `${BASE_URL}/auth/google`;
   throw new Error('OAUTH_NOT_CONFIGURED');
 }
 
 export async function initiateLinkedInOAuth(): Promise<void> {
-  // TODO: Replace with real LinkedIn OAuth redirect
-  // window.location.href = `${BASE_URL}/auth/linkedin`;
   throw new Error('OAUTH_NOT_CONFIGURED');
 }

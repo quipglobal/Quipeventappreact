@@ -8,24 +8,7 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import cxoLogo from '@/assets/cxo-logo-transparent.png';
 import { Phone, User, Mail, Briefcase, Building2, ArrowLeft, RefreshCw, CheckCircle2, AlertCircle, X } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
-import { runAuthValidationTests } from '@/app/utils/authValidation';
-
-// ─── Mock existing phone database ────────────────────────────────────────────
-interface MockUser {
-  name: string;
-  email: string;
-  title: string;
-  company: string;
-  role: 'attendee' | 'sponsor';
-  avatar: string;
-}
-const MOCK_EXISTING_USERS: Record<string, MockUser> = {
-  '5550000001': { name: 'Jessica Williams', email: 'jessica@stripe.com', title: 'Product Designer', company: 'Stripe', role: 'attendee', avatar: 'https://ui-avatars.com/api/?name=Jessica+Williams&background=6366f1&color=fff' },
-  '5550000002': { name: 'Michael Chen', email: 'michael@startupx.com', title: 'CTO', company: 'StartupX', role: 'attendee', avatar: 'https://ui-avatars.com/api/?name=Michael+Chen&background=8b5cf6&color=fff' },
-  '8156699646': { name: 'Alex Thompson', email: 'alex@demo.com', title: 'Director of Sales', company: 'NovaTech', role: 'attendee', avatar: 'https://ui-avatars.com/api/?name=Alex+Thompson&background=0ea5e9&color=fff' },
-  '5550009999': { name: 'Sarah Sponsor', email: 'sponsor@acmecorp.com', title: 'VP Partnerships', company: 'AcmeCorp', role: 'sponsor', avatar: 'https://ui-avatars.com/api/?name=Sarah+Sponsor&background=ec4899&color=fff' },
-};
-const DEMO_OTP = '123456';
+import { sendOtp, verifyOtp, registerUser, AuthUser } from '@/app/api/authClient';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const cleanPhone = (raw: string) => raw.replace(/\D/g, '');
@@ -134,10 +117,6 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
   const [videoError, setVideoError] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  useEffect(() => {
-    if (import.meta.env.DEV) runAuthValidationTests();
-  }, []);
-
   // ── Phone input state ─────────────────────────────────────────────────
   const [phoneDigits, setPhoneDigits] = useState('');
   const [phoneLoading, setPhoneLoading] = useState(false);
@@ -151,7 +130,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
   const resendRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── Resolved existing user (if found) ─────────────────────────────────
-  const [existingUser, setExistingUser] = useState<MockUser | null>(null);
+  const [existingUser, setExistingUser] = useState<AuthUser | null>(null);
 
   // ── Create account form ───────────────────────────────────────────────
   const [createForm, setCreateForm] = useState({ name: '', email: '', title: '', company: '' });
@@ -169,100 +148,143 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
   }, []);
 
   // ── Submit phone number ───────────────────────────────────────────────
-  const handlePhoneContinue = useCallback(() => {
+  const handlePhoneContinue = useCallback(async () => {
     const digits = cleanPhone(phoneDigits);
     if (digits.length < 10) { setPhoneError('Please enter a valid 10-digit phone number.'); return; }
     setPhoneError('');
     setPhoneLoading(true);
-    // Simulate SMS send delay
-    setTimeout(() => {
-      setPhoneLoading(false);
+
+    try {
+      const res = await sendOtp(digits);
+      if (!res.success) {
+        setPhoneError(res.error?.message ?? 'Failed to send verification code. Please try again.');
+        return;
+      }
       setOtpValue('');
       setOtpError('');
       setView('otp');
       startResendCountdown();
-    }, 900);
+    } catch {
+      setPhoneError('Network error. Please check your connection and try again.');
+    } finally {
+      setPhoneLoading(false);
+    }
   }, [phoneDigits, startResendCountdown]);
 
-  // ── Verify OTP ────────────────────────────────────────────────────────
+  // ── Verify OTP (auto-submits when 6 digits entered) ───────────────────
   useEffect(() => {
-    if (otpValue.length === 6) {
-      setOtpLoading(true);
-      setTimeout(() => {
-        setOtpLoading(false);
-        if (otpValue !== DEMO_OTP) {
-          setOtpError('Incorrect code. Please try again.');
+    if (otpValue.length !== 6 || otpLoading) return;
+
+    setOtpLoading(true);
+    const digits = cleanPhone(phoneDigits);
+
+    verifyOtp(digits, otpValue)
+      .then(res => {
+        if (!res.success || !res.data) {
+          setOtpError(res.error?.message ?? 'Verification failed. Please try again.');
           return;
         }
-        const digits = cleanPhone(phoneDigits);
-        const found = MOCK_EXISTING_USERS[digits] || null;
-        if (found) {
-          setExistingUser(found);
-          setView('profile-review');
-        } else {
+        const { user, isNewUser, token } = res.data;
+        if (isNewUser || !token || !user) {
           setExistingUser(null);
           setView('create-account');
+        } else {
+          setExistingUser(user);
+          setView('profile-review');
         }
-      }, 800);
-    }
-  }, [otpValue, phoneDigits]);
+      })
+      .catch(() => {
+        setOtpError('Network error. Please check your connection and try again.');
+      })
+      .finally(() => {
+        setOtpLoading(false);
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [otpValue]);
 
   // ── Resend OTP ────────────────────────────────────────────────────────
-  const handleResend = () => {
+  const handleResend = useCallback(async () => {
     if (resendCountdown > 0) return;
+    const digits = cleanPhone(phoneDigits);
     setOtpValue('');
     setOtpError('');
-    startResendCountdown();
-  };
+    try {
+      const res = await sendOtp(digits);
+      if (!res.success) {
+        setOtpError(res.error?.message ?? 'Failed to resend code. Please try again.');
+        return;
+      }
+      startResendCountdown();
+    } catch {
+      setOtpError('Network error. Please check your connection and try again.');
+    }
+  }, [resendCountdown, phoneDigits, startResendCountdown]);
 
   // ── Confirm existing profile ──────────────────────────────────────────
   const handleProfileConfirm = useCallback(() => {
     if (!existingUser) return;
-    const id = `user-${cleanPhone(phoneDigits)}`;
     setUser({
-      id,
+      id: existingUser.id,
       name: existingUser.name,
-      email: existingUser.email,
-      title: existingUser.title,
-      company: existingUser.company,
+      email: existingUser.email ?? '',
+      title: existingUser.title ?? '',
+      company: existingUser.company ?? '',
       role: existingUser.role,
-      avatar: existingUser.avatar,
-      points: 0,
-      tier: 'Bronze',
-      interests: [],
-      profileComplete: true,
-      emailVerified: true,
+      avatar: existingUser.avatar ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(existingUser.name)}&background=7c3aed&color=fff`,
+      points: existingUser.points ?? 0,
+      tier: existingUser.tier ?? 'Bronze',
+      interests: existingUser.interests ?? [],
+      profileComplete: existingUser.profileComplete ?? true,
+      emailVerified: existingUser.emailVerified ?? true,
     });
     onLogin();
-  }, [existingUser, phoneDigits, setUser, onLogin]);
+  }, [existingUser, setUser, onLogin]);
 
   // ── Create new account ────────────────────────────────────────────────
-  const handleCreateAccount = useCallback(() => {
+  const handleCreateAccount = useCallback(async () => {
     if (!createForm.name.trim() || !createForm.email.trim()) {
       setCreateError('Name and email are required.');
       return;
     }
     setCreateError('');
     setCreateLoading(true);
-    setTimeout(() => {
-      setCreateLoading(false);
-      const id = `user-${cleanPhone(phoneDigits)}-new`;
-      setUser({
-        id,
+
+    try {
+      const digits = cleanPhone(phoneDigits);
+      const res = await registerUser({
+        phone: digits,
         name: createForm.name.trim(),
         email: createForm.email.trim(),
         title: createForm.title.trim(),
         company: createForm.company.trim(),
-        role: 'attendee',
-        avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(createForm.name.trim())}&background=7c3aed&color=fff`,
-        points: 0,
-        tier: 'Bronze',
-        interests: [],
+      });
+
+      if (!res.success || !res.data) {
+        setCreateError(res.error?.message ?? 'Registration failed. Please try again.');
+        return;
+      }
+
+      const { user } = res.data;
+      setUser({
+        id: user.id,
+        name: user.name,
+        email: user.email ?? '',
+        title: user.title ?? '',
+        company: user.company ?? '',
+        role: user.role,
+        avatar: user.avatar ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=7c3aed&color=fff`,
+        points: user.points ?? 0,
+        tier: user.tier ?? 'Bronze',
+        interests: user.interests ?? [],
         profileComplete: true,
         emailVerified: true,
       });
       onLogin();
-    }, 900);
+    } catch {
+      setCreateError('Network error. Please check your connection and try again.');
+    } finally {
+      setCreateLoading(false);
+    }
   }, [createForm, phoneDigits, setUser, onLogin]);
 
   // ── Reset and close sheet ─────────────────────────────────────────────
@@ -594,7 +616,9 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
                 {/* Profile card */}
                 <div className="rounded-2xl p-5 mb-5" style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)' }}>
                   <div className="flex items-center gap-4 mb-4">
-                    <img src={existingUser.avatar} alt={existingUser.name}
+                    <img
+                      src={existingUser.avatar ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(existingUser.name)}&background=7c3aed&color=fff`}
+                      alt={existingUser.name}
                       className="w-16 h-16 rounded-2xl object-cover flex-shrink-0" />
                     <div>
                       <p style={{ color: '#fff', fontSize: 18, fontWeight: 700 }}>{existingUser.name}</p>
@@ -603,7 +627,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
                     </div>
                   </div>
                   {[
-                    { icon: <Mail size={14} />, label: 'Email', value: existingUser.email },
+                    { icon: <Mail size={14} />, label: 'Email', value: existingUser.email ?? '—' },
                     { icon: <Phone size={14} />, label: 'Phone', value: `+1 ${formatPhone(phoneDigits)}` },
                     { icon: <User size={14} />, label: 'Role', value: existingUser.role.charAt(0).toUpperCase() + existingUser.role.slice(1) },
                   ].map(({ icon, label, value }) => (

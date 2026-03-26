@@ -105,6 +105,28 @@ mobile/
 - Mock event codes: `TECH26`, `DEVCON`, `SUMMIT`, `HEALTH`, `DESIGN`
 - Port: 5000
 
+### Web App API Layer (Task 1 — API Foundation & Phone OTP Auth)
+
+New files added under `src/app/api/`:
+- **`client.ts`** — Shared fetch wrapper: base URL injection, Bearer token from localStorage, 401 auto-logout, network retry (2x), typed `ApiEnvelope<T>` response
+- **`authClient.ts`** (rewritten) — Phone OTP auth flow:
+  - `sendOtp(phone)` → `POST /api/auth/send-otp`
+  - `verifyOtp(phone, otp)` → `POST /api/auth/verify-otp` → returns `{ token, user, isNewUser }`
+  - `registerUser(params)` → `POST /api/auth/register` → creates new user + saves token
+  - `getMeApi()` → `GET /api/auth/me` → restores session from localStorage token
+
+**WelcomeScreen.tsx** — Replaced inline mock DB with real auth client calls. Handles: phone send-otp, OTP verification, existing user profile review, new user registration. Shows proper error messages for wrong OTP, network errors.
+
+**AppContext.tsx** — On mount, calls `getMeApi()` to restore session from saved token. Exposes `sessionRestored` boolean so the app can wait before rendering.
+
+**App.tsx** — Watches `sessionRestored + user` to auto-skip welcome screen when session is restored.
+
+### Environment Variables (Web App)
+| Variable | Purpose |
+|---|---|
+| `VITE_API_BASE_URL` | CXO backend URL (`https://bef44c34-...spock.replit.dev`) |
+| `VITE_USE_MOCK_API` | `"true"` = mock layer active (safe for development) |
+
 ---
 
 ## Backend

@@ -1,6 +1,8 @@
 // @refresh reset
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import { EventConfig, GamificationConfig } from '@/app/types/config';
+import { getMeApi } from '@/app/api/authClient';
+import { clearToken } from '@/app/api/client';
 
 interface User {
   id: string;
@@ -93,6 +95,7 @@ interface AppState {
 }
 
 interface AppContextType extends AppState {
+  sessionRestored: boolean;
   setUser: (user: User | null) => void;
   joinEvent: () => void;
   addPoints: (points: number, activity: string) => void;
@@ -188,6 +191,7 @@ export const useApp = (): AppContextType => {
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [sessionRestored, setSessionRestored] = useState(false);
   const [activeEventConfig, setActiveEventConfig] = useState<EventConfig>(mockEventConfig);
   const [completedSurveys, setCompletedSurveys] = useState<string[]>([]);
   const [inProgressSurveys, setInProgressSurveysState] = useState<Record<string, any>>({});
@@ -262,6 +266,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ],
     },
   ]);
+
+  useEffect(() => {
+    getMeApi().then(res => {
+      if (res.success && res.data) {
+        const u = res.data;
+        setUser({
+          id: u.id,
+          name: u.name,
+          email: u.email ?? '',
+          title: u.title ?? '',
+          company: u.company ?? '',
+          role: u.role,
+          avatar: u.avatar ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name)}&background=7c3aed&color=fff`,
+          points: u.points ?? 0,
+          tier: u.tier ?? 'Bronze',
+          interests: u.interests ?? [],
+          profileComplete: u.profileComplete ?? true,
+          emailVerified: u.emailVerified ?? true,
+        });
+      } else {
+        clearToken();
+      }
+    }).catch(() => {
+      clearToken();
+    }).finally(() => {
+      setSessionRestored(true);
+    });
+  }, []);
 
   const joinEvent = () => {
     setHasJoinedEvent(true);
@@ -444,6 +476,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   return (
     <AppContext.Provider
       value={{
+        sessionRestored,
         user,
         eventConfig: activeEventConfig,
         gamificationConfig: mockGamificationConfig,
