@@ -340,5 +340,23 @@ export async function getMe(): Promise<ApiResponse<AuthUser>> {
   const res = await request<any>('/auth/me');
   if (!res.success || !res.data) return res as ApiResponse<AuthUser>;
 
-  return { success: true, data: normalizeAuthUser(res.data) };
+  // Unwrap common Laravel response shapes before normalizing:
+  //   { user: {...} }          → unwrap .user
+  //   { data: {...} }          → unwrap .data (when double-wrapped)
+  //   { id, name, role, ... }  → use directly
+  const envelope = res.data;
+  const rawUser = envelope.user ?? envelope.data ?? envelope;
+
+  const user = normalizeAuthUser(rawUser);
+
+  // Guard: if normalization produced no id, the response shape is unknown.
+  // Fail explicitly rather than silently routing with defaults.
+  if (!user.id) {
+    return {
+      success: false,
+      error: { code: 'PARSE_ERROR', message: 'Unexpected user profile format from server.' },
+    };
+  }
+
+  return { success: true, data: user };
 }
