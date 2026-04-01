@@ -7,6 +7,8 @@ interface AppContextValue {
   user: AuthUser | null;
   token: string | null;
   isLoading: boolean;
+  /** True when session was restored from cache because the backend was unreachable. */
+  isOffline: boolean;
   login: (token: string, user: AuthUser) => Promise<void>;
   logout: () => Promise<void>;
   setUser: (user: AuthUser) => void;
@@ -38,6 +40,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUserState] = useState<AuthUser | null>(null);
   const [token, setTokenState] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isOffline, setIsOffline] = useState(false);
   const [completedChallenges, setCompletedChallenges] = useState<string[]>([]);
   const [bookmarkedSessions, setBookmarkedSessions] = useState<string[]>([]);
   const [votedPolls, setVotedPolls] = useState<string[]>([]);
@@ -91,9 +94,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (res.success && res.data) {
         setUserState(res.data);
+        setIsOffline(false);
         await AsyncStorage.setItem(CACHED_USER_KEY, JSON.stringify(res.data));
       } else if (res.error?.code === 'NETWORK_ERROR') {
-        // Network issue — keep cached user, don't force logout
+        // Network issue — keep cached user and flag as offline
+        setIsOffline(true);
       } else {
         // Auth failure — clear token and session
         await clearToken();
@@ -118,6 +123,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await AsyncStorage.setItem(CACHED_USER_KEY, JSON.stringify(u));
     setTokenState(tok);
     setUserState(u);
+    setIsOffline(false);
   }, []);
 
   const logout = useCallback(async () => {
@@ -192,7 +198,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider value={{
-      user, token, isLoading,
+      user, token, isLoading, isOffline,
       login, logout, setUser,
       completedChallenges, completeChallenge,
       bookmarkedSessions, toggleBookmark,

@@ -216,6 +216,11 @@ async function saveMockSession(token: string, user: AuthUser): Promise<void> {
   await AsyncStorage.setItem(MOCK_SESSIONS_KEY, JSON.stringify(sessions));
 }
 
+// NOTE: Request field names below ('phone', 'otp', etc.) match this app's contract.
+// Before going live, confirm these match your Laravel backend's validation rules.
+// Common alternatives: 'phone_number' instead of 'phone', 'code' instead of 'otp'.
+// Update the JSON.stringify() bodies below if the backend uses different names.
+
 export async function sendOtp(phone: string): Promise<ApiResponse<{ message: string }>> {
   if (USE_MOCK) {
     await delay(900);
