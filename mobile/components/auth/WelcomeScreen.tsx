@@ -101,13 +101,18 @@ export function WelcomeScreen() {
     if (digits.length < 10) { setPhoneError('Please enter a valid 10-digit phone number.'); return; }
     setPhoneError('');
     setPhoneLoading(true);
-    const res = await sendOtp(digits);
-    setPhoneLoading(false);
-    if (!res.success) { setPhoneError(res.error?.message ?? 'Failed to send code.'); return; }
-    setOtpValue('');
-    setOtpError('');
-    setView('otp');
-    startResendCountdown();
+    try {
+      const res = await sendOtp(digits);
+      if (!res.success) { setPhoneError(res.error?.message ?? 'Failed to send code.'); return; }
+      setOtpValue('');
+      setOtpError('');
+      setView('otp');
+      startResendCountdown();
+    } catch {
+      setPhoneError('Something went wrong. Please try again.');
+    } finally {
+      setPhoneLoading(false);
+    }
   }, [phoneDigits, startResendCountdown]);
 
   useEffect(() => {
@@ -119,16 +124,21 @@ export function WelcomeScreen() {
   const handleVerifyOtp = useCallback(async () => {
     const digits = cleanPhone(phoneDigits);
     setOtpLoading(true);
-    const res = await verifyOtp(digits, otpValue);
-    setOtpLoading(false);
-    if (!res.success) { setOtpError(res.error?.message ?? 'Incorrect code.'); return; }
-    const data = res.data!;
-    if (!data.isNewUser && data.user) {
-      setResolvedUser(data.user);
-      setResolvedToken(data.token);
-      setView('profile-review');
-    } else {
-      setView('create-account');
+    try {
+      const res = await verifyOtp(digits, otpValue);
+      if (!res.success) { setOtpError(res.error?.message ?? 'Incorrect code. Please try again.'); return; }
+      const data = res.data!;
+      if (!data.isNewUser && data.user) {
+        setResolvedUser(data.user);
+        setResolvedToken(data.token);
+        setView('profile-review');
+      } else {
+        setView('create-account');
+      }
+    } catch {
+      setOtpError('Something went wrong. Please try again.');
+    } finally {
+      setOtpLoading(false);
     }
   }, [phoneDigits, otpValue]);
 
@@ -145,12 +155,17 @@ export function WelcomeScreen() {
     }
     setCreateError('');
     setCreateLoading(true);
-    const digits = cleanPhone(phoneDigits);
-    const res = await register({ phone: digits, ...createForm });
-    setCreateLoading(false);
-    if (!res.success || !res.data) { setCreateError(res.error?.message ?? 'Registration failed.'); return; }
-    await login(res.data.token, res.data.user);
-    router.replace('/(tabs)/feed');
+    try {
+      const digits = cleanPhone(phoneDigits);
+      const res = await register({ phone: digits, ...createForm });
+      if (!res.success || !res.data) { setCreateError(res.error?.message ?? 'Registration failed.'); return; }
+      await login(res.data.token, res.data.user);
+      router.replace('/(tabs)/feed');
+    } catch {
+      setCreateError('Something went wrong. Please try again.');
+    } finally {
+      setCreateLoading(false);
+    }
   }, [createForm, phoneDigits, login]);
 
   const sheetTranslate = sheetAnim.interpolate({

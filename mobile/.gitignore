@@ -9,3 +9,8 @@ expo-env.d.ts
 .expo/
 dist/
 node_modules/
+
+# Local environment variables (never commit these)
+.env
+.env.local
+.env.*.local

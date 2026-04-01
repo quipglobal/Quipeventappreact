@@ -32,6 +32,7 @@ export function useAuth(): AppContextValue {
 }
 
 const TOKEN_KEY = 'cxo_auth_token';
+const CACHED_USER_KEY = 'cxo_cached_user';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUserState] = useState<AuthUser | null>(null);
@@ -55,6 +56,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setBookmarkedSessions([]);
       setVotedPolls([]);
       setCompletedSurveys([]);
+      AsyncStorage.multiRemove([TOKEN_KEY, CACHED_USER_KEY]).catch(() => {});
       router.replace('/(auth)/welcome');
     });
     return () => clearUnauthorizedHandler();
@@ -63,19 +65,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function restoreSession() {
     try {
       const storedToken = await AsyncStorage.getItem(TOKEN_KEY);
-      if (!storedToken) { setIsLoading(false); return; }
+      if (!storedToken) {
+        setIsLoading(false);
+        return;
+      }
+
       await setToken(storedToken);
       setTokenState(storedToken);
+
+      const cachedRaw = await AsyncStorage.getItem(CACHED_USER_KEY);
+      let hasCachedUser = false;
+      if (cachedRaw) {
+        try {
+          const cachedUser: AuthUser = JSON.parse(cachedRaw);
+          setUserState(cachedUser);
+          hasCachedUser = true;
+        } catch {}
+      }
+
+      if (hasCachedUser) {
+        setIsLoading(false);
+      }
+
       const res = await getMe();
+
       if (res.success && res.data) {
         setUserState(res.data);
+        await AsyncStorage.setItem(CACHED_USER_KEY, JSON.stringify(res.data));
+      } else if (res.error?.code === 'NETWORK_ERROR') {
+        // Network issue — keep cached user, don't force logout
       } else {
+        // Auth failure — clear token and session
         await clearToken();
+        await AsyncStorage.multiRemove([TOKEN_KEY, CACHED_USER_KEY]);
         setTokenState(null);
+        setUserState(null);
       }
     } catch {
-      await clearToken();
+      // Unexpected error — clear for safety
+      await clearToken().catch(() => {});
+      await AsyncStorage.multiRemove([TOKEN_KEY, CACHED_USER_KEY]).catch(() => {});
       setTokenState(null);
+      setUserState(null);
     } finally {
       setIsLoading(false);
     }
@@ -84,13 +115,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback(async (tok: string, u: AuthUser) => {
     await setToken(tok);
     await AsyncStorage.setItem(TOKEN_KEY, tok);
+    await AsyncStorage.setItem(CACHED_USER_KEY, JSON.stringify(u));
     setTokenState(tok);
     setUserState(u);
   }, []);
 
   const logout = useCallback(async () => {
     await clearToken();
-    await AsyncStorage.removeItem(TOKEN_KEY);
+    await AsyncStorage.multiRemove([TOKEN_KEY, CACHED_USER_KEY]);
     setTokenState(null);
     setUserState(null);
     setCompletedChallenges([]);
@@ -99,7 +131,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setCompletedSurveys([]);
   }, []);
 
-  const setUser = useCallback((u: AuthUser) => setUserState(u), []);
+  const setUser = useCallback((u: AuthUser) => {
+    setUserState(u);
+    AsyncStorage.setItem(CACHED_USER_KEY, JSON.stringify(u)).catch(() => {});
+  }, []);
 
   const showToast = useCallback((message: string, points?: number) => {
     setToast({ message, points });
@@ -118,7 +153,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!prev) return prev;
       const newPoints = prev.points + pts;
       const newTier = getTierForPoints(newPoints);
-      return { ...prev, points: newPoints, tier: newTier };
+      const updated = { ...prev, points: newPoints, tier: newTier };
+      AsyncStorage.setItem(CACHED_USER_KEY, JSON.stringify(updated)).catch(() => {});
+      return updated;
     });
     showToast(reason, pts);
   }, [showToast]);

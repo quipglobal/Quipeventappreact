@@ -38,28 +38,79 @@ export async function request<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<ApiResponse<T>> {
-  const token = await getToken();
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string>),
-  };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-
   try {
+    const token = await getToken();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      ...(options.headers as Record<string, string>),
+    };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
     const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+
     if (res.status === 401) {
       await clearToken();
       _unauthorizedHandler?.();
-      throw new Error('Session expired. Please log in again.');
+      return {
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: 'Session expired. Please log in again.' },
+      };
     }
-    const json: ApiResponse<T> = await res.json();
-    if (!json.success) {
-      throw new Error(json.error?.message ?? 'Request failed');
+
+    if (res.status === 429) {
+      return {
+        success: false,
+        error: {
+          code: 'RATE_LIMITED',
+          message: 'Too many attempts. Please wait a moment and try again.',
+        },
+      };
     }
-    return json;
+
+    let json: any;
+    try {
+      json = await res.json();
+    } catch {
+      return {
+        success: false,
+        error: { code: 'PARSE_ERROR', message: 'Unexpected server response. Please try again.' },
+      };
+    }
+
+    if (json.success === true) return json as ApiResponse<T>;
+
+    if (json.status === 'success' || (res.ok && json.success !== false)) {
+      return { success: true, data: (json.data ?? json) as T };
+    }
+
+    const errorMessage =
+      json.error?.message ??
+      json.message ??
+      (Array.isArray(json.errors) ? json.errors[0] : undefined) ??
+      (json.errors && typeof json.errors === 'object'
+        ? Object.values(json.errors).flat().join(' ')
+        : undefined) ??
+      'Request failed. Please try again.';
+
+    const errorCode = json.error?.code ?? json.code ?? 'REQUEST_FAILED';
+    return { success: false, error: { code: errorCode, message: errorMessage } };
   } catch (err) {
-    if (err instanceof Error) throw err;
-    throw new Error('Network request failed');
+    const isNetworkError =
+      err instanceof TypeError &&
+      (err.message.includes('fetch') ||
+        err.message.includes('Network') ||
+        err.message.includes('network') ||
+        err.message.includes('Failed to fetch'));
+    return {
+      success: false,
+      error: {
+        code: isNetworkError ? 'NETWORK_ERROR' : 'REQUEST_FAILED',
+        message: isNetworkError
+          ? 'No internet connection. Please check your network and try again.'
+          : 'Something went wrong. Please try again.',
+      },
+    };
   }
 }
 
@@ -78,6 +129,34 @@ export interface AuthUser {
   tier: string;
   interests: string[];
   profileComplete: boolean;
+}
+
+function normalizeAuthUser(raw: any): AuthUser {
+  const name = raw.name ?? '';
+  return {
+    id: String(raw.id ?? ''),
+    phone: raw.phone ?? raw.phone_number ?? undefined,
+    name,
+    email: raw.email ?? '',
+    company: raw.company ?? raw.organization ?? raw.company_name ?? '',
+    title: raw.title ?? raw.job_title ?? raw.position ?? '',
+    avatar:
+      raw.avatar ??
+      raw.avatar_url ??
+      raw.profile_photo_url ??
+      raw.photo_url ??
+      `https://ui-avatars.com/api/?name=${encodeURIComponent(name || 'U')}&background=7c3aed&color=fff`,
+    role: raw.role === 'sponsor' ? 'sponsor' : 'attendee',
+    points: Number(raw.points ?? raw.gamification_points ?? raw.total_points ?? 0),
+    tier: raw.tier ?? raw.membership_tier ?? raw.level ?? 'Bronze',
+    interests: Array.isArray(raw.interests) ? raw.interests : [],
+    profileComplete:
+      raw.profileComplete ??
+      raw.profile_complete ??
+      raw.is_profile_complete ??
+      raw.setup_complete ??
+      false,
+  };
 }
 
 const MOCK_USERS: Record<string, { user: AuthUser; token: string }> = {
@@ -142,7 +221,10 @@ export async function sendOtp(phone: string): Promise<ApiResponse<{ message: str
     await delay(900);
     return { success: true, data: { message: 'OTP sent' } };
   }
-  return request('/auth/send-otp', { method: 'POST', body: JSON.stringify({ phone }) });
+  return request('/auth/send-otp', {
+    method: 'POST',
+    body: JSON.stringify({ phone }),
+  });
 }
 
 export interface VerifyOtpResult {
@@ -164,7 +246,28 @@ export async function verifyOtp(phone: string, otp: string): Promise<ApiResponse
     }
     return { success: true, data: { token: '', user: null, isNewUser: true } };
   }
-  return request('/auth/verify-otp', { method: 'POST', body: JSON.stringify({ phone, otp }) });
+
+  const res = await request<any>('/auth/verify-otp', {
+    method: 'POST',
+    body: JSON.stringify({ phone, otp }),
+  });
+
+  if (!res.success || !res.data) return res as ApiResponse<VerifyOtpResult>;
+
+  const raw = res.data;
+  const token: string = raw.token ?? raw.access_token ?? raw.auth_token ?? '';
+  const rawUser = raw.user ?? raw.data ?? null;
+  const isNewUser: boolean =
+    raw.isNewUser ?? raw.is_new_user ?? raw.is_new ?? !rawUser ?? false;
+
+  return {
+    success: true,
+    data: {
+      token,
+      user: rawUser ? normalizeAuthUser(rawUser) : null,
+      isNewUser,
+    },
+  };
 }
 
 export interface RegisterInput {
@@ -175,7 +278,9 @@ export interface RegisterInput {
   company: string;
 }
 
-export async function register(input: RegisterInput): Promise<ApiResponse<{ token: string; user: AuthUser }>> {
+export async function register(
+  input: RegisterInput
+): Promise<ApiResponse<{ token: string; user: AuthUser }>> {
   if (USE_MOCK) {
     await delay(900);
     const digits = input.phone.replace(/\D/g, '');
@@ -196,7 +301,28 @@ export async function register(input: RegisterInput): Promise<ApiResponse<{ toke
     await saveMockSession(token, user);
     return { success: true, data: { token, user } };
   }
-  return request('/auth/register', { method: 'POST', body: JSON.stringify(input) });
+
+  const res = await request<any>('/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({
+      phone: input.phone,
+      name: input.name,
+      email: input.email,
+      title: input.title,
+      company: input.company,
+    }),
+  });
+
+  if (!res.success || !res.data) return res as ApiResponse<{ token: string; user: AuthUser }>;
+
+  const raw = res.data;
+  const token: string = raw.token ?? raw.access_token ?? raw.auth_token ?? '';
+  const rawUser = raw.user ?? raw.data ?? raw;
+
+  return {
+    success: true,
+    data: { token, user: normalizeAuthUser(rawUser) },
+  };
 }
 
 export async function getMe(): Promise<ApiResponse<AuthUser>> {
@@ -210,5 +336,9 @@ export async function getMe(): Promise<ApiResponse<AuthUser>> {
     if (sessions[token]) return { success: true, data: sessions[token] };
     return { success: false, error: { code: 'INVALID_TOKEN', message: 'Token expired' } };
   }
-  return request<AuthUser>('/auth/me');
+
+  const res = await request<any>('/auth/me');
+  if (!res.success || !res.data) return res as ApiResponse<AuthUser>;
+
+  return { success: true, data: normalizeAuthUser(res.data) };
 }
