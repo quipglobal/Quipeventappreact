@@ -5,6 +5,7 @@ const delay = (ms = 600) => new Promise<void>((r) => setTimeout(r, ms));
 
 const MOCK_EVENTS: Event[] = [
   { id: 'evt-1', name: 'CXO Tech Summit 2026', code: 'CXOSUMMIT26', startDate: '2026-01-16', endDate: '2026-01-18', location: 'San Francisco, CA', description: 'The premier executive tech conference for CTOs, CIOs, and technology leaders shaping the future.', status: 'live' },
+  { id: 'evt-3', name: 'DevCon Winter 2026', code: 'DEVCON26', startDate: '2026-02-20', endDate: '2026-02-22', location: 'Austin, TX', description: 'The annual developer conference bringing together engineers, architects, and product builders.', status: 'upcoming' },
   { id: 'evt-2', name: 'StartupX Conference 2025', code: 'STARTUPX25', startDate: '2025-11-10', endDate: '2025-11-12', location: 'New York, NY', description: 'Where the next generation of startups meets the investors building tomorrow.', status: 'past' },
 ];
 
