@@ -12,78 +12,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
 import { usePartners } from '@/hooks/usePartners';
+import { useLeads, useUpdateLeadStatus } from '@/hooks/useLeads';
 import { DataState } from '@/components/DataState';
 import { colors, spacing, radius } from '@/constants/theme';
-
-const MOCK_SPONSORS = [
-  {
-    id: 's1',
-    name: 'TechCorp Solutions',
-    tier: 'Platinum',
-    tagline: 'Building the future of enterprise AI',
-    category: 'AI & Cloud',
-    boothNumber: 'A1',
-    tierColor: '#e5e4e2',
-    accentColor: '#7c3aed',
-    giveaway: 'MacBook Pro 16"',
-    website: 'techcorp.example.com',
-  },
-  {
-    id: 's2',
-    name: 'CloudNine Systems',
-    tier: 'Gold',
-    tagline: 'Scalable cloud infrastructure for teams of any size',
-    category: 'Cloud Infrastructure',
-    boothNumber: 'B3',
-    tierColor: '#ffd700',
-    accentColor: '#06b6d4',
-    giveaway: '$500 AWS Credits',
-    website: 'cloudnine.example.com',
-  },
-  {
-    id: 's3',
-    name: 'QuantumLeap AI',
-    tier: 'Gold',
-    tagline: 'ML-powered solutions for enterprise workflows',
-    category: 'AI/ML',
-    boothNumber: 'B5',
-    tierColor: '#ffd700',
-    accentColor: '#10b981',
-    giveaway: 'AI Tool License (1 year)',
-    website: 'quantumleap.example.com',
-  },
-  {
-    id: 's4',
-    name: 'InnovateLab',
-    tier: 'Silver',
-    tagline: 'Where ideas become products',
-    category: 'Product & Design',
-    boothNumber: 'C2',
-    tierColor: '#c0c0c0',
-    accentColor: '#ec4899',
-    giveaway: null,
-    website: 'innovatelab.example.com',
-  },
-  {
-    id: 's5',
-    name: 'DesignFlow',
-    tier: 'Silver',
-    tagline: 'Design tools built for modern teams',
-    category: 'Design Tools',
-    boothNumber: 'C4',
-    tierColor: '#c0c0c0',
-    accentColor: '#8b5cf6',
-    giveaway: null,
-    website: 'designflow.example.com',
-  },
-];
-
-const MOCK_LEADS = [
-  { id: 'l1', name: 'Alex Thompson', title: 'CTO', company: 'StartupXYZ', scannedAt: '9:32 AM', color: '#7c3aed', status: 'hot' as const, email: 'alex@startupxyz.com' },
-  { id: 'l2', name: 'Rachel Kim', title: 'VP Product', company: 'ScaleUp Co', scannedAt: '10:15 AM', color: '#06b6d4', status: 'warm' as const, email: 'rachel@scaleup.co' },
-  { id: 'l3', name: 'Tom Bradley', title: 'Head of IT', company: 'Enterprise Corp', scannedAt: '11:48 AM', color: '#10b981', status: 'cold' as const, email: 'tom@enterprise.com' },
-  { id: 'l4', name: 'Diana Park', title: 'CISO', company: 'SecureNet', scannedAt: '1:05 PM', color: '#f59e0b', status: 'warm' as const, email: 'diana@securenet.io' },
-];
 
 const TIER_ORDER = ['Platinum', 'Gold', 'Silver', 'Bronze'];
 const STATUS_COLORS = { hot: '#ef4444', warm: '#f59e0b', cold: '#6b7280' };
@@ -193,14 +124,16 @@ function AttendeePartners() {
 
 function SponsorLeads() {
   const insets = useSafeAreaInsets();
-  const [leads, setLeads] = useState(MOCK_LEADS);
   const [activeFilter, setActiveFilter] = useState<'all' | 'hot' | 'warm' | 'cold'>('all');
+
+  const { data: leads = [], isLoading, isError, refetch } = useLeads();
+  const { mutate: updateStatusMutation } = useUpdateLeadStatus();
 
   const filtered = activeFilter === 'all' ? leads : leads.filter((l) => l.status === activeFilter);
   const counts = { all: leads.length, hot: leads.filter((l) => l.status === 'hot').length, warm: leads.filter((l) => l.status === 'warm').length, cold: leads.filter((l) => l.status === 'cold').length };
 
   const updateStatus = (id: string, status: 'hot' | 'warm' | 'cold') => {
-    setLeads((prev) => prev.map((l) => l.id === id ? { ...l, status } : l));
+    updateStatusMutation({ leadId: id, status });
   };
 
   return (
@@ -213,6 +146,8 @@ function SponsorLeads() {
         <Text style={styles.pageTitle}>My Leads</Text>
         <Text style={styles.subtitle}>{leads.length} contacts captured · Tech Summit 2026</Text>
       </View>
+
+      <DataState loading={isLoading} error={isError ? 'Failed to load leads.' : null} onRetry={refetch} />
 
       <View style={styles.statsRow}>
         <View style={styles.statBox}>

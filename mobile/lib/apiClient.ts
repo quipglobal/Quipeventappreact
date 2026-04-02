@@ -263,7 +263,7 @@ export async function verifyOtp(phone: string, otp: string): Promise<ApiResponse
   const token: string = raw.token ?? raw.access_token ?? raw.auth_token ?? '';
   const rawUser = raw.user ?? raw.data ?? null;
   const isNewUser: boolean =
-    raw.isNewUser ?? raw.is_new_user ?? raw.is_new ?? !rawUser ?? false;
+    raw.isNewUser ?? raw.is_new_user ?? raw.is_new ?? !rawUser;
 
   return {
     success: true,

@@ -36,9 +36,9 @@ const SESSIONS_NOW = [
 ];
 
 const LEADERBOARD_PREVIEW = [
-  { rank: 1, name: 'Aisha Kamara', points: 680, tier: 'Platinum', color: '#e5e4e2' },
-  { rank: 2, name: 'Dev Sharma', points: 540, tier: 'Gold', color: '#ffd700' },
-  { rank: 3, name: 'Lena Fischer', points: 420, tier: 'Gold', color: '#ffd700' },
+  { rank: 1, userId: 'u1', name: 'Aisha Kamara', points: 680, tier: 'Platinum', tierColor: '#e5e4e2' },
+  { rank: 2, userId: 'u2', name: 'Dev Sharma', points: 540, tier: 'Gold', tierColor: '#ffd700' },
+  { rank: 3, userId: 'u3', name: 'Lena Fischer', points: 420, tier: 'Gold', tierColor: '#ffd700' },
 ];
 
 export default function EventDashboardScreen() {
@@ -129,12 +129,12 @@ export default function EventDashboardScreen() {
       <View style={styles.leaderList}>
         {leaderboard.map((l: typeof LEADERBOARD_PREVIEW[0]) => (
           <View key={l.rank} style={styles.leaderRow}>
-            <View style={[styles.rankBadge, l.rank <= 3 && { backgroundColor: l.color + '20', borderColor: l.color + '60' }]}>
-              <Text style={[styles.rankText, l.rank <= 3 && { color: l.color }]}>#{l.rank}</Text>
+            <View style={[styles.rankBadge, l.rank <= 3 && { backgroundColor: l.tierColor + '20', borderColor: l.tierColor + '60' }]}>
+              <Text style={[styles.rankText, l.rank <= 3 && { color: l.tierColor }]}>#{l.rank}</Text>
             </View>
             <Text style={styles.leaderName}>{l.name}</Text>
-            <View style={[styles.tierPill, { backgroundColor: l.color + '15', borderColor: l.color + '40' }]}>
-              <Text style={[styles.tierText, { color: l.color }]}>{l.tier}</Text>
+            <View style={[styles.tierPill, { backgroundColor: l.tierColor + '15', borderColor: l.tierColor + '40' }]}>
+              <Text style={[styles.tierText, { color: l.tierColor }]}>{l.tier}</Text>
             </View>
             <Text style={styles.leaderPoints}>{l.points} pts</Text>
           </View>

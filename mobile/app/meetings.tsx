@@ -38,13 +38,6 @@ type Meeting = {
   status: MeetingStatus;
 };
 
-const INITIAL_MEETINGS: Meeting[] = [
-  { id: 'm1', with: 'Dr. Sarah Chen', company: 'TechCorp Solutions', title: 'Chief AI Officer', color: '#6366f1', time: '10:00 AM', date: 'Jan 16', location: 'Booth A-12', note: 'Interested in discussing AI partnerships and potential collaboration.', direction: 'incoming', status: 'pending' },
-  { id: 'm2', with: 'Marcus Johnson', company: 'InnovateLab', title: 'VP of Engineering', color: '#8b5cf6', time: '1:00 PM', date: 'Jan 16', location: 'Coffee Station B', note: 'Would love to connect about distributed team building strategies.', direction: 'outgoing', status: 'confirmed' },
-  { id: 'm3', with: 'Elena Rodriguez', company: 'QuantumLeap AI', title: 'Head of Data Science', color: '#10b981', time: '3:30 PM', date: 'Jan 16', location: 'Meeting Room 2', note: 'Discuss ML pipeline automation tools for our team.', direction: 'incoming', status: 'confirmed' },
-  { id: 'm4', with: 'James Wilson', company: 'CloudNine Systems', title: 'CTO', color: '#f59e0b', time: '11:00 AM', date: 'Jan 17', location: 'Lounge Area', note: 'Cloud cost optimization discussion.', direction: 'outgoing', status: 'pending' },
-];
-
 const STATUS_COLORS: Record<MeetingStatus, string> = {
   pending: '#f59e0b',
   confirmed: '#10b981',

@@ -18,37 +18,7 @@ import { useLeaderboard } from '@/hooks/useAudience';
 import { useLeads, useSubmitScan, useLuckyDraw } from '@/hooks/useLeads';
 import { DataState } from '@/components/DataState';
 import { colors, spacing, radius } from '@/constants/theme';
-
-const MOCK_CHALLENGES = [
-  { id: 'c1', emoji: '🎤', title: 'Visit 3 Booths', desc: 'Scan badges at 3 sponsor booths', points: 75, progress: 2, total: 3 },
-  { id: 'c2', emoji: '🗳️', title: 'Vote in 5 Polls', desc: 'Participate in live session polls', points: 50, progress: 3, total: 5 },
-  { id: 'c3', emoji: '🤝', title: 'Make 5 Connections', desc: 'Connect with other attendees', points: 100, progress: 1, total: 5 },
-  { id: 'c4', emoji: '📸', title: 'Session Selfie', desc: 'Share your event experience', points: 30, progress: 0, total: 1 },
-  { id: 'c5', emoji: '📝', title: 'Complete Survey', desc: 'Fill out the midday survey', points: 50, progress: 0, total: 1 },
-];
-
-const MOCK_LEADERBOARD = [
-  { rank: 1, name: 'Aisha Kamara', points: 680, tier: 'Platinum', color: '#e5e4e2' },
-  { rank: 2, name: 'Dev Sharma', points: 540, tier: 'Gold', color: '#ffd700' },
-  { rank: 3, name: 'Lena Fischer', points: 420, tier: 'Gold', color: '#ffd700' },
-  { rank: 4, name: 'Omar Hassan', points: 310, tier: 'Silver', color: '#c0c0c0' },
-  { rank: 5, name: 'Yuki Tanaka', points: 290, tier: 'Silver', color: '#c0c0c0' },
-];
-
-const MOCK_GIVEAWAYS = [
-  { id: 'g1', title: 'MacBook Pro 16"', sponsor: 'TechCorp Solutions', entries: 142, ends: '3:00 PM', entered: false, color: '#7c3aed' },
-  { id: 'g2', title: '$500 AWS Credits', sponsor: 'CloudNine Systems', entries: 89, ends: '5:00 PM', entered: false, color: '#06b6d4' },
-];
-
-const MOCK_POLLS = [
-  { id: 'p1', question: 'Which AI use case excites you most in 2026?', session: 'Keynote', options: [{ id: 'o1', text: 'Generative AI', votes: 87 }, { id: 'o2', text: 'AI Agents', votes: 61 }, { id: 'o3', text: 'Computer Vision', votes: 29 }, { id: 'o4', text: 'Predictive Analytics', votes: 42 }], points: 10 },
-  { id: 'p2', question: 'How satisfied are you with the event so far?', session: 'General', options: [{ id: 'o1', text: 'Very satisfied', votes: 134 }, { id: 'o2', text: 'Satisfied', votes: 67 }, { id: 'o3', text: 'Neutral', votes: 21 }, { id: 'o4', text: 'Not satisfied', votes: 8 }], points: 10 },
-];
-
-const MOCK_SURVEYS = [
-  { id: 'sv1', title: 'Morning Workshop Feedback', desc: 'Rate the workshop sessions you attended this morning.', questions: 5, points: 50, completed: false },
-  { id: 'sv2', title: 'Speaker Evaluation', desc: 'Rate the keynote speakers and their presentations.', questions: 8, points: 75, completed: false },
-];
+import type { LeaderboardEntry } from '@/lib/api/types';
 
 function BadgeScanPanel({ onScanPress }: { onScanPress: () => void }) {
   return (
@@ -316,7 +286,7 @@ function AttendeeEngage() {
 
       {activeTab === 'leaderboard' && (
         <>
-          {leaderboard.map((l: typeof MOCK_LEADERBOARD[0]) => (
+          {leaderboard.map((l: LeaderboardEntry) => (
             <View key={l.rank} style={[styles.rankRow, l.rank <= 3 && styles.rankRowTop]}>
               <View style={styles.rankNum}>
                 {l.rank === 1 ? <Text style={styles.rankEmoji}>🥇</Text> :
@@ -324,7 +294,7 @@ function AttendeeEngage() {
                  l.rank === 3 ? <Text style={styles.rankEmoji}>🥉</Text> :
                  <Text style={styles.rankText}>{l.rank}</Text>}
               </View>
-              <View style={[styles.rankAvatar, { borderColor: l.color + '66' }]}>
+              <View style={[styles.rankAvatar, { borderColor: (l.tierColor ?? colors.primary) + '66' }]}>
                 <Text style={styles.rankAvatarText}>{l.name[0]}</Text>
               </View>
               <View style={styles.rankInfo}>

@@ -18,28 +18,19 @@ import { useAuth } from '@/context/AuthContext';
 import { useAudience } from '@/hooks/useAudience';
 import { DataState } from '@/components/DataState';
 import { colors, spacing, radius, typography } from '@/constants/theme';
+import type { Attendee } from '@/lib/api/types';
 
 const { height: SH } = Dimensions.get('window');
-
-const MOCK_ATTENDEES = [
-  { id: '1', name: 'Dr. Sarah Chen', title: 'Chief AI Officer', company: 'TechCorp Solutions', color: '#6366f1', tier: 'Platinum', interests: ['AI', 'Leadership'], bio: 'Pioneering AI research at TechCorp. Speaker at 30+ global conferences.' },
-  { id: '2', name: 'Marcus Johnson', title: 'VP of Engineering', company: 'InnovateLab', color: '#8b5cf6', tier: 'Gold', interests: ['Engineering', 'Remote Work'], bio: 'Building distributed engineering teams across 3 continents.' },
-  { id: '3', name: 'Priya Patel', title: 'Product Lead', company: 'DesignFlow', color: '#ec4899', tier: 'Silver', interests: ['Design', 'Product', 'UX'], bio: 'Transforming complex workflows into delightful user experiences.' },
-  { id: '4', name: 'Elena Rodriguez', title: 'Head of Data Science', company: 'QuantumLeap AI', color: '#10b981', tier: 'Gold', interests: ['ML', 'Data', 'Analytics'], bio: 'ML models that power real-time decisions for Fortune 500s.' },
-  { id: '5', name: 'James Wilson', title: 'CTO', company: 'CloudNine Systems', color: '#f59e0b', tier: 'Gold', interests: ['Cloud', 'Infrastructure', 'Startups'], bio: 'Scaling cloud infrastructure from 0 to 100M users.' },
-  { id: '6', name: 'Aisha Kamara', title: 'Growth Director', company: 'Launchpad Inc', color: '#06b6d4', tier: 'Platinum', interests: ['Growth', 'Marketing', 'B2B'], bio: 'Growth hacker who turned 3 startups into unicorns.' },
-  { id: '7', name: 'Dev Sharma', title: 'Principal Engineer', company: 'Nexus Labs', color: '#7c3aed', tier: 'Gold', interests: ['Distributed Systems', 'OSS'], bio: 'Open source contributor and distributed systems enthusiast.' },
-  { id: '8', name: 'Lena Fischer', title: 'UX Director', company: 'Designly', color: '#f43f5e', tier: 'Silver', interests: ['UX', 'Design Systems'], bio: 'Design systems architect passionate about accessibility.' },
-  { id: '9', name: 'Omar Hassan', title: 'CFO', company: 'Momentum Capital', color: '#34d399', tier: 'Silver', interests: ['Finance', 'Startups', 'VC'], bio: 'Helping startups navigate their growth financing journey.' },
-  { id: '10', name: 'Yuki Tanaka', title: 'ML Engineer', company: 'DeepMind Labs', color: '#a78bfa', tier: 'Bronze', interests: ['ML', 'NLP', 'Research'], bio: 'NLP researcher applying language models to healthcare.' },
-  { id: '11', name: 'Carlos Mendez', title: 'DevRel Engineer', company: 'Stripe', color: '#60a5fa', tier: 'Bronze', interests: ['DevRel', 'APIs', 'Community'], bio: 'Building developer communities and evangelizing great APIs.' },
-  { id: '12', name: 'Nadia Kim', title: 'VP Product', company: 'Fintopia', color: '#fb923c', tier: 'Silver', interests: ['Fintech', 'Product', 'Leadership'], bio: 'Former Goldman Sachs, now redefining consumer finance.' },
-];
 
 const FILTER_TIERS = ['All', 'Platinum', 'Gold', 'Silver', 'Bronze'];
 const TIER_COLORS: Record<string, string> = { Bronze: '#cd7f32', Silver: '#c0c0c0', Gold: '#ffd700', Platinum: '#e5e4e2' };
 
-type Attendee = typeof MOCK_ATTENDEES[0];
+const AVATAR_COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#10b981', '#f59e0b', '#06b6d4', '#7c3aed', '#f43f5e', '#34d399', '#a78bfa'];
+function getAvatarColor(id: string): string {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash += id.charCodeAt(i);
+  return AVATAR_COLORS[hash % AVATAR_COLORS.length];
+}
 
 export default function AudienceScreen() {
   const insets = useSafeAreaInsets();
@@ -86,8 +77,8 @@ export default function AudienceScreen() {
     const isConnected = connections.includes(item.id);
     return (
       <TouchableOpacity style={styles.card} onPress={() => openProfile(item)} activeOpacity={0.75}>
-        <View style={[styles.avatar, { backgroundColor: item.color + '25', borderColor: item.color + '55' }]}>
-          <Text style={[styles.avatarText, { color: item.color }]}>{item.name[0]}</Text>
+        <View style={[styles.avatar, { backgroundColor: getAvatarColor(item.id) + '25', borderColor: getAvatarColor(item.id) + '55' }]}>
+          <Text style={[styles.avatarText, { color: getAvatarColor(item.id) }]}>{item.name[0]}</Text>
         </View>
         <View style={styles.info}>
           <View style={styles.nameRow}>
@@ -193,8 +184,8 @@ export default function AudienceScreen() {
             <View style={styles.sheetHandle} />
 
             <LinearGradient colors={['#1a0d2e', '#0d1a2e']} style={styles.sheetHero}>
-              <View style={[styles.sheetAvatar, { backgroundColor: selected.color + '30', borderColor: selected.color + '80' }]}>
-                <Text style={[styles.sheetAvatarText, { color: selected.color }]}>{selected.name[0]}</Text>
+              <View style={[styles.sheetAvatar, { backgroundColor: getAvatarColor(selected.id) + '30', borderColor: getAvatarColor(selected.id) + '80' }]}>
+                <Text style={[styles.sheetAvatarText, { color: getAvatarColor(selected.id) }]}>{selected.name[0]}</Text>
               </View>
               <Text style={styles.sheetName}>{selected.name}</Text>
               <Text style={styles.sheetTitle}>{selected.title} · {selected.company}</Text>

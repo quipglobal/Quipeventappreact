@@ -17,66 +17,12 @@ import { useAuth } from '@/context/AuthContext';
 import { useFeed, useMarkVideoWatched, useSubmitPollVote } from '@/hooks/useFeed';
 import { DataState } from '@/components/DataState';
 import { colors, spacing, radius, typography } from '@/constants/theme';
+import type { FeedItem, FeedVideo, FeedPoll } from '@/lib/api/types';
 
 const { width: SW } = Dimensions.get('window');
-const SAMPLE_VIDEO = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
 
-const MOCK_FEED: FeedItem[] = [
-  {
-    id: 'v1', type: 'video',
-    title: 'Opening Keynote: The Future of AI',
-    speaker: 'Dr. Sarah Chen', company: 'TechCorp Solutions',
-    duration: '58:22', views: '1.2K', accentColor: '#7c3aed', live: true,
-    videoUrl: SAMPLE_VIDEO,
-  },
-  {
-    id: 'poll1', type: 'poll',
-    question: 'Which topic are you most excited about today?',
-    session: 'Opening Keynote',
-    options: [
-      { id: 'o1', text: 'AI & Machine Learning', votes: 48 },
-      { id: 'o2', text: 'Startup Ecosystem', votes: 31 },
-      { id: 'o3', text: 'Sustainable Tech', votes: 22 },
-      { id: 'o4', text: 'Leadership & Culture', votes: 19 },
-    ],
-  },
-  {
-    id: 'v2', type: 'video',
-    title: 'Scaling Engineering Teams in a Remote World',
-    speaker: 'Marcus Johnson', company: 'InnovateLab',
-    duration: '42:10', views: '847', accentColor: '#06b6d4', live: false,
-    videoUrl: SAMPLE_VIDEO,
-  },
-  {
-    id: 'poll2', type: 'poll',
-    question: 'How productive is your remote team vs. in-office?',
-    session: 'Engineering Workshop',
-    options: [
-      { id: 'o1', text: 'More productive', votes: 62 },
-      { id: 'o2', text: 'About the same', votes: 28 },
-      { id: 'o3', text: 'Slightly less', votes: 18 },
-      { id: 'o4', text: 'Much less', votes: 9 },
-    ],
-  },
-  {
-    id: 'v3', type: 'video',
-    title: 'UX Research That Actually Influences Product',
-    speaker: 'Priya Patel', company: 'DesignFlow',
-    duration: '29:45', views: '532', accentColor: '#ec4899', live: false,
-    videoUrl: SAMPLE_VIDEO,
-  },
-  {
-    id: 'v4', type: 'video',
-    title: 'ML Applications in Enterprise Products',
-    speaker: 'Elena Rodriguez', company: 'QuantumLeap AI',
-    duration: '35:00', views: '412', accentColor: '#10b981', live: false,
-    videoUrl: SAMPLE_VIDEO,
-  },
-];
-
-type VideoItem = { id: string; type: 'video'; title: string; speaker: string; company: string; duration: string; views: string; accentColor: string; live: boolean; videoUrl: string };
-type PollItem = { id: string; type: 'poll'; question: string; session: string; options: { id: string; text: string; votes: number }[] };
-type FeedItem = VideoItem | PollItem;
+type VideoItem = FeedVideo;
+type PollItem = FeedPoll;
 
 function VideoCard({ item, isVisible }: { item: VideoItem; isVisible: boolean }) {
   const videoRef = useRef<Video>(null);

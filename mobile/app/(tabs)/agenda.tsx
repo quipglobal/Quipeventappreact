@@ -26,23 +26,6 @@ type Session = {
   description: string; tags: string[];
 };
 
-const MOCK_SESSIONS: Session[] = [
-  { id: 's1', day: 0, time: '9:00 AM', duration: '60 min', title: 'Opening Keynote: The Future of AI', speaker: 'Dr. Sarah Chen', company: 'TechCorp', track: 'Main Stage', color: '#7c3aed', room: 'Main Hall', description: 'An exploration of how artificial intelligence is reshaping industries and the human experience.', tags: ['AI', 'Keynote', 'Innovation'] },
-  { id: 's2', day: 0, time: '10:30 AM', duration: '45 min', title: 'Scaling Engineering Teams in a Remote World', speaker: 'Marcus Johnson', company: 'InnovateLab', track: 'Engineering', color: '#06b6d4', room: 'Room A', description: 'Practical strategies for hiring, onboarding, and leading distributed engineering teams at scale.', tags: ['Remote', 'Leadership', 'Engineering'] },
-  { id: 's3', day: 0, time: '11:30 AM', duration: '30 min', title: 'UX Research That Influences Product', speaker: 'Priya Patel', company: 'DesignFlow', track: 'Design', color: '#ec4899', room: 'Room B', description: 'How to embed user research into the product development cycle to drive real business outcomes.', tags: ['UX', 'Design', 'Product'] },
-  { id: 's4', day: 0, time: '2:00 PM', duration: '60 min', title: 'ML Applications in Enterprise Products', speaker: 'Elena Rodriguez', company: 'QuantumLeap AI', track: 'AI/ML', color: '#10b981', room: 'Main Hall', description: 'Real-world deployments of machine learning models at enterprise scale with lessons learned.', tags: ['ML', 'Enterprise', 'AI'] },
-  { id: 's5', day: 0, time: '3:30 PM', duration: '45 min', title: 'Cloud Infrastructure for Startups', speaker: 'James Wilson', company: 'CloudNine Systems', track: 'Engineering', color: '#f59e0b', room: 'Room A', description: 'Cost-effective cloud architecture patterns for early-stage and growth-stage startups.', tags: ['Cloud', 'Startups', 'Infrastructure'] },
-  { id: 's6', day: 0, time: '5:00 PM', duration: '90 min', title: 'Networking Happy Hour', speaker: 'CXO Events Team', company: 'CXO Inc', track: 'Social', color: '#6366f1', room: 'Rooftop Terrace', description: 'Join fellow attendees for drinks and casual networking before the evening keynote.', tags: ['Networking', 'Social'] },
-
-  { id: 's7', day: 1, time: '9:00 AM', duration: '50 min', title: 'Startup Pitch Competition Finals', speaker: 'Panel of Judges', company: 'Multiple VCs', track: 'Startups', color: '#f43f5e', room: 'Innovation Stage', description: 'Top 10 startups pitch their ideas to a panel of top-tier venture capitalists and angel investors.', tags: ['Startups', 'Pitch', 'VC'] },
-  { id: 's8', day: 1, time: '10:30 AM', duration: '60 min', title: 'Sustainable Tech & ESG Imperative', speaker: 'Emma Wilson', company: 'GreenTech Inc', track: 'Sustainability', color: '#34d399', room: 'Room C', description: 'Why ESG reporting is now mission-critical and how technology companies can lead the transition.', tags: ['Sustainability', 'ESG', 'Green'] },
-  { id: 's9', day: 1, time: '2:00 PM', duration: '45 min', title: 'Building Developer Communities at Scale', speaker: 'Carlos Mendez', company: 'Stripe', track: 'Community', color: '#60a5fa', room: 'Room A', description: 'Lessons from building one of the world\'s largest developer ecosystems with >3M members.', tags: ['DevRel', 'Community', 'APIs'] },
-  { id: 's10', day: 1, time: '4:00 PM', duration: '60 min', title: 'Closing Keynote: What\'s Next', speaker: 'Aisha Kamara', company: 'Launchpad Inc', track: 'Main Stage', color: '#a78bfa', room: 'Main Hall', description: 'A forward-looking session on the trends that will define the next five years of tech.', tags: ['Trends', 'Future', 'Keynote'] },
-
-  { id: 's11', day: 2, time: '10:00 AM', duration: '120 min', title: 'Workshop: Building with GPT-4', speaker: 'Dev Sharma', company: 'Nexus Labs', track: 'Workshops', color: '#fb923c', room: 'Workshop Lab', description: 'Hands-on workshop. Bring your laptop. We\'ll build a production-ready AI feature end-to-end.', tags: ['Workshop', 'AI', 'Hands-on'] },
-  { id: 's12', day: 2, time: '2:00 PM', duration: '45 min', title: 'Founder Panel: Lessons from $0 to $100M', speaker: 'Multiple Founders', company: 'Various', track: 'Startups', color: '#fbbf24', room: 'Main Hall', description: 'Three founders share the unfiltered truth about what it takes to scale a company.', tags: ['Founders', 'Growth', 'Startups'] },
-];
-
 const DAYS = ['Jan 16', 'Jan 17', 'Jan 18'];
 const TRACK_FILTERS = ['All', 'Main Stage', 'Engineering', 'AI/ML', 'Design', 'Startups', 'Workshops'];
 
@@ -162,7 +145,7 @@ export default function AgendaScreen() {
         error={isError ? 'Failed to load sessions. Check your connection.' : null}
         onRetry={refetch}
       />
-      {!isLoading && !isError && (
+      {!isLoading && !isError && (<>
       <FlatList
         data={sessions}
         keyExtractor={(s) => s.id}
@@ -230,7 +213,7 @@ export default function AgendaScreen() {
         )}
         </>
       </Modal>
-      )}
+      </>)}
     </View>
   );
 }
