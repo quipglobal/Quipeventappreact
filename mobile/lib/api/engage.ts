@@ -29,22 +29,13 @@ const MOCK_GIVEAWAYS: Giveaway[] = [
 ];
 
 export async function listChallenges(): Promise<ApiResponse<Challenge[]>> {
-  if (USE_MOCK) {
-    await delay();
-    return { success: true, data: MOCK_CHALLENGES };
-  }
-  return request<Challenge[]>('/api/v1/challenges');
+  await delay();
+  return { success: true, data: MOCK_CHALLENGES };
 }
 
-export async function completeChallenge(challengeId: string): Promise<ApiResponse<{ points: number }>> {
-  if (USE_MOCK) {
-    await delay(500);
-    return { success: true, data: { points: 100 } };
-  }
-  return request<{ points: number }>('/api/v1/challenges/complete', {
-    method: 'POST',
-    body: JSON.stringify({ challengeId }),
-  });
+export async function completeChallenge(_challengeId: string): Promise<ApiResponse<{ points: number }>> {
+  await delay(500);
+  return { success: true, data: { points: 100 } };
 }
 
 export async function listPolls(): Promise<ApiResponse<Poll[]>> {
@@ -53,7 +44,7 @@ export async function listPolls(): Promise<ApiResponse<Poll[]>> {
     return { success: true, data: MOCK_POLLS };
   }
   const eventId = getEventId();
-  if (!eventId) return { success: true, data: MOCK_POLLS };
+  if (!eventId) return { success: true, data: [] };
   const res = await request<any>(`/api/v1/events/${eventId}/mobile-polls`);
   if (!res.success) return res as ApiResponse<Poll[]>;
   const raw: any[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
@@ -91,7 +82,7 @@ export async function listSurveys(): Promise<ApiResponse<Survey[]>> {
     return { success: true, data: MOCK_SURVEYS };
   }
   const eventId = getEventId();
-  if (!eventId) return { success: true, data: MOCK_SURVEYS };
+  if (!eventId) return { success: true, data: [] };
   const res = await request<any>(`/api/v1/events/${eventId}/mobile-surveys`);
   if (!res.success) return res as ApiResponse<Survey[]>;
   const raw: any[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
@@ -119,20 +110,11 @@ export async function submitSurvey(surveyId: string, answers: Record<string, str
 }
 
 export async function listGiveaways(): Promise<ApiResponse<Giveaway[]>> {
-  if (USE_MOCK) {
-    await delay();
-    return { success: true, data: MOCK_GIVEAWAYS };
-  }
-  return request<Giveaway[]>('/api/v1/giveaways');
+  await delay();
+  return { success: true, data: MOCK_GIVEAWAYS };
 }
 
-export async function enterGiveaway(giveawayId: string): Promise<ApiResponse<{ entries: number }>> {
-  if (USE_MOCK) {
-    await delay(500);
-    return { success: true, data: { entries: 1 } };
-  }
-  return request<{ entries: number }>('/api/v1/giveaways/enter', {
-    method: 'POST',
-    body: JSON.stringify({ giveawayId }),
-  });
+export async function enterGiveaway(_giveawayId: string): Promise<ApiResponse<{ entries: number }>> {
+  await delay(500);
+  return { success: true, data: { entries: 1 } };
 }

@@ -41,12 +41,28 @@ function normalizeSession(raw: any): Session {
   };
 }
 
+function normalizeEvent(raw: any): Event {
+  return {
+    id: String(raw.id),
+    name: raw.name ?? raw.title ?? '',
+    code: raw.code ?? raw.event_code ?? raw.slug ?? '',
+    startDate: raw.start_date ?? raw.startDate ?? raw.start ?? '',
+    endDate: raw.end_date ?? raw.endDate ?? raw.end ?? '',
+    location: raw.location ?? raw.venue ?? raw.city ?? '',
+    description: raw.description ?? '',
+    status: raw.status ?? 'upcoming',
+  };
+}
+
 export async function listEvents(): Promise<ApiResponse<Event[]>> {
   if (USE_MOCK) {
     await delay();
     return { success: true, data: MOCK_EVENTS };
   }
-  return request<Event[]>('/api/v1/events');
+  const res = await request<any>('/api/v1/events');
+  if (!res.success) return res as ApiResponse<Event[]>;
+  const raw: any[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? res.data?.events ?? []);
+  return { success: true, data: raw.map(normalizeEvent) };
 }
 
 export async function getEvent(id: string): Promise<ApiResponse<Event>> {
@@ -78,7 +94,7 @@ export async function listSessions(filters?: { day?: number; track?: string }): 
     return { success: true, data: sessions };
   }
   const eventId = getEventId();
-  if (!eventId) return { success: true, data: MOCK_SESSIONS };
+  if (!eventId) return { success: true, data: [] };
   const params = new URLSearchParams();
   if (filters?.day) params.set('day', String(filters.day));
   if (filters?.track) params.set('track', filters.track);

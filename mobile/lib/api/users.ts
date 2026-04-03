@@ -87,7 +87,7 @@ export async function getLeaderboard(): Promise<ApiResponse<LeaderboardEntry[]>>
     return { success: true, data: MOCK_LEADERBOARD };
   }
   const eventId = getEventId();
-  if (!eventId) return { success: true, data: MOCK_LEADERBOARD };
+  if (!eventId) return { success: true, data: [] };
   const res = await request<any>(`/api/v1/events/${eventId}/leaderboard`);
   if (!res.success) return res as ApiResponse<LeaderboardEntry[]>;
   const raw: any[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? res.data?.leaderboard ?? []);

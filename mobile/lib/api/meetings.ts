@@ -43,7 +43,7 @@ export async function listMeetings(): Promise<ApiResponse<Meeting[]>> {
     return { success: true, data: MOCK_MEETINGS };
   }
   const eventId = getEventId();
-  if (!eventId) return { success: true, data: MOCK_MEETINGS };
+  if (!eventId) return { success: true, data: [] };
   const res = await request<any>(`/api/v1/events/${eventId}/meetings`);
   if (!res.success) return res as ApiResponse<Meeting[]>;
   const raw: any[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);

@@ -29,6 +29,7 @@ const SCREEN_HEIGHT = Dimensions.get('window').height;
 const SHEET_HEIGHT = Math.min(SCREEN_HEIGHT * 0.75, 600);
 
 type View_ = 'phone' | 'otp' | 'profile-review' | 'create-account';
+type LoginMode = 'phone' | 'email';
 
 interface Country {
   flag: string;
@@ -129,9 +130,11 @@ export function WelcomeScreen() {
   const [sheetOpen, setSheetOpen] = useState(false);
 
   const [view, setView] = useState<View_>('phone');
+  const [loginMode, setLoginMode] = useState<LoginMode>('phone');
   const [country, setCountry] = useState<Country>(DEFAULT_COUNTRY);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [phoneDigits, setPhoneDigits] = useState('');
+  const [emailInput, setEmailInput] = useState('');
   const [phoneIdentifier, setPhoneIdentifier] = useState('');
   const [phoneLoading, setPhoneLoading] = useState(false);
   const [phoneError, setPhoneError] = useState('');
@@ -158,7 +161,9 @@ export function WelcomeScreen() {
     Animated.timing(sheetAnim, { toValue: 0, duration: 280, useNativeDriver: true }).start(() => {
       setSheetOpen(false);
       setView('phone');
+      setLoginMode('phone');
       setPhoneDigits('');
+      setEmailInput('');
       setPhoneIdentifier('');
       setPhoneError('');
       setOtpValue('');
@@ -182,11 +187,21 @@ export function WelcomeScreen() {
   }, []);
 
   const handlePhoneContinue = useCallback(async () => {
-    const digits = cleanPhone(phoneDigits);
-    if (digits.length < 6) { setPhoneError('Please enter a valid phone number.'); return; }
+    let identifier: string;
+    if (loginMode === 'email') {
+      const email = emailInput.trim();
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        setPhoneError('Please enter a valid email address.');
+        return;
+      }
+      identifier = email;
+    } else {
+      const digits = cleanPhone(phoneDigits);
+      if (digits.length < 6) { setPhoneError('Please enter a valid phone number.'); return; }
+      identifier = buildIdentifier(country, digits);
+    }
     setPhoneError('');
     setPhoneLoading(true);
-    const identifier = buildIdentifier(country, digits);
     try {
       const res = await sendOtp(identifier);
       if (!res.success) { setPhoneError(res.error?.message ?? 'Failed to send code.'); return; }
@@ -200,7 +215,7 @@ export function WelcomeScreen() {
     } finally {
       setPhoneLoading(false);
     }
-  }, [country, phoneDigits, startResendCountdown]);
+  }, [loginMode, country, phoneDigits, emailInput, startResendCountdown]);
 
   useEffect(() => {
     if (otpValue.length === 6 && view === 'otp') {
@@ -353,10 +368,14 @@ export function WelcomeScreen() {
         >
           {view === 'phone' && (
             <PhoneView
+              loginMode={loginMode}
+              onSetLoginMode={(m) => { setLoginMode(m); setPhoneDigits(''); setEmailInput(''); setPhoneError(''); }}
               country={country}
               onOpenPicker={() => setPickerOpen(true)}
               phoneDigits={phoneDigits}
               setPhoneDigits={(v) => { setPhoneDigits(v); setPhoneError(''); }}
+              emailInput={emailInput}
+              setEmailInput={(v) => { setEmailInput(v); setPhoneError(''); }}
               phoneError={phoneError}
               phoneLoading={phoneLoading}
               onContinue={handlePhoneContinue}
@@ -366,7 +385,7 @@ export function WelcomeScreen() {
 
           {view === 'otp' && (
             <OtpView
-              displayPhone={`${country.dialCode} ${formatPhone(country, phoneDigits)}`}
+              displayPhone={loginMode === 'email' ? emailInput.trim() : `${country.dialCode} ${formatPhone(country, phoneDigits)}`}
               otpValue={otpValue}
               setOtpValue={(v) => { setOtpValue(v); setOtpError(''); }}
               otpError={otpError}
@@ -483,12 +502,17 @@ function CountryPickerModal({
 }
 
 function PhoneView({
-  country, onOpenPicker, phoneDigits, setPhoneDigits, phoneError, phoneLoading, onContinue, onDemoFill,
+  loginMode, onSetLoginMode, country, onOpenPicker, phoneDigits, setPhoneDigits,
+  emailInput, setEmailInput, phoneError, phoneLoading, onContinue, onDemoFill,
 }: {
+  loginMode: LoginMode;
+  onSetLoginMode: (m: LoginMode) => void;
   country: Country;
   onOpenPicker: () => void;
   phoneDigits: string;
   setPhoneDigits: (v: string) => void;
+  emailInput: string;
+  setEmailInput: (v: string) => void;
   phoneError: string;
   phoneLoading: boolean;
   onContinue: () => void;
@@ -497,29 +521,67 @@ function PhoneView({
   return (
     <View style={sheetStyles.section}>
       <View style={sheetStyles.iconBox}>
-        <Text style={{ fontSize: 22 }}>📱</Text>
+        <Text style={{ fontSize: 22 }}>{loginMode === 'email' ? '✉️' : '📱'}</Text>
       </View>
       <Text style={sheetStyles.title}>Log in</Text>
-      <Text style={sheetStyles.subtitle}>Enter your mobile number to continue</Text>
+      <Text style={sheetStyles.subtitle}>Enter your details to continue</Text>
 
-      <Text style={sheetStyles.fieldLabel}>MOBILE NUMBER</Text>
-      <View style={sheetStyles.phoneRow}>
-        <TouchableOpacity style={sheetStyles.countryCode} onPress={onOpenPicker} activeOpacity={0.75}>
-          <Text style={sheetStyles.flag}>{country.flag}</Text>
-          <Text style={sheetStyles.countryNum}>{country.dialCode}</Text>
-          <Text style={sheetStyles.countryChevron}>▾</Text>
+      <View style={sheetStyles.modeToggle}>
+        <TouchableOpacity
+          style={[sheetStyles.modeTab, loginMode === 'phone' && sheetStyles.modeTabActive]}
+          onPress={() => onSetLoginMode('phone')}
+          activeOpacity={0.8}
+        >
+          <Text style={[sheetStyles.modeTabText, loginMode === 'phone' && sheetStyles.modeTabTextActive]}>Phone</Text>
         </TouchableOpacity>
-        <TextInput
-          style={sheetStyles.phoneInput}
-          value={formatPhone(country, phoneDigits)}
-          onChangeText={(t) => setPhoneDigits(cleanPhone(t).slice(0, 15))}
-          keyboardType="phone-pad"
-          placeholder="Phone number"
-          placeholderTextColor="rgba(255,255,255,0.25)"
-          returnKeyType="done"
-          onSubmitEditing={onContinue}
-        />
+        <TouchableOpacity
+          style={[sheetStyles.modeTab, loginMode === 'email' && sheetStyles.modeTabActive]}
+          onPress={() => onSetLoginMode('email')}
+          activeOpacity={0.8}
+        >
+          <Text style={[sheetStyles.modeTabText, loginMode === 'email' && sheetStyles.modeTabTextActive]}>Email</Text>
+        </TouchableOpacity>
       </View>
+
+      {loginMode === 'phone' ? (
+        <>
+          <Text style={sheetStyles.fieldLabel}>MOBILE NUMBER</Text>
+          <View style={sheetStyles.phoneRow}>
+            <TouchableOpacity style={sheetStyles.countryCode} onPress={onOpenPicker} activeOpacity={0.75}>
+              <Text style={sheetStyles.flag}>{country.flag}</Text>
+              <Text style={sheetStyles.countryNum}>{country.dialCode}</Text>
+              <Text style={sheetStyles.countryChevron}>▾</Text>
+            </TouchableOpacity>
+            <TextInput
+              style={sheetStyles.phoneInput}
+              value={formatPhone(country, phoneDigits)}
+              onChangeText={(t) => setPhoneDigits(cleanPhone(t).slice(0, 15))}
+              keyboardType="phone-pad"
+              placeholder="Phone number"
+              placeholderTextColor="rgba(255,255,255,0.25)"
+              returnKeyType="done"
+              onSubmitEditing={onContinue}
+            />
+          </View>
+        </>
+      ) : (
+        <>
+          <Text style={sheetStyles.fieldLabel}>EMAIL ADDRESS</Text>
+          <TextInput
+            style={sheetStyles.textInput}
+            value={emailInput}
+            onChangeText={setEmailInput}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+            placeholder="you@company.com"
+            placeholderTextColor="rgba(255,255,255,0.25)"
+            returnKeyType="done"
+            onSubmitEditing={onContinue}
+          />
+        </>
+      )}
+
       {!!phoneError && <Text style={sheetStyles.errorText}>{phoneError}</Text>}
 
       <TouchableOpacity
@@ -534,7 +596,7 @@ function PhoneView({
         }
       </TouchableOpacity>
 
-      {USE_MOCK_AUTH && (
+      {USE_MOCK_AUTH && loginMode === 'phone' && (
         <>
           <Text style={[sheetStyles.subtitle, { marginTop: spacing.xl, marginBottom: spacing.sm }]}>
             Demo shortcuts:
@@ -955,6 +1017,32 @@ const sheetStyles = StyleSheet.create({
     fontSize: 15,
     paddingHorizontal: 14,
     paddingVertical: 13,
+  },
+  modeToggle: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    marginTop: spacing.lg,
+    padding: 3,
+  },
+  modeTab: {
+    flex: 1,
+    paddingVertical: 9,
+    borderRadius: radius.md,
+    alignItems: 'center',
+  },
+  modeTabActive: {
+    backgroundColor: colors.primary,
+  },
+  modeTabText: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  modeTabTextActive: {
+    color: '#fff',
   },
   profileCard: {
     flexDirection: 'row',

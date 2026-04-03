@@ -69,7 +69,7 @@ export async function getFeedPage(cursor?: string): Promise<ApiResponse<FeedPage
 
   const eventId = getEventId();
   if (!eventId) {
-    return { success: true, data: { items: MOCK_FEED_ITEMS, nextCursor: null, hasMore: false } };
+    return { success: true, data: { items: [], nextCursor: null, hasMore: false } };
   }
 
   const params = cursor ? `?cursor=${cursor}` : '';
