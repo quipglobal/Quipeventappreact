@@ -1,4 +1,5 @@
 import { request, USE_MOCK } from '@/lib/apiClient';
+import { getEventId } from '@/lib/eventStore';
 import type { ApiResponse, AuthUser, Attendee, LeaderboardEntry } from '@/lib/api/types';
 
 const delay = (ms = 600) => new Promise<void>((r) => setTimeout(r, ms));
@@ -23,6 +24,25 @@ const MOCK_LEADERBOARD: LeaderboardEntry[] = [
   { rank: 4, userId: 'a6', name: 'Omar Hassan', points: 310, tier: 'Silver', tierColor: '#c0c0c0' },
   { rank: 5, userId: 'a7', name: 'Yuki Tanaka', points: 290, tier: 'Silver', tierColor: '#c0c0c0' },
 ];
+
+const TIER_COLORS: Record<string, string> = {
+  Platinum: '#e5e4e2',
+  Gold: '#ffd700',
+  Silver: '#c0c0c0',
+  Bronze: '#cd7f32',
+};
+
+function normalizeLeaderboardEntry(raw: any, index: number): LeaderboardEntry {
+  const tier = raw.tier ?? raw.membership_tier ?? 'Bronze';
+  return {
+    rank: Number(raw.rank ?? raw.position ?? index + 1),
+    userId: String(raw.user_id ?? raw.userId ?? raw.id ?? ''),
+    name: raw.name ?? raw.full_name ?? '',
+    points: Number(raw.points ?? raw.total_points ?? raw.gamification_points ?? 0),
+    tier,
+    tierColor: raw.tier_color ?? raw.tierColor ?? TIER_COLORS[tier] ?? '#cd7f32',
+  };
+}
 
 export async function listAttendees(filters?: { tier?: string; search?: string }): Promise<ApiResponse<Attendee[]>> {
   if (USE_MOCK) {
@@ -66,7 +86,12 @@ export async function getLeaderboard(): Promise<ApiResponse<LeaderboardEntry[]>>
     await delay();
     return { success: true, data: MOCK_LEADERBOARD };
   }
-  return request<LeaderboardEntry[]>('/api/v1/leaderboard');
+  const eventId = getEventId();
+  if (!eventId) return { success: true, data: MOCK_LEADERBOARD };
+  const res = await request<any>(`/api/v1/events/${eventId}/leaderboard`);
+  if (!res.success) return res as ApiResponse<LeaderboardEntry[]>;
+  const raw: any[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? res.data?.leaderboard ?? []);
+  return { success: true, data: raw.map((r, i) => normalizeLeaderboardEntry(r, i)) };
 }
 
 export async function getUserPoints(): Promise<ApiResponse<{ points: number; tier: string }>> {
@@ -74,7 +99,18 @@ export async function getUserPoints(): Promise<ApiResponse<{ points: number; tie
     await delay(400);
     return { success: true, data: { points: 0, tier: 'Bronze' } };
   }
-  return request<{ points: number; tier: string }>('/api/v1/profile/points');
+  const eventId = getEventId();
+  if (!eventId) return { success: true, data: { points: 0, tier: 'Bronze' } };
+  const res = await request<any>(`/api/v1/events/${eventId}/my-rank`);
+  if (!res.success) return res as ApiResponse<{ points: number; tier: string }>;
+  const raw = res.data;
+  return {
+    success: true,
+    data: {
+      points: Number(raw?.points ?? raw?.total_points ?? raw?.gamification_points ?? 0),
+      tier: raw?.tier ?? raw?.membership_tier ?? 'Bronze',
+    },
+  };
 }
 
 export async function syncPoints(delta: number, reason: string): Promise<ApiResponse<{ points: number; tier: string }>> {

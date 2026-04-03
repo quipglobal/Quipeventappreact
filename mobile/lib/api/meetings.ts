@@ -1,4 +1,5 @@
 import { request, USE_MOCK } from '@/lib/apiClient';
+import { getEventId } from '@/lib/eventStore';
 import type { ApiResponse, Meeting } from '@/lib/api/types';
 
 const delay = (ms = 600) => new Promise<void>((r) => setTimeout(r, ms));
@@ -15,12 +16,38 @@ const MOCK_MEETINGS: Meeting[] = [
   { id: 'm3', type: 'outgoing', attendee: MOCK_ATTENDEE_PROFILES['a3'], status: 'accepted', proposedTime: '11:00 AM - 11:30 AM', message: 'Would love to learn from your journey building Nexus Labs.', createdAt: '2026-01-15T14:00:00Z' },
 ];
 
+function normalizeMeeting(raw: any): Meeting {
+  return {
+    id: String(raw.id),
+    type: raw.type ?? 'incoming',
+    attendee: {
+      id: String(raw.attendee?.id ?? raw.requester?.id ?? raw.receiver?.id ?? ''),
+      name: raw.attendee?.name ?? raw.requester?.name ?? raw.receiver?.name ?? '',
+      title: raw.attendee?.title ?? raw.requester?.title ?? raw.receiver?.title ?? '',
+      company: raw.attendee?.company ?? raw.requester?.company ?? raw.receiver?.company ?? '',
+      role: 'attendee',
+      points: Number(raw.attendee?.points ?? 0),
+      tier: raw.attendee?.tier ?? 'Bronze',
+      interests: [],
+    },
+    status: raw.status ?? 'pending',
+    proposedTime: raw.proposed_time ?? raw.proposedTime ?? raw.scheduled_at ?? '',
+    message: raw.message ?? raw.note ?? '',
+    createdAt: raw.created_at ?? raw.createdAt ?? new Date().toISOString(),
+  };
+}
+
 export async function listMeetings(): Promise<ApiResponse<Meeting[]>> {
   if (USE_MOCK) {
     await delay();
     return { success: true, data: MOCK_MEETINGS };
   }
-  return request<Meeting[]>('/api/v1/meetings');
+  const eventId = getEventId();
+  if (!eventId) return { success: true, data: MOCK_MEETINGS };
+  const res = await request<any>(`/api/v1/events/${eventId}/meetings`);
+  if (!res.success) return res as ApiResponse<Meeting[]>;
+  const raw: any[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
+  return { success: true, data: raw.map(normalizeMeeting) };
 }
 
 export interface SendMeetingRequest {
@@ -45,10 +72,18 @@ export async function sendMeetingRequest(input: SendMeetingRequest): Promise<Api
     };
     return { success: true, data: meeting };
   }
-  return request<Meeting>('/api/v1/meetings', {
+  const eventId = getEventId();
+  if (!eventId) return { success: false, error: { code: 'NO_EVENT', message: 'No active event' } };
+  const res = await request<any>(`/api/v1/events/${eventId}/meetings`, {
     method: 'POST',
-    body: JSON.stringify(input),
+    body: JSON.stringify({
+      attendee_id: input.attendeeId,
+      proposed_time: input.proposedTime,
+      message: input.message,
+    }),
   });
+  if (!res.success || !res.data) return res as ApiResponse<Meeting>;
+  return { success: true, data: normalizeMeeting(res.data) };
 }
 
 export async function respondToMeeting(meetingId: string, action: 'accept' | 'decline'): Promise<ApiResponse<Meeting>> {
@@ -58,5 +93,12 @@ export async function respondToMeeting(meetingId: string, action: 'accept' | 'de
     if (!meeting) return { success: false, error: { code: 'NOT_FOUND', message: 'Meeting not found' } };
     return { success: true, data: { ...meeting, status: action === 'accept' ? 'accepted' : 'declined' } };
   }
-  return request<Meeting>(`/api/v1/meetings/${meetingId}/${action}`, { method: 'POST' });
+  const eventId = getEventId();
+  if (!eventId) return { success: false, error: { code: 'NO_EVENT', message: 'No active event' } };
+  const res = await request<any>(`/api/v1/events/${eventId}/meetings/${meetingId}/respond`, {
+    method: 'PATCH',
+    body: JSON.stringify({ action }),
+  });
+  if (!res.success || !res.data) return res as ApiResponse<Meeting>;
+  return { success: true, data: normalizeMeeting(res.data) };
 }

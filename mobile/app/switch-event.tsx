@@ -21,6 +21,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEvents, useJoinEvent } from '@/hooks/useEvents';
 import { useFeed, useSubmitPollVote } from '@/hooks/useFeed';
 import { useAuth } from '@/context/AuthContext';
+import { useEvent } from '@/context/EventContext';
 import { colors, spacing, radius } from '@/constants/theme';
 import type { Event, FeedItem, FeedVideo, FeedPoll } from '@/lib/api/types';
 
@@ -254,6 +255,7 @@ export default function SwitchEventScreen() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ code?: string }>();
   const { user } = useAuth();
+  const { setCurrentEventId } = useEvent();
   const inputRef = useRef<TextInput>(null);
 
   const [globalCode, setGlobalCode] = useState((params.code ?? '').toUpperCase());
@@ -283,6 +285,9 @@ export default function SwitchEventScreen() {
     joinEvent(c, {
       onSuccess: (res) => {
         setSelectedEvent(null);
+        if (res.data?.id) {
+          setCurrentEventId(res.data.id);
+        }
         Alert.alert('Joined!', `You have joined "${res.data?.name}".`, [
           { text: 'Go to Event', onPress: () => router.back() },
         ]);

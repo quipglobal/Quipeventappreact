@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? '';
 
 export const USE_MOCK = process.env.EXPO_PUBLIC_USE_MOCK_API !== 'false';
+export const USE_MOCK_AUTH = process.env.EXPO_PUBLIC_USE_MOCK_AUTH !== 'false';
 
 let _unauthorizedHandler: (() => void) | null = null;
 
@@ -222,13 +223,13 @@ async function saveMockSession(token: string, user: AuthUser): Promise<void> {
 // Update the JSON.stringify() bodies below if the backend uses different names.
 
 export async function sendOtp(phone: string): Promise<ApiResponse<{ message: string }>> {
-  if (USE_MOCK) {
+  if (USE_MOCK_AUTH) {
     await delay(900);
     return { success: true, data: { message: 'OTP sent' } };
   }
   return request('/api/v1/auth/send-otp', {
     method: 'POST',
-    body: JSON.stringify({ phone }),
+    body: JSON.stringify({ identifier: phone, type: 'login' }),
   });
 }
 
@@ -239,7 +240,7 @@ export interface VerifyOtpResult {
 }
 
 export async function verifyOtp(phone: string, otp: string): Promise<ApiResponse<VerifyOtpResult>> {
-  if (USE_MOCK) {
+  if (USE_MOCK_AUTH) {
     await delay(800);
     if (otp !== DEMO_OTP) {
       return { success: false, error: { code: 'INVALID_OTP', message: 'Incorrect code. Please try again.' } };
@@ -254,7 +255,7 @@ export async function verifyOtp(phone: string, otp: string): Promise<ApiResponse
 
   const res = await request<any>('/api/v1/auth/verify-otp', {
     method: 'POST',
-    body: JSON.stringify({ phone, otp }),
+    body: JSON.stringify({ identifier: phone, code: otp, type: 'login' }),
   });
 
   if (!res.success || !res.data) return res as ApiResponse<VerifyOtpResult>;
@@ -286,7 +287,7 @@ export interface RegisterInput {
 export async function register(
   input: RegisterInput
 ): Promise<ApiResponse<{ token: string; user: AuthUser }>> {
-  if (USE_MOCK) {
+  if (USE_MOCK_AUTH) {
     await delay(900);
     const digits = input.phone.replace(/\D/g, '');
     const user: AuthUser = {
@@ -331,7 +332,7 @@ export async function register(
 }
 
 export async function getMe(): Promise<ApiResponse<AuthUser>> {
-  if (USE_MOCK) {
+  if (USE_MOCK_AUTH) {
     await delay(500);
     const token = await getToken();
     if (!token) return { success: false, error: { code: 'NO_TOKEN', message: 'Not authenticated' } };
@@ -342,7 +343,7 @@ export async function getMe(): Promise<ApiResponse<AuthUser>> {
     return { success: false, error: { code: 'INVALID_TOKEN', message: 'Token expired' } };
   }
 
-  const res = await request<any>('/api/v1/auth/me');
+  const res = await request<any>('/api/v1/me');
   if (!res.success || !res.data) return res as ApiResponse<AuthUser>;
 
   // Unwrap common Laravel response shapes before normalizing:

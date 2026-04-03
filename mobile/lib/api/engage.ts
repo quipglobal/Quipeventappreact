@@ -1,4 +1,5 @@
 import { request, USE_MOCK } from '@/lib/apiClient';
+import { getEventId } from '@/lib/eventStore';
 import type { ApiResponse, Challenge, Poll, Survey, Giveaway } from '@/lib/api/types';
 
 const delay = (ms = 600) => new Promise<void>((r) => setTimeout(r, ms));
@@ -51,7 +52,24 @@ export async function listPolls(): Promise<ApiResponse<Poll[]>> {
     await delay();
     return { success: true, data: MOCK_POLLS };
   }
-  return request<Poll[]>('/api/v1/polls');
+  const eventId = getEventId();
+  if (!eventId) return { success: true, data: MOCK_POLLS };
+  const res = await request<any>(`/api/v1/events/${eventId}/mobile-polls`);
+  if (!res.success) return res as ApiResponse<Poll[]>;
+  const raw: any[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
+  const polls: Poll[] = raw.map((p: any) => ({
+    id: String(p.id),
+    question: p.question ?? p.title ?? '',
+    session: p.session ?? p.session_title ?? '',
+    points: Number(p.points ?? p.gamification_points ?? 10),
+    totalVotes: Number(p.total_votes ?? p.totalVotes ?? 0),
+    options: (p.options ?? p.answers ?? []).map((o: any) => ({
+      id: String(o.id),
+      text: o.text ?? o.answer ?? o.label ?? '',
+      votes: Number(o.votes ?? o.vote_count ?? 0),
+    })),
+  }));
+  return { success: true, data: polls };
 }
 
 export async function votePoll(pollId: string, optionId: string): Promise<ApiResponse<{ points: number; results: Array<{ id: string; votes: number }> }>> {
@@ -59,9 +77,11 @@ export async function votePoll(pollId: string, optionId: string): Promise<ApiRes
     await delay(400);
     return { success: true, data: { points: 10, results: [] } };
   }
-  return request('/api/v1/polls/vote', {
+  const eventId = getEventId();
+  if (!eventId) return { success: true, data: { points: 10, results: [] } };
+  return request(`/api/v1/events/${eventId}/mobile-polls/${pollId}/vote`, {
     method: 'POST',
-    body: JSON.stringify({ pollId, optionId }),
+    body: JSON.stringify({ option_id: optionId }),
   });
 }
 
@@ -70,7 +90,19 @@ export async function listSurveys(): Promise<ApiResponse<Survey[]>> {
     await delay();
     return { success: true, data: MOCK_SURVEYS };
   }
-  return request<Survey[]>('/api/v1/surveys');
+  const eventId = getEventId();
+  if (!eventId) return { success: true, data: MOCK_SURVEYS };
+  const res = await request<any>(`/api/v1/events/${eventId}/mobile-surveys`);
+  if (!res.success) return res as ApiResponse<Survey[]>;
+  const raw: any[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
+  const surveys: Survey[] = raw.map((s: any) => ({
+    id: String(s.id),
+    title: s.title ?? s.name ?? '',
+    desc: s.description ?? s.desc ?? '',
+    questions: Number(s.questions_count ?? s.questions ?? 0),
+    points: Number(s.points ?? s.gamification_points ?? 50),
+  }));
+  return { success: true, data: surveys };
 }
 
 export async function submitSurvey(surveyId: string, answers: Record<string, string>): Promise<ApiResponse<{ points: number }>> {
@@ -78,9 +110,11 @@ export async function submitSurvey(surveyId: string, answers: Record<string, str
     await delay(800);
     return { success: true, data: { points: 50 } };
   }
-  return request<{ points: number }>('/api/v1/surveys/submit', {
+  const eventId = getEventId();
+  if (!eventId) return { success: true, data: { points: 50 } };
+  return request<{ points: number }>(`/api/v1/events/${eventId}/mobile-surveys/${surveyId}/submit`, {
     method: 'POST',
-    body: JSON.stringify({ surveyId, answers }),
+    body: JSON.stringify({ answers }),
   });
 }
 

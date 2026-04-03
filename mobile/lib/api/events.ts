@@ -1,4 +1,5 @@
 import { request, USE_MOCK } from '@/lib/apiClient';
+import { getEventId } from '@/lib/eventStore';
 import type { ApiResponse, Event, Session } from '@/lib/api/types';
 
 const delay = (ms = 600) => new Promise<void>((r) => setTimeout(r, ms));
@@ -21,6 +22,24 @@ const MOCK_SESSIONS: Session[] = [
   { id: 's9', title: 'Sustainable Tech: Beyond the Buzzwords', speaker: 'Lena Fischer', speakerTitle: 'Chief Sustainability Officer', speakerCompany: 'GreenTech Global', track: 'Sustainability', room: 'Room B', day: 2, startTime: '11:45', endTime: '12:30', accentColor: '#10b981', description: 'Practical frameworks for reducing your tech stack\'s carbon footprint while improving efficiency.', tags: ['Sustainability', 'ESG', 'Strategy'] },
   { id: 's10', title: 'Closing Keynote: What\'s Next', speaker: 'Aisha Kamara', speakerTitle: 'Founder & CEO', speakerCompany: 'Nexus Labs', track: 'Keynote', room: 'Main Hall', day: 2, startTime: '16:00', endTime: '17:00', accentColor: '#7c3aed', description: 'A visionary look at the technology trends that will define the next decade.', tags: ['Keynote', 'Future', 'Technology'] },
 ];
+
+function normalizeSession(raw: any): Session {
+  return {
+    id: String(raw.id),
+    title: raw.title ?? raw.name ?? '',
+    speaker: raw.speaker ?? raw.speaker_name ?? raw.presenter ?? '',
+    speakerTitle: raw.speaker_title ?? raw.speakerTitle ?? raw.presenter_title ?? '',
+    speakerCompany: raw.speaker_company ?? raw.speakerCompany ?? raw.presenter_company ?? '',
+    track: raw.track ?? raw.category ?? '',
+    room: raw.room ?? raw.location ?? raw.venue ?? '',
+    day: Number(raw.day ?? raw.day_number ?? 1),
+    startTime: raw.start_time ?? raw.startTime ?? '',
+    endTime: raw.end_time ?? raw.endTime ?? '',
+    accentColor: raw.accent_color ?? raw.accentColor ?? '#7c3aed',
+    description: raw.description ?? '',
+    tags: Array.isArray(raw.tags) ? raw.tags : [],
+  };
+}
 
 export async function listEvents(): Promise<ApiResponse<Event[]>> {
   if (USE_MOCK) {
@@ -58,10 +77,16 @@ export async function listSessions(filters?: { day?: number; track?: string }): 
     if (filters?.track) sessions = sessions.filter((s) => s.track === filters.track);
     return { success: true, data: sessions };
   }
+  const eventId = getEventId();
+  if (!eventId) return { success: true, data: MOCK_SESSIONS };
   const params = new URLSearchParams();
   if (filters?.day) params.set('day', String(filters.day));
   if (filters?.track) params.set('track', filters.track);
-  return request<Session[]>(`/api/v1/sessions?${params.toString()}`);
+  const query = params.toString() ? `?${params.toString()}` : '';
+  const res = await request<any>(`/api/v1/events/${eventId}/mobile-agenda${query}`);
+  if (!res.success) return res as ApiResponse<Session[]>;
+  const raw: any[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? res.data?.agenda ?? []);
+  return { success: true, data: raw.map(normalizeSession) };
 }
 
 export async function getSession(id: string): Promise<ApiResponse<Session>> {

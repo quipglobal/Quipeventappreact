@@ -8,6 +8,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_700Bold } from '@expo-google-fonts/inter';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from '@/context/AuthContext';
+import { EventProvider } from '@/context/EventContext';
 import { ThemeProvider } from '@/context/ThemeContext';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { AppSplashScreen } from '@/components/AppSplashScreen';
@@ -46,6 +47,7 @@ export default function RootLayout() {
           <QueryClientProvider client={queryClient}>
             <ThemeProvider>
               <AuthProvider>
+                <EventProvider>
                 <StatusBar style="light" />
                 <Stack
                   screenOptions={{
@@ -68,6 +70,7 @@ export default function RootLayout() {
                 {!splashDone && (
                   <AppSplashScreen onFinish={() => setSplashDone(true)} />
                 )}
+                </EventProvider>
               </AuthProvider>
             </ThemeProvider>
           </QueryClientProvider>
