@@ -19,7 +19,29 @@ export async function listSponsors(tier?: Sponsor['tier']): Promise<ApiResponse<
     return { success: true, data: sponsors };
   }
   const params = tier ? `?tier=${tier}` : '';
-  return request<Sponsor[]>(`/api/v1/sponsors${params}`);
+  const res = await request<any>(`/api/v1/sponsors${params}`);
+  if (!res.success) {
+    const sponsors = tier ? MOCK_SPONSORS.filter((s) => s.tier === tier) : MOCK_SPONSORS;
+    return { success: true, data: sponsors };
+  }
+  const raw: any[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? res.data?.sponsors ?? []);
+  if (raw.length === 0) {
+    const sponsors = tier ? MOCK_SPONSORS.filter((s) => s.tier === tier) : MOCK_SPONSORS;
+    return { success: true, data: sponsors };
+  }
+  return { success: true, data: raw.map((s: any) => ({
+    id: String(s.id),
+    name: s.name ?? '',
+    tier: s.tier ?? 'Bronze',
+    tagline: s.tagline ?? s.slogan ?? '',
+    category: s.category ?? s.industry ?? '',
+    boothNumber: s.booth_number ?? s.boothNumber ?? s.booth ?? '',
+    tierColor: s.tier_color ?? s.tierColor ?? '#cd7f32',
+    accentColor: s.accent_color ?? s.accentColor ?? '#7c3aed',
+    giveaway: s.giveaway ?? undefined,
+    website: s.website ?? s.url ?? '',
+    description: s.description ?? '',
+  })) };
 }
 
 export async function getSponsor(id: string): Promise<ApiResponse<Sponsor>> {

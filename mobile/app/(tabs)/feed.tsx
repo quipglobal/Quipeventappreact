@@ -229,6 +229,13 @@ export default function FeedScreen() {
         viewabilityConfig={{ itemVisiblePercentThreshold: 60 }}
         onEndReached={onEndReached}
         onEndReachedThreshold={0.4}
+        ListEmptyComponent={!isLoading ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyEmoji}>📡</Text>
+            <Text style={styles.emptyTitle}>Join an event first</Text>
+            <Text style={styles.emptySub}>Once you join an event, live videos and polls will appear here.</Text>
+          </View>
+        ) : null}
         ListFooterComponent={isFetchingNextPage ? (
           <View style={styles.loadingMore}>
             <Text style={styles.loadingMoreText}>Loading more...</Text>
@@ -284,4 +291,8 @@ const styles = StyleSheet.create({
   pollBar: { height: 3, backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 2, marginTop: spacing.sm, overflow: 'hidden' },
   pollBarFill: { height: 3, borderRadius: 2 },
   pollHint: { color: colors.textMuted, fontSize: 11, textAlign: 'center', marginTop: spacing.md },
+  emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.xxl, paddingVertical: 80 },
+  emptyEmoji: { fontSize: 48, marginBottom: spacing.lg },
+  emptyTitle: { color: colors.textPrimary, fontSize: 18, fontWeight: '700', textAlign: 'center', marginBottom: spacing.sm },
+  emptySub: { color: colors.textMuted, fontSize: 14, textAlign: 'center', lineHeight: 21 },
 });

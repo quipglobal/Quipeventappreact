@@ -245,6 +245,12 @@ function AttendeeEngage() {
 
       <DataState loading={isLoading} error={isError ? 'Failed to load content.' : null} onRetry={refetch} />
 
+      {activeTab === 'challenges' && (
+        <View style={styles.mockBanner}>
+          <Ionicons name="flask-outline" size={13} color="rgba(255,200,100,0.8)" />
+          <Text style={styles.mockBannerText}>Demo challenges — not synced to backend</Text>
+        </View>
+      )}
       {activeTab === 'challenges' && challenges.map((c) => {
         const done = completedChallenges.includes(c.id);
         const pct = Math.min((c.progress / c.total) * 100, 100);
@@ -391,6 +397,12 @@ function AttendeeEngage() {
         </>
       )}
 
+      {activeTab === 'giveaways' && (
+        <View style={styles.mockBanner}>
+          <Ionicons name="flask-outline" size={13} color="rgba(255,200,100,0.8)" />
+          <Text style={styles.mockBannerText}>Demo giveaways — not synced to backend</Text>
+        </View>
+      )}
       {activeTab === 'giveaways' && giveaways.map((g) => {
         const entered = giveawayEntries.includes(g.id);
         return (
@@ -738,4 +750,7 @@ const styles = StyleSheet.create({
   emptyLeads: { alignItems: 'center', paddingVertical: 60, gap: spacing.md },
   emptyLeadsText: { color: colors.textSecondary, fontSize: 16, fontWeight: '700' },
   emptyLeadsSub: { color: colors.textMuted, fontSize: 12, textAlign: 'center' },
+
+  mockBanner: { flexDirection: 'row', alignItems: 'center', gap: 6, marginHorizontal: spacing.xl, marginBottom: spacing.sm, paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.full, backgroundColor: 'rgba(255,200,100,0.08)', borderWidth: 1, borderColor: 'rgba(255,200,100,0.2)', alignSelf: 'flex-start' },
+  mockBannerText: { color: 'rgba(255,200,100,0.7)', fontSize: 11, fontWeight: '600' },
 });
