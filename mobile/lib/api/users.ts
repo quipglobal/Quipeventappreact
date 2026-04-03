@@ -40,7 +40,7 @@ export async function listAttendees(filters?: { tier?: string; search?: string }
   const params = new URLSearchParams();
   if (filters?.tier) params.set('tier', filters.tier);
   if (filters?.search) params.set('search', filters.search);
-  return request<Attendee[]>(`/api/attendees?${params.toString()}`);
+  return request<Attendee[]>(`/api/v1/attendees?${params.toString()}`);
 }
 
 export async function getAttendee(id: string): Promise<ApiResponse<Attendee>> {
@@ -50,7 +50,7 @@ export async function getAttendee(id: string): Promise<ApiResponse<Attendee>> {
     if (!a) return { success: false, error: { code: 'NOT_FOUND', message: 'Attendee not found' } };
     return { success: true, data: a };
   }
-  return request<Attendee>(`/api/attendees/${id}`);
+  return request<Attendee>(`/api/v1/attendees/${id}`);
 }
 
 export async function updateProfile(data: Partial<AuthUser>): Promise<ApiResponse<AuthUser>> {
@@ -58,7 +58,7 @@ export async function updateProfile(data: Partial<AuthUser>): Promise<ApiRespons
     await delay(700);
     return { success: true, data: data as AuthUser };
   }
-  return request<AuthUser>('/api/profile', { method: 'PATCH', body: JSON.stringify(data) });
+  return request<AuthUser>('/api/v1/profile', { method: 'PATCH', body: JSON.stringify(data) });
 }
 
 export async function getLeaderboard(): Promise<ApiResponse<LeaderboardEntry[]>> {
@@ -66,7 +66,7 @@ export async function getLeaderboard(): Promise<ApiResponse<LeaderboardEntry[]>>
     await delay();
     return { success: true, data: MOCK_LEADERBOARD };
   }
-  return request<LeaderboardEntry[]>('/api/leaderboard');
+  return request<LeaderboardEntry[]>('/api/v1/leaderboard');
 }
 
 export async function getUserPoints(): Promise<ApiResponse<{ points: number; tier: string }>> {
@@ -74,7 +74,7 @@ export async function getUserPoints(): Promise<ApiResponse<{ points: number; tie
     await delay(400);
     return { success: true, data: { points: 0, tier: 'Bronze' } };
   }
-  return request<{ points: number; tier: string }>('/api/profile/points');
+  return request<{ points: number; tier: string }>('/api/v1/profile/points');
 }
 
 export async function syncPoints(delta: number, reason: string): Promise<ApiResponse<{ points: number; tier: string }>> {
@@ -82,7 +82,7 @@ export async function syncPoints(delta: number, reason: string): Promise<ApiResp
     await delay(300);
     return { success: true, data: { points: delta, tier: 'Bronze' } };
   }
-  return request<{ points: number; tier: string }>('/api/profile/points/sync', {
+  return request<{ points: number; tier: string }>('/api/v1/profile/points/sync', {
     method: 'POST',
     body: JSON.stringify({ delta, reason }),
   });

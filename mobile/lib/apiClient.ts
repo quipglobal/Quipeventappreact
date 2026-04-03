@@ -226,7 +226,7 @@ export async function sendOtp(phone: string): Promise<ApiResponse<{ message: str
     await delay(900);
     return { success: true, data: { message: 'OTP sent' } };
   }
-  return request('/auth/send-otp', {
+  return request('/api/v1/auth/send-otp', {
     method: 'POST',
     body: JSON.stringify({ phone }),
   });
@@ -252,7 +252,7 @@ export async function verifyOtp(phone: string, otp: string): Promise<ApiResponse
     return { success: true, data: { token: '', user: null, isNewUser: true } };
   }
 
-  const res = await request<any>('/auth/verify-otp', {
+  const res = await request<any>('/api/v1/auth/verify-otp', {
     method: 'POST',
     body: JSON.stringify({ phone, otp }),
   });
@@ -307,7 +307,7 @@ export async function register(
     return { success: true, data: { token, user } };
   }
 
-  const res = await request<any>('/auth/register', {
+  const res = await request<any>('/api/v1/auth/register', {
     method: 'POST',
     body: JSON.stringify({
       phone: input.phone,
@@ -342,7 +342,7 @@ export async function getMe(): Promise<ApiResponse<AuthUser>> {
     return { success: false, error: { code: 'INVALID_TOKEN', message: 'Token expired' } };
   }
 
-  const res = await request<any>('/auth/me');
+  const res = await request<any>('/api/v1/auth/me');
   if (!res.success || !res.data) return res as ApiResponse<AuthUser>;
 
   // Unwrap common Laravel response shapes before normalizing:

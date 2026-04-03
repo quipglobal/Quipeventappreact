@@ -20,7 +20,7 @@ export async function listMeetings(): Promise<ApiResponse<Meeting[]>> {
     await delay();
     return { success: true, data: MOCK_MEETINGS };
   }
-  return request<Meeting[]>('/api/meetings');
+  return request<Meeting[]>('/api/v1/meetings');
 }
 
 export interface SendMeetingRequest {
@@ -45,7 +45,7 @@ export async function sendMeetingRequest(input: SendMeetingRequest): Promise<Api
     };
     return { success: true, data: meeting };
   }
-  return request<Meeting>('/api/meetings', {
+  return request<Meeting>('/api/v1/meetings', {
     method: 'POST',
     body: JSON.stringify(input),
   });
@@ -58,5 +58,5 @@ export async function respondToMeeting(meetingId: string, action: 'accept' | 'de
     if (!meeting) return { success: false, error: { code: 'NOT_FOUND', message: 'Meeting not found' } };
     return { success: true, data: { ...meeting, status: action === 'accept' ? 'accepted' : 'declined' } };
   }
-  return request<Meeting>(`/api/meetings/${meetingId}/${action}`, { method: 'POST' });
+  return request<Meeting>(`/api/v1/meetings/${meetingId}/${action}`, { method: 'POST' });
 }

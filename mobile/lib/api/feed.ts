@@ -32,7 +32,7 @@ export async function getFeedPage(cursor?: string): Promise<ApiResponse<FeedPage
     };
   }
   const params = cursor ? `?cursor=${cursor}` : '';
-  return request<FeedPage>(`/api/feed${params}`);
+  return request<FeedPage>(`/api/v1/feed${params}`);
 }
 
 export async function markVideoWatched(videoId: string): Promise<ApiResponse<{ points: number }>> {
@@ -40,7 +40,7 @@ export async function markVideoWatched(videoId: string): Promise<ApiResponse<{ p
     await delay(300);
     return { success: true, data: { points: 20 } };
   }
-  return request<{ points: number }>('/api/feed/video/watched', {
+  return request<{ points: number }>('/api/v1/feed/video/watched', {
     method: 'POST',
     body: JSON.stringify({ videoId }),
   });
@@ -51,7 +51,7 @@ export async function submitPollVote(pollId: string, optionId: string): Promise<
     await delay(400);
     return { success: true, data: { points: 10, results: [] } };
   }
-  return request('/api/polls/vote', {
+  return request('/api/v1/polls/vote', {
     method: 'POST',
     body: JSON.stringify({ pollId, optionId }),
   });

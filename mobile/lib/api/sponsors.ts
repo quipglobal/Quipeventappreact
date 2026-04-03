@@ -19,7 +19,7 @@ export async function listSponsors(tier?: Sponsor['tier']): Promise<ApiResponse<
     return { success: true, data: sponsors };
   }
   const params = tier ? `?tier=${tier}` : '';
-  return request<Sponsor[]>(`/api/sponsors${params}`);
+  return request<Sponsor[]>(`/api/v1/sponsors${params}`);
 }
 
 export async function getSponsor(id: string): Promise<ApiResponse<Sponsor>> {
@@ -29,5 +29,5 @@ export async function getSponsor(id: string): Promise<ApiResponse<Sponsor>> {
     if (!sponsor) return { success: false, error: { code: 'NOT_FOUND', message: 'Sponsor not found' } };
     return { success: true, data: sponsor };
   }
-  return request<Sponsor>(`/api/sponsors/${id}`);
+  return request<Sponsor>(`/api/v1/sponsors/${id}`);
 }

@@ -32,7 +32,7 @@ export async function listChallenges(): Promise<ApiResponse<Challenge[]>> {
     await delay();
     return { success: true, data: MOCK_CHALLENGES };
   }
-  return request<Challenge[]>('/api/challenges');
+  return request<Challenge[]>('/api/v1/challenges');
 }
 
 export async function completeChallenge(challengeId: string): Promise<ApiResponse<{ points: number }>> {
@@ -40,7 +40,7 @@ export async function completeChallenge(challengeId: string): Promise<ApiRespons
     await delay(500);
     return { success: true, data: { points: 100 } };
   }
-  return request<{ points: number }>('/api/challenges/complete', {
+  return request<{ points: number }>('/api/v1/challenges/complete', {
     method: 'POST',
     body: JSON.stringify({ challengeId }),
   });
@@ -51,7 +51,7 @@ export async function listPolls(): Promise<ApiResponse<Poll[]>> {
     await delay();
     return { success: true, data: MOCK_POLLS };
   }
-  return request<Poll[]>('/api/polls');
+  return request<Poll[]>('/api/v1/polls');
 }
 
 export async function votePoll(pollId: string, optionId: string): Promise<ApiResponse<{ points: number; results: Array<{ id: string; votes: number }> }>> {
@@ -59,7 +59,7 @@ export async function votePoll(pollId: string, optionId: string): Promise<ApiRes
     await delay(400);
     return { success: true, data: { points: 10, results: [] } };
   }
-  return request('/api/polls/vote', {
+  return request('/api/v1/polls/vote', {
     method: 'POST',
     body: JSON.stringify({ pollId, optionId }),
   });
@@ -70,7 +70,7 @@ export async function listSurveys(): Promise<ApiResponse<Survey[]>> {
     await delay();
     return { success: true, data: MOCK_SURVEYS };
   }
-  return request<Survey[]>('/api/surveys');
+  return request<Survey[]>('/api/v1/surveys');
 }
 
 export async function submitSurvey(surveyId: string, answers: Record<string, string>): Promise<ApiResponse<{ points: number }>> {
@@ -78,7 +78,7 @@ export async function submitSurvey(surveyId: string, answers: Record<string, str
     await delay(800);
     return { success: true, data: { points: 50 } };
   }
-  return request<{ points: number }>('/api/surveys/submit', {
+  return request<{ points: number }>('/api/v1/surveys/submit', {
     method: 'POST',
     body: JSON.stringify({ surveyId, answers }),
   });
@@ -89,7 +89,7 @@ export async function listGiveaways(): Promise<ApiResponse<Giveaway[]>> {
     await delay();
     return { success: true, data: MOCK_GIVEAWAYS };
   }
-  return request<Giveaway[]>('/api/giveaways');
+  return request<Giveaway[]>('/api/v1/giveaways');
 }
 
 export async function enterGiveaway(giveawayId: string): Promise<ApiResponse<{ entries: number }>> {
@@ -97,7 +97,7 @@ export async function enterGiveaway(giveawayId: string): Promise<ApiResponse<{ e
     await delay(500);
     return { success: true, data: { entries: 1 } };
   }
-  return request<{ entries: number }>('/api/giveaways/enter', {
+  return request<{ entries: number }>('/api/v1/giveaways/enter', {
     method: 'POST',
     body: JSON.stringify({ giveawayId }),
   });

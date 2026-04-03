@@ -27,7 +27,7 @@ export async function listEvents(): Promise<ApiResponse<Event[]>> {
     await delay();
     return { success: true, data: MOCK_EVENTS };
   }
-  return request<Event[]>('/api/events');
+  return request<Event[]>('/api/v1/events');
 }
 
 export async function getEvent(id: string): Promise<ApiResponse<Event>> {
@@ -37,7 +37,7 @@ export async function getEvent(id: string): Promise<ApiResponse<Event>> {
     if (!event) return { success: false, error: { code: 'NOT_FOUND', message: 'Event not found' } };
     return { success: true, data: event };
   }
-  return request<Event>(`/api/events/${id}`);
+  return request<Event>(`/api/v1/events/${id}`);
 }
 
 export async function joinEventByCode(code: string): Promise<ApiResponse<Event>> {
@@ -47,7 +47,7 @@ export async function joinEventByCode(code: string): Promise<ApiResponse<Event>>
     if (!event) throw new Error(`No event found for code "${code.toUpperCase()}"`);
     return { success: true, data: event };
   }
-  return request<Event>('/api/events/join', { method: 'POST', body: JSON.stringify({ code }) });
+  return request<Event>('/api/v1/events/join', { method: 'POST', body: JSON.stringify({ code }) });
 }
 
 export async function listSessions(filters?: { day?: number; track?: string }): Promise<ApiResponse<Session[]>> {
@@ -61,7 +61,7 @@ export async function listSessions(filters?: { day?: number; track?: string }): 
   const params = new URLSearchParams();
   if (filters?.day) params.set('day', String(filters.day));
   if (filters?.track) params.set('track', filters.track);
-  return request<Session[]>(`/api/sessions?${params.toString()}`);
+  return request<Session[]>(`/api/v1/sessions?${params.toString()}`);
 }
 
 export async function getSession(id: string): Promise<ApiResponse<Session>> {
@@ -71,7 +71,7 @@ export async function getSession(id: string): Promise<ApiResponse<Session>> {
     if (!session) return { success: false, error: { code: 'NOT_FOUND', message: 'Session not found' } };
     return { success: true, data: session };
   }
-  return request<Session>(`/api/sessions/${id}`);
+  return request<Session>(`/api/v1/sessions/${id}`);
 }
 
 export async function bookmarkSession(sessionId: string, bookmarked: boolean): Promise<ApiResponse<{ bookmarked: boolean }>> {
@@ -79,7 +79,7 @@ export async function bookmarkSession(sessionId: string, bookmarked: boolean): P
     await delay(300);
     return { success: true, data: { bookmarked } };
   }
-  return request<{ bookmarked: boolean }>('/api/sessions/bookmark', {
+  return request<{ bookmarked: boolean }>('/api/v1/sessions/bookmark', {
     method: 'POST',
     body: JSON.stringify({ sessionId, bookmarked }),
   });

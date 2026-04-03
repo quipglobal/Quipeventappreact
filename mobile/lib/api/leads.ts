@@ -16,7 +16,7 @@ export async function listLeads(): Promise<ApiResponse<Lead[]>> {
     await delay();
     return { success: true, data: MOCK_LEADS };
   }
-  return request<Lead[]>('/api/sponsor/leads');
+  return request<Lead[]>('/api/v1/sponsor/leads');
 }
 
 export interface ScanPayload {
@@ -42,7 +42,7 @@ export async function submitScan(payload: ScanPayload): Promise<ApiResponse<Lead
     };
     return { success: true, data: lead };
   }
-  return request<Lead>('/api/sponsor/scan', { method: 'POST', body: JSON.stringify(payload) });
+  return request<Lead>('/api/v1/sponsor/scan', { method: 'POST', body: JSON.stringify(payload) });
 }
 
 export async function updateLeadStatus(leadId: string, status: Lead['status']): Promise<ApiResponse<Lead>> {
@@ -52,7 +52,7 @@ export async function updateLeadStatus(leadId: string, status: Lead['status']): 
     if (!lead) return { success: false, error: { code: 'NOT_FOUND', message: 'Lead not found' } };
     return { success: true, data: { ...lead, status } };
   }
-  return request<Lead>(`/api/sponsor/leads/${leadId}`, {
+  return request<Lead>(`/api/v1/sponsor/leads/${leadId}`, {
     method: 'PATCH',
     body: JSON.stringify({ status }),
   });
@@ -64,7 +64,7 @@ export async function triggerLuckyDraw(giveawayId?: string): Promise<ApiResponse
     const winner = MOCK_LEADS[Math.floor(Math.random() * MOCK_LEADS.length)];
     return { success: true, data: { winner } };
   }
-  return request<{ winner: Lead }>('/api/sponsor/lucky-draw', {
+  return request<{ winner: Lead }>('/api/v1/sponsor/lucky-draw', {
     method: 'POST',
     body: JSON.stringify({ giveawayId }),
   });
