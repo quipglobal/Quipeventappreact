@@ -59,9 +59,12 @@ export async function listEvents(): Promise<ApiResponse<Event[]>> {
     await delay();
     return { success: true, data: MOCK_EVENTS };
   }
-  const res = await request<any>('/api/v1/events');
+  const res = await request<any>('/api/v1/events?per_page=100');
   if (!res.success) return res as ApiResponse<Event[]>;
-  const raw: any[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? res.data?.events ?? []);
+  // Backend returns Laravel paginator: { current_page, data: [...], total, ... }
+  const raw: any[] = Array.isArray(res.data)
+    ? res.data
+    : (res.data?.data ?? res.data?.events ?? []);
   return { success: true, data: raw.map(normalizeEvent) };
 }
 
@@ -79,10 +82,25 @@ export async function joinEventByCode(code: string): Promise<ApiResponse<Event>>
   if (USE_MOCK) {
     await delay(1000);
     const event = MOCK_EVENTS.find((e) => e.code === code.toUpperCase());
-    if (!event) throw new Error(`No event found for code "${code.toUpperCase()}"`);
+    if (!event) return { success: false, error: { code: 'NOT_FOUND', message: `No event found for code "${code.toUpperCase()}"` } };
     return { success: true, data: event };
   }
-  return request<Event>('/api/v1/events/join', { method: 'POST', body: JSON.stringify({ code }) });
+  // Backend has no dedicated join-by-code endpoint.
+  // Fetch all tenant events and find the matching one by code/slug.
+  const listRes = await listEvents();
+  if (!listRes.success) return { success: false, error: listRes.error };
+  const events = listRes.data ?? [];
+  const upper = code.trim().toUpperCase();
+  const match = events.find(
+    (e) => (e.code ?? '').toUpperCase() === upper || e.id === code
+  );
+  if (!match) {
+    return {
+      success: false,
+      error: { code: 'NOT_FOUND', message: `No event found for code "${code}". Please check the code and try again.` },
+    };
+  }
+  return { success: true, data: match };
 }
 
 export async function listSessions(filters?: { day?: number; track?: string }): Promise<ApiResponse<Session[]>> {
