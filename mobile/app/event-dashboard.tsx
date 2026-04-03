@@ -11,12 +11,14 @@ import {
   TextInput,
   Alert,
   ActivityIndicator,
+  ImageBackground,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
+import { useEvent } from '@/context/EventContext';
 import { useLeaderboard } from '@/hooks/useAudience';
 import { useEvents, useJoinEvent } from '@/hooks/useEvents';
 import { colors, spacing, radius } from '@/constants/theme';
@@ -78,6 +80,7 @@ function StatusBadge({ status }: { status: Event['status'] }) {
 export default function EventDashboardScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const { currentEventId } = useEvent();
   const { data: leaderboardData = [] } = useLeaderboard();
   const { data: events = [], isLoading: eventsLoading } = useEvents();
   const { mutate: joinEvent, isPending: joining } = useJoinEvent();
@@ -90,6 +93,7 @@ export default function EventDashboardScreen() {
   const upcomingEvents = events.filter((e) => e.status === 'live' || e.status === 'upcoming');
   const pastEvents = events.filter((e) => e.status === 'past');
   const tabEvents = activeTab === 'upcoming' ? upcomingEvents : pastEvents;
+  const currentEvent = events.find((e) => e.id === currentEventId) ?? events[0] ?? null;
 
   const openEventPopup = (event: Event) => {
     setSelectedEvent(event);
@@ -134,7 +138,11 @@ export default function EventDashboardScreen() {
         {/* Hero gradient welcome */}
         <LinearGradient colors={['rgba(124,58,237,0.22)', 'transparent']} style={styles.hero}>
           <Text style={styles.heroTitle}>Welcome, {firstName}!</Text>
-          <Text style={styles.heroSub}>CXO Tech Summit 2026 · Jan 16–18, San Francisco</Text>
+          <Text style={styles.heroSub} numberOfLines={1}>
+            {currentEvent
+              ? `${currentEvent.name} · ${formatDateRange(currentEvent.startDate, currentEvent.endDate)}`
+              : 'CXO Event Companion'}
+          </Text>
           <View style={styles.heroRow}>
             <View style={styles.heroStat}><Text style={styles.heroStatVal}>Day 1</Text><Text style={styles.heroStatLbl}>of 3</Text></View>
             <View style={styles.heroStat}><Text style={styles.heroStatVal}>{user?.points ?? 0}</Text><Text style={styles.heroStatLbl}>Your Pts</Text></View>
@@ -243,16 +251,30 @@ export default function EventDashboardScreen() {
           <View style={styles.cardList}>
             {tabEvents.map((event) => {
               const meta = EVENT_META[event.id] ?? FALLBACK_META;
+              const categoryLabel = event.category?.toUpperCase() ?? meta.category;
+              const categoryColor = '#4f46e5';
               return (
                 <TouchableOpacity key={event.id} style={styles.card} onPress={() => openEventPopup(event)} activeOpacity={0.82}>
-                  <LinearGradient colors={meta.bannerColors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.cardBanner}>
-                    <View style={styles.badgeRow}>
-                      <StatusBadge status={event.status} />
-                      <View style={[styles.badge, { backgroundColor: meta.categoryColor + '30', borderColor: meta.categoryColor + '60' }]}>
-                        <Text style={[styles.badgeText, { color: meta.categoryColor }]}>{meta.category}</Text>
+                  {event.bannerUrl ? (
+                    <ImageBackground source={{ uri: event.bannerUrl }} style={styles.cardBanner} imageStyle={{ borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl }}>
+                      <LinearGradient colors={['transparent', 'rgba(7,7,15,0.6)']} style={StyleSheet.absoluteFill} />
+                      <View style={styles.badgeRow}>
+                        <StatusBadge status={event.status} />
+                        <View style={[styles.badge, { backgroundColor: categoryColor + '30', borderColor: categoryColor + '60' }]}>
+                          <Text style={[styles.badgeText, { color: '#a78bfa' }]}>{categoryLabel}</Text>
+                        </View>
                       </View>
-                    </View>
-                  </LinearGradient>
+                    </ImageBackground>
+                  ) : (
+                    <LinearGradient colors={meta.bannerColors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.cardBanner}>
+                      <View style={styles.badgeRow}>
+                        <StatusBadge status={event.status} />
+                        <View style={[styles.badge, { backgroundColor: meta.categoryColor + '30', borderColor: meta.categoryColor + '60' }]}>
+                          <Text style={[styles.badgeText, { color: meta.categoryColor }]}>{categoryLabel}</Text>
+                        </View>
+                      </View>
+                    </LinearGradient>
+                  )}
                   <View style={styles.cardBody}>
                     <Text style={styles.cardTitle} numberOfLines={1}>{event.name}</Text>
                     <View style={styles.cardMeta}>
@@ -263,8 +285,6 @@ export default function EventDashboardScreen() {
                       <Text style={styles.cardMetaTxt} numberOfLines={1}>{event.location}</Text>
                     </View>
                     <View style={styles.cardStats}>
-                      <View style={styles.cardStat}><Ionicons name="people-outline" size={12} color={colors.textMuted} /><Text style={styles.cardStatTxt}>{meta.attendees}</Text></View>
-                      <View style={styles.cardStat}><Ionicons name="mic-outline" size={12} color={colors.textMuted} /><Text style={styles.cardStatTxt}>{meta.sessions}</Text></View>
                       <View style={styles.cardArrow}><Ionicons name="arrow-forward" size={12} color={colors.primary} /></View>
                     </View>
                   </View>
@@ -282,24 +302,34 @@ export default function EventDashboardScreen() {
             <View style={styles.sheetHandle} />
             {selectedEvent && (() => {
               const meta = EVENT_META[selectedEvent.id] ?? FALLBACK_META;
+              const categoryLabel = selectedEvent.category?.toUpperCase() ?? meta.category;
               return (
                 <>
-                  <LinearGradient colors={meta.bannerColors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.sheetBanner}>
-                    <View style={styles.badgeRow}>
-                      <StatusBadge status={selectedEvent.status} />
-                      <View style={[styles.badge, { backgroundColor: meta.categoryColor + '30', borderColor: meta.categoryColor + '60' }]}>
-                        <Text style={[styles.badgeText, { color: meta.categoryColor }]}>{meta.category}</Text>
+                  {selectedEvent.bannerUrl ? (
+                    <ImageBackground source={{ uri: selectedEvent.bannerUrl }} style={styles.sheetBanner}>
+                      <LinearGradient colors={['transparent', 'rgba(7,7,15,0.7)']} style={StyleSheet.absoluteFill} />
+                      <View style={styles.badgeRow}>
+                        <StatusBadge status={selectedEvent.status} />
+                        <View style={[styles.badge, { backgroundColor: 'rgba(79,70,229,0.35)', borderColor: 'rgba(79,70,229,0.6)' }]}>
+                          <Text style={[styles.badgeText, { color: '#a78bfa' }]}>{categoryLabel}</Text>
+                        </View>
                       </View>
-                    </View>
-                  </LinearGradient>
+                    </ImageBackground>
+                  ) : (
+                    <LinearGradient colors={meta.bannerColors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.sheetBanner}>
+                      <View style={styles.badgeRow}>
+                        <StatusBadge status={selectedEvent.status} />
+                        <View style={[styles.badge, { backgroundColor: meta.categoryColor + '30', borderColor: meta.categoryColor + '60' }]}>
+                          <Text style={[styles.badgeText, { color: meta.categoryColor }]}>{categoryLabel}</Text>
+                        </View>
+                      </View>
+                    </LinearGradient>
+                  )}
                   <View style={styles.sheetBody}>
                     <Text style={styles.sheetTitle}>{selectedEvent.name}</Text>
                     <View style={styles.sheetMeta}><Ionicons name="calendar-outline" size={13} color={colors.textMuted} /><Text style={styles.sheetMetaTxt}>{formatDateRange(selectedEvent.startDate, selectedEvent.endDate)}</Text></View>
                     <View style={styles.sheetMeta}><Ionicons name="location-outline" size={13} color={colors.textMuted} /><Text style={styles.sheetMetaTxt}>{selectedEvent.location}</Text></View>
                     <View style={styles.sheetStats}>
-                      <View style={styles.sheetStat}><Text style={styles.sheetStatVal}>{meta.attendees}</Text><Text style={styles.sheetStatLbl}>Attendees</Text></View>
-                      <View style={styles.sheetStatDiv} />
-                      <View style={styles.sheetStat}><Text style={styles.sheetStatVal}>{meta.sessions}</Text><Text style={styles.sheetStatLbl}>Sessions</Text></View>
                     </View>
                     <Text style={styles.sheetCodeLbl}>ENTER EVENT CODE</Text>
                     <View style={styles.codeRow}>

@@ -13,6 +13,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
+import { useEvent } from '@/context/EventContext';
+import { useEvents } from '@/hooks/useEvents';
 import { colors, spacing, radius } from '@/constants/theme';
 
 const { width: SW } = Dimensions.get('window');
@@ -28,19 +30,23 @@ const TIER_COLORS: Record<string, string> = {
 export default function QrBadgeScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const { currentEventId } = useEvent();
+  const { data: events = [] } = useEvents();
+  const currentEvent = events.find((e) => e.id === currentEventId) ?? events[0] ?? null;
+  const eventName = currentEvent?.name ?? 'CXO Event';
 
   const tierColor = user?.tier ? TIER_COLORS[user.tier] ?? colors.primary : colors.primary;
-  const qrData = JSON.stringify({
+  const qrData = user?.badgeCode ?? JSON.stringify({
     id: user?.id ?? 'guest',
     name: user?.name ?? 'Guest',
-    event: 'cxo-summit-2026',
+    badge: user?.badgeCode ?? user?.id ?? '',
     role: user?.role ?? 'attendee',
   });
 
   const handleShare = async () => {
     try {
       await Share.share({
-        message: `Connect with ${user?.name} at CXO Tech Summit 2026!\nBadge ID: ${user?.id}`,
+        message: `Connect with ${user?.name} at ${eventName}!\nBadge ID: ${user?.badgeCode ?? user?.id}`,
         title: 'My CXO Badge',
       });
     } catch (_) {}
@@ -64,7 +70,7 @@ export default function QrBadgeScreen() {
           style={[styles.badgeCard, { borderColor: tierColor + '50' }]}
         >
           <View style={styles.badgeHeader}>
-            <Text style={styles.eventName}>CXO Tech Summit 2026</Text>
+            <Text style={styles.eventName} numberOfLines={1}>{eventName}</Text>
             <View style={[styles.tierBadge, { backgroundColor: tierColor + '20', borderColor: tierColor + '60' }]}>
               <Text style={[styles.tierBadgeText, { color: tierColor }]}>{user?.tier ?? 'Bronze'}</Text>
             </View>

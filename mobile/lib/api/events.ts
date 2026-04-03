@@ -5,9 +5,9 @@ import type { ApiResponse, Event, Session } from '@/lib/api/types';
 const delay = (ms = 600) => new Promise<void>((r) => setTimeout(r, ms));
 
 const MOCK_EVENTS: Event[] = [
-  { id: 'evt-1', name: 'CXO Tech Summit 2026', code: 'CXOSUMMIT26', startDate: '2026-01-16', endDate: '2026-01-18', location: 'San Francisco, CA', description: 'The premier executive tech conference for CTOs, CIOs, and technology leaders shaping the future.', status: 'live' },
-  { id: 'evt-3', name: 'DevCon Winter 2026', code: 'DEVCON26', startDate: '2026-02-20', endDate: '2026-02-22', location: 'Austin, TX', description: 'The annual developer conference bringing together engineers, architects, and product builders.', status: 'upcoming' },
-  { id: 'evt-2', name: 'StartupX Conference 2025', code: 'STARTUPX25', startDate: '2025-11-10', endDate: '2025-11-12', location: 'New York, NY', description: 'Where the next generation of startups meets the investors building tomorrow.', status: 'past' },
+  { id: 'evt-1', name: 'CXO Tech Summit 2026', code: 'CXOSUMMIT26', startDate: '2026-01-16', endDate: '2026-01-18', location: 'San Francisco, CA', description: 'The premier executive tech conference for CTOs, CIOs, and technology leaders shaping the future.', bannerUrl: 'https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=1200', category: 'Technology Conference', status: 'live' },
+  { id: 'evt-3', name: 'DevCon Winter 2026', code: 'DEVCON26', startDate: '2026-02-20', endDate: '2026-02-22', location: 'Austin, TX', description: 'The annual developer conference bringing together engineers, architects, and product builders.', bannerUrl: 'https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?w=1200', category: 'Developer Conference', status: 'upcoming' },
+  { id: 'evt-2', name: 'StartupX Conference 2025', code: 'STARTUPX25', startDate: '2025-11-10', endDate: '2025-11-12', location: 'New York, NY', description: 'Where the next generation of startups meets the investors building tomorrow.', bannerUrl: 'https://images.unsplash.com/photo-1505373877841-8d25f7d46678?w=1200', category: 'Startup Conference', status: 'past' },
 ];
 
 const MOCK_SESSIONS: Session[] = [
@@ -50,6 +50,8 @@ function normalizeEvent(raw: any): Event {
     endDate: raw.end_date ?? raw.endDate ?? raw.end ?? '',
     location: raw.location ?? raw.venue ?? raw.city ?? '',
     description: raw.description ?? '',
+    bannerUrl: raw.banner_url ?? raw.bannerUrl ?? raw.image ?? raw.photo ?? undefined,
+    category: raw.category ?? undefined,
     status: raw.status ?? 'upcoming',
   };
 }

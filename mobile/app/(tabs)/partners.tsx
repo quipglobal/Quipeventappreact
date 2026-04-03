@@ -50,7 +50,7 @@ function AttendeePartners() {
     >
       <View style={styles.header}>
         <Text style={styles.pageTitle}>Partners</Text>
-        <Text style={styles.subtitle}>{sponsors.length > 0 ? `${sponsors.length} sponsors` : 'Sponsors'} · Tech Summit 2026</Text>
+        <Text style={styles.subtitle}>{sponsors.length > 0 ? `${sponsors.length} sponsors at this event` : 'Event Sponsors'}</Text>
       </View>
 
       <DataState
@@ -144,7 +144,7 @@ function SponsorLeads() {
     >
       <View style={styles.header}>
         <Text style={styles.pageTitle}>My Leads</Text>
-        <Text style={styles.subtitle}>{leads.length} contacts captured · Tech Summit 2026</Text>
+        <Text style={styles.subtitle}>{leads.length} contacts captured at this event</Text>
       </View>
 
       <DataState loading={isLoading} error={isError ? 'Failed to load leads.' : null} onRetry={refetch} />

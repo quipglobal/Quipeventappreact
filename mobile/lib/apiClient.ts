@@ -132,11 +132,12 @@ export interface AuthUser {
   tier: string;
   interests: string[];
   profileComplete: boolean;
+  badgeCode?: string;
 }
 
 function normalizeAuthUser(raw: any): AuthUser {
-  const firstName = raw.first_name ?? '';
-  const lastName = raw.last_name ?? '';
+  const firstName = raw.first_name ?? (raw.name?.split(' ')[0] ?? '');
+  const lastName = raw.last_name ?? (raw.name?.split(' ').slice(1).join(' ') ?? '');
   const name = raw.name ?? (firstName || lastName ? `${firstName} ${lastName}`.trim() : '');
 
   // Role detection: backend uses system_role ("USER", "ADMIN", "SPONSOR") and roles[]
@@ -172,6 +173,7 @@ function normalizeAuthUser(raw: any): AuthUser {
       raw.is_profile_complete ??
       raw.setup_complete ??
       false,
+    badgeCode: raw.badge_code ?? raw.badgeCode ?? undefined,
   };
 }
 

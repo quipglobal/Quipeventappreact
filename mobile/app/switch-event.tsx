@@ -25,7 +25,7 @@ import { useEvent } from '@/context/EventContext';
 import { colors, spacing, radius } from '@/constants/theme';
 import type { Event, FeedItem, FeedVideo, FeedPoll } from '@/lib/api/types';
 
-const HINT_CODES = ['TECH26', 'DEVCON', 'SUMMIT', 'HEALTH'];
+const HINT_CODES = ['TFS25', 'IWS25', 'DVC25'];
 
 type EventMeta = {
   category: string;
@@ -104,18 +104,21 @@ function StatusBadge({ status }: { status: Event['status'] }) {
 
 function EventCard({ event, onPress }: { event: Event; onPress: () => void }) {
   const meta = EVENT_META[event.id] ?? FALLBACK_META;
+  const photoUri = event.bannerUrl ?? meta.photoUri;
+  const categoryLabel = event.category?.toUpperCase() ?? meta.category;
+  const categoryBg = event.category ? '#4f46e5' : meta.categoryBg;
   return (
     <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.88}>
       <ImageBackground
-        source={{ uri: meta.photoUri }}
+        source={{ uri: photoUri }}
         style={styles.cardPhoto}
         imageStyle={styles.cardPhotoImage}
       >
         <LinearGradient colors={['transparent', 'rgba(7,7,15,0.55)']} style={StyleSheet.absoluteFill} />
         <View style={styles.photoBadgeRow}>
           <StatusBadge status={event.status} />
-          <View style={[styles.photoBadge, { backgroundColor: meta.categoryBg }]}>
-            <Text style={styles.photoBadgeText}>{meta.category}</Text>
+          <View style={[styles.photoBadge, { backgroundColor: categoryBg }]}>
+            <Text style={styles.photoBadgeText}>{categoryLabel}</Text>
           </View>
         </View>
       </ImageBackground>
@@ -129,14 +132,6 @@ function EventCard({ event, onPress }: { event: Event; onPress: () => void }) {
           <Text style={styles.cardMetaText} numberOfLines={1}>{event.location}</Text>
         </View>
         <View style={styles.cardStatsRow}>
-          <View style={styles.cardStat}>
-            <Ionicons name="people-outline" size={13} color={colors.textMuted} />
-            <Text style={styles.cardStatText}>{meta.attendees}</Text>
-          </View>
-          <View style={styles.cardStat}>
-            <Ionicons name="mic-outline" size={13} color={colors.textMuted} />
-            <Text style={styles.cardStatText}>{meta.sessions}</Text>
-          </View>
           <View style={{ flex: 1 }} />
           <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
         </View>
@@ -448,14 +443,17 @@ export default function SwitchEventScreen() {
             <View style={styles.sheetHandle} />
             {selectedEvent && (() => {
               const meta = EVENT_META[selectedEvent.id] ?? FALLBACK_META;
+              const photoUri = selectedEvent.bannerUrl ?? meta.photoUri;
+              const categoryLabel = selectedEvent.category?.toUpperCase() ?? meta.category;
+              const categoryBg = selectedEvent.category ? '#4f46e5' : meta.categoryBg;
               return (
                 <>
-                  <ImageBackground source={{ uri: meta.photoUri }} style={styles.sheetPhoto} imageStyle={{}}>
+                  <ImageBackground source={{ uri: photoUri }} style={styles.sheetPhoto} imageStyle={{}}>
                     <LinearGradient colors={['transparent', 'rgba(7,7,15,0.75)']} style={StyleSheet.absoluteFill} />
                     <View style={styles.photoBadgeRow}>
                       <StatusBadge status={selectedEvent.status} />
-                      <View style={[styles.photoBadge, { backgroundColor: meta.categoryBg }]}>
-                        <Text style={styles.photoBadgeText}>{meta.category}</Text>
+                      <View style={[styles.photoBadge, { backgroundColor: categoryBg }]}>
+                        <Text style={styles.photoBadgeText}>{categoryLabel}</Text>
                       </View>
                     </View>
                   </ImageBackground>

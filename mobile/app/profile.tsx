@@ -214,7 +214,7 @@ export default function ProfileScreen() {
         <Text style={styles.logoutText}>Log Out</Text>
       </TouchableOpacity>
 
-      <Text style={styles.version}>CXO Events v1.0.0 · Tech Summit 2026</Text>
+      <Text style={styles.version}>CXO Events v1.0.0</Text>
     </ScrollView>
   );
 }

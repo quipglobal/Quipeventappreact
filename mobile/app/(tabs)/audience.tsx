@@ -107,7 +107,7 @@ export default function AudienceScreen() {
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Text style={styles.pageTitle}>Audience</Text>
-        <Text style={styles.subtitle}>{attendeesData.length > 0 ? `${attendeesData.length} attendees` : 'Attendees'} · Tech Summit 2026</Text>
+        <Text style={styles.subtitle}>{attendeesData.length > 0 ? `${attendeesData.length} attendees at this event` : 'Event Attendees'}</Text>
       </View>
 
       <View style={styles.searchWrap}>

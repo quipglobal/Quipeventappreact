@@ -9,6 +9,7 @@ export interface Event {
   location: string;
   description: string;
   bannerUrl?: string;
+  category?: string;
   status: 'upcoming' | 'live' | 'past';
 }
 
