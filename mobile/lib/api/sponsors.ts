@@ -21,6 +21,8 @@ export async function listSponsors(tier?: Sponsor['tier']): Promise<ApiResponse<
   const params = tier ? `?tier=${tier}` : '';
   const res = await request<any>(`/api/v1/sponsors${params}`);
   if (!res.success) {
+    const fatal = res.error?.code === 'UNAUTHORIZED' || res.error?.code === 'NETWORK_ERROR';
+    if (fatal) return res as ApiResponse<Sponsor[]>;
     const sponsors = tier ? MOCK_SPONSORS.filter((s) => s.tier === tier) : MOCK_SPONSORS;
     return { success: true, data: sponsors };
   }

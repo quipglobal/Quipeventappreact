@@ -635,7 +635,9 @@ function OtpView({
         <Text style={{ fontSize: 22 }}>🔐</Text>
       </View>
       <Text style={sheetStyles.title}>Verify Code</Text>
-      <Text style={sheetStyles.subtitle}>We sent a 6-digit code to</Text>
+      <Text style={sheetStyles.subtitle}>
+        {displayPhone.includes('@') ? 'We emailed a 6-digit code to' : 'We texted a 6-digit code to'}
+      </Text>
       <Text style={[sheetStyles.subtitle, { color: colors.textPrimary, fontWeight: '700', marginTop: 2 }]}>
         {displayPhone}
       </Text>
