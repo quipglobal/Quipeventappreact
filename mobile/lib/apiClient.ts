@@ -262,18 +262,45 @@ export async function verifyOtp(phone: string, otp: string): Promise<ApiResponse
 
   const raw = res.data;
   const token: string = raw.token ?? raw.access_token ?? raw.auth_token ?? '';
-  const rawUser = raw.user ?? raw.data ?? null;
-  const isNewUser: boolean =
-    raw.isNewUser ?? raw.is_new_user ?? raw.is_new ?? !rawUser;
 
-  return {
-    success: true,
-    data: {
-      token,
-      user: rawUser ? normalizeAuthUser(rawUser) : null,
-      isNewUser,
-    },
-  };
+  if (!token) {
+    return { success: false, error: { code: 'NO_TOKEN', message: 'Authentication failed. Please try again.' } };
+  }
+
+  // Try to get the user from the OTP response first
+  const rawUser = raw.user ?? (raw.data && typeof raw.data === 'object' && raw.data.id ? raw.data : null) ?? null;
+
+  if (rawUser) {
+    const user = normalizeAuthUser(rawUser);
+    if (user.id) {
+      const isNewUser = raw.isNewUser ?? raw.is_new_user ?? raw.is_new ?? false;
+      return { success: true, data: { token, user, isNewUser } };
+    }
+  }
+
+  // User not in OTP response — fetch via /me with the new token
+  try {
+    const meRes = await fetch(`${BASE_URL}/api/v1/me`, {
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (meRes.ok) {
+      const meJson = await meRes.json();
+      const envelope = meJson.data ?? meJson.user ?? meJson;
+      const user = normalizeAuthUser(envelope);
+      if (user.id) {
+        return { success: true, data: { token, user, isNewUser: false } };
+      }
+    }
+  } catch {
+    // Network error during /me — treat as new user
+  }
+
+  // Could not resolve an existing user
+  return { success: true, data: { token: '', user: null, isNewUser: true } };
 }
 
 export interface RegisterInput {
