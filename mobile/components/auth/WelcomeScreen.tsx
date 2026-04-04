@@ -21,7 +21,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { OtpInput } from './OtpInput';
-import { sendOtp, verifyOtp, register, AuthUser, USE_MOCK_AUTH } from '@/lib/apiClient';
+import { sendOtp, verifyOtp, register, loginWithPassword, AuthUser, USE_MOCK_AUTH } from '@/lib/apiClient';
 import { useAuth } from '@/context/AuthContext';
 import { colors, spacing, radius, typography } from '@/constants/theme';
 
@@ -151,6 +151,24 @@ export function WelcomeScreen() {
   const [createForm, setCreateForm] = useState({ name: '', email: '', title: '', company: '' });
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState('');
+  const [devLoading, setDevLoading] = useState(false);
+
+  const handleDevLogin = useCallback(async (email: string, password: string) => {
+    setDevLoading(true);
+    try {
+      const res = await loginWithPassword(email, password);
+      if (!res.success || !res.data) {
+        console.warn('[DevLogin] failed:', res.error);
+        return;
+      }
+      await login(res.data.token, res.data.user);
+      router.replace('/(tabs)/feed');
+    } catch (e) {
+      console.warn('[DevLogin] error:', e);
+    } finally {
+      setDevLoading(false);
+    }
+  }, [login]);
 
   const openSheet = () => {
     setSheetOpen(true);
@@ -337,6 +355,42 @@ export function WelcomeScreen() {
         </TouchableOpacity>
 
         <Text style={styles.ctaSub}>Sign in to your account to get started</Text>
+
+        {__DEV__ && (
+          <View style={{ marginTop: spacing.lg, gap: spacing.xs }}>
+            <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10, textAlign: 'center', marginBottom: 4 }}>
+              DEV ONLY — Quick Login
+            </Text>
+            <TouchableOpacity
+              style={{ backgroundColor: 'rgba(124,58,237,0.25)', borderWidth: 1, borderColor: 'rgba(124,58,237,0.5)', borderRadius: radius.md, paddingVertical: 10, paddingHorizontal: 20, alignItems: 'center' }}
+              onPress={() => handleDevLogin('testuser@cxoinc.com', 'Test1234!')}
+              disabled={devLoading}
+              activeOpacity={0.75}
+            >
+              {devLoading ? (
+                <ActivityIndicator color="#7c3aed" size="small" />
+              ) : (
+                <Text style={{ color: '#a78bfa', fontSize: 12, fontWeight: '600' }}>
+                  Login as Attendee (testuser@cxoinc.com)
+                </Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={{ backgroundColor: 'rgba(6,182,212,0.15)', borderWidth: 1, borderColor: 'rgba(6,182,212,0.4)', borderRadius: radius.md, paddingVertical: 10, paddingHorizontal: 20, alignItems: 'center' }}
+              onPress={() => handleDevLogin('testsponsor@cxoinc.com', 'Test1234!')}
+              disabled={devLoading}
+              activeOpacity={0.75}
+            >
+              {devLoading ? (
+                <ActivityIndicator color="#06b6d4" size="small" />
+              ) : (
+                <Text style={{ color: '#67e8f9', fontSize: 12, fontWeight: '600' }}>
+                  Login as Sponsor (testsponsor@cxoinc.com)
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
 
       {sheetOpen && (

@@ -397,6 +397,22 @@ export async function register(
   };
 }
 
+/** Dev-only: authenticate with email + password directly (bypasses OTP flow). */
+export async function loginWithPassword(
+  email: string,
+  password: string,
+): Promise<ApiResponse<{ token: string; user: AuthUser }>> {
+  const res = await request<any>('/api/v1/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.success || !res.data) return res as ApiResponse<{ token: string; user: AuthUser }>;
+  const raw = res.data;
+  const token: string = raw.token ?? raw.access_token ?? raw.auth_token ?? '';
+  const rawUser = raw.user ?? raw.data ?? raw;
+  return { success: true, data: { token, user: normalizeAuthUser(rawUser) } };
+}
+
 export async function getMe(): Promise<ApiResponse<AuthUser>> {
   if (USE_MOCK_AUTH) {
     await delay(500);
