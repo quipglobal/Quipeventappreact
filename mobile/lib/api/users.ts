@@ -57,10 +57,28 @@ export async function listAttendees(filters?: { tier?: string; search?: string }
     }
     return { success: true, data: attendees };
   }
+  const eventId = getEventId();
+  if (!eventId) return { success: true, data: [] };
   const params = new URLSearchParams();
   if (filters?.tier) params.set('tier', filters.tier);
   if (filters?.search) params.set('search', filters.search);
-  return request<Attendee[]>(`/api/v1/attendees?${params.toString()}`);
+  const query = params.toString() ? `?${params.toString()}` : '';
+  const res = await request<any>(`/api/v1/events/${eventId}/attendees${query}`);
+  if (!res.success) return res as ApiResponse<Attendee[]>;
+  const raw: any[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? res.data?.attendees ?? []);
+  return {
+    success: true, data: raw.map((a: any) => ({
+      id: String(a.id),
+      name: a.name ?? `${a.first_name ?? ''} ${a.last_name ?? ''}`.trim(),
+      title: a.title ?? a.job_title ?? a.position ?? '',
+      company: a.company ?? a.organization ?? '',
+      role: a.role === 'sponsor' ? 'sponsor' : 'attendee',
+      points: Number(a.points ?? a.gamification_points ?? 0),
+      tier: a.tier ?? a.membership_tier ?? 'Bronze',
+      interests: Array.isArray(a.interests) ? a.interests : [],
+      bio: a.bio ?? a.about ?? '',
+    })),
+  };
 }
 
 export async function getAttendee(id: string): Promise<ApiResponse<Attendee>> {

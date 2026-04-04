@@ -3,8 +3,22 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? '';
 const TENANT_ID = process.env.EXPO_PUBLIC_TENANT_ID ?? '1';
 
-export const USE_MOCK = process.env.EXPO_PUBLIC_USE_MOCK_API !== 'false';
-export const USE_MOCK_AUTH = process.env.EXPO_PUBLIC_USE_MOCK_AUTH !== 'false';
+// parseBool: treats missing/empty env vars as `fallback` (default false = live mode)
+// Only returns true when the string is explicitly "true" (case-insensitive)
+function parseBool(v: string | undefined, fallback = false): boolean {
+  if (v == null || v === '') return fallback;
+  return String(v).toLowerCase() === 'true';
+}
+
+export const USE_MOCK = parseBool(process.env.EXPO_PUBLIC_USE_MOCK_API, false);
+export const USE_MOCK_AUTH = parseBool(process.env.EXPO_PUBLIC_USE_MOCK_AUTH, false);
+
+// Log effective mode so it's visible in the browser console for debugging
+if (__DEV__) {
+  console.log(
+    `[API] BASE_URL="${BASE_URL}" TENANT_ID="${TENANT_ID}" USE_MOCK=${USE_MOCK} USE_MOCK_AUTH=${USE_MOCK_AUTH}`,
+  );
+}
 
 let _unauthorizedHandler: (() => void) | null = null;
 

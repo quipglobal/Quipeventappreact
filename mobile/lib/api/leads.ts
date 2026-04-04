@@ -35,7 +35,7 @@ export async function listLeads(): Promise<ApiResponse<Lead[]>> {
     return { success: true, data: MOCK_LEADS };
   }
   const eventId = getEventId();
-  if (!eventId) return { success: true, data: MOCK_LEADS };
+  if (!eventId) return { success: true, data: [] };
   const res = await request<any>(`/api/v1/events/${eventId}/leads`);
   if (!res.success) return res as ApiResponse<Lead[]>;
   const raw: any[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);

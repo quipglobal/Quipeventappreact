@@ -1,4 +1,5 @@
 import { request, USE_MOCK } from '@/lib/apiClient';
+import { getEventId } from '@/lib/eventStore';
 import type { ApiResponse, Sponsor } from '@/lib/api/types';
 
 const delay = (ms = 600) => new Promise<void>((r) => setTimeout(r, ms));
@@ -12,26 +13,8 @@ const MOCK_SPONSORS: Sponsor[] = [
   { id: 's6', name: 'GreenTech Global', tier: 'Bronze', tagline: 'Sustainable technology for a better future', category: 'Sustainability', boothNumber: 'D1', tierColor: '#cd7f32', accentColor: '#10b981', website: 'greentech.example.com', description: 'GreenTech helps enterprises measure, reduce, and offset their technology carbon footprint.' },
 ];
 
-export async function listSponsors(tier?: Sponsor['tier']): Promise<ApiResponse<Sponsor[]>> {
-  if (USE_MOCK) {
-    await delay();
-    const sponsors = tier ? MOCK_SPONSORS.filter((s) => s.tier === tier) : MOCK_SPONSORS;
-    return { success: true, data: sponsors };
-  }
-  const params = tier ? `?tier=${tier}` : '';
-  const res = await request<any>(`/api/v1/sponsors${params}`);
-  if (!res.success) {
-    const fatal = res.error?.code === 'UNAUTHORIZED' || res.error?.code === 'NETWORK_ERROR';
-    if (fatal) return res as ApiResponse<Sponsor[]>;
-    const sponsors = tier ? MOCK_SPONSORS.filter((s) => s.tier === tier) : MOCK_SPONSORS;
-    return { success: true, data: sponsors };
-  }
-  const raw: any[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? res.data?.sponsors ?? []);
-  if (raw.length === 0) {
-    const sponsors = tier ? MOCK_SPONSORS.filter((s) => s.tier === tier) : MOCK_SPONSORS;
-    return { success: true, data: sponsors };
-  }
-  return { success: true, data: raw.map((s: any) => ({
+function normalizeSponsor(s: any): Sponsor {
+  return {
     id: String(s.id),
     name: s.name ?? '',
     tier: s.tier ?? 'Bronze',
@@ -43,7 +26,22 @@ export async function listSponsors(tier?: Sponsor['tier']): Promise<ApiResponse<
     giveaway: s.giveaway ?? undefined,
     website: s.website ?? s.url ?? '',
     description: s.description ?? '',
-  })) };
+  };
+}
+
+export async function listSponsors(tier?: Sponsor['tier']): Promise<ApiResponse<Sponsor[]>> {
+  if (USE_MOCK) {
+    await delay();
+    const sponsors = tier ? MOCK_SPONSORS.filter((s) => s.tier === tier) : MOCK_SPONSORS;
+    return { success: true, data: sponsors };
+  }
+  const eventId = getEventId();
+  if (!eventId) return { success: true, data: [] };
+  const params = tier ? `?tier=${tier}` : '';
+  const res = await request<any>(`/api/v1/events/${eventId}/sponsors${params}`);
+  if (!res.success) return res as ApiResponse<Sponsor[]>;
+  const raw: any[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? res.data?.sponsors ?? []);
+  return { success: true, data: raw.map(normalizeSponsor) };
 }
 
 export async function getSponsor(id: string): Promise<ApiResponse<Sponsor>> {
@@ -53,5 +51,9 @@ export async function getSponsor(id: string): Promise<ApiResponse<Sponsor>> {
     if (!sponsor) return { success: false, error: { code: 'NOT_FOUND', message: 'Sponsor not found' } };
     return { success: true, data: sponsor };
   }
-  return request<Sponsor>(`/api/v1/sponsors/${id}`);
+  const eventId = getEventId();
+  if (!eventId) return { success: false, error: { code: 'NO_EVENT', message: 'No active event' } };
+  const res = await request<any>(`/api/v1/events/${eventId}/sponsors/${id}`);
+  if (!res.success) return res as ApiResponse<Sponsor>;
+  return { success: true, data: normalizeSponsor(res.data) };
 }
