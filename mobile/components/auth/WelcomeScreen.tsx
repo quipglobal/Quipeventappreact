@@ -434,6 +434,8 @@ export function WelcomeScreen() {
               phoneLoading={phoneLoading}
               onContinue={handlePhoneContinue}
               onDemoFill={(d) => { setPhoneDigits(d); setPhoneError(''); }}
+              onDevLogin={handleDevLogin}
+              devLoading={devLoading}
             />
           )}
 
@@ -558,6 +560,7 @@ function CountryPickerModal({
 function PhoneView({
   loginMode, onSetLoginMode, country, onOpenPicker, phoneDigits, setPhoneDigits,
   emailInput, setEmailInput, phoneError, phoneLoading, onContinue, onDemoFill,
+  onDevLogin, devLoading,
 }: {
   loginMode: LoginMode;
   onSetLoginMode: (m: LoginMode) => void;
@@ -571,6 +574,8 @@ function PhoneView({
   phoneLoading: boolean;
   onContinue: () => void;
   onDemoFill: (d: string) => void;
+  onDevLogin?: (email: string, password: string) => void;
+  devLoading?: boolean;
 }) {
   return (
     <View style={sheetStyles.section}>
@@ -662,6 +667,37 @@ function PhoneView({
               </TouchableOpacity>
             ))}
           </View>
+        </>
+      )}
+
+      {__DEV__ && !!onDevLogin && (
+        <>
+          <View style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.08)', marginVertical: spacing.lg }} />
+          <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10, textAlign: 'center', marginBottom: spacing.sm, letterSpacing: 1 }}>
+            DEV — SKIP OTP
+          </Text>
+          <TouchableOpacity
+            style={[sheetStyles.demoBtn, { borderColor: 'rgba(124,58,237,0.5)', backgroundColor: 'rgba(124,58,237,0.15)' }]}
+            onPress={() => onDevLogin('testuser@cxoinc.com', 'Test1234!')}
+            disabled={devLoading}
+            activeOpacity={0.75}
+          >
+            {devLoading
+              ? <ActivityIndicator color="#a78bfa" size="small" />
+              : <Text style={[sheetStyles.demoBtnText, { color: '#c4b5fd' }]}>Attendee — testuser@cxoinc.com</Text>
+            }
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[sheetStyles.demoBtn, { borderColor: 'rgba(6,182,212,0.4)', backgroundColor: 'rgba(6,182,212,0.1)', marginTop: spacing.xs }]}
+            onPress={() => onDevLogin('testsponsor@cxoinc.com', 'Test1234!')}
+            disabled={devLoading}
+            activeOpacity={0.75}
+          >
+            {devLoading
+              ? <ActivityIndicator color="#67e8f9" size="small" />
+              : <Text style={[sheetStyles.demoBtnText, { color: '#67e8f9' }]}>Sponsor — testsponsor@cxoinc.com</Text>
+            }
+          </TouchableOpacity>
         </>
       )}
     </View>
