@@ -3,8 +3,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? '';
 const TENANT_ID = process.env.EXPO_PUBLIC_TENANT_ID ?? '1';
 
-// parseBool: treats missing/empty env vars as `fallback` (default false = live mode)
-// Only returns true when the string is explicitly "true" (case-insensitive)
 function parseBool(v: string | undefined, fallback = false): boolean {
   if (v == null || v === '') return fallback;
   return String(v).toLowerCase() === 'true';
@@ -13,7 +11,6 @@ function parseBool(v: string | undefined, fallback = false): boolean {
 export const USE_MOCK = parseBool(process.env.EXPO_PUBLIC_USE_MOCK_API, false);
 export const USE_MOCK_AUTH = parseBool(process.env.EXPO_PUBLIC_USE_MOCK_AUTH, false);
 
-// Log effective mode so it's visible in the browser console for debugging
 if (__DEV__) {
   console.log(
     `[API] BASE_URL="${BASE_URL}" TENANT_ID="${TENANT_ID}" USE_MOCK=${USE_MOCK} USE_MOCK_AUTH=${USE_MOCK_AUTH}`,
@@ -54,6 +51,8 @@ export async function request<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<ApiResponse<T>> {
+  const method = (options.method ?? 'GET').toUpperCase();
+  const startMs = __DEV__ ? Date.now() : 0;
   try {
     const token = await getToken();
     const headers: Record<string, string> = {
@@ -65,6 +64,10 @@ export async function request<T>(
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
     const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+
+    if (__DEV__) {
+      console.log(`[API] ${method} ${path} → ${res.status} (${Date.now() - startMs}ms)`);
+    }
 
     if (res.status === 401) {
       await clearToken();
@@ -78,10 +81,7 @@ export async function request<T>(
     if (res.status === 429) {
       return {
         success: false,
-        error: {
-          code: 'RATE_LIMITED',
-          message: 'Too many attempts. Please wait a moment and try again.',
-        },
+        error: { code: 'RATE_LIMITED', message: 'Too many attempts. Please wait a moment and try again.' },
       };
     }
 
@@ -113,6 +113,9 @@ export async function request<T>(
     const errorCode = json.error?.code ?? json.code ?? 'REQUEST_FAILED';
     return { success: false, error: { code: errorCode, message: errorMessage } };
   } catch (err) {
+    if (__DEV__) {
+      console.warn(`[API] ${method} ${path} threw after ${Date.now() - startMs}ms:`, err);
+    }
     const isNetworkError =
       err instanceof TypeError &&
       (err.message.includes('fetch') ||
@@ -130,8 +133,6 @@ export async function request<T>(
     };
   }
 }
-
-const delay = (ms = 900) => new Promise<void>((r) => setTimeout(r, ms));
 
 export interface AuthUser {
   id: string;
@@ -154,9 +155,10 @@ function normalizeAuthUser(raw: any): AuthUser {
   const lastName = raw.last_name ?? (raw.name?.split(' ').slice(1).join(' ') ?? '');
   const name = raw.name ?? (firstName || lastName ? `${firstName} ${lastName}`.trim() : '');
 
-  // Role detection: backend uses system_role ("USER", "ADMIN", "SPONSOR") and roles[]
-  const systemRole: string = (raw.system_role ?? raw.system_role ?? '').toUpperCase();
-  const rolesArray: string[] = Array.isArray(raw.roles) ? raw.roles.map((r: any) => (typeof r === 'string' ? r : r?.name ?? '').toLowerCase()) : [];
+  const systemRole: string = (raw.system_role ?? '').toUpperCase();
+  const rolesArray: string[] = Array.isArray(raw.roles)
+    ? raw.roles.map((r: any) => (typeof r === 'string' ? r : r?.name ?? '').toLowerCase())
+    : [];
   const isSponsor =
     raw.role === 'sponsor' ||
     systemRole === 'SPONSOR' ||
@@ -191,68 +193,7 @@ function normalizeAuthUser(raw: any): AuthUser {
   };
 }
 
-const MOCK_USERS: Record<string, { user: AuthUser; token: string }> = {
-  '5550000001': {
-    token: 'mock-token-jessica-001',
-    user: {
-      id: 'user-5550000001', phone: '+1 (555) 000-0001', name: 'Jessica Williams', email: 'jessica@stripe.com',
-      title: 'Product Designer', company: 'Stripe', role: 'attendee',
-      avatar: 'https://ui-avatars.com/api/?name=Jessica+Williams&background=6366f1&color=fff',
-      points: 120, tier: 'Silver', interests: ['Design', 'Product'], profileComplete: true,
-    },
-  },
-  '5550000002': {
-    token: 'mock-token-michael-002',
-    user: {
-      id: 'user-5550000002', phone: '+1 (555) 000-0002', name: 'Michael Chen', email: 'michael@startupx.com',
-      title: 'CTO', company: 'StartupX', role: 'attendee',
-      avatar: 'https://ui-avatars.com/api/?name=Michael+Chen&background=8b5cf6&color=fff',
-      points: 350, tier: 'Gold', interests: ['Engineering', 'AI'], profileComplete: true,
-    },
-  },
-  '8156699646': {
-    token: 'mock-token-alex-003',
-    user: {
-      id: 'user-8156699646', phone: '+1 (815) 669-9646', name: 'Alex Thompson', email: 'alex@demo.com',
-      title: 'Director of Sales', company: 'NovaTech', role: 'attendee',
-      avatar: 'https://ui-avatars.com/api/?name=Alex+Thompson&background=0ea5e9&color=fff',
-      points: 45, tier: 'Bronze', interests: ['Sales', 'Networking'], profileComplete: true,
-    },
-  },
-  '5550009999': {
-    token: 'mock-token-sponsor-9999',
-    user: {
-      id: 'user-5550009999', phone: '+1 (555) 000-9999', name: 'Sarah Sponsor', email: 'sponsor@acmecorp.com',
-      title: 'VP Partnerships', company: 'AcmeCorp', role: 'sponsor',
-      avatar: 'https://ui-avatars.com/api/?name=Sarah+Sponsor&background=ec4899&color=fff',
-      points: 0, tier: 'Bronze', interests: ['Partnerships', 'Enterprise'], profileComplete: true,
-    },
-  },
-};
-
-const DEMO_OTP = '123456';
-const MOCK_SESSIONS_KEY = 'cxo_mock_sessions';
-
-async function getMockSessions(): Promise<Record<string, AuthUser>> {
-  try {
-    const raw = await AsyncStorage.getItem(MOCK_SESSIONS_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
-}
-
-async function saveMockSession(token: string, user: AuthUser): Promise<void> {
-  const sessions = await getMockSessions();
-  sessions[token] = user;
-  await AsyncStorage.setItem(MOCK_SESSIONS_KEY, JSON.stringify(sessions));
-}
-
 export async function sendOtp(phone: string): Promise<ApiResponse<{ message: string }>> {
-  if (USE_MOCK_AUTH) {
-    await delay(900);
-    return { success: true, data: { message: 'OTP sent' } };
-  }
   return request('/api/v1/auth/send-otp', {
     method: 'POST',
     body: JSON.stringify({ identifier: phone, type: 'login' }),
@@ -266,19 +207,6 @@ export interface VerifyOtpResult {
 }
 
 export async function verifyOtp(phone: string, otp: string): Promise<ApiResponse<VerifyOtpResult>> {
-  if (USE_MOCK_AUTH) {
-    await delay(800);
-    if (otp !== DEMO_OTP) {
-      return { success: false, error: { code: 'INVALID_OTP', message: 'Incorrect code. Please try again.' } };
-    }
-    const digits = phone.replace(/\D/g, '');
-    const found = MOCK_USERS[digits];
-    if (found) {
-      return { success: true, data: { token: found.token, user: found.user, isNewUser: false } };
-    }
-    return { success: true, data: { token: '', user: null, isNewUser: true } };
-  }
-
   const res = await request<any>('/api/v1/auth/verify-otp', {
     method: 'POST',
     body: JSON.stringify({ identifier: phone, code: otp, type: 'login' }),
@@ -303,7 +231,6 @@ export async function verifyOtp(phone: string, otp: string): Promise<ApiResponse
     }
   }
 
-  // User not in OTP response — fetch via /me with the new token
   try {
     const meRes = await fetch(`${BASE_URL}/api/v1/me`, {
       headers: {
@@ -322,7 +249,7 @@ export async function verifyOtp(phone: string, otp: string): Promise<ApiResponse
       }
     }
   } catch {
-    // Network error during /me — treat as new user
+    // fallthrough to new-user
   }
 
   return { success: true, data: { token: '', user: null, isNewUser: true } };
@@ -346,29 +273,7 @@ function splitName(fullName: string): { first_name: string; last_name: string } 
 export async function register(
   input: RegisterInput
 ): Promise<ApiResponse<{ token: string; user: AuthUser }>> {
-  if (USE_MOCK_AUTH) {
-    await delay(900);
-    const digits = input.phone.replace(/\D/g, '');
-    const user: AuthUser = {
-      id: `user-${digits}-new`,
-      name: input.name.trim(),
-      email: input.email.trim(),
-      title: input.title.trim(),
-      company: input.company.trim(),
-      role: 'attendee',
-      avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(input.name.trim())}&background=7c3aed&color=fff`,
-      points: 0,
-      tier: 'Bronze',
-      interests: [],
-      profileComplete: true,
-    };
-    const token = `mock-token-${digits}-new`;
-    await saveMockSession(token, user);
-    return { success: true, data: { token, user } };
-  }
-
   const { first_name, last_name } = splitName(input.name);
-  // Generate a secure random password for OTP-only users
   const randomPassword = `OTP-${Math.random().toString(36).slice(2, 10).toUpperCase()}-${Date.now()}`;
 
   const res = await request<any>('/api/v1/auth/register', {
@@ -414,23 +319,11 @@ export async function loginWithPassword(
 }
 
 export async function getMe(): Promise<ApiResponse<AuthUser>> {
-  if (USE_MOCK_AUTH) {
-    await delay(500);
-    const token = await getToken();
-    if (!token) return { success: false, error: { code: 'NO_TOKEN', message: 'Not authenticated' } };
-    const found = Object.values(MOCK_USERS).find((u) => u.token === token);
-    if (found) return { success: true, data: found.user };
-    const sessions = await getMockSessions();
-    if (sessions[token]) return { success: true, data: sessions[token] };
-    return { success: false, error: { code: 'INVALID_TOKEN', message: 'Token expired' } };
-  }
-
   const res = await request<any>('/api/v1/me');
   if (!res.success || !res.data) return res as ApiResponse<AuthUser>;
 
   const envelope = res.data;
   const rawUser = envelope.user ?? envelope.data ?? envelope;
-
   const user = normalizeAuthUser(rawUser);
 
   if (!user.id) {

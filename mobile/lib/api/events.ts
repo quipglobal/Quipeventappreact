@@ -1,27 +1,6 @@
-import { request, USE_MOCK } from '@/lib/apiClient';
+import { request } from '@/lib/apiClient';
 import { getEventId } from '@/lib/eventStore';
 import type { ApiResponse, Event, Session } from '@/lib/api/types';
-
-const delay = (ms = 600) => new Promise<void>((r) => setTimeout(r, ms));
-
-const MOCK_EVENTS: Event[] = [
-  { id: 'evt-1', name: 'CXO Tech Summit 2026', code: 'CXOSUMMIT26', startDate: '2026-01-16', endDate: '2026-01-18', location: 'San Francisco, CA', description: 'The premier executive tech conference for CTOs, CIOs, and technology leaders shaping the future.', bannerUrl: 'https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=1200', category: 'Technology Conference', status: 'live' },
-  { id: 'evt-3', name: 'DevCon Winter 2026', code: 'DEVCON26', startDate: '2026-02-20', endDate: '2026-02-22', location: 'Austin, TX', description: 'The annual developer conference bringing together engineers, architects, and product builders.', bannerUrl: 'https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?w=1200', category: 'Developer Conference', status: 'upcoming' },
-  { id: 'evt-2', name: 'StartupX Conference 2025', code: 'STARTUPX25', startDate: '2025-11-10', endDate: '2025-11-12', location: 'New York, NY', description: 'Where the next generation of startups meets the investors building tomorrow.', bannerUrl: 'https://images.unsplash.com/photo-1505373877841-8d25f7d46678?w=1200', category: 'Startup Conference', status: 'past' },
-];
-
-const MOCK_SESSIONS: Session[] = [
-  { id: 's1', title: 'Opening Keynote: The Future of AI', speaker: 'Dr. Sarah Chen', speakerTitle: 'Chief AI Officer', speakerCompany: 'TechCorp Solutions', track: 'Keynote', room: 'Main Hall', day: 1, startTime: '09:00', endTime: '10:00', accentColor: '#7c3aed', description: 'An exploration of how AI is fundamentally reshaping every industry vertical, with practical case studies from Fortune 500 companies.', tags: ['AI', 'Strategy', 'Keynote'] },
-  { id: 's2', title: 'Scaling Engineering Teams in a Remote World', speaker: 'Marcus Johnson', speakerTitle: 'CTO', speakerCompany: 'InnovateLab', track: 'Engineering', room: 'Room A', day: 1, startTime: '10:30', endTime: '11:30', accentColor: '#06b6d4', description: 'Practical strategies for building and maintaining high-performance engineering teams across time zones.', tags: ['Engineering', 'Leadership', 'Remote'] },
-  { id: 's3', title: 'UX Research That Actually Influences Product', speaker: 'Priya Patel', speakerTitle: 'VP Design', speakerCompany: 'DesignFlow', track: 'Design', room: 'Room B', day: 1, startTime: '11:45', endTime: '12:30', accentColor: '#ec4899', description: 'How to bridge the gap between user research insights and product decisions that stick.', tags: ['UX', 'Design', 'Product'] },
-  { id: 's4', title: 'ML Applications in Enterprise Products', speaker: 'Elena Rodriguez', speakerTitle: 'Head of ML', speakerCompany: 'QuantumLeap AI', track: 'AI/ML', room: 'Main Hall', day: 1, startTime: '14:00', endTime: '15:00', accentColor: '#10b981', description: 'Real-world ML use cases that moved from prototype to production and delivered measurable ROI.', tags: ['ML', 'Enterprise', 'AI'] },
-  { id: 's5', title: 'Building a Culture of Innovation', speaker: 'Jordan Kim', speakerTitle: 'CEO', speakerCompany: 'GrowthOS', track: 'Leadership', room: 'Room A', day: 1, startTime: '15:15', endTime: '16:00', accentColor: '#f59e0b', description: 'What separates organizations that innovate consistently from those that talk about it.', tags: ['Culture', 'Innovation', 'Leadership'] },
-  { id: 's6', title: 'The Future of Cloud Infrastructure', speaker: 'David Park', speakerTitle: 'VP Engineering', speakerCompany: 'CloudNine Systems', track: 'Engineering', room: 'Room B', day: 1, startTime: '16:15', endTime: '17:00', accentColor: '#06b6d4', description: 'Multi-cloud, edge computing, and what comes after Kubernetes.', tags: ['Cloud', 'Infrastructure', 'Engineering'] },
-  { id: 's7', title: 'Cybersecurity in the AI Era', speaker: 'Amara Nwosu', speakerTitle: 'CISO', speakerCompany: 'SecureNet', track: 'Security', room: 'Main Hall', day: 2, startTime: '09:00', endTime: '10:00', accentColor: '#ef4444', description: 'New attack surfaces, AI-powered threats, and how security teams are fighting back.', tags: ['Security', 'AI', 'Risk'] },
-  { id: 's8', title: 'Product-Led Growth Strategies', speaker: 'Tomás Reyes', speakerTitle: 'CPO', speakerCompany: 'PLG Ventures', track: 'Product', room: 'Room A', day: 2, startTime: '10:30', endTime: '11:30', accentColor: '#8b5cf6', description: 'Building products that sell themselves — a deep dive into PLG mechanics that scale.', tags: ['Product', 'Growth', 'Strategy'] },
-  { id: 's9', title: 'Sustainable Tech: Beyond the Buzzwords', speaker: 'Lena Fischer', speakerTitle: 'Chief Sustainability Officer', speakerCompany: 'GreenTech Global', track: 'Sustainability', room: 'Room B', day: 2, startTime: '11:45', endTime: '12:30', accentColor: '#10b981', description: 'Practical frameworks for reducing your tech stack\'s carbon footprint while improving efficiency.', tags: ['Sustainability', 'ESG', 'Strategy'] },
-  { id: 's10', title: 'Closing Keynote: What\'s Next', speaker: 'Aisha Kamara', speakerTitle: 'Founder & CEO', speakerCompany: 'Nexus Labs', track: 'Keynote', room: 'Main Hall', day: 2, startTime: '16:00', endTime: '17:00', accentColor: '#7c3aed', description: 'A visionary look at the technology trends that will define the next decade.', tags: ['Keynote', 'Future', 'Technology'] },
-];
 
 function normalizeSession(raw: any): Session {
   return {
@@ -57,13 +36,9 @@ function normalizeEvent(raw: any): Event {
 }
 
 export async function listEvents(): Promise<ApiResponse<Event[]>> {
-  if (USE_MOCK) {
-    await delay();
-    return { success: true, data: MOCK_EVENTS };
-  }
+  if (__DEV__) console.log('[Events] listEvents — live');
   const res = await request<any>('/api/v1/events?per_page=100');
   if (!res.success) return res as ApiResponse<Event[]>;
-  // Backend returns Laravel paginator: { current_page, data: [...], total, ... }
   const raw: any[] = Array.isArray(res.data)
     ? res.data
     : (res.data?.data ?? res.data?.events ?? []);
@@ -71,24 +46,15 @@ export async function listEvents(): Promise<ApiResponse<Event[]>> {
 }
 
 export async function getEvent(id: string): Promise<ApiResponse<Event>> {
-  if (USE_MOCK) {
-    await delay();
-    const event = MOCK_EVENTS.find((e) => e.id === id || e.code === id);
-    if (!event) return { success: false, error: { code: 'NOT_FOUND', message: 'Event not found' } };
-    return { success: true, data: event };
-  }
-  return request<Event>(`/api/v1/events/${id}`);
+  if (__DEV__) console.log(`[Events] getEvent(${id}) — live`);
+  const res = await request<any>(`/api/v1/events/${id}`);
+  if (!res.success) return res as ApiResponse<Event>;
+  const raw = res.data?.data ?? res.data;
+  return { success: true, data: normalizeEvent(raw) };
 }
 
 export async function joinEventByCode(code: string): Promise<ApiResponse<Event>> {
-  if (USE_MOCK) {
-    await delay(1000);
-    const event = MOCK_EVENTS.find((e) => e.code === code.toUpperCase());
-    if (!event) return { success: false, error: { code: 'NOT_FOUND', message: `No event found for code "${code.toUpperCase()}"` } };
-    return { success: true, data: event };
-  }
-  // Backend has no dedicated join-by-code endpoint.
-  // Fetch all tenant events and find the matching one by code/slug.
+  if (__DEV__) console.log(`[Events] joinEventByCode(${code}) — live`);
   const listRes = await listEvents();
   if (!listRes.success) return { success: false, error: listRes.error };
   const events = listRes.data ?? [];
@@ -106,14 +72,8 @@ export async function joinEventByCode(code: string): Promise<ApiResponse<Event>>
 }
 
 export async function listSessions(filters?: { day?: number; track?: string }): Promise<ApiResponse<Session[]>> {
-  if (USE_MOCK) {
-    await delay();
-    let sessions = MOCK_SESSIONS;
-    if (filters?.day) sessions = sessions.filter((s) => s.day === filters.day);
-    if (filters?.track) sessions = sessions.filter((s) => s.track === filters.track);
-    return { success: true, data: sessions };
-  }
   const eventId = getEventId();
+  if (__DEV__) console.log(`[Events] listSessions eventId=${eventId} filters=`, filters);
   if (!eventId) return { success: true, data: [] };
   const params = new URLSearchParams();
   if (filters?.day) params.set('day', String(filters.day));
@@ -126,20 +86,14 @@ export async function listSessions(filters?: { day?: number; track?: string }): 
 }
 
 export async function getSession(id: string): Promise<ApiResponse<Session>> {
-  if (USE_MOCK) {
-    await delay(400);
-    const session = MOCK_SESSIONS.find((s) => s.id === id);
-    if (!session) return { success: false, error: { code: 'NOT_FOUND', message: 'Session not found' } };
-    return { success: true, data: session };
-  }
-  return request<Session>(`/api/v1/sessions/${id}`);
+  if (__DEV__) console.log(`[Events] getSession(${id}) — live`);
+  const res = await request<any>(`/api/v1/sessions/${id}`);
+  if (!res.success) return res as ApiResponse<Session>;
+  const raw = res.data?.data ?? res.data;
+  return { success: true, data: normalizeSession(raw) };
 }
 
 export async function bookmarkSession(sessionId: string, bookmarked: boolean): Promise<ApiResponse<{ bookmarked: boolean }>> {
-  if (USE_MOCK) {
-    await delay(300);
-    return { success: true, data: { bookmarked } };
-  }
   return request<{ bookmarked: boolean }>('/api/v1/sessions/bookmark', {
     method: 'POST',
     body: JSON.stringify({ sessionId, bookmarked }),

@@ -1,49 +1,40 @@
-import { request, USE_MOCK } from '@/lib/apiClient';
+import { request } from '@/lib/apiClient';
 import { getEventId } from '@/lib/eventStore';
 import type { ApiResponse, Challenge, Poll, Survey, Giveaway } from '@/lib/api/types';
 
-const delay = (ms = 600) => new Promise<void>((r) => setTimeout(r, ms));
-
-const MOCK_CHALLENGES: Challenge[] = [
-  { id: 'c1', title: 'First Connection', desc: 'Connect with 3 other attendees', emoji: '🤝', points: 50, progress: 1, total: 3 },
-  { id: 'c2', title: 'Session Explorer', desc: 'Attend 5 sessions', emoji: '🎯', points: 100, progress: 3, total: 5 },
-  { id: 'c3', title: 'Poll Enthusiast', desc: 'Vote in 3 live polls', emoji: '📊', points: 30, progress: 1, total: 3 },
-  { id: 'c4', title: 'Sponsor Scout', desc: 'Visit 4 sponsor booths', emoji: '🏆', points: 80, progress: 0, total: 4 },
-  { id: 'c5', title: 'Social Butterfly', desc: 'Visit sponsor booths and collect all giveaways', emoji: '🦋', points: 150, progress: 0, total: 1 },
-];
-
-const MOCK_POLLS: Poll[] = [
-  { id: 'p1', question: 'Which AI use case excites you most in 2026?', session: 'Keynote', points: 10, totalVotes: 219, options: [{ id: 'o1', text: 'Generative AI', votes: 87 }, { id: 'o2', text: 'AI Agents', votes: 61 }, { id: 'o3', text: 'Computer Vision', votes: 29 }, { id: 'o4', text: 'Predictive Analytics', votes: 42 }] },
-  { id: 'p2', question: 'How satisfied are you with the event so far?', session: 'General', points: 10, totalVotes: 230, options: [{ id: 'o1', text: 'Very satisfied', votes: 134 }, { id: 'o2', text: 'Satisfied', votes: 67 }, { id: 'o3', text: 'Neutral', votes: 21 }, { id: 'o4', text: 'Not satisfied', votes: 8 }] },
-];
-
-const MOCK_SURVEYS: Survey[] = [
-  { id: 'sv1', title: 'Morning Workshop Feedback', desc: 'Rate the workshop sessions you attended this morning.', questions: 5, points: 50 },
-  { id: 'sv2', title: 'Speaker Evaluation', desc: 'Rate the keynote speakers and their presentations.', questions: 8, points: 75 },
-];
-
-const MOCK_GIVEAWAYS: Giveaway[] = [
-  { id: 'g1', title: 'MacBook Pro 16"', sponsor: 'TechCorp Solutions', entries: 142, ends: '3:00 PM', color: '#7c3aed', entered: false },
-  { id: 'g2', title: '$500 AWS Credits', sponsor: 'CloudNine Systems', entries: 89, ends: '5:00 PM', color: '#06b6d4', entered: false },
-  { id: 'g3', title: 'AI Tool License (1 year)', sponsor: 'QuantumLeap AI', entries: 54, ends: '4:00 PM', color: '#10b981', entered: false },
-];
-
 export async function listChallenges(): Promise<ApiResponse<Challenge[]>> {
-  await delay();
-  return { success: true, data: MOCK_CHALLENGES };
+  const eventId = getEventId();
+  if (__DEV__) console.log(`[Engage] listChallenges eventId=${eventId}`);
+  if (!eventId) return { success: true, data: [] };
+  const res = await request<any>(`/api/v1/events/${eventId}/challenges`);
+  if (!res.success) return { success: true, data: [] };
+  const raw: any[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
+  const challenges: Challenge[] = raw.map((c: any) => ({
+    id: String(c.id),
+    title: c.title ?? c.name ?? '',
+    desc: c.description ?? c.desc ?? '',
+    emoji: c.emoji ?? c.icon ?? '🎯',
+    points: Number(c.points ?? c.gamification_points ?? 0),
+    progress: Number(c.progress ?? c.current ?? 0),
+    total: Number(c.total ?? c.target ?? 1),
+  }));
+  return { success: true, data: challenges };
 }
 
-export async function completeChallenge(_challengeId: string): Promise<ApiResponse<{ points: number }>> {
-  await delay(500);
-  return { success: true, data: { points: 100 } };
+export async function completeChallenge(challengeId: string): Promise<ApiResponse<{ points: number }>> {
+  const eventId = getEventId();
+  if (!eventId) return { success: false, error: { code: 'NO_EVENT', message: 'No active event' } };
+  const res = await request<any>(`/api/v1/events/${eventId}/challenges/${challengeId}/complete`, {
+    method: 'POST',
+  });
+  if (!res.success) return res as ApiResponse<{ points: number }>;
+  const raw = res.data;
+  return { success: true, data: { points: Number(raw?.points ?? raw?.gamification_points ?? 0) } };
 }
 
 export async function listPolls(): Promise<ApiResponse<Poll[]>> {
-  if (USE_MOCK) {
-    await delay();
-    return { success: true, data: MOCK_POLLS };
-  }
   const eventId = getEventId();
+  if (__DEV__) console.log(`[Engage] listPolls eventId=${eventId}`);
   if (!eventId) return { success: true, data: [] };
   const res = await request<any>(`/api/v1/events/${eventId}/mobile-polls`);
   if (!res.success) return res as ApiResponse<Poll[]>;
@@ -64,12 +55,8 @@ export async function listPolls(): Promise<ApiResponse<Poll[]>> {
 }
 
 export async function votePoll(pollId: string, optionId: string): Promise<ApiResponse<{ points: number; results: Array<{ id: string; votes: number }> }>> {
-  if (USE_MOCK) {
-    await delay(400);
-    return { success: true, data: { points: 10, results: [] } };
-  }
   const eventId = getEventId();
-  if (!eventId) return { success: true, data: { points: 10, results: [] } };
+  if (!eventId) return { success: false, error: { code: 'NO_EVENT', message: 'No active event' } };
   return request(`/api/v1/events/${eventId}/mobile-polls/${pollId}/vote`, {
     method: 'POST',
     body: JSON.stringify({ option_id: optionId }),
@@ -77,11 +64,8 @@ export async function votePoll(pollId: string, optionId: string): Promise<ApiRes
 }
 
 export async function listSurveys(): Promise<ApiResponse<Survey[]>> {
-  if (USE_MOCK) {
-    await delay();
-    return { success: true, data: MOCK_SURVEYS };
-  }
   const eventId = getEventId();
+  if (__DEV__) console.log(`[Engage] listSurveys eventId=${eventId}`);
   if (!eventId) return { success: true, data: [] };
   const res = await request<any>(`/api/v1/events/${eventId}/mobile-surveys`);
   if (!res.success) return res as ApiResponse<Survey[]>;
@@ -97,12 +81,8 @@ export async function listSurveys(): Promise<ApiResponse<Survey[]>> {
 }
 
 export async function submitSurvey(surveyId: string, answers: Record<string, string>): Promise<ApiResponse<{ points: number }>> {
-  if (USE_MOCK) {
-    await delay(800);
-    return { success: true, data: { points: 50 } };
-  }
   const eventId = getEventId();
-  if (!eventId) return { success: true, data: { points: 50 } };
+  if (!eventId) return { success: false, error: { code: 'NO_EVENT', message: 'No active event' } };
   return request<{ points: number }>(`/api/v1/events/${eventId}/mobile-surveys/${surveyId}/submit`, {
     method: 'POST',
     body: JSON.stringify({ answers }),
@@ -110,11 +90,31 @@ export async function submitSurvey(surveyId: string, answers: Record<string, str
 }
 
 export async function listGiveaways(): Promise<ApiResponse<Giveaway[]>> {
-  await delay();
-  return { success: true, data: MOCK_GIVEAWAYS };
+  const eventId = getEventId();
+  if (__DEV__) console.log(`[Engage] listGiveaways eventId=${eventId}`);
+  if (!eventId) return { success: true, data: [] };
+  const res = await request<any>(`/api/v1/events/${eventId}/giveaways`);
+  if (!res.success) return { success: true, data: [] };
+  const raw: any[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
+  const COLORS = ['#7c3aed', '#06b6d4', '#10b981', '#f59e0b', '#ec4899'];
+  const giveaways: Giveaway[] = raw.map((g: any, i: number) => ({
+    id: String(g.id),
+    title: g.title ?? g.name ?? g.prize ?? '',
+    sponsor: g.sponsor ?? g.sponsor_name ?? '',
+    entries: Number(g.entries ?? g.entry_count ?? 0),
+    ends: g.ends_at ? new Date(g.ends_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : g.ends ?? '',
+    color: g.color ?? COLORS[i % COLORS.length],
+    entered: Boolean(g.entered ?? g.has_entered ?? false),
+  }));
+  return { success: true, data: giveaways };
 }
 
-export async function enterGiveaway(_giveawayId: string): Promise<ApiResponse<{ entries: number }>> {
-  await delay(500);
-  return { success: true, data: { entries: 1 } };
+export async function enterGiveaway(giveawayId: string): Promise<ApiResponse<{ entries: number }>> {
+  const eventId = getEventId();
+  if (!eventId) return { success: false, error: { code: 'NO_EVENT', message: 'No active event' } };
+  const res = await request<any>(`/api/v1/events/${eventId}/giveaways/${giveawayId}/enter`, {
+    method: 'POST',
+  });
+  if (!res.success) return res as ApiResponse<{ entries: number }>;
+  return { success: true, data: { entries: Number(res.data?.entries ?? res.data?.entry_count ?? 1) } };
 }

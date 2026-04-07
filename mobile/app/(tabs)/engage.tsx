@@ -15,7 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
 import { useChallenges, useCompleteChallenge, usePolls, useVotePoll, useSurveys, useSubmitSurvey, useGiveaways, useEnterGiveaway } from '@/hooks/useEngage';
 import { useLeaderboard } from '@/hooks/useAudience';
-import { useLeads, useSubmitScan, useLuckyDraw } from '@/hooks/useLeads';
+import { useLeads, useLuckyDraw } from '@/hooks/useLeads';
 import { DataState } from '@/components/DataState';
 import { colors, spacing, radius } from '@/constants/theme';
 import type { LeaderboardEntry } from '@/lib/api/types';
@@ -84,27 +84,6 @@ function LeadsView({ leads, onBack }: { leads: Array<{ id: string; name: string;
 
 function ScannerView({ onBack, onScanSuccess }: { onBack: () => void; onScanSuccess: () => void }) {
   const insets = useSafeAreaInsets();
-  const [scanning, setScanning] = useState(false);
-  const { mutate: submitScan } = useSubmitScan();
-
-  const simulateScan = () => {
-    setScanning(true);
-    setTimeout(() => {
-      setScanning(false);
-      submitScan(
-        { badgeData: `demo-${Date.now()}`, attendeeId: undefined },
-        {
-          onSuccess: () => {
-            Alert.alert('Contact Captured!', 'Saved to your contacts list.', [
-              { text: 'View Contacts', onPress: onScanSuccess },
-              { text: 'Scan Another', style: 'cancel' },
-            ]);
-          },
-          onError: () => Alert.alert('Scan Failed', 'Could not capture contact. Try again.'),
-        }
-      );
-    }, 1500);
-  };
 
   return (
     <View style={styles.container}>
@@ -124,24 +103,10 @@ function ScannerView({ onBack, onScanSuccess }: { onBack: () => void; onScanSucc
               <View style={[styles.corner, styles.cornerBL]} />
               <View style={[styles.corner, styles.cornerBR]} />
             </View>
-            {scanning ? (
-              <Text style={styles.scanningText}>Scanning…</Text>
-            ) : (
-              <Text style={styles.scanHintText}>Align QR code here</Text>
-            )}
+            <Text style={styles.scanHintText}>Align QR code here</Text>
           </LinearGradient>
         </View>
 
-        <TouchableOpacity
-          style={[styles.simulateBtn, scanning && styles.simulateBtnDisabled]}
-          onPress={simulateScan}
-          disabled={scanning}
-        >
-          <Ionicons name="qr-code" size={18} color="#fff" />
-          <Text style={styles.simulateBtnText}>
-            {scanning ? 'Scanning…' : 'Simulate Scan (Demo)'}
-          </Text>
-        </TouchableOpacity>
       </View>
     </View>
   );
@@ -245,12 +210,6 @@ function AttendeeEngage() {
 
       <DataState loading={isLoading} error={isError ? 'Failed to load content.' : null} onRetry={refetch} />
 
-      {activeTab === 'challenges' && (
-        <View style={styles.mockBanner}>
-          <Ionicons name="flask-outline" size={13} color="rgba(255,200,100,0.8)" />
-          <Text style={styles.mockBannerText}>Demo challenges — not synced to backend</Text>
-        </View>
-      )}
       {activeTab === 'challenges' && challenges.map((c) => {
         const done = completedChallenges.includes(c.id);
         const pct = Math.min((c.progress / c.total) * 100, 100);
@@ -397,12 +356,6 @@ function AttendeeEngage() {
         </>
       )}
 
-      {activeTab === 'giveaways' && (
-        <View style={styles.mockBanner}>
-          <Ionicons name="flask-outline" size={13} color="rgba(255,200,100,0.8)" />
-          <Text style={styles.mockBannerText}>Demo giveaways — not synced to backend</Text>
-        </View>
-      )}
       {activeTab === 'giveaways' && giveaways.map((g) => {
         const entered = giveawayEntries.includes(g.id);
         return (
@@ -714,11 +667,7 @@ const styles = StyleSheet.create({
   cornerTR: { top: 0, right: 0, borderTopWidth: 3, borderRightWidth: 3 },
   cornerBL: { bottom: 0, left: 0, borderBottomWidth: 3, borderLeftWidth: 3 },
   cornerBR: { bottom: 0, right: 0, borderBottomWidth: 3, borderRightWidth: 3 },
-  scanningText: { color: colors.primary, fontSize: 16, fontWeight: '700' },
   scanHintText: { color: 'rgba(255,255,255,0.4)', fontSize: 13 },
-  simulateBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, padding: spacing.lg, borderRadius: radius.xl, backgroundColor: colors.primary },
-  simulateBtnDisabled: { opacity: 0.5 },
-  simulateBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
 
   leadCard: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.lg, borderRadius: radius.xl, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.sm },
   leadAvatar: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
@@ -751,6 +700,4 @@ const styles = StyleSheet.create({
   emptyLeadsText: { color: colors.textSecondary, fontSize: 16, fontWeight: '700' },
   emptyLeadsSub: { color: colors.textMuted, fontSize: 12, textAlign: 'center' },
 
-  mockBanner: { flexDirection: 'row', alignItems: 'center', gap: 6, marginHorizontal: spacing.xl, marginBottom: spacing.sm, paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.full, backgroundColor: 'rgba(255,200,100,0.08)', borderWidth: 1, borderColor: 'rgba(255,200,100,0.2)', alignSelf: 'flex-start' },
-  mockBannerText: { color: 'rgba(255,200,100,0.7)', fontSize: 11, fontWeight: '600' },
 });

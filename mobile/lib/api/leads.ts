@@ -1,16 +1,6 @@
-import { request, USE_MOCK } from '@/lib/apiClient';
+import { request } from '@/lib/apiClient';
 import { getEventId } from '@/lib/eventStore';
 import type { ApiResponse, Lead } from '@/lib/api/types';
-
-const delay = (ms = 600) => new Promise<void>((r) => setTimeout(r, ms));
-
-const MOCK_LEADS: Lead[] = [
-  { id: 'l1', name: 'Alex Thompson', title: 'CTO', company: 'StartupXYZ', email: 'alex@startupxyz.com', scannedAt: '9:32 AM', color: '#7c3aed', status: 'hot' },
-  { id: 'l2', name: 'Rachel Kim', title: 'VP Product', company: 'ScaleUp Co', email: 'rachel@scaleup.com', scannedAt: '10:15 AM', color: '#06b6d4', status: 'warm' },
-  { id: 'l3', name: 'Tom Bradley', title: 'Head of IT', company: 'Enterprise Corp', email: 'tom@enterprise.com', scannedAt: '11:48 AM', color: '#10b981', status: 'cold' },
-  { id: 'l4', name: 'Sophie Laurent', title: 'Director of Engineering', company: 'Innovatech', email: 'sophie@innovatech.fr', scannedAt: '1:20 PM', color: '#f59e0b', status: 'warm' },
-  { id: 'l5', name: 'James Wu', title: 'CEO', company: 'FinEdge', email: 'james@finedge.com', scannedAt: '2:05 PM', color: '#ec4899', status: 'hot' },
-];
 
 const ACCENT_COLORS = ['#7c3aed', '#06b6d4', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6'];
 
@@ -30,11 +20,8 @@ function normalizeLead(raw: any, index = 0): Lead {
 }
 
 export async function listLeads(): Promise<ApiResponse<Lead[]>> {
-  if (USE_MOCK) {
-    await delay();
-    return { success: true, data: MOCK_LEADS };
-  }
   const eventId = getEventId();
+  if (__DEV__) console.log(`[Leads] listLeads eventId=${eventId}`);
   if (!eventId) return { success: true, data: [] };
   const res = await request<any>(`/api/v1/events/${eventId}/leads`);
   if (!res.success) return res as ApiResponse<Lead[]>;
@@ -52,20 +39,8 @@ export interface ScanPayload {
 }
 
 export async function submitScan(payload: ScanPayload): Promise<ApiResponse<Lead>> {
-  if (USE_MOCK) {
-    await delay(600);
-    const lead: Lead = {
-      id: `l-${Date.now()}`,
-      name: payload.name ?? 'Unknown Attendee',
-      title: payload.title ?? '',
-      company: payload.company ?? '',
-      scannedAt: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-      color: '#7c3aed',
-      status: 'warm',
-    };
-    return { success: true, data: lead };
-  }
   const eventId = getEventId();
+  if (__DEV__) console.log(`[Leads] submitScan eventId=${eventId} payload=`, payload);
   if (!eventId) return { success: false, error: { code: 'NO_EVENT', message: 'No active event' } };
   const res = await request<any>(`/api/v1/events/${eventId}/scan`, {
     method: 'POST',
@@ -79,12 +54,6 @@ export async function submitScan(payload: ScanPayload): Promise<ApiResponse<Lead
 }
 
 export async function updateLeadStatus(leadId: string, status: Lead['status']): Promise<ApiResponse<Lead>> {
-  if (USE_MOCK) {
-    await delay(300);
-    const lead = MOCK_LEADS.find((l) => l.id === leadId);
-    if (!lead) return { success: false, error: { code: 'NOT_FOUND', message: 'Lead not found' } };
-    return { success: true, data: { ...lead, status } };
-  }
   const eventId = getEventId();
   if (!eventId) return { success: false, error: { code: 'NO_EVENT', message: 'No active event' } };
   return request<Lead>(`/api/v1/events/${eventId}/leads/${leadId}`, {
@@ -94,11 +63,7 @@ export async function updateLeadStatus(leadId: string, status: Lead['status']): 
 }
 
 export async function triggerLuckyDraw(giveawayId?: string): Promise<ApiResponse<{ winner: Lead }>> {
-  if (USE_MOCK) {
-    await delay(1500);
-    const winner = MOCK_LEADS[Math.floor(Math.random() * MOCK_LEADS.length)];
-    return { success: true, data: { winner } };
-  }
+  if (__DEV__) console.log(`[Leads] triggerLuckyDraw giveawayId=${giveawayId}`);
   return request<{ winner: Lead }>('/api/v1/sponsor/lucky-draw', {
     method: 'POST',
     body: JSON.stringify({ giveawayId }),

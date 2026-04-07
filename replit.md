@@ -23,7 +23,7 @@ The mobile app is the primary product being developed. The web app at the root i
 - **Navigation**: Expo Router v4 (file-based routing)
 - **UI**: Custom dark cinematic theme, LinearGradient, Ionicons
 - **State**: React Context (AuthContext with gamification)
-- **API**: Custom fetch client with mock layer (`EXPO_PUBLIC_USE_MOCK_API`)
+- **API**: Custom fetch client — all endpoints live, no mock data (`EXPO_PUBLIC_USE_MOCK_API=false` always)
 - **Storage**: AsyncStorage (auth token)
 
 ### Architecture

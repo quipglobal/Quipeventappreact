@@ -1,0 +1,78 @@
+You need to convert the current app from demo/mock mode into a live working prototype backed only by backend APIs.
+
+Goal:
+- Remove all dummy/mock/fallback data from the app
+- Use only backend APIs for display and write actions
+- Show loading, empty, and error states instead of fake data
+- Make the app work for attendee and sponsor-rep flows
+- Persist user interactions to backend
+
+Critical rules:
+1. Do not use any local mock JSON, fixture arrays, sample cards, or fallback hardcoded data in production routes.
+2. If an API has no data, show an empty state. Do not substitute dummy content.
+3. Every feature must read from backend APIs and every user action must write to backend APIs if that feature is interactive.
+
+Tasks:
+1. Audit and remove all mock/demo data paths:
+   - search for mock, dummy, sample, fixture, fallback, seedData, fakeData
+   - remove direct imports of local data from screens, hooks, stores, and components
+   - remove “use mock if request fails” behavior
+
+2. Audit environment variable handling:
+   - use only process.env.EXPO_PUBLIC_API_URL
+   - use only process.env.EXPO_PUBLIC_USE_MOCK_API
+   - use only process.env.EXPO_PUBLIC_USE_MOCK_AUTH
+   - do not use destructuring or bracket syntax for EXPO_PUBLIC vars
+   - parse booleans safely so empty strings do not become truthy
+
+   Use helper:
+   const envBool = (value, fallback = false) =>
+     value == null || value === '' ? fallback : String(value).toLowerCase() === 'true';
+
+3. Force live mode:
+   - EXPO_PUBLIC_USE_MOCK_API=false
+   - EXPO_PUBLIC_USE_MOCK_AUTH=false
+   - EXPO_PUBLIC_API_URL=<published backend api url>
+   - rebuild/restart the app after env changes
+
+4. Create one shared API client:
+   - base URL from EXPO_PUBLIC_API_URL
+   - include Authorization when logged in
+   - include X-Tenant-ID on all tenant-scoped requests
+   - centralize JSON parsing and error handling
+   - no screen should call raw hardcoded URLs
+
+5. Refactor each feature to use only backend data:
+   - auth login
+   - event listing
+   - event dashboard
+   - agenda/sessions
+   - video feeds
+   - attendees
+   - sponsors/partners
+   - surveys
+   - polls
+   - lead scan
+   - lucky draw
+   - gamification / leaderboard
+   - messages
+
+6. For every screen, implement these UI states only:
+   - loading
+   - success with live API data
+   - empty state when API returns none
+   - error state when API fails
+   Never show sample/demo content.
+
+7. Add instrumentation/logging:
+   - log request URL, method, status in dev mode
+   - log whether each screen is using live API data
+   - verify in browser/native network inspector
+
+8. Provide a completion report:
+   - list of files changed
+   - list of removed mock/fallback sources
+   - env vars required
+   - endpoints consumed by each feature
+   - remaining API gaps, if any
+   - proof that no dummy data remains
