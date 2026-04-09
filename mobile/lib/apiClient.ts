@@ -1,6 +1,15 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 
-const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? '';
+/**
+ * On native (iOS/Android) use the full backend URL — no CORS restrictions.
+ * On web (Expo web in browser) use '' so calls go to the Metro dev-server proxy
+ * at /api/*, which forwards them to the backend without CORS issues.
+ */
+const BASE_URL =
+  Platform.OS === 'web'
+    ? ''
+    : (process.env.EXPO_PUBLIC_API_BASE_URL ?? '');
 const TENANT_ID = process.env.EXPO_PUBLIC_TENANT_ID ?? '1';
 
 function parseBool(v: string | undefined, fallback = false): boolean {
