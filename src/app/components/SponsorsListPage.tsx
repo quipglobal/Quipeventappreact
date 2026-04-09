@@ -9,7 +9,7 @@ import { DataState } from '@/app/components/ui/DataState';
 interface SponsorsListPageProps { onBack?: () => void; }
 
 export const SponsorsListPage: React.FC<SponsorsListPageProps> = ({ onBack }) => {
-  const { metSponsors, setMetSponsors, addPoints, gamificationConfig } = useApp();
+  const { metSponsors, setMetSponsors, addPoints, gamificationConfig, eventConfig } = useApp();
   const { t } = useTheme();
 
   const [sponsors, setSponsors] = useState<Sponsor[]>([]);
@@ -22,7 +22,7 @@ export const SponsorsListPage: React.FC<SponsorsListPageProps> = ({ onBack }) =>
   const fetchSponsors = useCallback(async () => {
     try {
       setError(null);
-      const res = await listSponsorsApi();
+      const res = await listSponsorsApi(eventConfig.eventId);
       if (!res.success || !res.data) throw new Error(res.error?.message ?? 'Failed to load sponsors');
       setSponsors(res.data);
     } catch (err) {
@@ -30,7 +30,7 @@ export const SponsorsListPage: React.FC<SponsorsListPageProps> = ({ onBack }) =>
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [eventConfig.eventId]);
 
   useEffect(() => {
     setLoading(true);

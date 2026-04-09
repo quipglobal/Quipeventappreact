@@ -1,15 +1,13 @@
 /**
  * User Profile & Gamification API Client
  * ─────────────────────────────────────────────────────────────────────────────
- * Functions for: get profile, update profile fields, fetch points/tier.
- *
- * API CONTRACT (planned):
- *   GET   /user/profile                        → ProfileResponse
- *   PATCH /user/profile   { fields }           → ProfileResponse
- *   GET   /user/points                         → PointsResponse
+ * API CONTRACT (real backend):
+ *   GET   /api/v1/me                         → ProfileResponse
+ *   PATCH /api/v1/profile  { fields }        → ProfileResponse
+ *   GET   /api/v1/events/:id/my-rank         → PointsResponse
  */
 
-import { BASE_URL } from './authClient';
+import { apiGet, apiPatch } from './client';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -41,63 +39,73 @@ export interface PointsResponse {
 
 export type ProfileUpdateFields = Partial<Pick<UserProfile, 'name' | 'company' | 'title' | 'avatar' | 'interests'>>;
 
-const delay = (ms = 600) => new Promise<void>(res => setTimeout(res, ms));
+// ─── Normalizer ───────────────────────────────────────────────────────────────
+
+function normalizeProfile(raw: Record<string, unknown>): UserProfile {
+  return {
+    id: String(raw.id ?? ''),
+    name: (raw.name ?? `${raw.first_name ?? ''} ${raw.last_name ?? ''}`.trim()) as string,
+    email: (raw.email ?? '') as string,
+    company: (raw.company ?? raw.organization ?? '') as string,
+    title: (raw.title ?? raw.job_title ?? raw.position ?? '') as string,
+    avatar: (raw.avatar ?? raw.avatar_url ?? raw.photo ?? '') as string,
+    points: Number(raw.points ?? raw.gamification_points ?? 0),
+    tier: (raw.tier ?? raw.membership_tier ?? 'Bronze') as string,
+    role: raw.role === 'sponsor' ? 'sponsor' : 'attendee',
+    interests: Array.isArray(raw.interests) ? raw.interests as string[] : [],
+    profileComplete: Boolean(raw.profile_complete ?? raw.profileComplete ?? true),
+  };
+}
 
 // ─── API Methods ──────────────────────────────────────────────────────────────
 
 /**
- * GET /user/profile
- * Returns the current user's full profile from the backend.
+ * GET /api/v1/me
+ * Returns the current user's full profile.
  */
 export async function getUserProfileApi(): Promise<ProfileResponse> {
-  await delay();
-
-  /* ── Real implementation ────────────────────────────────────────────────
-  const token = localStorage.getItem('auth_token');
-  const res = await fetch(`${BASE_URL}/user/profile`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  return res.json() as Promise<ProfileResponse>;
-  ─────────────────────────────────────────────────────────────────────── */
-
-  return { success: false, error: { message: 'No session token — using in-memory state' } };
+  const res = await apiGet<unknown>('/api/v1/me');
+  if (!res.success || !res.data) {
+    return { success: false, error: res.error ?? { message: 'Failed to fetch profile.' } };
+  }
+  const raw = ((res.data as Record<string, unknown>)?.user
+    ?? (res.data as Record<string, unknown>)?.data
+    ?? res.data) as Record<string, unknown>;
+  return { success: true, data: normalizeProfile(raw) };
 }
 
 /**
- * PATCH /user/profile
+ * PATCH /api/v1/profile
  * Updates editable profile fields. Returns the updated profile on success.
  */
 export async function updateUserProfileApi(fields: ProfileUpdateFields): Promise<ProfileResponse> {
-  await delay(700);
-
-  /* ── Real implementation ────────────────────────────────────────────────
-  const token = localStorage.getItem('auth_token');
-  const res = await fetch(`${BASE_URL}/user/profile`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify(fields),
-  });
-  return res.json() as Promise<ProfileResponse>;
-  ─────────────────────────────────────────────────────────────────────── */
-
-  return { success: true };
+  const res = await apiPatch<unknown>('/api/v1/profile', fields);
+  if (!res.success || !res.data) {
+    return { success: false, error: res.error ?? { message: 'Failed to update profile.' } };
+  }
+  const raw = ((res.data as Record<string, unknown>)?.data ?? res.data) as Record<string, unknown>;
+  return { success: true, data: normalizeProfile(raw) };
 }
 
 /**
- * GET /user/points
- * Returns the latest points balance and tier from the backend.
- * Call this after any point-earning action to keep the UI in sync.
+ * GET /api/v1/events/:eventId/my-rank
+ * Returns the latest points balance and tier.
  */
-export async function getUserPointsApi(): Promise<PointsResponse> {
-  await delay(400);
+export async function getUserPointsApi(eventId?: string): Promise<PointsResponse> {
+  if (!eventId) {
+    return { success: false, error: { message: 'No event selected.' } };
+  }
 
-  /* ── Real implementation ────────────────────────────────────────────────
-  const token = localStorage.getItem('auth_token');
-  const res = await fetch(`${BASE_URL}/user/points`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  return res.json() as Promise<PointsResponse>;
-  ─────────────────────────────────────────────────────────────────────── */
-
-  return { success: false, error: { message: 'No session token — using in-memory state' } };
+  const res = await apiGet<unknown>(`/api/v1/events/${eventId}/my-rank`);
+  if (!res.success || !res.data) {
+    return { success: false, error: res.error ?? { message: 'Failed to fetch points.' } };
+  }
+  const raw = res.data as Record<string, unknown>;
+  return {
+    success: true,
+    data: {
+      points: Number(raw.points ?? raw.total_points ?? raw.gamification_points ?? 0),
+      tier: (raw.tier ?? raw.membership_tier ?? 'Bronze') as string,
+    },
+  };
 }

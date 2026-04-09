@@ -2,22 +2,16 @@
  * WelcomeScreen — Mobile-first cinematic landing with background video
  * ──────────────────────────────────────────────────────────────────────
  * Full-screen background video (business networking)
- * Phone number login → OTP → Profile review / Create account
+ * Email login → OTP → Profile review / Create account
  */
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import cxoLogo from '@/assets/cxo-logo-transparent.png';
-import { Phone, User, Mail, Briefcase, Building2, ArrowLeft, RefreshCw, CheckCircle2, AlertCircle, X } from 'lucide-react';
+import { User, Mail, Briefcase, Building2, ArrowLeft, RefreshCw, CheckCircle2, AlertCircle, X } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { sendOtp, verifyOtp, registerUser, AuthUser } from '@/app/api/authClient';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-const cleanPhone = (raw: string) => raw.replace(/\D/g, '');
-const formatPhone = (digits: string) => {
-  const d = digits.slice(0, 10);
-  if (d.length <= 3) return d;
-  if (d.length <= 6) return `(${d.slice(0,3)}) ${d.slice(3)}`;
-  return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`;
-};
+const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 
 // ─── Network SVG nodes (decorative) ───────────────────────────────────────────
 const NetworkNodes = () => (
@@ -117,8 +111,8 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
   const [videoError, setVideoError] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  // ── Phone input state ─────────────────────────────────────────────────
-  const [phoneDigits, setPhoneDigits] = useState('');
+  // ── Email input state ─────────────────────────────────────────────────
+  const [emailInput, setEmailInput] = useState('');
   const [phoneLoading, setPhoneLoading] = useState(false);
   const [phoneError, setPhoneError] = useState('');
 
@@ -147,15 +141,15 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
     }, 1000);
   }, []);
 
-  // ── Submit phone number ───────────────────────────────────────────────
+  // ── Submit email ──────────────────────────────────────────────────────
   const handlePhoneContinue = useCallback(async () => {
-    const digits = cleanPhone(phoneDigits);
-    if (digits.length < 10) { setPhoneError('Please enter a valid 10-digit phone number.'); return; }
+    const email = emailInput.trim();
+    if (!isValidEmail(email)) { setPhoneError('Please enter a valid email address.'); return; }
     setPhoneError('');
     setPhoneLoading(true);
 
     try {
-      const res = await sendOtp(digits);
+      const res = await sendOtp(email);
       if (!res.success) {
         setPhoneError(res.error?.message ?? 'Failed to send verification code. Please try again.');
         return;
@@ -169,16 +163,16 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
     } finally {
       setPhoneLoading(false);
     }
-  }, [phoneDigits, startResendCountdown]);
+  }, [emailInput, startResendCountdown]);
 
   // ── Verify OTP (auto-submits when 6 digits entered) ───────────────────
   useEffect(() => {
     if (otpValue.length !== 6 || otpLoading) return;
 
     setOtpLoading(true);
-    const digits = cleanPhone(phoneDigits);
+    const email = emailInput.trim();
 
-    verifyOtp(digits, otpValue)
+    verifyOtp(email, otpValue)
       .then(res => {
         if (!res.success || !res.data) {
           setOtpError(res.error?.message ?? 'Verification failed. Please try again.');
@@ -205,11 +199,11 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
   // ── Resend OTP ────────────────────────────────────────────────────────
   const handleResend = useCallback(async () => {
     if (resendCountdown > 0) return;
-    const digits = cleanPhone(phoneDigits);
+    const email = emailInput.trim();
     setOtpValue('');
     setOtpError('');
     try {
-      const res = await sendOtp(digits);
+      const res = await sendOtp(email);
       if (!res.success) {
         setOtpError(res.error?.message ?? 'Failed to resend code. Please try again.');
         return;
@@ -218,7 +212,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
     } catch {
       setOtpError('Network error. Please check your connection and try again.');
     }
-  }, [resendCountdown, phoneDigits, startResendCountdown]);
+  }, [resendCountdown, emailInput, startResendCountdown]);
 
   // ── Confirm existing profile ──────────────────────────────────────────
   const handleProfileConfirm = useCallback(() => {
@@ -242,19 +236,17 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
 
   // ── Create new account ────────────────────────────────────────────────
   const handleCreateAccount = useCallback(async () => {
-    if (!createForm.name.trim() || !createForm.email.trim()) {
-      setCreateError('Name and email are required.');
+    if (!createForm.name.trim()) {
+      setCreateError('Name is required.');
       return;
     }
     setCreateError('');
     setCreateLoading(true);
 
     try {
-      const digits = cleanPhone(phoneDigits);
       const res = await registerUser({
-        phone: digits,
+        identifier: emailInput.trim(),
         name: createForm.name.trim(),
-        email: createForm.email.trim(),
         title: createForm.title.trim(),
         company: createForm.company.trim(),
       });
@@ -285,14 +277,14 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
     } finally {
       setCreateLoading(false);
     }
-  }, [createForm, phoneDigits, setUser, onLogin]);
+  }, [createForm, emailInput, setUser, onLogin]);
 
   // ── Reset and close sheet ─────────────────────────────────────────────
   const closeSheet = () => {
     setSheetOpen(false);
     setTimeout(() => {
       setView('phone');
-      setPhoneDigits('');
+      setEmailInput('');
       setPhoneError('');
       setOtpValue('');
       setOtpError('');
@@ -302,12 +294,6 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
       if (resendRef.current) clearInterval(resendRef.current);
       setResendCountdown(0);
     }, 380);
-  };
-
-  // ── Demo quick-fill ───────────────────────────────────────────────────
-  const fillDemo = (digits: string) => {
-    setPhoneDigits(digits);
-    setPhoneError('');
   };
 
   // ── Input field helper ────────────────────────────────────────────────
@@ -436,40 +422,39 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
                 <div className="mb-6">
                   <div className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4"
                     style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', boxShadow: '0 8px 24px rgba(124,58,237,0.4)' }}>
-                    <Phone size={22} color="white" />
+                    <Mail size={22} color="white" />
                   </div>
                   <h2 style={{ color: '#fff', fontSize: 24, fontWeight: 800, letterSpacing: '-0.03em' }}>Log in</h2>
-                  <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13, marginTop: 3 }}>Enter your mobile number to continue</p>
+                  <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13, marginTop: 3 }}>Enter your email address to continue</p>
                 </div>
 
-                {/* Phone input */}
+                {/* Email input */}
                 <div className="mb-2">
                   <label style={{ color: 'rgba(255,255,255,0.45)', fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-                    Mobile Number
+                    Email Address
                   </label>
                   <div className="relative mt-2">
-                    <div className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5 pr-3"
-                      style={{ borderRight: '1px solid rgba(255,255,255,0.12)' }}>
-                      <span style={{ fontSize: 16 }}>🇺🇸</span>
-                      <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 14, fontWeight: 600 }}>+1</span>
+                    <div className="absolute left-4 top-1/2 -translate-y-1/2">
+                      <Mail size={16} color="rgba(255,255,255,0.35)" />
                     </div>
                     <input
-                      type="tel"
-                      value={formatPhone(phoneDigits)}
+                      type="email"
+                      value={emailInput}
                       onChange={e => {
-                        setPhoneDigits(cleanPhone(e.target.value).slice(0, 10));
+                        setEmailInput(e.target.value);
                         setPhoneError('');
                       }}
-                      onFocus={() => setFocusedField('phone')}
+                      onFocus={() => setFocusedField('email')}
                       onBlur={() => setFocusedField('')}
                       onKeyDown={e => e.key === 'Enter' && handlePhoneContinue()}
-                      placeholder="(555) 000-0000"
+                      placeholder="you@example.com"
+                      autoComplete="email"
                       className="w-full rounded-2xl outline-none"
                       style={{
-                        height: 56, paddingLeft: 76, paddingRight: 16,
+                        height: 56, paddingLeft: 44, paddingRight: 16,
                         background: 'rgba(255,255,255,0.06)',
-                        border: `1.5px solid ${phoneError ? 'rgba(239,68,68,0.5)' : focusedField === 'phone' ? 'rgba(124,58,237,0.65)' : 'rgba(255,255,255,0.12)'}`,
-                        color: '#fff', fontSize: 17, fontWeight: 500, letterSpacing: '0.02em',
+                        border: `1.5px solid ${phoneError ? 'rgba(239,68,68,0.5)' : focusedField === 'email' ? 'rgba(124,58,237,0.65)' : 'rgba(255,255,255,0.12)'}`,
+                        color: '#fff', fontSize: 16, fontWeight: 400,
                       }}
                     />
                   </div>
@@ -478,22 +463,19 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
                       <AlertCircle size={12} />{phoneError}
                     </p>
                   )}
-                  <p className="mt-2" style={{ color: '#7c3aed', fontSize: 12, fontWeight: 600 }}>
-                    New number? Update your account.
-                  </p>
                 </div>
 
                 {/* Continue button */}
-                <button onClick={handlePhoneContinue} disabled={phoneLoading || phoneDigits.length < 10}
+                <button onClick={handlePhoneContinue} disabled={phoneLoading || !isValidEmail(emailInput)}
                   className="w-full flex items-center justify-center gap-2 rounded-2xl mt-5 transition-all active:scale-[0.98]"
                   style={{
                     height: 56,
-                    background: phoneDigits.length >= 10
+                    background: isValidEmail(emailInput)
                       ? 'linear-gradient(135deg,#7c3aed,#4f46e5)'
                       : 'rgba(255,255,255,0.07)',
-                    color: phoneDigits.length >= 10 ? '#fff' : 'rgba(255,255,255,0.25)',
+                    color: isValidEmail(emailInput) ? '#fff' : 'rgba(255,255,255,0.25)',
                     fontWeight: 700, fontSize: 16,
-                    boxShadow: phoneDigits.length >= 10 ? '0 8px 28px rgba(124,58,237,0.45)' : 'none',
+                    boxShadow: isValidEmail(emailInput) ? '0 8px 28px rgba(124,58,237,0.45)' : 'none',
                   }}>
                   {phoneLoading
                     ? <><RefreshCw size={18} style={{ animation: 'spin-cw 1s linear infinite' }} /> Sending code…</>
@@ -507,37 +489,8 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
                 </button>
 
                 <p className="mt-4 text-center" style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11, lineHeight: 1.6 }}>
-                  We'll send you a verification code via SMS.<br />Message and data rates may apply.
+                  We'll send a one-time verification code to your email address.
                 </p>
-
-                {/* Demo shortcuts */}
-                <div className="mt-5 px-4 py-3.5 rounded-2xl" style={{ background: 'rgba(124,58,237,0.08)', border: '1px solid rgba(124,58,237,0.22)' }}>
-                  <p style={{ color: 'rgba(167,139,250,0.65)', fontSize: 10, fontWeight: 700, textAlign: 'center', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
-                    Demo Numbers · OTP is <span style={{ color: '#fbbf24', fontFamily: 'monospace' }}>123456</span>
-                  </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {[
-                      { label: 'Attendee 1', digits: '5550000001', name: 'Jessica Williams' },
-                      { label: 'Attendee 2', digits: '5550000002', name: 'Michael Chen' },
-                      { label: 'Test User', digits: '8156699646', name: 'Alex Thompson' },
-                      { label: 'Sponsor', digits: '5550009999', name: 'Sarah Sponsor' },
-                      { label: 'New User', digits: '5559876543', name: 'Not in system' },
-                    ].map(({ label, digits, name }) => (
-                      <button key={digits} type="button" onClick={() => fillDemo(digits)}
-                        className="text-left px-3 py-2.5 rounded-xl hover:opacity-80 transition-opacity"
-                        style={{ background: phoneDigits === digits ? 'rgba(124,58,237,0.2)' : 'rgba(255,255,255,0.04)', border: `1px solid ${phoneDigits === digits ? 'rgba(124,58,237,0.5)' : 'rgba(255,255,255,0.07)'}` }}>
-                        <p style={{ color: '#fff', fontSize: 11, fontWeight: 700 }}>{label}</p>
-                        <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10, marginTop: 1 }}>{name}</p>
-                        <p style={{ color: '#7c3aed', fontSize: 10, fontWeight: 600, fontFamily: 'monospace' }}>+1 {formatPhone(digits)}</p>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <button onClick={closeSheet} className="w-full text-center mt-4"
-                  style={{ color: '#7c3aed', fontSize: 13, fontWeight: 600 }}>
-                  Don't have an account? Create one.
-                </button>
               </div>
             )}
 
@@ -556,9 +509,9 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
                       <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
                     </svg>
                   </div>
-                  <h2 style={{ color: '#fff', fontSize: 22, fontWeight: 800, letterSpacing: '-0.03em' }}>We just texted you</h2>
+                  <h2 style={{ color: '#fff', fontSize: 22, fontWeight: 800, letterSpacing: '-0.03em' }}>Check your email</h2>
                   <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, marginTop: 6, lineHeight: 1.5 }}>
-                    Please enter the verification code we just<br />sent to +1 {formatPhone(phoneDigits)}.
+                    We sent a 6-digit code to<br /><span style={{ color: 'rgba(167,139,250,0.8)', fontWeight: 600 }}>{emailInput.trim()}</span>
                   </p>
                 </div>
 
@@ -627,8 +580,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
                     </div>
                   </div>
                   {[
-                    { icon: <Mail size={14} />, label: 'Email', value: existingUser.email ?? '—' },
-                    { icon: <Phone size={14} />, label: 'Phone', value: `+1 ${formatPhone(phoneDigits)}` },
+                    { icon: <Mail size={14} />, label: 'Email', value: existingUser.email ?? emailInput.trim() },
                     { icon: <User size={14} />, label: 'Role', value: existingUser.role.charAt(0).toUpperCase() + existingUser.role.slice(1) },
                   ].map(({ icon, label, value }) => (
                     <div key={label} className="flex items-center gap-3 py-2.5 border-t" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
@@ -689,17 +641,13 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
                     />
                   </div>
 
-                  {/* Email */}
+                  {/* Email (read-only — already verified by OTP) */}
                   <div className="relative">
-                    <Mail size={15} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: createForm.email ? '#a78bfa' : 'rgba(255,255,255,0.25)' }} />
-                    <input
-                      type="email" placeholder="Email address"
-                      value={createForm.email}
-                      onChange={e => setCreateForm(f => ({ ...f, email: e.target.value }))}
-                      onFocus={() => setFocusedField('email')} onBlur={() => setFocusedField('')}
-                      className="outline-none"
-                      style={inputStyle(focusedField === 'email', !!createForm.email)}
-                    />
+                    <Mail size={15} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#a78bfa' }} />
+                    <div className="outline-none flex items-center"
+                      style={{ ...inputStyle(false, true), cursor: 'default', opacity: 0.7 }}>
+                      <span style={{ paddingLeft: 30, color: 'rgba(255,255,255,0.6)', fontSize: 14 }}>{emailInput.trim()}</span>
+                    </div>
                   </div>
 
                   {/* Title */}
@@ -737,12 +685,12 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
                   className="w-full flex items-center justify-center gap-2 rounded-2xl mt-4 transition-all active:scale-[0.98]"
                   style={{
                     height: 54,
-                    background: createForm.name && createForm.email
+                    background: createForm.name
                       ? 'linear-gradient(135deg,#7c3aed,#4f46e5)'
                       : 'rgba(255,255,255,0.07)',
-                    color: createForm.name && createForm.email ? '#fff' : 'rgba(255,255,255,0.25)',
+                    color: createForm.name ? '#fff' : 'rgba(255,255,255,0.25)',
                     fontWeight: 700, fontSize: 16,
-                    boxShadow: createForm.name && createForm.email ? '0 8px 28px rgba(124,58,237,0.45)' : 'none',
+                    boxShadow: createForm.name ? '0 8px 28px rgba(124,58,237,0.45)' : 'none',
                   }}>
                   {createLoading
                     ? <><RefreshCw size={18} style={{ animation: 'spin-cw 1s linear infinite' }} /> Creating account…</>

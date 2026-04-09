@@ -3,6 +3,7 @@ import { FeedVideoPost } from './FeedVideoPost';
 import { FeedPoll } from './FeedPoll';
 import { FeedVideoPost as FeedVideoPostType, FeedPoll as FeedPollType, FeedItem } from '@/app/data/mockFeed';
 import { useTheme } from '@/app/context/ThemeContext';
+import { useApp } from '@/app/context/AppContext';
 import { getFeedApi } from '@/app/api/feedClient';
 import { DataState } from '@/app/components/ui/DataState';
 import { Loader2 } from 'lucide-react';
@@ -13,6 +14,7 @@ interface SocialFeedProps {
 
 export const SocialFeed: React.FC<SocialFeedProps> = () => {
   const { t } = useTheme();
+  const { eventConfig } = useApp();
 
   const [items, setItems] = useState<FeedItem[]>([]);
   const [page, setPage] = useState(1);
@@ -23,7 +25,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = () => {
 
   const fetchPage = useCallback(async (pageNum: number, append = false) => {
     try {
-      const res = await getFeedApi(pageNum);
+      const res = await getFeedApi(eventConfig.eventId, pageNum);
       if (!res.success || !res.data) {
         throw new Error(res.error?.message ?? 'Failed to load feed');
       }
@@ -33,7 +35,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = () => {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load feed');
     }
-  }, []);
+  }, [eventConfig.eventId]);
 
   useEffect(() => {
     setLoading(true);

@@ -1,6 +1,6 @@
 # CXO Inc. Event Companion App
 
-## Project Status: App Store Launch Ready
+## Project Status: Both Apps De-mocked — All Live Backend Endpoints
 
 The mobile app is feature-complete and App Store ready. Run `eas build --profile production --platform all` to produce a signed `.ipa` and `.aab`.
 

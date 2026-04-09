@@ -124,16 +124,16 @@ interface AppContextType extends AppState {
 // ─── Mock configs ─────────────────────────────────────────────────────────────
 
 const mockEventConfig: EventConfig = {
-  eventId: 'tech-summit-2026',
-  name: 'Tech Summit 2026',
-  dates: 'January 16-18, 2026',
-  timezone: 'PST',
-  location: 'San Francisco, CA',
+  eventId: '23',
+  name: 'TechForward Summit',
+  dates: '',
+  timezone: 'UTC',
+  location: '',
   logoURL: '',
   backgroundURL: '',
   themeColors: {
-    primary: '#6366f1',
-    secondary: '#8b5cf6',
+    primary: '#7c3aed',
+    secondary: '#4f46e5',
     accent: '#ec4899',
   },
   modulesEnabled: {

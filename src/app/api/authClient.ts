@@ -1,18 +1,14 @@
 /**
- * Auth API Client — Phone OTP flow
+ * Auth API Client — Email OTP flow
  * ─────────────────────────────────────────────────────────────────────────────
  * API CONTRACT (real backend):
- *   POST /api/auth/send-otp     → { phone }                 → { success }
- *   POST /api/auth/verify-otp   → { phone, otp }            → { token, user, isNewUser }
- *   POST /api/auth/register     → { phone, name, email, title, company } → { token, user }
- *   GET  /api/auth/me                                        → { user }
- *
- * Set VITE_USE_MOCK_API=true in .env to run without a live backend.
+ *   POST /api/v1/auth/send-otp     → { identifier, type }      → { success }
+ *   POST /api/v1/auth/verify-otp   → { identifier, code, type } → { token, user, isNewUser }
+ *   POST /api/v1/auth/register     → { identifier, name, title, company } → { token, user }
+ *   GET  /api/v1/me                                             → { user }
  */
 
 import { apiGet, apiPost, saveToken, clearToken, TOKEN_KEY } from './client';
-
-const USE_MOCK = import.meta.env.VITE_USE_MOCK_API === 'true';
 
 // ─── Shared Types ─────────────────────────────────────────────────────────────
 
@@ -62,106 +58,34 @@ export interface MeResponse {
   error?: { code?: string; message: string };
 }
 
-// ─── Mock Database ────────────────────────────────────────────────────────────
+// ─── Normalizer ───────────────────────────────────────────────────────────────
 
-interface MockRecord {
-  user: AuthUser;
-  token: string;
+function normalizeUser(raw: Record<string, unknown>): AuthUser {
+  return {
+    id: String(raw.id ?? ''),
+    name: (raw.name as string) ?? `${raw.first_name ?? ''} ${raw.last_name ?? ''}`.trim(),
+    email: (raw.email as string) ?? '',
+    phone: (raw.phone as string | undefined),
+    title: (raw.title ?? raw.job_title ?? raw.position ?? '') as string,
+    company: (raw.company ?? raw.organization ?? '') as string,
+    role: raw.role === 'sponsor' ? 'sponsor' : 'attendee',
+    avatar: (raw.avatar ?? raw.avatar_url ?? raw.photo ?? undefined) as string | undefined,
+    points: Number(raw.points ?? raw.gamification_points ?? 0),
+    tier: (raw.tier ?? raw.membership_tier ?? 'Bronze') as string,
+    interests: Array.isArray(raw.interests) ? raw.interests as string[] : [],
+    profileComplete: Boolean(raw.profile_complete ?? raw.profileComplete ?? true),
+    emailVerified: Boolean(raw.email_verified ?? raw.emailVerified ?? true),
+  };
 }
-
-const MOCK_USERS: Record<string, MockRecord> = {
-  '5550000001': {
-    token: 'mock-token-jessica-abc123',
-    user: {
-      id: 'user-5550000001',
-      name: 'Jessica Williams',
-      email: 'jessica@stripe.com',
-      phone: '5550000001',
-      title: 'Product Designer',
-      company: 'Stripe',
-      role: 'attendee',
-      avatar: 'https://ui-avatars.com/api/?name=Jessica+Williams&background=6366f1&color=fff',
-      points: 0,
-      tier: 'Bronze',
-      interests: [],
-      profileComplete: true,
-      emailVerified: true,
-    },
-  },
-  '5550000002': {
-    token: 'mock-token-michael-def456',
-    user: {
-      id: 'user-5550000002',
-      name: 'Michael Chen',
-      email: 'michael@startupx.com',
-      phone: '5550000002',
-      title: 'CTO',
-      company: 'StartupX',
-      role: 'attendee',
-      avatar: 'https://ui-avatars.com/api/?name=Michael+Chen&background=8b5cf6&color=fff',
-      points: 0,
-      tier: 'Bronze',
-      interests: [],
-      profileComplete: true,
-      emailVerified: true,
-    },
-  },
-  '8156699646': {
-    token: 'mock-token-alex-ghi789',
-    user: {
-      id: 'user-8156699646',
-      name: 'Alex Thompson',
-      email: 'alex@demo.com',
-      phone: '8156699646',
-      title: 'Director of Sales',
-      company: 'NovaTech',
-      role: 'attendee',
-      avatar: 'https://ui-avatars.com/api/?name=Alex+Thompson&background=0ea5e9&color=fff',
-      points: 0,
-      tier: 'Bronze',
-      interests: [],
-      profileComplete: true,
-      emailVerified: true,
-    },
-  },
-  '5550009999': {
-    token: 'mock-token-sarah-jkl012',
-    user: {
-      id: 'user-5550009999',
-      name: 'Sarah Sponsor',
-      email: 'sponsor@acmecorp.com',
-      phone: '5550009999',
-      title: 'VP Partnerships',
-      company: 'AcmeCorp',
-      role: 'sponsor',
-      avatar: 'https://ui-avatars.com/api/?name=Sarah+Sponsor&background=ec4899&color=fff',
-      points: 0,
-      tier: 'Bronze',
-      interests: [],
-      profileComplete: true,
-      emailVerified: true,
-    },
-  },
-};
-
-const MOCK_OTP = '123456';
-
-const delay = (ms = 800) => new Promise<void>(r => setTimeout(r, ms));
 
 // ─── API Methods ──────────────────────────────────────────────────────────────
 
 /**
- * POST /api/auth/send-otp
- * Triggers an SMS OTP to the given phone number.
+ * POST /api/v1/auth/send-otp
+ * Sends an OTP code to the given email address.
  */
-export async function sendOtp(phone: string): Promise<SendOtpResponse> {
-  if (USE_MOCK) {
-    await delay(900);
-    console.log(`[Mock] OTP sent to +1${phone} — use ${MOCK_OTP}`);
-    return { success: true };
-  }
-
-  const res = await apiPost<void>('/api/auth/send-otp', { phone });
+export async function sendOtp(identifier: string): Promise<SendOtpResponse> {
+  const res = await apiPost<void>('/api/v1/auth/send-otp', { identifier, type: 'login' });
   if (!res.success && res.error) {
     return { success: false, error: res.error };
   }
@@ -169,29 +93,13 @@ export async function sendOtp(phone: string): Promise<SendOtpResponse> {
 }
 
 /**
- * POST /api/auth/verify-otp
+ * POST /api/v1/auth/verify-otp
  * Verifies the OTP and returns a token + user (or isNewUser flag).
  */
-export async function verifyOtp(phone: string, otp: string): Promise<VerifyOtpResponse> {
-  if (USE_MOCK) {
-    await delay(800);
-
-    if (otp !== MOCK_OTP) {
-      return { success: false, error: { code: 'INVALID_OTP', message: 'Incorrect code. Please try again.' } };
-    }
-
-    const record = MOCK_USERS[phone];
-    if (record) {
-      saveToken(record.token);
-      return { success: true, data: { token: record.token, user: record.user, isNewUser: false } };
-    }
-
-    return { success: true, data: { token: '', user: null, isNewUser: true } };
-  }
-
-  const res = await apiPost<{ token: string; user: AuthUser; isNewUser: boolean }>(
-    '/api/auth/verify-otp',
-    { phone, otp }
+export async function verifyOtp(identifier: string, code: string): Promise<VerifyOtpResponse> {
+  const res = await apiPost<Record<string, unknown>>(
+    '/api/v1/auth/verify-otp',
+    { identifier, code, type: 'login' }
   );
 
   if (!res.success || !res.data) {
@@ -201,47 +109,41 @@ export async function verifyOtp(phone: string, otp: string): Promise<VerifyOtpRe
     };
   }
 
-  saveToken(res.data.token);
-  return { success: true, data: res.data };
+  const raw = res.data;
+  const token = (raw.token as string) ?? '';
+  const isNewUser = Boolean(raw.is_new_user ?? raw.isNewUser ?? !raw.user);
+  const userData = (raw.user ?? raw.data) as Record<string, unknown> | null | undefined;
+
+  if (token) {
+    saveToken(token);
+  }
+
+  return {
+    success: true,
+    data: {
+      token,
+      user: userData ? normalizeUser(userData) : null,
+      isNewUser,
+    },
+  };
 }
 
 /**
- * POST /api/auth/register
- * Creates a new user account for a verified phone number.
+ * POST /api/v1/auth/register
+ * Creates a new user account for a verified email address.
  */
 export async function registerUser(params: {
-  phone: string;
+  identifier: string;
   name: string;
-  email: string;
   title?: string;
   company?: string;
 }): Promise<RegisterResponse> {
-  if (USE_MOCK) {
-    await delay(900);
-
-    const token = `mock-token-${params.phone}-${Date.now()}`;
-    const user: AuthUser = {
-      id: `user-${params.phone}-new`,
-      name: params.name.trim(),
-      email: params.email.trim(),
-      phone: params.phone,
-      title: params.title?.trim() ?? '',
-      company: params.company?.trim() ?? '',
-      role: 'attendee',
-      avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(params.name.trim())}&background=7c3aed&color=fff`,
-      points: 0,
-      tier: 'Bronze',
-      interests: [],
-      profileComplete: true,
-      emailVerified: true,
-    };
-
-    MOCK_USERS[params.phone] = { token, user };
-    saveToken(token);
-    return { success: true, data: { token, user } };
-  }
-
-  const res = await apiPost<{ token: string; user: AuthUser }>('/api/auth/register', params);
+  const res = await apiPost<Record<string, unknown>>('/api/v1/auth/register', {
+    identifier: params.identifier,
+    name: params.name.trim(),
+    title: params.title?.trim() ?? '',
+    company: params.company?.trim() ?? '',
+  });
 
   if (!res.success || !res.data) {
     return {
@@ -250,14 +152,17 @@ export async function registerUser(params: {
     };
   }
 
-  saveToken(res.data.token);
-  return { success: true, data: res.data };
+  const raw = res.data;
+  const token = (raw.token as string) ?? '';
+  if (token) saveToken(token);
+
+  const userData = (raw.user ?? raw.data ?? raw) as Record<string, unknown>;
+  return { success: true, data: { token, user: normalizeUser(userData) } };
 }
 
 /**
- * GET /api/auth/me
+ * GET /api/v1/me
  * Restores the current user session from the stored token.
- * Returns null if no token is stored or token is invalid/expired.
  */
 export async function getMeApi(): Promise<MeResponse> {
   const token = localStorage.getItem(TOKEN_KEY);
@@ -265,17 +170,7 @@ export async function getMeApi(): Promise<MeResponse> {
     return { success: false, error: { code: 'NO_TOKEN', message: 'No auth token found.' } };
   }
 
-  if (USE_MOCK) {
-    await delay(600);
-    const record = Object.values(MOCK_USERS).find(r => r.token === token);
-    if (record) {
-      return { success: true, data: record.user };
-    }
-    clearToken();
-    return { success: false, error: { code: 'INVALID_TOKEN', message: 'Session expired.' } };
-  }
-
-  const res = await apiGet<AuthUser>('/api/auth/me');
+  const res = await apiGet<Record<string, unknown>>('/api/v1/me');
 
   if (!res.success || !res.data) {
     clearToken();
@@ -285,7 +180,8 @@ export async function getMeApi(): Promise<MeResponse> {
     };
   }
 
-  return { success: true, data: res.data };
+  const raw = (res.data.user ?? res.data.data ?? res.data) as Record<string, unknown>;
+  return { success: true, data: normalizeUser(raw) };
 }
 
 // ─── OAuth stubs ──────────────────────────────────────────────────────────────

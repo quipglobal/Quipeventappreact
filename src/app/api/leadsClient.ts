@@ -14,9 +14,8 @@
 import { apiGet, apiPost, apiPut } from './client';
 import type { Lead } from '@/app/context/AppContext';
 
-const USE_MOCK = import.meta.env.VITE_USE_MOCK_API === 'true';
-
-const delay = (ms = 700) => new Promise<void>(r => setTimeout(r, ms));
+const USE_MOCK = false;
+const delay = (ms = 0) => new Promise<void>(r => setTimeout(r, ms));
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 

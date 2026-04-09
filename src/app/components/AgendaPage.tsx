@@ -7,7 +7,7 @@ import { listSessionsApi } from '@/app/api/agendaClient';
 import { DataState } from '@/app/components/ui/DataState';
 
 export const AgendaPage: React.FC = () => {
-  const { bookmarkedSessions, toggleBookmark } = useApp();
+  const { bookmarkedSessions, toggleBookmark, eventConfig } = useApp();
   const { t } = useTheme();
 
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -23,7 +23,7 @@ export const AgendaPage: React.FC = () => {
   const fetchSessions = useCallback(async () => {
     try {
       setError(null);
-      const res = await listSessionsApi();
+      const res = await listSessionsApi(eventConfig.eventId);
       if (!res.success || !res.data) throw new Error(res.error?.message ?? 'Failed to load sessions');
       setSessions(res.data);
     } catch (err) {
@@ -31,7 +31,7 @@ export const AgendaPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [eventConfig.eventId]);
 
   useEffect(() => {
     setLoading(true);

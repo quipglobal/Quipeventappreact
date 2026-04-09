@@ -3,7 +3,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * Wraps fetch with:
  *  - Base URL injection (VITE_API_BASE_URL)
- *  - JSON headers
+ *  - JSON headers + X-Tenant-ID header
  *  - Bearer token from localStorage
  *  - 401 handler that clears token and reloads to show login
  *  - Typed response envelope { success, data, error }
@@ -12,6 +12,8 @@
 export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ??
   'https://bef44c34-7df5-4c09-93a2-5684b5888527-00-3s6pvdiz19h8o.spock.replit.dev';
+
+const TENANT_ID = import.meta.env.VITE_TENANT_ID ?? '1';
 
 export const TOKEN_KEY = 'auth_token';
 
@@ -40,6 +42,7 @@ function buildHeaders(extra?: Record<string, string>): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     Accept: 'application/json',
+    'X-Tenant-ID': TENANT_ID,
     ...extra,
   };
   const token = getToken();
@@ -134,6 +137,19 @@ export async function apiPut<T>(path: string, body: unknown): Promise<ApiEnvelop
   try {
     const res = await fetchWithRetry(`${API_BASE_URL}${path}`, {
       method: 'PUT',
+      headers: buildHeaders(),
+      body: JSON.stringify(body),
+    });
+    return parseResponse<T>(res);
+  } catch {
+    return { success: false, error: { code: 'NETWORK_ERROR', message: 'Network error. Please check your connection.' } };
+  }
+}
+
+export async function apiPatch<T>(path: string, body: unknown): Promise<ApiEnvelope<T>> {
+  try {
+    const res = await fetchWithRetry(`${API_BASE_URL}${path}`, {
+      method: 'PATCH',
       headers: buildHeaders(),
       body: JSON.stringify(body),
     });

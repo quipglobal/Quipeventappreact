@@ -1,14 +1,12 @@
 /**
  * Sponsors & Partners API Client
  * ─────────────────────────────────────────────────────────────────────────────
- * Typed functions for: list sponsors by tier, get sponsor detail.
- *
- * API CONTRACT (planned):
- *   GET /sponsors           ?tier=Platinum|Gold|Silver  → SponsorsResponse
- *   GET /sponsors/:id                                   → SponsorDetailResponse
+ * API CONTRACT (real backend):
+ *   GET /api/v1/events/:eventId/sponsors                     → SponsorsResponse
+ *   GET /api/v1/sponsors/:id                                 → SponsorDetailResponse
  */
 
-import { BASE_URL } from './authClient';
+import { apiGet } from './client';
 import type { Sponsor } from '@/app/types/config';
 
 // ─── Response Types ───────────────────────────────────────────────────────────
@@ -25,136 +23,96 @@ export interface SponsorDetailResponse {
   error?: { message: string };
 }
 
-// ─── Mock data ────────────────────────────────────────────────────────────────
+// ─── Normalizer ───────────────────────────────────────────────────────────────
 
-const MOCK_SPONSORS: Sponsor[] = [
-  {
-    id: '1',
-    name: 'TechCorp Solutions',
-    tier: 'Platinum',
-    logo: 'https://ui-avatars.com/api/?name=TechCorp&background=6366f1&color=fff&size=128',
-    booth: 'A-12',
-    tagline: 'Empowering the Future with AI',
-    description: 'TechCorp Solutions is a leading provider of enterprise AI and machine learning platforms, serving Fortune 500 companies worldwide.',
-    website: 'techcorp.com',
-    resources: [
-      { id: 'r1', title: 'AI Platform Overview', type: 'pdf', url: '#' },
-      { id: 'r2', title: 'Product Demo Video', type: 'video', url: '#' },
-      { id: 'r3', title: 'Case Studies', type: 'pdf', url: '#' },
-    ],
-    staff: [
-      {
-        id: 'st1',
-        name: 'John Smith',
-        title: 'Solutions Architect',
-        company: 'TechCorp',
-        avatar: 'https://ui-avatars.com/api/?name=John+Smith&background=6366f1&color=fff',
-      },
-    ],
-    meetingEnabled: true,
-    appointmentEnabled: true,
-  },
-  {
-    id: '2',
-    name: 'InnovateLab',
-    tier: 'Gold',
-    logo: 'https://ui-avatars.com/api/?name=InnovateLab&background=8b5cf6&color=fff&size=128',
-    booth: 'B-05',
-    tagline: 'Cloud Infrastructure Simplified',
-    description: 'InnovateLab provides cutting-edge cloud infrastructure and DevOps tools for modern development teams.',
-    website: 'innovatelab.io',
-    resources: [
-      { id: 'r4', title: 'Platform Guide', type: 'pdf', url: '#' },
-      { id: 'r5', title: 'Getting Started', type: 'link', url: '#' },
-    ],
-    staff: [],
-    meetingEnabled: true,
-    appointmentEnabled: false,
-  },
-  {
-    id: '3',
-    name: 'DataFlow Systems',
-    tier: 'Gold',
-    logo: 'https://ui-avatars.com/api/?name=DataFlow&background=ec4899&color=fff&size=128',
-    booth: 'A-08',
-    tagline: 'Big Data, Beautiful Insights',
-    description: 'DataFlow Systems offers a comprehensive big data analytics and visualization platform trusted by data scientists globally.',
-    website: 'dataflow.com',
-    resources: [],
-    staff: [],
-    meetingEnabled: true,
-    appointmentEnabled: true,
-  },
-  {
-    id: '4',
-    name: 'SecureNet Inc',
-    tier: 'Silver',
-    logo: 'https://ui-avatars.com/api/?name=SecureNet&background=10b981&color=fff&size=128',
-    booth: 'C-15',
-    tagline: 'Your Security, Our Priority',
-    description: 'SecureNet provides enterprise cybersecurity and compliance solutions for the modern workplace.',
-    website: 'securenet.com',
-    resources: [],
-    staff: [],
-    meetingEnabled: true,
-    appointmentEnabled: false,
-  },
-  {
-    id: '5',
-    name: 'CloudStream',
-    tier: 'Silver',
-    logo: 'https://ui-avatars.com/api/?name=CloudStream&background=f59e0b&color=fff&size=128',
-    booth: 'B-22',
-    tagline: 'Stream Without Limits',
-    description: 'CloudStream delivers high-performance video streaming and content delivery network services.',
-    website: 'cloudstream.io',
-    resources: [],
-    staff: [],
-    meetingEnabled: false,
-    appointmentEnabled: false,
-  },
-];
+type SponsorTier = 'Platinum' | 'Gold' | 'Silver';
 
-const delay = (ms = 700) => new Promise<void>(res => setTimeout(res, ms));
+function normalizeTier(raw: string | undefined): SponsorTier {
+  if (!raw) return 'Silver';
+  const t = raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
+  if (t === 'Platinum' || t === 'Gold' || t === 'Silver') return t;
+  return 'Silver';
+}
+
+function normalizeSponsor(raw: Record<string, unknown>): Sponsor {
+  const resources: Sponsor['resources'] = [];
+  if (Array.isArray(raw.resources)) {
+    (raw.resources as Record<string, unknown>[]).forEach(r => {
+      resources.push({
+        id: String(r.id ?? ''),
+        title: (r.title ?? r.name ?? '') as string,
+        type: (r.type ?? 'link') as Sponsor['resources'][number]['type'],
+        url: (r.url ?? r.link ?? '#') as string,
+      });
+    });
+  }
+
+  const staff: Sponsor['staff'] = [];
+  if (Array.isArray(raw.staff)) {
+    (raw.staff as Record<string, unknown>[]).forEach(s => {
+      staff.push({
+        id: String(s.id ?? ''),
+        name: (s.name ?? '') as string,
+        title: (s.title ?? s.job_title ?? '') as string,
+        company: (s.company ?? (raw.name as string) ?? '') as string,
+        avatar: (s.avatar ?? s.avatar_url ?? '') as string,
+      });
+    });
+  }
+
+  return {
+    id: String(raw.id ?? ''),
+    name: (raw.name ?? raw.company_name ?? '') as string,
+    tier: normalizeTier(raw.tier as string),
+    logo: (raw.logo ?? raw.logo_url ?? raw.avatar ?? raw.image ?? '') as string,
+    booth: (raw.booth ?? raw.booth_number ?? raw.location ?? '') as string,
+    tagline: (raw.tagline ?? raw.slogan ?? raw.headline ?? '') as string,
+    description: (raw.description ?? raw.about ?? '') as string,
+    website: (raw.website ?? raw.website_url ?? raw.url ?? '') as string,
+    resources,
+    staff,
+    meetingEnabled: Boolean(raw.meeting_enabled ?? raw.meetingEnabled ?? true),
+    appointmentEnabled: Boolean(raw.appointment_enabled ?? raw.appointmentEnabled ?? false),
+  };
+}
 
 // ─── API Methods ──────────────────────────────────────────────────────────────
 
 /**
- * GET /sponsors
- * Returns sponsors grouped or filtered by tier.
+ * GET /api/v1/events/:eventId/sponsors
+ * Returns sponsors for the event, optionally filtered by tier.
  */
-export async function listSponsorsApi(tier?: string): Promise<SponsorsResponse> {
-  await delay();
+export async function listSponsorsApi(eventId: string, tier?: string): Promise<SponsorsResponse> {
+  if (!eventId) {
+    return { success: true, data: [] };
+  }
 
-  /* ── Real implementation ────────────────────────────────────────────────
-  const token = localStorage.getItem('auth_token');
-  const params = tier ? `?tier=${encodeURIComponent(tier)}` : '';
-  const res = await fetch(`${BASE_URL}/sponsors${params}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  return res.json() as Promise<SponsorsResponse>;
-  ─────────────────────────────────────────────────────────────────────── */
+  const res = await apiGet<unknown>(`/api/v1/events/${eventId}/sponsors`);
+  if (!res.success) {
+    return { success: false, error: res.error ?? { message: 'Failed to load sponsors.' } };
+  }
 
-  const data = tier ? MOCK_SPONSORS.filter(s => s.tier === tier) : MOCK_SPONSORS;
-  return { success: true, data };
+  const envelope = res.data as Record<string, unknown>;
+  const raw: unknown[] = Array.isArray(envelope)
+    ? envelope
+    : (Array.isArray(envelope?.data) ? envelope.data as unknown[] : null)
+      ?? (Array.isArray(envelope?.sponsors) ? envelope.sponsors as unknown[] : null)
+      ?? [];
+
+  let sponsors = raw.map(r => normalizeSponsor(r as Record<string, unknown>));
+  if (tier) sponsors = sponsors.filter(s => s.tier === tier);
+  return { success: true, data: sponsors };
 }
 
 /**
- * GET /sponsors/:id
- * Returns a single sponsor's full profile including staff, resources, and booth info.
+ * GET /api/v1/sponsors/:id
+ * Returns a single sponsor's full profile.
  */
 export async function getSponsorApi(id: string): Promise<SponsorDetailResponse> {
-  await delay(500);
-
-  /* ── Real implementation ────────────────────────────────────────────────
-  const token = localStorage.getItem('auth_token');
-  const res = await fetch(`${BASE_URL}/sponsors/${id}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  return res.json() as Promise<SponsorDetailResponse>;
-  ─────────────────────────────────────────────────────────────────────── */
-
-  const sponsor = MOCK_SPONSORS.find(s => s.id === id);
-  if (!sponsor) return { success: false, error: { message: 'Sponsor not found' } };
-  return { success: true, data: sponsor };
+  const res = await apiGet<unknown>(`/api/v1/sponsors/${id}`);
+  if (!res.success || !res.data) {
+    return { success: false, error: res.error ?? { message: 'Sponsor not found.' } };
+  }
+  const raw = ((res.data as Record<string, unknown>)?.data ?? res.data) as Record<string, unknown>;
+  return { success: true, data: normalizeSponsor(raw) };
 }

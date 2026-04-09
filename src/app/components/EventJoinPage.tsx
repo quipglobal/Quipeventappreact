@@ -1,210 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Ticket, Calendar, MapPin, Users, ChevronRight, Clock,
-  ArrowRight, Globe, Video, Hash,
+  ArrowRight, Globe, Video, Hash, Loader2,
 } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import { ImageWithFallback } from '@/app/components/figma/ImageWithFallback';
 import { EventConfig } from '@/app/types/config';
+import { listEventsApi, OrganizerEvent } from '@/app/api/eventsClient';
 
 type EventStatus = 'live' | 'upcoming' | 'past';
 type EventCategory = 'conference' | 'workshop' | 'webinar' | 'meetup' | 'hackathon' | 'summit';
-
-interface OrganizerEvent {
-  id: string;
-  title: string;
-  cover: string;
-  status: EventStatus;
-  category: EventCategory;
-  dates: string;
-  location: string;
-  isVirtual: boolean;
-  attendees: number;
-  sessions: number;
-  isFeatured?: boolean;
-  eventCode: string;
-  config: EventConfig;
-}
-
-const allEvents: OrganizerEvent[] = [
-  {
-    id: 'ev-1',
-    title: 'Tech Summit 2026',
-    cover: 'https://images.unsplash.com/photo-1762968269894-1d7e1ce8894e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx0ZWNoJTIwY29uZmVyZW5jZSUyMHN0YWdlJTIwYXVkaWVuY2V8ZW58MXx8fHwxNzcxODMyNDc5fDA&ixlib=rb-4.1.0&q=80&w=1080',
-    status: 'live',
-    category: 'conference',
-    dates: 'Jan 16–18, 2026',
-    location: 'San Francisco, CA',
-    isVirtual: false,
-    attendees: 2400,
-    sessions: 36,
-    isFeatured: true,
-    eventCode: 'TECH26',
-    config: {
-      eventId: 'tech-summit-2026',
-      name: 'Tech Summit 2026',
-      dates: 'January 16–18, 2026',
-      timezone: 'PST',
-      location: 'San Francisco, CA',
-      logoURL: '',
-      backgroundURL: '',
-      themeColors: { primary: '#6366f1', secondary: '#8b5cf6', accent: '#ec4899' },
-      modulesEnabled: { agenda: true, sponsors: true, surveys: true, polls: true, leaderboard: true, audience: true, challenges: true, notifications: true },
-      permissions: { guestAccess: true, sponsorRoleEnabled: true, networkingEnabled: true },
-    },
-  },
-  {
-    id: 'ev-2',
-    title: 'DevCon Winter 2026',
-    cover: 'https://images.unsplash.com/photo-1691026336764-f24456f76e03?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxBSSUyMHN1bW1pdCUyMGtleW5vdGUlMjBzcGVha2VyfGVufDF8fHx8MTc3MTgzMjQ4MHww&ixlib=rb-4.1.0&q=80&w=1080',
-    status: 'upcoming',
-    category: 'workshop',
-    dates: 'Feb 20–22, 2026',
-    location: 'Austin, TX',
-    isVirtual: false,
-    attendees: 1800,
-    sessions: 24,
-    eventCode: 'DEVCON',
-    config: {
-      eventId: 'devcon-winter-2026',
-      name: 'DevCon Winter 2026',
-      dates: 'February 20–22, 2026',
-      timezone: 'CST',
-      location: 'Austin, TX',
-      logoURL: '',
-      backgroundURL: '',
-      themeColors: { primary: '#0ea5e9', secondary: '#3b82f6', accent: '#6366f1' },
-      modulesEnabled: { agenda: true, sponsors: true, surveys: true, polls: true, leaderboard: true, audience: false, challenges: true, notifications: true },
-      permissions: { guestAccess: false, sponsorRoleEnabled: true, networkingEnabled: true },
-    },
-  },
-  {
-    id: 'ev-3',
-    title: 'Leadership Summit 2026',
-    cover: 'https://images.unsplash.com/photo-1625335534303-a3c1a3744694?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxzdGFydHVwJTIwaGFja2F0aG9uJTIwd29ya3Nob3B8ZW58MXx8fHwxNzcxODMyNDc5fDA&ixlib=rb-4.1.0&q=80&w=1080',
-    status: 'upcoming',
-    category: 'summit',
-    dates: 'Mar 5–7, 2026',
-    location: 'New York, NY',
-    isVirtual: false,
-    attendees: 950,
-    sessions: 18,
-    eventCode: 'SUMMIT',
-    config: {
-      eventId: 'leadership-summit-2026',
-      name: 'Leadership Summit 2026',
-      dates: 'March 5–7, 2026',
-      timezone: 'EST',
-      location: 'New York, NY',
-      logoURL: '',
-      backgroundURL: '',
-      themeColors: { primary: '#f59e0b', secondary: '#ef4444', accent: '#f97316' },
-      modulesEnabled: { agenda: true, sponsors: true, surveys: true, polls: false, leaderboard: false, audience: true, challenges: false, notifications: true },
-      permissions: { guestAccess: false, sponsorRoleEnabled: true, networkingEnabled: true },
-    },
-  },
-  {
-    id: 'ev-4',
-    title: 'HealthTech Expo 2026',
-    cover: 'https://images.unsplash.com/photo-1763543007050-4dac73ffc67f?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxzdXN0YWluYWJpbGl0eSUyMGdyZWVuJTIwdGVjaCUyMGlubm92YXRpb258ZW58MXx8fHwxNzcxODMyNDgxfDA&ixlib=rb-4.1.0&q=80&w=1080',
-    status: 'upcoming',
-    category: 'conference',
-    dates: 'Apr 10–12, 2026',
-    location: 'Boston, MA',
-    isVirtual: false,
-    attendees: 3100,
-    sessions: 30,
-    eventCode: 'HEALTH',
-    config: {
-      eventId: 'healthtech-expo-2026',
-      name: 'HealthTech Expo 2026',
-      dates: 'April 10–12, 2026',
-      timezone: 'EST',
-      location: 'Boston, MA',
-      logoURL: '',
-      backgroundURL: '',
-      themeColors: { primary: '#10b981', secondary: '#14b8a6', accent: '#06b6d4' },
-      modulesEnabled: { agenda: true, sponsors: true, surveys: true, polls: true, leaderboard: true, audience: true, challenges: true, notifications: true },
-      permissions: { guestAccess: true, sponsorRoleEnabled: true, networkingEnabled: true },
-    },
-  },
-  {
-    id: 'ev-5',
-    title: 'Design Forward 2026',
-    cover: 'https://images.unsplash.com/photo-1763630730206-2c3a5d6c82d1?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxkZXNpZ24lMjBjb25mZXJlbmNlJTIwY3JlYXRpdmUlMjB3b3Jrc2hvcHxlbnwxfHx8fDE3NzE4MzI0ODJ8MA&ixlib=rb-4.1.0&q=80&w=1080',
-    status: 'upcoming',
-    category: 'workshop',
-    dates: 'May 8–9, 2026',
-    location: 'Seattle, WA',
-    isVirtual: false,
-    attendees: 1200,
-    sessions: 14,
-    eventCode: 'DESIGN',
-    config: {
-      eventId: 'design-forward-2026',
-      name: 'Design Forward 2026',
-      dates: 'May 8–9, 2026',
-      timezone: 'PST',
-      location: 'Seattle, WA',
-      logoURL: '',
-      backgroundURL: '',
-      themeColors: { primary: '#ec4899', secondary: '#f43f5e', accent: '#a855f7' },
-      modulesEnabled: { agenda: true, sponsors: false, surveys: true, polls: true, leaderboard: true, audience: true, challenges: false, notifications: true },
-      permissions: { guestAccess: true, sponsorRoleEnabled: false, networkingEnabled: true },
-    },
-  },
-  {
-    id: 'ev-7',
-    title: 'Women in Tech Leadership Mixer',
-    cover: 'https://images.unsplash.com/photo-1768508949307-044ec3c1836a?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxidXNpbmVzcyUyMG5ldHdvcmtpbmclMjBldmVudCUyMGNvY2t0YWlsfGVufDF8fHx8MTc3MTgyMjM3Mnww&ixlib=rb-4.1.0&q=80&w=1080',
-    status: 'past',
-    category: 'meetup',
-    dates: 'Dec 8, 2025',
-    location: 'San Francisco, CA',
-    isVirtual: false,
-    attendees: 210,
-    sessions: 3,
-    eventCode: 'WITLEAD',
-    config: {
-      eventId: 'wit-mixer-2025',
-      name: 'Women in Tech Leadership Mixer',
-      dates: 'December 8, 2025',
-      timezone: 'PST',
-      location: 'San Francisco, CA',
-      logoURL: '',
-      backgroundURL: '',
-      themeColors: { primary: '#ec4899', secondary: '#db2777', accent: '#a855f7' },
-      modulesEnabled: { agenda: true, sponsors: true, surveys: true, polls: false, leaderboard: false, audience: true, challenges: false, notifications: true },
-      permissions: { guestAccess: true, sponsorRoleEnabled: false, networkingEnabled: true },
-    },
-  },
-  {
-    id: 'ev-8',
-    title: 'Cloud Security Webinar Series',
-    cover: 'https://images.unsplash.com/photo-1758598306845-8630d064a244?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx2aXJ0dWFsJTIwd2ViaW5hciUyMG9ubGluZSUyMHByZXNlbnRhdGlvbnxlbnwxfHx8fDE3NzE4MzI0ODJ8MA&ixlib=rb-4.1.0&q=80&w=1080',
-    status: 'past',
-    category: 'webinar',
-    dates: 'Nov 12–14, 2025',
-    location: 'Online',
-    isVirtual: true,
-    attendees: 1050,
-    sessions: 3,
-    eventCode: 'CSEC25',
-    config: {
-      eventId: 'cloud-security-2025',
-      name: 'Cloud Security Webinar Series',
-      dates: 'November 12–14, 2025',
-      timezone: 'EST',
-      location: 'Online',
-      logoURL: '',
-      backgroundURL: '',
-      themeColors: { primary: '#06b6d4', secondary: '#0284c7', accent: '#3b82f6' },
-      modulesEnabled: { agenda: true, sponsors: false, surveys: true, polls: true, leaderboard: false, audience: false, challenges: false, notifications: true },
-      permissions: { guestAccess: true, sponsorRoleEnabled: false, networkingEnabled: false },
-    },
-  },
-];
 
 const statusConfig: Record<EventStatus, { label: string; color: string; dotColor: string }> = {
   live:     { label: 'Happening Now', color: '#10b981', dotColor: '#34d399' },
@@ -221,58 +27,90 @@ const categoryConfig: Record<EventCategory, { label: string; gradient: string }>
   summit:     { label: 'Summit',     gradient: 'linear-gradient(135deg,#3b82f6,#6366f1)' },
 };
 
+function eventToConfig(ev: OrganizerEvent): EventConfig {
+  return {
+    eventId: ev.id,
+    name: ev.title,
+    dates: ev.dates,
+    timezone: 'UTC',
+    location: ev.location,
+    logoURL: '',
+    backgroundURL: ev.cover,
+    themeColors: { primary: '#7c3aed', secondary: '#4f46e5', accent: '#ec4899' },
+    modulesEnabled: {
+      agenda: true, sponsors: true, surveys: true, polls: true,
+      leaderboard: true, audience: true, challenges: true, notifications: true,
+    },
+    permissions: { guestAccess: true, sponsorRoleEnabled: true, networkingEnabled: true },
+  };
+}
+
 interface EventJoinPageProps {
   onJoinEvent: () => void;
   onViewDashboard: () => void;
 }
 
 export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent, onViewDashboard }) => {
-  const { user, showToast, joinEvent, switchEvent } = useApp();
+  const { user, joinEvent, switchEvent } = useApp();
   const { t, isDark } = useTheme();
   const [eventCode, setEventCode] = useState('');
   const [isJoining, setIsJoining] = useState(false);
   const [codeError, setCodeError] = useState('');
 
-  const upcomingEvents = allEvents.filter(e => e.status === 'upcoming' || e.status === 'live');
-  const pastEvents = allEvents.filter(e => e.status === 'past');
+  const [events, setEvents] = useState<OrganizerEvent[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const handleSubmitCode = (e: React.FormEvent) => {
+  const fetchEvents = useCallback(async () => {
+    setLoading(true);
+    const res = await listEventsApi();
+    if (res.success && res.data) {
+      setEvents(res.data);
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { fetchEvents(); }, [fetchEvents]);
+
+  const upcomingEvents = events.filter(e => e.status === 'upcoming' || e.status === 'live');
+  const pastEvents = events.filter(e => e.status === 'past');
+
+  const handleSubmitCode = async (e: React.FormEvent) => {
     e.preventDefault();
     setCodeError('');
 
     const code = eventCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-
     if (code.length < 4) {
       setCodeError('Please enter a valid event code');
       return;
     }
 
-    const matched = allEvents.find(
-      ev => ev.eventCode === code
+    setIsJoining(true);
+
+    const matched = events.find(ev =>
+      (ev.code ?? '').toUpperCase() === code ||
+      ev.title.toUpperCase().replace(/\s+/g, '').includes(code)
     );
 
     if (!matched) {
       setCodeError('Event not found. Please check your code and try again.');
+      setIsJoining(false);
       return;
     }
 
-    setIsJoining(true);
-    setTimeout(() => {
-      switchEvent(matched.config);
-      joinEvent();
-      setIsJoining(false);
-      onJoinEvent();
-    }, 1200);
+    switchEvent(eventToConfig(matched));
+    joinEvent();
+    setIsJoining(false);
+    onJoinEvent();
   };
 
   const handleEventCardClick = (ev: OrganizerEvent) => {
-    switchEvent(ev.config);
+    switchEvent(eventToConfig(ev));
     onViewDashboard();
   };
 
   const EventCard: React.FC<{ event: OrganizerEvent; compact?: boolean }> = ({ event, compact }) => {
-    const stCfg = statusConfig[event.status];
-    const catCfg = categoryConfig[event.category];
+    const stCfg = statusConfig[event.status] ?? statusConfig.upcoming;
+    const catCfg = categoryConfig[event.category] ?? categoryConfig.conference;
 
     return (
       <button
@@ -331,25 +169,33 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent, onVie
             {event.title}
           </h3>
           <div className="flex items-center gap-3 mb-2.5">
-            <span className="flex items-center gap-1" style={{ color: t.textSec, fontSize: 11 }}>
-              <Calendar style={{ width: 11, height: 11, color: t.textMuted }} /> {event.dates}
-            </span>
-            <span className="flex items-center gap-1" style={{ color: t.textSec, fontSize: 11 }}>
-              <MapPin style={{ width: 11, height: 11, color: t.textMuted }} /> {event.location}
-            </span>
+            {event.dates && (
+              <span className="flex items-center gap-1" style={{ color: t.textSec, fontSize: 11 }}>
+                <Calendar style={{ width: 11, height: 11, color: t.textMuted }} /> {event.dates}
+              </span>
+            )}
+            {event.location && (
+              <span className="flex items-center gap-1" style={{ color: t.textSec, fontSize: 11 }}>
+                <MapPin style={{ width: 11, height: 11, color: t.textMuted }} /> {event.location}
+              </span>
+            )}
           </div>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1 px-2 py-0.5 rounded-md" style={{ background: t.surface2 }}>
-                <Users style={{ width: 10, height: 10, color: t.textMuted }} />
-                <span style={{ color: t.textSec, fontSize: 10, fontWeight: 600 }}>
-                  {event.attendees > 0 ? event.attendees.toLocaleString() : 'TBA'}
-                </span>
-              </div>
-              <div className="flex items-center gap-1 px-2 py-0.5 rounded-md" style={{ background: t.surface2 }}>
-                <Video style={{ width: 10, height: 10, color: t.textMuted }} />
-                <span style={{ color: t.textSec, fontSize: 10, fontWeight: 600 }}>{event.sessions}</span>
-              </div>
+              {event.attendees > 0 && (
+                <div className="flex items-center gap-1 px-2 py-0.5 rounded-md" style={{ background: t.surface2 }}>
+                  <Users style={{ width: 10, height: 10, color: t.textMuted }} />
+                  <span style={{ color: t.textSec, fontSize: 10, fontWeight: 600 }}>
+                    {event.attendees.toLocaleString()}
+                  </span>
+                </div>
+              )}
+              {event.sessions > 0 && (
+                <div className="flex items-center gap-1 px-2 py-0.5 rounded-md" style={{ background: t.surface2 }}>
+                  <Video style={{ width: 10, height: 10, color: t.textMuted }} />
+                  <span style={{ color: t.textSec, fontSize: 10, fontWeight: 600 }}>{event.sessions}</span>
+                </div>
+              )}
             </div>
             <ChevronRight style={{ width: 16, height: 16, color: t.textMuted }} />
           </div>
@@ -451,9 +297,6 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent, onVie
                 {codeError}
               </p>
             )}
-            <p style={{ color: t.textMuted, fontSize: 11, textAlign: 'center', marginTop: 12 }}>
-              Try: <span style={{ fontFamily: 'monospace', color: t.accentSoft }}>TECH26 · DEVCON · SUMMIT · HEALTH</span>
-            </p>
           </form>
         </div>
       </div>
@@ -464,13 +307,19 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent, onVie
             <Clock style={{ width: 16, height: 16, color: '#3b82f6' }} />
             <h2 style={{ color: t.text, fontSize: 17, fontWeight: 700 }}>Upcoming Events</h2>
           </div>
-          <span className="px-2.5 py-1 rounded-full"
-            style={{ background: 'rgba(59,130,246,0.12)', color: '#60a5fa', fontSize: 11, fontWeight: 700 }}>
-            {upcomingEvents.length}
-          </span>
+          {!loading && (
+            <span className="px-2.5 py-1 rounded-full"
+              style={{ background: 'rgba(59,130,246,0.12)', color: '#60a5fa', fontSize: 11, fontWeight: 700 }}>
+              {upcomingEvents.length}
+            </span>
+          )}
         </div>
 
-        {upcomingEvents.length > 0 ? (
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 size={28} style={{ color: '#7c3aed', animation: 'spin 1s linear infinite' }} />
+          </div>
+        ) : upcomingEvents.length > 0 ? (
           <div className="space-y-3">
             {upcomingEvents.map(ev => (
               <EventCard key={ev.id} event={ev} />
@@ -484,36 +333,33 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent, onVie
         )}
       </div>
 
-      <div className="px-5 mt-8 mb-8">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <Calendar style={{ width: 16, height: 16, color: '#6b7280' }} />
-            <h2 style={{ color: t.text, fontSize: 17, fontWeight: 700 }}>Past Events</h2>
+      {!loading && pastEvents.length > 0 && (
+        <div className="px-5 mt-8 mb-8">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Calendar style={{ width: 16, height: 16, color: '#6b7280' }} />
+              <h2 style={{ color: t.text, fontSize: 17, fontWeight: 700 }}>Past Events</h2>
+            </div>
+            <span className="px-2.5 py-1 rounded-full"
+              style={{ background: 'rgba(107,114,128,0.12)', color: '#9ca3af', fontSize: 11, fontWeight: 700 }}>
+              {pastEvents.length}
+            </span>
           </div>
-          <span className="px-2.5 py-1 rounded-full"
-            style={{ background: 'rgba(107,114,128,0.12)', color: '#9ca3af', fontSize: 11, fontWeight: 700 }}>
-            {pastEvents.length}
-          </span>
-        </div>
-
-        {pastEvents.length > 0 ? (
           <div className="space-y-3">
             {pastEvents.map(ev => (
               <EventCard key={ev.id} event={ev} compact />
             ))}
           </div>
-        ) : (
-          <div className="text-center py-10 rounded-2xl" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
-            <Calendar style={{ width: 40, height: 40, color: t.emptyIcon, margin: '0 auto 8px' }} />
-            <p style={{ color: t.textSec, fontSize: 14 }}>No past events</p>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
 
       <style>{`
         @keyframes pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.4; }
+        }
+        @keyframes spin {
+          to { transform: rotate(360deg); }
         }
       `}</style>
     </div>
