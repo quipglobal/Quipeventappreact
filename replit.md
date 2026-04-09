@@ -124,6 +124,11 @@ New files added under `src/app/api/`:
 ### CORS / API Proxy (Web App — Dev)
 In development the Vite dev server proxies all `/api` requests to the backend (`vite.config.ts → server.proxy`). This eliminates browser CORS errors without touching the backend. `client.ts` sets `API_BASE_URL = ''` in dev mode so calls use relative paths through the proxy. In production the full backend URL is used directly (`import.meta.env.DEV` check).
 
+### CORS / API Proxy (Mobile App — Dev Web)
+When running the Expo app as a web preview (port 8080), API calls go through the Metro dev server proxy defined in `mobile/metro.config.js`. The proxy uses native Node.js `https` module to forward `/api/*` requests to the backend. OPTIONS preflight requests are answered directly by the proxy (returning 204 with full CORS headers).
+
+**Key fix**: Expo's internal `CorsMiddleware` (`@expo/cli`) blocked all requests from `*.replit.dev` origins by default. The patch script at `mobile/scripts/patch-cors.js` (run automatically via `postinstall`) adds `*.replit.dev` and `*.replit.app` to the allowed origins list. This patch is idempotent (safe to re-run).
+
 ### Environment Variables (Web App)
 | Variable | Purpose |
 |---|---|
