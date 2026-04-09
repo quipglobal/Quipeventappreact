@@ -9,9 +9,15 @@
  *  - Typed response envelope { success, data, error }
  */
 
+/**
+ * In development the Vite dev server proxies /api → backend (no CORS).
+ * In production the built bundle talks directly to the backend URL.
+ */
 export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ??
-  'https://bef44c34-7df5-4c09-93a2-5684b5888527-00-3s6pvdiz19h8o.spock.replit.dev';
+  (import.meta.env.DEV
+    ? ''
+    : 'https://bef44c34-7df5-4c09-93a2-5684b5888527-00-3s6pvdiz19h8o.spock.replit.dev');
 
 const TENANT_ID = import.meta.env.VITE_TENANT_ID ?? '1';
 

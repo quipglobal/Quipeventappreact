@@ -121,11 +121,14 @@ New files added under `src/app/api/`:
 
 **App.tsx** — Watches `sessionRestored + user` to auto-skip welcome screen when session is restored.
 
+### CORS / API Proxy (Web App — Dev)
+In development the Vite dev server proxies all `/api` requests to the backend (`vite.config.ts → server.proxy`). This eliminates browser CORS errors without touching the backend. `client.ts` sets `API_BASE_URL = ''` in dev mode so calls use relative paths through the proxy. In production the full backend URL is used directly (`import.meta.env.DEV` check).
+
 ### Environment Variables (Web App)
 | Variable | Purpose |
 |---|---|
-| `VITE_API_BASE_URL` | CXO backend URL (`https://bef44c34-...spock.replit.dev`) |
-| `VITE_USE_MOCK_API` | `"true"` = mock layer active (safe for development) |
+| `VITE_API_BASE_URL` | Overrides backend URL (optional; dev uses proxy with empty base URL) |
+| `VITE_TENANT_ID` | Tenant ID header (`1` by default) |
 
 ### Web App API Clients (src/app/api/)
 - `authClient.ts` — Login, resend verification, get me (existing)
