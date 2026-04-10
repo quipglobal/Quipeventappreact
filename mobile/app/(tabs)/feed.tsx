@@ -159,6 +159,13 @@ export default function FeedScreen() {
   const watchedVideoIds = React.useRef<Set<string>>(new Set());
 
   const feedItems: FeedItem[] = data?.items ?? [];
+  const feedItemsRef = React.useRef<FeedItem[]>(feedItems);
+  feedItemsRef.current = feedItems;
+
+  const markVideoWatchedRef = React.useRef(markVideoWatched);
+  markVideoWatchedRef.current = markVideoWatched;
+
+  const viewabilityConfig = React.useRef({ itemVisiblePercentThreshold: 60 });
 
   const onRefresh = useCallback(async () => {
     await refetch();
@@ -177,17 +184,17 @@ export default function FeedScreen() {
     submitPollVote({ pollId, optionId: optId });
   }, [pollVotes, markPollVoted, submitPollVote]);
 
-  const onViewableItemsChanged = useCallback(({ viewableItems }: any) => {
+  const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
     const ids = viewableItems.map((i: any) => i.item.id) as string[];
     setVisibleIds(ids);
     ids.forEach((id) => {
-      const item = feedItems.find((f) => f.id === id);
+      const item = feedItemsRef.current.find((f) => f.id === id);
       if (item?.type === 'video' && !watchedVideoIds.current.has(id)) {
         watchedVideoIds.current.add(id);
-        markVideoWatched(id);
+        markVideoWatchedRef.current(id);
       }
     });
-  }, [feedItems, markVideoWatched]);
+  }).current;
 
   const renderItem = useCallback(({ item }: { item: FeedItem }) => {
     if (item.type === 'video') {
@@ -226,7 +233,7 @@ export default function FeedScreen() {
           <RefreshControl refreshing={isRefetching && !isLoading} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />
         }
         onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={{ itemVisiblePercentThreshold: 60 }}
+        viewabilityConfig={viewabilityConfig.current}
         onEndReached={onEndReached}
         onEndReachedThreshold={0.4}
         ListEmptyComponent={!isLoading ? (
