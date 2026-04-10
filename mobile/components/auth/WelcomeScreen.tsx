@@ -362,43 +362,44 @@ export function WelcomeScreen() {
         </TouchableOpacity>
 
         <Text style={styles.ctaSub}>Sign in to your account to get started</Text>
-
-        {__DEV__ && (
-          <View style={{ marginTop: spacing.lg, gap: spacing.xs }}>
-            <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10, textAlign: 'center', marginBottom: 4 }}>
-              DEV ONLY — Quick Login
-            </Text>
-            <TouchableOpacity
-              style={{ backgroundColor: 'rgba(124,58,237,0.25)', borderWidth: 1, borderColor: 'rgba(124,58,237,0.5)', borderRadius: radius.md, paddingVertical: 10, paddingHorizontal: 20, alignItems: 'center' }}
-              onPress={() => handleDevLogin('testuser@cxoinc.com', 'Test1234!')}
-              disabled={devLoading}
-              activeOpacity={0.75}
-            >
-              {devLoading ? (
-                <ActivityIndicator color="#7c3aed" size="small" />
-              ) : (
-                <Text style={{ color: '#a78bfa', fontSize: 12, fontWeight: '600' }}>
-                  Login as Attendee (testuser@cxoinc.com)
-                </Text>
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={{ backgroundColor: 'rgba(6,182,212,0.15)', borderWidth: 1, borderColor: 'rgba(6,182,212,0.4)', borderRadius: radius.md, paddingVertical: 10, paddingHorizontal: 20, alignItems: 'center' }}
-              onPress={() => handleDevLogin('testsponsor@cxoinc.com', 'Test1234!')}
-              disabled={devLoading}
-              activeOpacity={0.75}
-            >
-              {devLoading ? (
-                <ActivityIndicator color="#06b6d4" size="small" />
-              ) : (
-                <Text style={{ color: '#67e8f9', fontSize: 12, fontWeight: '600' }}>
-                  Login as Sponsor (testsponsor@cxoinc.com)
-                </Text>
-              )}
-            </TouchableOpacity>
-          </View>
-        )}
       </View>
+
+      {__DEV__ && !sheetOpen && (
+        <View style={{
+          position: 'absolute',
+          bottom: insets.bottom + 8,
+          left: spacing.xxl,
+          right: spacing.xxl,
+          zIndex: 5,
+          gap: 6,
+        }}>
+          <Text style={{ color: 'rgba(255,255,255,0.25)', fontSize: 9, textAlign: 'center', letterSpacing: 1, marginBottom: 2 }}>
+            DEV — QUICK LOGIN
+          </Text>
+          <TouchableOpacity
+            style={{ backgroundColor: 'rgba(124,58,237,0.35)', borderWidth: 1, borderColor: 'rgba(124,58,237,0.6)', borderRadius: radius.md, paddingVertical: 9, alignItems: 'center' }}
+            onPress={() => handleDevLogin('testuser@cxoinc.com', 'Test1234!')}
+            disabled={devLoading}
+            activeOpacity={0.75}
+          >
+            {devLoading
+              ? <ActivityIndicator color="#a78bfa" size="small" />
+              : <Text style={{ color: '#c4b5fd', fontSize: 12, fontWeight: '700' }}>Login as Attendee</Text>
+            }
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={{ backgroundColor: 'rgba(6,182,212,0.2)', borderWidth: 1, borderColor: 'rgba(6,182,212,0.5)', borderRadius: radius.md, paddingVertical: 9, alignItems: 'center' }}
+            onPress={() => handleDevLogin('testsponsor@cxoinc.com', 'Test1234!')}
+            disabled={devLoading}
+            activeOpacity={0.75}
+          >
+            {devLoading
+              ? <ActivityIndicator color="#67e8f9" size="small" />
+              : <Text style={{ color: '#67e8f9', fontSize: 12, fontWeight: '700' }}>Login as Sponsor</Text>
+            }
+          </TouchableOpacity>
+        </View>
+      )}
 
       {sheetOpen && (
         <Animated.View
