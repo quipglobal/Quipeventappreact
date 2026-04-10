@@ -130,7 +130,7 @@ export function WelcomeScreen() {
   const [sheetOpen, setSheetOpen] = useState(false);
 
   const [view, setView] = useState<View_>('phone');
-  const [loginMode, setLoginMode] = useState<LoginMode>('phone');
+  const [loginMode, setLoginMode] = useState<LoginMode>('email');
   const [country, setCountry] = useState<Country>(DEFAULT_COUNTRY);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [phoneDigits, setPhoneDigits] = useState('');
@@ -179,7 +179,7 @@ export function WelcomeScreen() {
     Animated.timing(sheetAnim, { toValue: 0, duration: 280, useNativeDriver: true }).start(() => {
       setSheetOpen(false);
       setView('phone');
-      setLoginMode('phone');
+      setLoginMode('email');
       setPhoneDigits('');
       setEmailInput('');
       setPhoneIdentifier('');
