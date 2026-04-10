@@ -222,17 +222,11 @@ export function WelcomeScreen() {
     setPhoneLoading(true);
     try {
       if (__DEV__) {
-        console.log(`[Auth] sendOtp → identifier="${identifier}" via BASE_URL="${'' }" (Platform.OS=web)`);
+        console.log(`[Auth] sendOtp → identifier="${identifier}"`);
       }
       const res = await sendOtp(identifier);
       if (__DEV__) {
         console.log('[Auth] sendOtp response:', JSON.stringify(res));
-        const { Alert } = require('react-native');
-        Alert.alert(
-          '[DEV] OTP Response',
-          `Identifier: ${identifier}\n\nResponse:\n${JSON.stringify(res, null, 2)}\n\nIf success=true but email doesn't arrive, the issue is backend email delivery (SMTP config).\n\nTip: Use the "DEV — SKIP OTP" buttons below to bypass email entirely.`,
-          [{ text: 'OK' }]
-        );
       }
       if (!res.success) { setPhoneError(res.error?.message ?? 'Failed to send code.'); return; }
       setPhoneIdentifier(identifier);
