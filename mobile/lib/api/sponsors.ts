@@ -12,7 +12,7 @@ function normalizeSponsor(s: any): Sponsor {
     boothNumber: s.booth_number ?? s.boothNumber ?? s.booth ?? '',
     tierColor: s.tier_color ?? s.tierColor ?? '#cd7f32',
     accentColor: s.accent_color ?? s.accentColor ?? '#7c3aed',
-    giveaway: s.giveaway ?? undefined,
+    giveaway: s.giveaway || undefined,
     website: s.website ?? s.url ?? '',
     description: s.description ?? '',
   };

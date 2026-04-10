@@ -98,7 +98,7 @@ function AttendeePartners() {
             </LinearGradient>
             <View style={styles.cardBody}>
               <Text style={styles.tagline}>{s.tagline}</Text>
-              {s.giveaway && (
+              {!!s.giveaway && (
                 <View style={styles.giveawayRow}>
                   <Ionicons name="gift" size={14} color="#f59e0b" />
                   <Text style={styles.giveawayText}>Giveaway: <Text style={styles.giveawayPrize}>{s.giveaway}</Text></Text>

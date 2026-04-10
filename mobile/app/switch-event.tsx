@@ -198,7 +198,7 @@ function FeedPollCard({ item }: { item: FeedPoll }) {
           <Ionicons name="bar-chart" size={11} color={colors.accent} />
           <Text style={styles.pollBadgeText}>LIVE POLL</Text>
         </View>
-        {item.points && (
+        {!!item.points && (
           <View style={styles.pollPoints}>
             <Ionicons name="star" size={10} color="#f59e0b" />
             <Text style={styles.pollPointsText}>+{item.points} pts</Text>
