@@ -27,6 +27,17 @@ export default defineConfig({
         changeOrigin: true,
         secure: true,
         rewrite: (p) => p,
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq, req) => {
+            console.log(`[vite-proxy] ${req.method} ${req.url} → ${BACKEND}${req.url}`);
+          });
+          proxy.on('proxyRes', (proxyRes, req) => {
+            console.log(`[vite-proxy] ← ${proxyRes.statusCode} ${req.url}`);
+          });
+          proxy.on('error', (err, req) => {
+            console.error(`[vite-proxy] ERROR ${req.url}:`, err.message);
+          });
+        },
       },
     },
   },
