@@ -12,7 +12,7 @@ export default function Index() {
   }
 
   if (user) {
-    return <Redirect href="/(tabs)/feed" />;
+    return <Redirect href="/events" />;
   }
 
   return <Redirect href="/(auth)/welcome" />;

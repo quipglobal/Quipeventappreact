@@ -55,7 +55,7 @@ export default function ProfileScreen() {
           <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Profile</Text>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.push('/switch-event')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.push('/events')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Ionicons name="swap-horizontal-outline" size={18} color={colors.textSecondary} />
         </TouchableOpacity>
       </View>
@@ -192,7 +192,7 @@ export default function ProfileScreen() {
           <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
         </TouchableOpacity>
         <View style={styles.divider} />
-        <TouchableOpacity style={styles.menuRow} onPress={() => router.push('/switch-event')}>
+        <TouchableOpacity style={styles.menuRow} onPress={() => router.push('/events')}>
           <View style={[styles.settingIcon, { backgroundColor: 'rgba(124,58,237,0.15)' }]}>
             <Ionicons name="swap-horizontal-outline" size={16} color={colors.primary} />
           </View>

@@ -62,6 +62,7 @@ export default function RootLayout() {
                   <Stack.Screen name="profile" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
                   <Stack.Screen name="meetings" />
                   <Stack.Screen name="qr-badge" />
+                  <Stack.Screen name="events" options={{ animation: 'fade' }} />
                   <Stack.Screen name="switch-event" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
                   <Stack.Screen name="join" options={{ headerShown: false }} />
                   <Stack.Screen name="event-dashboard" />

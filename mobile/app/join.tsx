@@ -5,7 +5,7 @@ export default function JoinRedirect() {
   const { code } = useLocalSearchParams<{ code?: string }>();
 
   useEffect(() => {
-    router.replace({ pathname: '/switch-event', params: { code: code ?? '' } });
+    router.replace('/events');
   }, [code]);
 
   return null;

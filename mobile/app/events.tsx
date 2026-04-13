@@ -192,6 +192,10 @@ export default function EventsScreen() {
   const pastEvents = allEvents.filter((e) => isEventPast(e));
   const displayedEvents = activeTab === 'upcoming' ? upcomingEvents : pastEvents;
 
+  const goToFeed = useCallback(() => {
+    router.replace('/(tabs)/feed');
+  }, []);
+
   const handleJoin = useCallback((code: string) => {
     const c = code.trim().toUpperCase();
     if (!c) { Alert.alert('Enter a code', 'Please type an event code first.'); return; }
@@ -202,7 +206,7 @@ export default function EventsScreen() {
       Alert.alert(
         'Joined!',
         `You've joined "${localMatch.name}".`,
-        [{ text: 'Go to Event', onPress: () => router.back() }],
+        [{ text: 'Enter Event', onPress: goToFeed }],
       );
       return;
     }
@@ -213,14 +217,14 @@ export default function EventsScreen() {
         Alert.alert(
           'Joined!',
           `You've joined "${res.data?.name}".`,
-          [{ text: 'Go to Event', onPress: () => router.back() }],
+          [{ text: 'Enter Event', onPress: goToFeed }],
         );
       },
       onError: () => {
         Alert.alert('Not Found', `No event found for code "${c}". Please check the code and try again.`);
       },
     });
-  }, [allEvents, findAndJoin, setCurrentEventId]);
+  }, [allEvents, findAndJoin, setCurrentEventId, goToFeed]);
 
   const openEventPopup = (event: Event) => {
     setSelectedEvent(event);
@@ -238,18 +242,18 @@ export default function EventsScreen() {
         style={[s.header, { paddingTop: insets.top }]}
       >
         <View style={s.navRow}>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={s.backBtn}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Ionicons name="arrow-back" size={18} color="rgba(255,255,255,0.7)" />
-          </TouchableOpacity>
+          <View style={{ width: 36 }} />
           <View style={s.navCenter}>
             <Ionicons name="calendar" size={13} color="rgba(255,255,255,0.6)" />
             <Text style={s.navLabel}>EVENTS</Text>
           </View>
-          <View style={{ width: 36 }} />
+          <TouchableOpacity
+            onPress={goToFeed}
+            style={s.backBtn}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={s.skipText}>Skip</Text>
+          </TouchableOpacity>
         </View>
         <View style={s.heroBlock}>
           <Text style={s.heroTitle}>Welcome, {firstName}!</Text>
@@ -496,10 +500,10 @@ const s = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  skipText: { color: 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: '600' },
   navCenter: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   navLabel: { color: 'rgba(255,255,255,0.65)', fontSize: 11, fontWeight: '700', letterSpacing: 1.4 },
   heroBlock: { paddingBottom: 8 },

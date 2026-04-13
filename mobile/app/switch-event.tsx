@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { router, useLocalSearchParams } from 'expo-router';
+import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEvents, useJoinEvent } from '@/hooks/useEvents';
 import { useFeed, useSubmitPollVote } from '@/hooks/useFeed';
@@ -247,6 +247,8 @@ function FeedPollCard({ item }: { item: FeedPoll }) {
 }
 
 export default function SwitchEventScreen() {
+  return <Redirect href="/events" />;
+
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ code?: string }>();
   const { user } = useAuth();
