@@ -58,6 +58,7 @@ export default function RootLayout() {
                   >
                     <Stack.Screen name="index" />
                     <Stack.Screen name="(auth)/welcome" />
+                    <Stack.Screen name="events" />
                     <Stack.Screen name="(tabs)" />
                     <Stack.Screen name="profile" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
                     <Stack.Screen name="meetings" />

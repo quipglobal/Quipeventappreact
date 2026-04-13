@@ -11,6 +11,8 @@ export interface Event {
   bannerUrl?: string;
   category?: string;
   status: 'upcoming' | 'live' | 'past';
+  isEnrolled: boolean;
+  attendeeCount?: number;
 }
 
 export interface Session {

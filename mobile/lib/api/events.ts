@@ -32,6 +32,8 @@ function normalizeEvent(raw: any): Event {
     bannerUrl: raw.banner_url ?? raw.bannerUrl ?? raw.image ?? raw.photo ?? undefined,
     category: raw.category ?? undefined,
     status: raw.status ?? 'upcoming',
+    isEnrolled: Boolean(raw.is_enrolled ?? raw.enrolled ?? raw.is_member ?? raw.is_registered ?? false),
+    attendeeCount: raw.attendee_count ?? raw.attendeeCount ?? raw.total_attendees ?? undefined,
   };
 }
 

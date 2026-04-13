@@ -13,6 +13,7 @@ import { Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { useFeed, useMarkVideoWatched, useSubmitPollVote } from '@/hooks/useFeed';
 import { DataState } from '@/components/DataState';
@@ -212,6 +213,14 @@ export default function FeedScreen() {
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.topBar}>
+        <TouchableOpacity
+          style={styles.eventsBtn}
+          onPress={() => router.push('/events')}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="calendar-outline" size={16} color={colors.primary} />
+          <Text style={styles.eventsBtnText}>Events</Text>
+        </TouchableOpacity>
         <Text style={styles.topTitle}>Live Feed</Text>
         <View style={styles.liveChip}>
           <View style={styles.livePulse} />
@@ -256,6 +265,8 @@ export default function FeedScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.xl, paddingVertical: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
+  eventsBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: 'rgba(124,58,237,0.12)', borderWidth: 1, borderColor: 'rgba(124,58,237,0.3)' },
+  eventsBtnText: { color: colors.primary, fontSize: 12, fontWeight: '600' },
   topTitle: { color: colors.textPrimary, ...typography.h2 },
   liveChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.full, backgroundColor: 'rgba(239,68,68,0.12)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)' },
   livePulse: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#ef4444' },
