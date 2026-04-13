@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -22,7 +22,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
 import { useEvent } from '@/context/EventContext';
-import { listEventsByTenant, joinEventByCode } from '@/lib/api/events';
+import { listEventsByTenant, findEventByCode } from '@/lib/api/events';
 import { colors, spacing, radius } from '@/constants/theme';
 import type { Event } from '@/lib/api/types';
 
@@ -45,13 +45,7 @@ function formatDateRange(start: string, end: string) {
 }
 
 function isEventPast(event: Event): boolean {
-  if (event.status === 'past') return true;
-  if (event.status === 'live' || event.status === 'upcoming') return false;
-  try {
-    return new Date(event.endDate) < new Date();
-  } catch {
-    return false;
-  }
+  return event.status === 'past';
 }
 
 function StatusBadge({ status }: { status: Event['status'] }) {
@@ -133,6 +127,12 @@ function EventCard({ event, index, onPress }: { event: Event; index: number; onP
           )}
         </View>
         <View style={s.cardArrow}>
+          {!!event.code && (
+            <View style={s.codePill}>
+              <Text style={s.codePillText}>{event.code}</Text>
+            </View>
+          )}
+          <View style={{ flex: 1 }} />
           <Text style={s.cardArrowHint}>Tap to join</Text>
           <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
         </View>
@@ -184,8 +184,8 @@ export default function EventsScreen() {
     staleTime: 1000 * 60 * 5,
   });
 
-  const { mutate: joinEvent, isPending: joining } = useMutation({
-    mutationFn: (code: string) => joinEventByCode(code),
+  const { mutate: findAndJoin, isPending: joining } = useMutation({
+    mutationFn: (code: string) => findEventByCode(code, GLOBEX_TENANT_ID),
   });
 
   const upcomingEvents = allEvents.filter((e) => !isEventPast(e));
@@ -195,7 +195,18 @@ export default function EventsScreen() {
   const handleJoin = useCallback((code: string) => {
     const c = code.trim().toUpperCase();
     if (!c) { Alert.alert('Enter a code', 'Please type an event code first.'); return; }
-    joinEvent(c, {
+    const localMatch = allEvents.find((e) => (e.code ?? '').toUpperCase() === c || String(e.id) === c);
+    if (localMatch) {
+      setSelectedEvent(null);
+      setCurrentEventId(localMatch.id);
+      Alert.alert(
+        'Joined!',
+        `You've joined "${localMatch.name}".`,
+        [{ text: 'Go to Event', onPress: () => router.back() }],
+      );
+      return;
+    }
+    findAndJoin(c, {
       onSuccess: (res) => {
         setSelectedEvent(null);
         if (res.data?.id) setCurrentEventId(res.data.id);
@@ -206,10 +217,10 @@ export default function EventsScreen() {
         );
       },
       onError: () => {
-        Alert.alert('Not Found', `No event found for code "${c}". Check the code and try again.`);
+        Alert.alert('Not Found', `No event found for code "${c}". Please check the code and try again.`);
       },
     });
-  }, [joinEvent, setCurrentEventId]);
+  }, [allEvents, findAndJoin, setCurrentEventId]);
 
   const openEventPopup = (event: Event) => {
     setSelectedEvent(event);
@@ -618,8 +629,17 @@ const s = StyleSheet.create({
   cardMeta: { gap: 4, marginBottom: 10 },
   cardMetaItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   cardMetaText: { color: colors.textSecondary, fontSize: 12, flex: 1 },
-  cardArrow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 4 },
+  cardArrow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   cardArrowHint: { color: colors.textMuted, fontSize: 11 },
+  codePill: {
+    backgroundColor: 'rgba(124,58,237,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(124,58,237,0.35)',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  codePillText: { color: '#a78bfa', fontSize: 11, fontWeight: '800', letterSpacing: 1 },
 
   /* Loading / Error / Empty */
   center: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, gap: 12 },

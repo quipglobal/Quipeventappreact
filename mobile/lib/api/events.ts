@@ -20,6 +20,19 @@ function normalizeSession(raw: any): Session {
   };
 }
 
+function deriveStatus(raw: any): 'upcoming' | 'live' | 'past' {
+  const s: string = raw.status ?? '';
+  if (s === 'live') return 'live';
+  if (s === 'past') return 'past';
+  if (s === 'upcoming') return 'upcoming';
+  const now = new Date();
+  const end = raw.end_date ? new Date(raw.end_date) : null;
+  const start = raw.start_date ? new Date(raw.start_date) : null;
+  if (end && end < now) return 'past';
+  if (start && start <= now && end && end >= now) return 'live';
+  return 'upcoming';
+}
+
 function normalizeEvent(raw: any): Event {
   return {
     id: String(raw.id),
@@ -31,7 +44,7 @@ function normalizeEvent(raw: any): Event {
     description: raw.description ?? '',
     bannerUrl: raw.banner_url ?? raw.bannerUrl ?? raw.image ?? raw.photo ?? undefined,
     category: raw.category ?? undefined,
-    status: raw.status ?? 'upcoming',
+    status: deriveStatus(raw),
   };
 }
 
@@ -54,7 +67,25 @@ export async function listEventsByTenant(tenantId: string): Promise<ApiResponse<
   const raw: any[] = Array.isArray(res.data)
     ? res.data
     : (res.data?.data ?? res.data?.events ?? []);
-  return { success: true, data: raw.map(normalizeEvent) };
+  const publishedOnly = raw.filter((e) => (e.status ?? '') !== 'draft');
+  return { success: true, data: publishedOnly.map(normalizeEvent) };
+}
+
+export async function findEventByCode(code: string, tenantId: string): Promise<ApiResponse<Event>> {
+  if (__DEV__) console.log(`[Events] findEventByCode(${code}, tenant=${tenantId})`);
+  const listRes = await listEventsByTenant(tenantId);
+  if (!listRes.success) return { success: false, error: listRes.error };
+  const upper = code.trim().toUpperCase();
+  const match = (listRes.data ?? []).find(
+    (e) => (e.code ?? '').toUpperCase() === upper || String(e.id) === code,
+  );
+  if (!match) {
+    return {
+      success: false,
+      error: { code: 'NOT_FOUND', message: `No event found for code "${code}".` },
+    };
+  }
+  return { success: true, data: match };
 }
 
 export async function getEvent(id: string): Promise<ApiResponse<Event>> {
