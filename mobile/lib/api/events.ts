@@ -45,6 +45,18 @@ export async function listEvents(): Promise<ApiResponse<Event[]>> {
   return { success: true, data: raw.map(normalizeEvent) };
 }
 
+export async function listEventsByTenant(tenantId: string): Promise<ApiResponse<Event[]>> {
+  if (__DEV__) console.log(`[Events] listEventsByTenant(${tenantId}) — live`);
+  const res = await request<any>('/api/v1/events?per_page=100', {
+    headers: { 'X-Tenant-ID': tenantId },
+  });
+  if (!res.success) return res as ApiResponse<Event[]>;
+  const raw: any[] = Array.isArray(res.data)
+    ? res.data
+    : (res.data?.data ?? res.data?.events ?? []);
+  return { success: true, data: raw.map(normalizeEvent) };
+}
+
 export async function getEvent(id: string): Promise<ApiResponse<Event>> {
   if (__DEV__) console.log(`[Events] getEvent(${id}) — live`);
   const res = await request<any>(`/api/v1/events/${id}`);
