@@ -62,9 +62,11 @@ export function WelcomeScreen() {
     setLoading(true);
     try {
       const res = await verifyOtp(email.trim().toLowerCase(), code);
-      if (res.success && res.data?.token) {
-        await login(res.data.token, res.data.user!);
+      if (res.success && res.data?.token && res.data.user) {
+        await login(res.data.token, res.data.user);
         router.replace('/events');
+      } else if (res.success && res.data?.isNewUser) {
+        setError('No account found for this email. Please contact your event organizer.');
       } else {
         setError(res.error?.message ?? 'Invalid code. Please try again.');
       }
@@ -76,13 +78,19 @@ export function WelcomeScreen() {
   };
 
   const handleDevLogin = async (devEmail: string, password: string) => {
+    if (devLoading) return;
     setDevLoading(true);
     try {
       const res = await loginWithPassword(devEmail, password);
-      if (res.success && res.data) {
+      if (res.success && res.data?.token && res.data.user) {
         await login(res.data.token, res.data.user);
         router.replace('/events');
+      } else {
+        setError(res.error?.message ?? 'Dev login failed. Check credentials.');
+        setStep('email');
       }
+    } catch {
+      setError('Network error. Please try again.');
     } finally {
       setDevLoading(false);
     }

@@ -20,18 +20,37 @@ function normalizeSession(raw: any): Session {
   };
 }
 
+function computeEventStatus(
+  startDate: string,
+  endDate: string,
+  rawStatus: string,
+): 'upcoming' | 'live' | 'past' {
+  // Use explicit backend values if they already map to our enum
+  if (rawStatus === 'past' || rawStatus === 'cancelled' || rawStatus === 'ended' || rawStatus === 'archived') return 'past';
+  if (rawStatus === 'live' || rawStatus === 'ongoing' || rawStatus === 'active') return 'live';
+  // For 'published', 'upcoming', or anything else — derive from dates
+  const now = new Date();
+  const start = startDate ? new Date(startDate) : null;
+  const end = endDate ? new Date(endDate) : null;
+  if (end && now > end) return 'past';
+  if (start && end && now >= start && now <= end) return 'live';
+  return 'upcoming';
+}
+
 function normalizeEvent(raw: any): Event {
+  const startDate = raw.start_date ?? raw.startDate ?? raw.start ?? '';
+  const endDate = raw.end_date ?? raw.endDate ?? raw.end ?? '';
   return {
     id: String(raw.id),
     name: raw.name ?? raw.title ?? '',
     code: raw.code ?? raw.event_code ?? raw.slug ?? '',
-    startDate: raw.start_date ?? raw.startDate ?? raw.start ?? '',
-    endDate: raw.end_date ?? raw.endDate ?? raw.end ?? '',
+    startDate,
+    endDate,
     location: raw.location ?? raw.venue ?? raw.city ?? '',
     description: raw.description ?? '',
     bannerUrl: raw.banner_url ?? raw.bannerUrl ?? raw.image ?? raw.photo ?? undefined,
     category: raw.category ?? undefined,
-    status: raw.status ?? 'upcoming',
+    status: computeEventStatus(startDate, endDate, raw.status ?? ''),
     isEnrolled: Boolean(raw.is_enrolled ?? raw.enrolled ?? raw.is_member ?? raw.is_registered ?? false),
     attendeeCount: raw.attendee_count ?? raw.attendeeCount ?? raw.total_attendees ?? undefined,
   };
