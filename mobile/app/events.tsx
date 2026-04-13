@@ -175,17 +175,29 @@ export default function EventsScreen() {
     data: allEvents = [],
     isLoading,
     isError,
+    error: queryError,
     refetch,
     isRefetching,
   } = useQuery({
     queryKey: ['events-tenant', GLOBEX_TENANT_ID],
-    queryFn: () => listEventsByTenant(GLOBEX_TENANT_ID),
-    select: (res) => res.data ?? [],
+    queryFn: async () => {
+      const res = await listEventsByTenant(GLOBEX_TENANT_ID);
+      if (!res.success) {
+        throw new Error(res.error?.message ?? 'Failed to load events from server.');
+      }
+      return res.data ?? [];
+    },
     staleTime: 1000 * 60 * 5,
   });
 
   const { mutate: findAndJoin, isPending: joining } = useMutation({
-    mutationFn: (code: string) => findEventByCode(code, GLOBEX_TENANT_ID),
+    mutationFn: async (code: string) => {
+      const res = await findEventByCode(code, GLOBEX_TENANT_ID);
+      if (!res.success) {
+        throw new Error(res.error?.message ?? `No event found for code "${code}".`);
+      }
+      return res.data!;
+    },
   });
 
   const upcomingEvents = allEvents.filter((e) => !isEventPast(e));
@@ -211,17 +223,18 @@ export default function EventsScreen() {
       return;
     }
     findAndJoin(c, {
-      onSuccess: (res) => {
+      onSuccess: (event) => {
         setSelectedEvent(null);
-        if (res.data?.id) setCurrentEventId(res.data.id);
+        if (event.id) setCurrentEventId(event.id);
         Alert.alert(
           'Joined!',
-          `You've joined "${res.data?.name}".`,
+          `You've joined "${event.name}".`,
           [{ text: 'Enter Event', onPress: goToFeed }],
         );
       },
-      onError: () => {
-        Alert.alert('Not Found', `No event found for code "${c}". Please check the code and try again.`);
+      onError: (err) => {
+        const msg = err instanceof Error ? err.message : `No event found for code "${c}".`;
+        Alert.alert('Not Found', msg);
       },
     });
   }, [allEvents, findAndJoin, setCurrentEventId, goToFeed]);
@@ -374,6 +387,11 @@ export default function EventsScreen() {
             <View style={s.center}>
               <Ionicons name="cloud-offline-outline" size={40} color={colors.error} />
               <Text style={s.errorText}>Couldn't load events</Text>
+              {!!queryError && (
+                <Text style={[s.errorText, { fontSize: 12, marginTop: 4, opacity: 0.7 }]}>
+                  {(queryError as Error).message}
+                </Text>
+              )}
               <TouchableOpacity style={s.retryBtn} onPress={() => refetch()}>
                 <Text style={s.retryText}>Retry</Text>
               </TouchableOpacity>
