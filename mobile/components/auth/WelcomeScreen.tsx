@@ -162,7 +162,7 @@ export function WelcomeScreen() {
         return;
       }
       await login(res.data.token, res.data.user);
-      router.replace('/(tabs)/feed');
+      router.replace('/events');
     } catch (e) {
       console.warn('[DevLogin] error:', e);
     } finally {
@@ -264,7 +264,7 @@ export function WelcomeScreen() {
   const handleProfileConfirm = async () => {
     if (!resolvedUser) return;
     await login(resolvedToken, resolvedUser);
-    router.replace('/(tabs)/feed');
+    router.replace('/events');
   };
 
   const handleCreateAccount = useCallback(async () => {
@@ -278,7 +278,7 @@ export function WelcomeScreen() {
       const res = await register({ phone: phoneIdentifier, ...createForm });
       if (!res.success || !res.data) { setCreateError(res.error?.message ?? 'Registration failed.'); return; }
       await login(res.data.token, res.data.user);
-      router.replace('/(tabs)/feed');
+      router.replace('/events');
     } catch {
       setCreateError('Something went wrong. Please try again.');
     } finally {
