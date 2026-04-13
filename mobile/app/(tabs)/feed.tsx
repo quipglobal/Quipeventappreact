@@ -13,7 +13,6 @@ import { Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
 import { useFeed, useMarkVideoWatched, useSubmitPollVote } from '@/hooks/useFeed';
 import { DataState } from '@/components/DataState';
@@ -160,13 +159,6 @@ export default function FeedScreen() {
   const watchedVideoIds = React.useRef<Set<string>>(new Set());
 
   const feedItems: FeedItem[] = data?.items ?? [];
-  const feedItemsRef = React.useRef<FeedItem[]>(feedItems);
-  feedItemsRef.current = feedItems;
-
-  const markVideoWatchedRef = React.useRef(markVideoWatched);
-  markVideoWatchedRef.current = markVideoWatched;
-
-  const viewabilityConfig = React.useRef({ itemVisiblePercentThreshold: 60 });
 
   const onRefresh = useCallback(async () => {
     await refetch();
@@ -185,17 +177,17 @@ export default function FeedScreen() {
     submitPollVote({ pollId, optionId: optId });
   }, [pollVotes, markPollVoted, submitPollVote]);
 
-  const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
+  const onViewableItemsChanged = useCallback(({ viewableItems }: any) => {
     const ids = viewableItems.map((i: any) => i.item.id) as string[];
     setVisibleIds(ids);
     ids.forEach((id) => {
-      const item = feedItemsRef.current.find((f) => f.id === id);
+      const item = feedItems.find((f) => f.id === id);
       if (item?.type === 'video' && !watchedVideoIds.current.has(id)) {
         watchedVideoIds.current.add(id);
-        markVideoWatchedRef.current(id);
+        markVideoWatched(id);
       }
     });
-  }).current;
+  }, [feedItems, markVideoWatched]);
 
   const renderItem = useCallback(({ item }: { item: FeedItem }) => {
     if (item.type === 'video') {
@@ -213,14 +205,6 @@ export default function FeedScreen() {
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.topBar}>
-        <TouchableOpacity
-          style={styles.eventsBtn}
-          onPress={() => router.push('/events')}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="calendar-outline" size={16} color={colors.primary} />
-          <Text style={styles.eventsBtnText}>Events</Text>
-        </TouchableOpacity>
         <Text style={styles.topTitle}>Live Feed</Text>
         <View style={styles.liveChip}>
           <View style={styles.livePulse} />
@@ -242,7 +226,7 @@ export default function FeedScreen() {
           <RefreshControl refreshing={isRefetching && !isLoading} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />
         }
         onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={viewabilityConfig.current}
+        viewabilityConfig={{ itemVisiblePercentThreshold: 60 }}
         onEndReached={onEndReached}
         onEndReachedThreshold={0.4}
         ListEmptyComponent={!isLoading ? (
@@ -265,8 +249,6 @@ export default function FeedScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.xl, paddingVertical: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
-  eventsBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: 'rgba(124,58,237,0.12)', borderWidth: 1, borderColor: 'rgba(124,58,237,0.3)' },
-  eventsBtnText: { color: colors.primary, fontSize: 12, fontWeight: '600' },
   topTitle: { color: colors.textPrimary, ...typography.h2 },
   liveChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.full, backgroundColor: 'rgba(239,68,68,0.12)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)' },
   livePulse: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#ef4444' },

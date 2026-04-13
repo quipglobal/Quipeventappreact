@@ -9,8 +9,6 @@ const BACKEND =
 const backendUrl = new URL(BACKEND);
 const transport = backendUrl.protocol === 'https:' ? https : http;
 
-console.log(`[metro-proxy] BACKEND = ${BACKEND}`);
-
 const config = getDefaultConfig(__dirname);
 
 config.server = {
@@ -21,11 +19,8 @@ config.server = {
         return metroMiddleware(req, res, next);
       }
 
-      console.log(`[metro-proxy] ${req.method} ${req.url} | origin=${req.headers.origin || 'none'} | host=${req.headers.host}`);
-
       // Answer CORS preflight directly — never let it reach Expo's CorsMiddleware
       if (req.method === 'OPTIONS') {
-        console.log(`[metro-proxy] OPTIONS preflight → 204`);
         res.writeHead(204, {
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
@@ -37,8 +32,8 @@ config.server = {
       }
 
       // Proxy all other /api/* requests to the backend
-      const targetPath = backendUrl.pathname.replace(/\/$/, '') + req.url;
-      console.log(`[metro-proxy] → ${BACKEND}${targetPath}`);
+      const targetPath =
+        backendUrl.pathname.replace(/\/$/, '') + req.url;
 
       const options = {
         hostname: backendUrl.hostname,
@@ -52,7 +47,6 @@ config.server = {
       };
 
       const proxyReq = transport.request(options, (proxyRes) => {
-        console.log(`[metro-proxy] ← ${proxyRes.statusCode} ${req.url}`);
         const responseHeaders = {
           ...proxyRes.headers,
           'Access-Control-Allow-Origin': '*',
@@ -62,7 +56,7 @@ config.server = {
       });
 
       proxyReq.on('error', (err) => {
-        console.error(`[metro-proxy] ERROR ${req.url}: ${err.message}`);
+        console.error('[metro-proxy error]', err.message);
         res.writeHead(502, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
           success: false,

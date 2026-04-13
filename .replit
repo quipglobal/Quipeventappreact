@@ -25,37 +25,25 @@ args = "Start Mobile"
 name = "Start application"
 author = "agent"
 
-[workflows.workflow.metadata]
-outputType = "console"
-
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "npm run dev"
-waitForPort = 3001
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
 
 [[workflows.workflow]]
 name = "Start Mobile"
 author = "agent"
 
 [workflows.workflow.metadata]
-outputType = "webview"
+outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd mobile && npx expo start --web --port 5000 --clear"
-waitForPort = 5000
-
-[[ports]]
-localPort = 3001
-externalPort = 3001
-
-[[ports]]
-localPort = 3002
-externalPort = 3000
-
-[[ports]]
-localPort = 3003
-externalPort = 4200
+args = "cd mobile && npx expo start --web --port 8080 --clear"
+waitForPort = 8080
 
 [[ports]]
 localPort = 5000
@@ -63,7 +51,7 @@ externalPort = 80
 
 [[ports]]
 localPort = 5001
-externalPort = 3003
+externalPort = 3000
 
 [[ports]]
 localPort = 5002

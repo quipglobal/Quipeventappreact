@@ -41,43 +41,42 @@ export default function RootLayout() {
   if (!fontsLoaded && !fontError) return null;
 
   return (
-    <GestureHandlerRootView style={styles.root}>
-      <SafeAreaProvider>
-        <ErrorBoundary>
+    <ErrorBoundary>
+      <GestureHandlerRootView style={styles.root}>
+        <SafeAreaProvider>
           <QueryClientProvider client={queryClient}>
             <ThemeProvider>
               <AuthProvider>
                 <EventProvider>
-                  <StatusBar style="light" />
-                  <Stack
-                    screenOptions={{
-                      headerShown: false,
-                      contentStyle: { backgroundColor: colors.bg },
-                      animation: 'fade',
-                    }}
-                  >
-                    <Stack.Screen name="index" />
-                    <Stack.Screen name="(auth)/welcome" />
-                    <Stack.Screen name="events" />
-                    <Stack.Screen name="(tabs)" />
-                    <Stack.Screen name="profile" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-                    <Stack.Screen name="meetings" />
-                    <Stack.Screen name="qr-badge" />
-                    <Stack.Screen name="switch-event" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
-                    <Stack.Screen name="join" options={{ headerShown: false }} />
-                    <Stack.Screen name="event-dashboard" />
-                    <Stack.Screen name="+not-found" />
-                  </Stack>
-                  {!splashDone && (
-                    <AppSplashScreen onFinish={() => setSplashDone(true)} />
-                  )}
+                <StatusBar style="light" />
+                <Stack
+                  screenOptions={{
+                    headerShown: false,
+                    contentStyle: { backgroundColor: colors.bg },
+                    animation: 'fade',
+                  }}
+                >
+                  <Stack.Screen name="index" />
+                  <Stack.Screen name="(auth)/welcome" />
+                  <Stack.Screen name="(tabs)" />
+                  <Stack.Screen name="profile" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+                  <Stack.Screen name="meetings" />
+                  <Stack.Screen name="qr-badge" />
+                  <Stack.Screen name="switch-event" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+                  <Stack.Screen name="join" options={{ headerShown: false }} />
+                  <Stack.Screen name="event-dashboard" />
+                  <Stack.Screen name="+not-found" />
+                </Stack>
+                {!splashDone && (
+                  <AppSplashScreen onFinish={() => setSplashDone(true)} />
+                )}
                 </EventProvider>
               </AuthProvider>
             </ThemeProvider>
           </QueryClientProvider>
-        </ErrorBoundary>
-      </SafeAreaProvider>
-    </GestureHandlerRootView>
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    </ErrorBoundary>
   );
 }
 

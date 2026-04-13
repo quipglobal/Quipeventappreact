@@ -135,7 +135,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setBookmarkedSessions([]);
     setVotedPolls([]);
     setCompletedSurveys([]);
-    router.replace('/(auth)/welcome');
   }, []);
 
   const setUser = useCallback((u: AuthUser) => {
