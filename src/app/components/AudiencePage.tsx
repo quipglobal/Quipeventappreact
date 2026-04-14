@@ -450,6 +450,7 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
+  const [checkedInOnly, setCheckedInOnly] = useState(false);
   const [selectedMember, setSelectedMember] = useState<EventMember | null>(null);
   const [connectedIds, setConnectedIds] = useState<Set<number>>(new Set());
 
@@ -490,9 +491,10 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
         m.role.toLowerCase().includes(q) ||
         m.email.toLowerCase().includes(q);
       const matchesRole = roleFilter === 'all' || m.role === roleFilter;
-      return matchesSearch && matchesRole;
+      const matchesCheckedIn = !checkedInOnly || m.isCheckedIn;
+      return matchesSearch && matchesRole && matchesCheckedIn;
     });
-  }, [members, searchQuery, roleFilter]);
+  }, [members, searchQuery, roleFilter, checkedInOnly]);
 
   const networkingCount = members.filter(m => m.networkingOptIn).length;
   const checkedInCount = members.filter(m => m.isCheckedIn).length;
@@ -610,9 +612,30 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
         </div>
       </div>
 
-      {/* Role filter chips */}
-      {availableRoles.length > 1 && (
-        <div className="px-5 py-3 flex gap-2 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+      {/* Filter row: check-in toggle + role chips */}
+      <div className="px-5 py-3 flex gap-2 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+        {/* Checked-in toggle */}
+        <button
+          onClick={() => setCheckedInOnly(v => !v)}
+          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full flex-shrink-0 transition-all"
+          style={{
+            background: checkedInOnly ? '#10b981' : t.surface,
+            color: checkedInOnly ? '#fff' : t.textSec,
+            fontSize: 12, fontWeight: 700,
+            border: `1.5px solid ${checkedInOnly ? '#10b981' : t.border}`,
+          }}
+        >
+          <BadgeCheck style={{ width: 13, height: 13 }} />
+          Checked in only
+        </button>
+
+        {/* Divider between toggle and role chips */}
+        {availableRoles.length > 1 && (
+          <div className="w-px flex-shrink-0 self-stretch mx-0.5" style={{ background: t.divider }} />
+        )}
+
+        {/* All roles chip */}
+        {availableRoles.length > 1 && (
           <button
             onClick={() => setRoleFilter('all')}
             className="px-3.5 py-1.5 rounded-full flex-shrink-0 transition-all"
@@ -623,25 +646,27 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
               border: `1px solid ${roleFilter === 'all' ? t.accent : t.border}`,
             }}
           >
-            All
+            All roles
           </button>
-          {availableRoles.map(role => (
-            <button
-              key={role}
-              onClick={() => setRoleFilter(role === roleFilter ? 'all' : role)}
-              className="px-3.5 py-1.5 rounded-full flex-shrink-0 transition-all whitespace-nowrap"
-              style={{
-                background: roleFilter === role ? t.accent : t.surface,
-                color: roleFilter === role ? '#fff' : t.textSec,
-                fontSize: 12, fontWeight: 600,
-                border: `1px solid ${roleFilter === role ? t.accent : t.border}`,
-              }}
-            >
-              {role}
-            </button>
-          ))}
-        </div>
-      )}
+        )}
+
+        {/* Per-role chips */}
+        {availableRoles.length > 1 && availableRoles.map(role => (
+          <button
+            key={role}
+            onClick={() => setRoleFilter(role === roleFilter ? 'all' : role)}
+            className="px-3.5 py-1.5 rounded-full flex-shrink-0 transition-all whitespace-nowrap"
+            style={{
+              background: roleFilter === role ? t.accent : t.surface,
+              color: roleFilter === role ? '#fff' : t.textSec,
+              fontSize: 12, fontWeight: 600,
+              border: `1px solid ${roleFilter === role ? t.accent : t.border}`,
+            }}
+          >
+            {role}
+          </button>
+        ))}
+      </div>
 
       {/* Content */}
       <div className="px-5 pb-28">
