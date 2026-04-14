@@ -47,10 +47,10 @@ function eventToConfig(ev: OrganizerEvent): EventConfig {
 
 interface EventJoinPageProps {
   onJoinEvent: () => void;
-  onViewDashboard: () => void;
+  onViewDashboard?: () => void;
 }
 
-export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent, onViewDashboard }) => {
+export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => {
   const { user, joinEvent, switchEvent } = useApp();
   const { t, isDark } = useTheme();
   const [eventCode, setEventCode] = useState('');
@@ -105,7 +105,8 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent, onVie
 
   const handleEventCardClick = (ev: OrganizerEvent) => {
     switchEvent(eventToConfig(ev));
-    onViewDashboard();
+    joinEvent();
+    onJoinEvent();
   };
 
   const EventCard: React.FC<{ event: OrganizerEvent; compact?: boolean }> = ({ event, compact }) => {
