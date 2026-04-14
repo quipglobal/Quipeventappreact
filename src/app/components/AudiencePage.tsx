@@ -467,8 +467,8 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
-  // Default: show only checked-in attendees
-  const [checkedInOnly, setCheckedInOnly] = useState(true);
+  // Default: show all registrations (checked-in filter toggled manually)
+  const [checkedInOnly, setCheckedInOnly] = useState(false);
   const [selectedMember, setSelectedMember] = useState<EventMember | null>(null);
   const [connectedIds, setConnectedIds] = useState<Set<number>>(new Set());
 
@@ -626,7 +626,7 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
             border: `1.5px solid ${checkedInOnly ? '#10b981' : t.border}`,
           }}>
           <BadgeCheck style={{ width: 13, height: 13 }} />
-          Checked in only
+          Checked in ({checkedInCount})
         </button>
 
         {/* Divider */}
