@@ -165,13 +165,18 @@ const MemberDetailPage: React.FC<{
             </div>
 
             <div className="flex-1 min-w-0 pt-1">
-              <h1 style={{ color: '#fff', fontSize: 22, fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1.15, marginBottom: 4 }}>
+              <h1 style={{ color: '#fff', fontSize: 22, fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1.15, marginBottom: 2 }}>
                 {member.name}
               </h1>
+              {member.title && (
+                <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: 13, fontWeight: 600, marginBottom: 2 }}>
+                  {member.title}
+                </p>
+              )}
               {member.company && (
                 <p className="flex items-center gap-1.5 mb-1"
-                  style={{ color: 'rgba(255,255,255,0.75)', fontSize: 13 }}>
-                  <Building2 style={{ width: 12, height: 12 }} /> {member.company}
+                  style={{ color: 'rgba(255,255,255,0.65)', fontSize: 12 }}>
+                  <Building2 style={{ width: 11, height: 11 }} /> {member.company}
                 </p>
               )}
               <div className="flex items-center gap-2 flex-wrap mt-1.5">
@@ -224,6 +229,21 @@ const MemberDetailPage: React.FC<{
             <MessageCircle style={{ width: 16, height: 16, color: t.accentSoft }} />
             <span style={{ color: t.text, fontSize: 13, fontWeight: 600 }}>Message</span>
           </button>
+        </div>
+      </div>
+
+      {/* Biography */}
+      <div className="px-5 mb-5">
+        <h3 style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Biography</h3>
+        <div className="rounded-2xl px-4 py-4"
+          style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+          {member.bio ? (
+            <p style={{ color: t.textSec, fontSize: 13, lineHeight: 1.7 }}>{member.bio}</p>
+          ) : (
+            <p style={{ color: t.textMuted, fontSize: 13, fontStyle: 'italic' }}>
+              No biography provided.
+            </p>
+          )}
         </div>
       </div>
 
@@ -393,6 +413,13 @@ const MemberCard: React.FC<{
             </h3>
             {isConnected && <UserCheck style={{ width: 13, height: 13, color: t.successText, flexShrink: 0 }} />}
           </div>
+
+          {/* Title */}
+          {member.title && (
+            <p className="truncate mb-0.5" style={{ color: t.textSec, fontSize: 12, fontWeight: 500 }}>
+              {member.title}
+            </p>
+          )}
 
           {/* Role + Company */}
           <div className="flex items-center gap-1.5 mb-1 min-w-0">
