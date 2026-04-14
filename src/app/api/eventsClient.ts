@@ -113,14 +113,18 @@ function normalizeEvent(raw: Record<string, unknown>): OrganizerEvent {
   };
 }
 
+// ─── Globex tenant scoping ────────────────────────────────────────────────────
+
+const EVENTS_TENANT_HEADERS: Record<string, string> = { 'X-Tenant-ID': '3' };
+
 // ─── API Methods ──────────────────────────────────────────────────────────────
 
 /**
  * GET /api/v1/events
- * Returns a list of all events for the tenant.
+ * Returns a list of all events for the Globex tenant (tenant 3).
  */
 export async function listEventsApi(status?: EventStatus): Promise<ListEventsResponse> {
-  const res = await apiGet<unknown>('/api/v1/events?per_page=100');
+  const res = await apiGet<unknown>('/api/v1/events?per_page=100', EVENTS_TENANT_HEADERS);
   if (!res.success) {
     return { success: false, error: res.error ?? { message: 'Failed to fetch events.' } };
   }
@@ -136,10 +140,10 @@ export async function listEventsApi(status?: EventStatus): Promise<ListEventsRes
 
 /**
  * GET /api/v1/events/:id
- * Returns a single event's full details.
+ * Returns a single event's full details (Globex tenant).
  */
 export async function getEventApi(id: string): Promise<EventDetailResponse> {
-  const res = await apiGet<unknown>(`/api/v1/events/${id}`);
+  const res = await apiGet<unknown>(`/api/v1/events/${id}`, EVENTS_TENANT_HEADERS);
   if (!res.success || !res.data) {
     return { success: false, error: res.error ?? { message: 'Event not found.' } };
   }
@@ -149,7 +153,7 @@ export async function getEventApi(id: string): Promise<EventDetailResponse> {
 
 /**
  * POST /api/v1/events/join
- * Join an event by access code. Returns the matched event id on success.
+ * Join an event by access code (Globex tenant).
  * Falls back to list search if no dedicated join endpoint exists.
  */
 export async function joinEventByCodeApi(code: string): Promise<JoinEventResponse> {
@@ -163,7 +167,7 @@ export async function joinEventByCodeApi(code: string): Promise<JoinEventRespons
          e.title.toUpperCase().replace(/\s+/g, '').includes(normalizedCode)
   );
   if (!matched) {
-    const res = await apiPost<unknown>('/api/v1/events/join', { code });
+    const res = await apiPost<unknown>('/api/v1/events/join', { code }, EVENTS_TENANT_HEADERS);
     if (res.success && res.data) {
       const raw = (res.data as Record<string, unknown>);
       const eventId = String(raw.event_id ?? raw.eventId ?? raw.id ?? '');

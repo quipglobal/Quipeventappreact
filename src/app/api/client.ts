@@ -112,11 +112,11 @@ async function fetchWithRetry(url: string, options: RequestInit, retries = MAX_R
   }
 }
 
-export async function apiGet<T>(path: string): Promise<ApiEnvelope<T>> {
+export async function apiGet<T>(path: string, extraHeaders?: Record<string, string>): Promise<ApiEnvelope<T>> {
   try {
     const res = await fetchWithRetry(`${API_BASE_URL}${path}`, {
       method: 'GET',
-      headers: buildHeaders(),
+      headers: buildHeaders(extraHeaders),
     });
     return parseResponse<T>(res);
   } catch {
@@ -124,11 +124,11 @@ export async function apiGet<T>(path: string): Promise<ApiEnvelope<T>> {
   }
 }
 
-export async function apiPost<T>(path: string, body: unknown): Promise<ApiEnvelope<T>> {
+export async function apiPost<T>(path: string, body: unknown, extraHeaders?: Record<string, string>): Promise<ApiEnvelope<T>> {
   try {
     const res = await fetchWithRetry(`${API_BASE_URL}${path}`, {
       method: 'POST',
-      headers: buildHeaders(),
+      headers: buildHeaders(extraHeaders),
       body: JSON.stringify(body),
     });
     return parseResponse<T>(res);
