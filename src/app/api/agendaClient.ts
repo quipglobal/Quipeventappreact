@@ -2,13 +2,20 @@
  * Agenda & Sessions API Client
  * ─────────────────────────────────────────────────────────────────────────────
  * API CONTRACT (real backend):
- *   GET  /api/v1/events/:eventId/mobile-agenda               → SessionsResponse
- *   POST /api/v1/events/:eventId/sessions/:id/bookmark       → BookmarkResponse
- *   DELETE /api/v1/events/:eventId/sessions/:id/bookmark     → BookmarkResponse
+ *   GET  /api/v1/events/:eventId/agenda   → { success: true, data: AgendaItem[] }
+ *
+ * AgendaItem fields from backend:
+ *   id, event_id, start_time (ISO8601), end_time (ISO8601),
+ *   title, description, location, sort_order,
+ *   speakers: [], moderators: []
  */
 
 import { apiGet, apiPost } from './client';
 import type { Session } from '@/app/types/config';
+
+// ─── Globex tenant scoping ────────────────────────────────────────────────────
+
+const AGENDA_TENANT_HEADERS: Record<string, string> = { 'X-Tenant-ID': '3' };
 
 // ─── Response Types ───────────────────────────────────────────────────────────
 
@@ -30,12 +37,34 @@ export interface BookmarkResponse {
   error?: { message: string };
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function formatTime(iso: string): string {
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+      timeZone: 'UTC',
+    });
+  } catch {
+    return iso;
+  }
+}
+
+function extractDate(iso: string): string {
+  if (!iso) return '';
+  return iso.slice(0, 10);
+}
+
 // ─── Normalizer ───────────────────────────────────────────────────────────────
 
 function normalizeSession(raw: Record<string, unknown>): Session {
   const speakers: Session['speakers'] = [];
+
   const rawSpeakers = Array.isArray(raw.speakers) ? raw.speakers : [];
-  rawSpeakers.forEach((s: Record<string, unknown>) => {
+  (rawSpeakers as Record<string, unknown>[]).forEach(s => {
     speakers.push({
       id: String(s.id ?? ''),
       name: (s.name ?? s.speaker_name ?? '') as string,
@@ -55,32 +84,31 @@ function normalizeSession(raw: Record<string, unknown>): Session {
     });
   }
 
-  const startTime = (raw.start_time ?? raw.startTime ?? '') as string;
-  const endTime = (raw.end_time ?? raw.endTime ?? '') as string;
-  const date = (raw.date ?? raw.session_date ?? raw.day_date ?? '') as string;
+  const startIso = (raw.start_time ?? raw.startTime ?? '') as string;
+  const endIso   = (raw.end_time   ?? raw.endTime   ?? '') as string;
 
   return {
-    id: String(raw.id ?? ''),
-    title: (raw.title ?? raw.name ?? '') as string,
-    startTime,
-    endTime,
-    date,
-    room: (raw.room ?? raw.location ?? raw.venue ?? '') as string,
-    track: (raw.track ?? raw.category ?? raw.stream ?? '') as string,
-    type: (raw.type ?? raw.session_type ?? 'Session') as string,
-    tags: Array.isArray(raw.tags) ? raw.tags as string[] : [],
+    id:          String(raw.id ?? ''),
+    title:       (raw.title ?? raw.name ?? '') as string,
+    startTime:   formatTime(startIso),
+    endTime:     formatTime(endIso),
+    date:        extractDate(startIso) || (raw.date ?? raw.session_date ?? '') as string,
+    room:        (raw.location ?? raw.room ?? raw.venue ?? '') as string,
+    track:       (raw.track ?? raw.category ?? raw.stream ?? '') as string,
+    type:        (raw.type ?? raw.session_type ?? '') as string,
+    tags:        Array.isArray(raw.tags) ? raw.tags as string[] : [],
     speakers,
     description: (raw.description ?? raw.summary ?? '') as string,
-    pollId: raw.poll_id ? String(raw.poll_id) : undefined,
-    surveyId: raw.survey_id ? String(raw.survey_id) : undefined,
+    pollId:      raw.poll_id   ? String(raw.poll_id)   : undefined,
+    surveyId:    raw.survey_id ? String(raw.survey_id) : undefined,
   };
 }
 
 // ─── API Methods ──────────────────────────────────────────────────────────────
 
 /**
- * GET /api/v1/events/:eventId/mobile-agenda
- * Returns all sessions for the event, filtered by day/track if provided.
+ * GET /api/v1/events/:eventId/agenda
+ * Returns all sessions for the event, sorted by sort_order / start_time.
  */
 export async function listSessionsApi(
   eventId: string,
@@ -90,7 +118,7 @@ export async function listSessionsApi(
     return { success: true, data: [] };
   }
 
-  const res = await apiGet<unknown>(`/api/v1/events/${eventId}/mobile-agenda`);
+  const res = await apiGet<unknown>(`/api/v1/events/${eventId}/agenda`, AGENDA_TENANT_HEADERS);
   if (!res.success) {
     return { success: false, error: res.error ?? { message: 'Failed to load agenda.' } };
   }
@@ -98,21 +126,26 @@ export async function listSessionsApi(
   const envelope = res.data as Record<string, unknown>;
   const raw: unknown[] = Array.isArray(envelope)
     ? envelope
-    : (Array.isArray(envelope?.data) ? envelope.data as unknown[] : null)
+    : (Array.isArray(envelope?.data)     ? envelope.data     as unknown[] : null)
       ?? (Array.isArray(envelope?.sessions) ? envelope.sessions as unknown[] : null)
-      ?? (Array.isArray(envelope?.agenda) ? envelope.agenda as unknown[] : null)
+      ?? (Array.isArray(envelope?.agenda)   ? envelope.agenda   as unknown[] : null)
       ?? [];
 
   let sessions = raw.map(r => normalizeSession(r as Record<string, unknown>));
-  if (filters?.day) sessions = sessions.filter(s => s.date === filters.day);
+
+  sessions.sort((a, b) => {
+    if (a.date !== b.date) return a.date.localeCompare(b.date);
+    return a.startTime.localeCompare(b.startTime);
+  });
+
+  if (filters?.day)   sessions = sessions.filter(s => s.date === filters.day);
   if (filters?.track && filters.track !== 'all') sessions = sessions.filter(s => s.track === filters.track);
 
   return { success: true, data: sessions };
 }
 
 /**
- * GET /api/v1/events/:eventId/mobile-agenda/:id
- * Returns full detail for a single session.
+ * Looks up a single session by ID from the full agenda.
  */
 export async function getSessionApi(eventId: string, id: string): Promise<SessionDetailResponse> {
   if (!eventId) return { success: false, error: { message: 'No event selected.' } };
@@ -120,21 +153,20 @@ export async function getSessionApi(eventId: string, id: string): Promise<Sessio
   const allRes = await listSessionsApi(eventId);
   if (!allRes.success) return { success: false, error: allRes.error };
   const session = (allRes.data ?? []).find(s => s.id === id);
-  if (!session) return { success: false, error: { message: 'Session not found.' } };
+  if (!session)  return { success: false, error: { message: 'Session not found.' } };
   return { success: true, data: session };
 }
 
 /**
- * POST /api/v1/events/:eventId/sessions/:id/bookmark
- * Toggles a bookmark on a session.
+ * Client-side bookmark toggle (server-side bookmark endpoint not yet available).
  */
 export async function bookmarkSessionApi(eventId: string, id: string, bookmarked: boolean): Promise<BookmarkResponse> {
   if (!eventId) return { success: true, data: { sessionId: id, bookmarked } };
 
   const path = `/api/v1/events/${eventId}/sessions/${id}/bookmark`;
   const res = bookmarked
-    ? await apiPost<unknown>(path, {})
-    : await apiPost<unknown>(`${path}/remove`, {});
+    ? await apiPost<unknown>(path, {}, AGENDA_TENANT_HEADERS)
+    : await apiPost<unknown>(`${path}/remove`, {}, AGENDA_TENANT_HEADERS);
 
   if (!res.success) {
     return { success: true, data: { sessionId: id, bookmarked } };
