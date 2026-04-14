@@ -24,7 +24,7 @@ import { SponsorDrawPage } from '@/app/components/SponsorDrawPage';
 import { BottomNav } from '@/app/components/BottomNav';
 import { MyQrCodeButton } from '@/app/components/MyQrCodeButton';
 import { MeetingsPage } from '@/app/components/MeetingsPage';
-import { Bell, Search, MessageCircle } from 'lucide-react';
+import { Bell, Search, MessageCircle, LayoutGrid } from 'lucide-react';
 
 type Screen = 'splash' | 'welcome' | 'event-join' | 'main';
 type Page =
@@ -198,6 +198,13 @@ function AppContent() {
                 </div>
 
                 <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setScreen('event-join')}
+                    className="w-9 h-9 rounded-full flex items-center justify-center transition-colors"
+                    title="Back to events"
+                    style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+                    <LayoutGrid size={16} color={t.text} />
+                  </button>
                   <button className="w-9 h-9 rounded-full flex items-center justify-center transition-colors"
                     style={{ background: t.surface, border: `1px solid ${t.border}` }}>
                     <Search size={16} color={t.text} />
