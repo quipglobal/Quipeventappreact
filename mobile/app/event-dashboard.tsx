@@ -104,13 +104,16 @@ export default function EventDashboardScreen() {
     const c = popupCode.trim() || selectedEvent?.code || '';
     if (!c) return;
     joinEvent(c, {
-      onSuccess: (res) => {
+      onSuccess: (event) => {
         setSelectedEvent(null);
-        Alert.alert('Joined!', `You have joined "${res.data?.name}".`, [
+        Alert.alert('Joined!', `You have joined "${event.name}".`, [
           { text: 'OK', onPress: () => router.replace('/(tabs)/feed') },
         ]);
       },
-      onError: () => Alert.alert('Not Found', `No event found for "${c.toUpperCase()}".`),
+      onError: (err) => {
+        const msg = err instanceof Error ? err.message : `No event found for "${c.toUpperCase()}".`;
+        Alert.alert('Not Found', msg);
+      },
     });
   };
 
