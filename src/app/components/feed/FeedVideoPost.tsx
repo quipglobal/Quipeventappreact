@@ -1,9 +1,10 @@
 import React, { useRef, useState, useCallback } from 'react';
-import { Heart, MessageSquare, Share2, Play, Pause, Volume2, VolumeX, Star } from 'lucide-react';
+import { Heart, MessageSquare, Share2, Play, Volume2, VolumeX, Star } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTheme } from '@/app/context/ThemeContext';
 import { FeedVideoPost as FeedVideoPostType } from '@/app/data/mockFeed';
 import { useApp } from '@/app/context/AppContext';
+import { markVideoWatchedApi } from '@/app/api/feedClient';
 
 interface FeedVideoPostProps {
   post: FeedVideoPostType;
@@ -11,7 +12,7 @@ interface FeedVideoPostProps {
 
 export const FeedVideoPost: React.FC<FeedVideoPostProps> = ({ post }) => {
   const { t } = useTheme();
-  const { addPoints, showToast } = useApp();
+  const { addPoints, showToast, eventConfig } = useApp();
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -46,11 +47,12 @@ export const FeedVideoPost: React.FC<FeedVideoPostProps> = ({ post }) => {
     if (!hasEarned && pct >= 0.8) {
       setHasEarned(true);
       setShowEarnedBurst(true);
-      addPoints(post.pointsReward, `Watched video by ${post.user.name}`);
+      addPoints(post.pointsReward, `Watched "${post.user.name}" video`);
       showToast(`+${post.pointsReward} pts for watching!`, post.pointsReward);
       setTimeout(() => setShowEarnedBurst(false), 2200);
+      markVideoWatchedApi(eventConfig.eventId, post.id, post.pointsReward).catch(() => {/* silent */});
     }
-  }, [hasEarned, addPoints, showToast, post.pointsReward, post.user.name]);
+  }, [hasEarned, addPoints, showToast, post.pointsReward, post.user.name, post.id, eventConfig.eventId]);
 
   const handleEnded = useCallback(() => {
     setIsPlaying(false);

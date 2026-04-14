@@ -39,6 +39,9 @@ export const SocialFeed: React.FC<SocialFeedProps> = () => {
 
   useEffect(() => {
     setLoading(true);
+    setItems([]);
+    setPage(1);
+    setHasMore(true);
     fetchPage(1, false).finally(() => setLoading(false));
   }, [fetchPage]);
 

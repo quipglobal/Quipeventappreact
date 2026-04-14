@@ -4,6 +4,7 @@ import { EventConfig, GamificationConfig } from '@/app/types/config';
 import { getMeApi } from '@/app/api/authClient';
 import { clearToken } from '@/app/api/client';
 import { sendMeetingRequest as sendMeetingRequestApi } from '@/app/api/meetingsClient';
+import { fetchPointsFromBackend, scheduleSyncPoints } from '@/app/api/pointsClient';
 
 interface User {
   id: string;
@@ -212,9 +213,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [conversations, setConversations] = useState<Conversation[]>([]);
 
   useEffect(() => {
-    getMeApi().then(res => {
+    getMeApi().then(async res => {
       if (res.success && res.data) {
         const u = res.data;
+        const backendPoints = await fetchPointsFromBackend().catch(() => 0);
+        const totalPoints = Math.max(u.points ?? 0, backendPoints);
+        const tierForPoints = mockGamificationConfig.tiers.find(
+          t => totalPoints >= t.minPoints && totalPoints <= t.maxPoints
+        );
         setUser({
           id: u.id,
           name: u.name,
@@ -223,8 +229,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           company: u.company ?? '',
           role: u.role,
           avatar: u.avatar ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name)}&background=7c3aed&color=fff`,
-          points: u.points ?? 0,
-          tier: u.tier ?? 'Bronze',
+          points: totalPoints,
+          tier: tierForPoints?.name ?? u.tier ?? 'Bronze',
           interests: u.interests ?? [],
           profileComplete: u.profileComplete ?? true,
           emailVerified: u.emailVerified ?? true,
@@ -281,6 +287,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setPointsHistory((prev) => [pointEvent, ...prev]);
 
       showToast(activity, points);
+
+      scheduleSyncPoints(newPoints);
 
       if (newTier !== user.tier) {
         setTimeout(() => showToast(`🎉 Upgraded to ${newTier} tier!`), 3500);
