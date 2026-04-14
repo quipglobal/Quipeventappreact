@@ -4,7 +4,7 @@ import {
   Building2, ChevronRight, UserPlus, UserCheck,
   MessageCircle, Globe, X, Wifi, WifiOff,
   Loader2, BadgeCheck, QrCode, Calendar,
-  RefreshCw,
+  RefreshCw, Phone, Mail, Filter,
 } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
@@ -14,12 +14,7 @@ import { getEventMembersApi, EventMember } from '@/app/api/audienceClient';
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function getInitials(name: string): string {
-  return name
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map(n => n[0].toUpperCase())
-    .join('');
+  return name.split(' ').filter(Boolean).slice(0, 2).map(n => n[0].toUpperCase()).join('');
 }
 
 const AVATAR_COLORS = [
@@ -32,22 +27,27 @@ function avatarColor(userId: number): string {
   return AVATAR_COLORS[userId % AVATAR_COLORS.length];
 }
 
-function formatJoinDate(iso: string | null): string {
+function formatCheckedInTime(iso: string | null): string {
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  } catch { return iso; }
+}
+
+function formatDate(iso: string | null): string {
   if (!iso) return '—';
   try {
     return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  } catch {
-    return iso;
-  }
+  } catch { return iso; }
 }
 
-function formatCheckedInTime(iso: string | null): string {
-  if (!iso) return '—';
-  try {
-    return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-  } catch {
-    return iso;
-  }
+function maskEmail(email: string): string {
+  if (!email) return '';
+  const [user, domain] = email.split('@');
+  if (!user || !domain) return email;
+  const visible = user.slice(0, 2);
+  const masked = '*'.repeat(Math.max(0, user.length - 2));
+  return `${visible}${masked}@${domain}`;
 }
 
 const roleGradients: Record<string, string> = {
@@ -65,45 +65,27 @@ function roleGrad(role: string): string {
   return roleGradients[role] ?? roleGradients['Attendee'];
 }
 
-// ─── Avatar Component ─────────────────────────────────────────────────────────
+// ─── Avatar ───────────────────────────────────────────────────────────────────
 
-const MemberAvatar: React.FC<{
-  member: EventMember;
-  size?: number;
-  rounded?: string;
-}> = ({ member, size = 48, rounded = 'rounded-xl' }) => {
+const MemberAvatar: React.FC<{ member: EventMember; size?: number; rounded?: string }> = ({
+  member, size = 48, rounded = 'rounded-xl',
+}) => {
   const [imgError, setImgError] = useState(false);
   const color = avatarColor(member.userId);
-  const initials = getInitials(member.name);
 
   if (member.avatar && !imgError) {
     return (
-      <img
-        src={member.avatar}
-        alt={member.name}
+      <img src={member.avatar} alt={member.name}
         className={`object-cover ${rounded}`}
         style={{ width: size, height: size }}
-        onError={() => setImgError(true)}
-      />
+        onError={() => setImgError(true)} />
     );
   }
-
   return (
-    <div
-      className={`flex items-center justify-center ${rounded}`}
-      style={{
-        width: size,
-        height: size,
-        background: `linear-gradient(135deg, ${color}, ${color}aa)`,
-      }}
-    >
-      <span style={{
-        color: '#fff',
-        fontSize: size * 0.33,
-        fontWeight: 800,
-        letterSpacing: '-0.02em',
-      }}>
-        {initials}
+    <div className={`flex items-center justify-center ${rounded}`}
+      style={{ width: size, height: size, background: `linear-gradient(135deg, ${color}, ${color}aa)` }}>
+      <span style={{ color: '#fff', fontSize: size * 0.33, fontWeight: 800, letterSpacing: '-0.02em' }}>
+        {getInitials(member.name)}
       </span>
     </div>
   );
@@ -119,6 +101,26 @@ const MemberDetailPage: React.FC<{
 }> = ({ member, onBack, onConnect, isConnected }) => {
   const { t, isDark } = useTheme();
 
+  const rows: { icon: React.ElementType; label: string; value: string; color?: string }[] = [
+    { icon: Building2, label: 'Role', value: member.role },
+    { icon: BadgeCheck, label: 'Registration Status', value: member.status },
+    {
+      icon: Clock, label: 'Check-in',
+      value: member.isCheckedIn
+        ? `Checked in${member.checkedInAt ? ` at ${formatCheckedInTime(member.checkedInAt)}` : ''}`
+        : 'Not yet checked in',
+      color: member.isCheckedIn ? '#10b981' : undefined,
+    },
+    { icon: Calendar, label: 'Registered', value: formatDate(member.joinedAt) },
+  ];
+
+  if (member.company) {
+    rows.unshift({ icon: Building2, label: 'Company', value: member.company });
+  }
+  if (member.badgeCode) {
+    rows.push({ icon: QrCode, label: 'Badge Code', value: member.badgeCode });
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, x: '100%' }}
@@ -129,25 +131,21 @@ const MemberDetailPage: React.FC<{
       style={{ background: t.bgPage }}
     >
       {/* Header */}
-      <div
-        className="relative overflow-hidden px-5 pt-12 pb-8"
+      <div className="relative overflow-hidden px-5 pt-12 pb-8"
         style={{
           background: isDark
             ? 'linear-gradient(160deg,#1e1b4b 0%,#312e81 50%,#4338ca 100%)'
             : 'linear-gradient(160deg,#7c3aed 0%,#6366f1 50%,#818cf8 100%)',
-        }}
-      >
+        }}>
         <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full opacity-15"
           style={{ background: 'radial-gradient(circle, #c4b5fd, transparent 70%)' }} />
         <div className="absolute bottom-0 -left-8 w-32 h-32 rounded-full opacity-10"
           style={{ background: 'radial-gradient(circle, #818cf8, transparent 70%)' }} />
 
         <div className="relative z-10">
-          <button
-            onClick={onBack}
+          <button onClick={onBack}
             className="flex items-center gap-1.5 mb-5 active:opacity-70 transition-opacity"
-            style={{ color: 'rgba(255,255,255,0.75)' }}
-          >
+            style={{ color: 'rgba(255,255,255,0.75)' }}>
             <ArrowLeft style={{ width: 18, height: 18 }} />
             <span style={{ fontSize: 13, fontWeight: 600 }}>Audience</span>
           </button>
@@ -158,50 +156,45 @@ const MemberDetailPage: React.FC<{
                 style={{ borderColor: 'rgba(255,255,255,0.25)' }}>
                 <MemberAvatar member={member} size={80} rounded="rounded-none" />
               </div>
-              {member.networkingOptIn && (
+              {member.isCheckedIn && (
                 <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-emerald-500 border-2 flex items-center justify-center"
                   style={{ borderColor: isDark ? '#312e81' : '#6366f1' }}>
-                  <div className="w-2 h-2 rounded-full bg-white" />
+                  <BadgeCheck style={{ width: 11, height: 11, color: '#fff' }} />
                 </div>
               )}
             </div>
 
             <div className="flex-1 min-w-0 pt-1">
-              <h1 style={{ color: '#fff', fontSize: 22, fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1.15, marginBottom: 6 }}>
+              <h1 style={{ color: '#fff', fontSize: 22, fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1.15, marginBottom: 4 }}>
                 {member.name}
               </h1>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span
-                  className="px-2.5 py-1 rounded-lg text-xs font-bold"
-                  style={{ background: roleGrad(member.role), color: '#fff' }}
-                >
+              {member.company && (
+                <p className="flex items-center gap-1.5 mb-1"
+                  style={{ color: 'rgba(255,255,255,0.75)', fontSize: 13 }}>
+                  <Building2 style={{ width: 12, height: 12 }} /> {member.company}
+                </p>
+              )}
+              <div className="flex items-center gap-2 flex-wrap mt-1.5">
+                <span className="px-2.5 py-1 rounded-lg text-xs font-bold"
+                  style={{ background: roleGrad(member.role), color: '#fff' }}>
                   {member.role}
                 </span>
-                <span
-                  className="px-2 py-0.5 rounded-md text-xs font-600"
-                  style={{
-                    background: member.status === 'Active' || member.status === 'Confirmed'
-                      ? 'rgba(16,185,129,0.2)'
-                      : 'rgba(107,114,128,0.2)',
-                    color: member.status === 'Active' || member.status === 'Confirmed'
-                      ? '#34d399'
-                      : '#9ca3af',
-                  }}
-                >
-                  {member.status}
-                </span>
+                {member.isCheckedIn && (
+                  <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold"
+                    style={{ background: 'rgba(16,185,129,0.2)', color: '#34d399' }}>
+                    <BadgeCheck style={{ width: 10, height: 10 }} /> Checked In
+                  </span>
+                )}
               </div>
             </div>
           </div>
 
-          {/* Networking badge */}
+          {/* Networking opt-in banner */}
           {member.networkingOptIn && (
             <div className="mt-4 flex items-center gap-2 px-3 py-2 rounded-xl"
               style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.25)' }}>
               <Wifi style={{ width: 14, height: 14, color: '#34d399' }} />
-              <span style={{ color: '#34d399', fontSize: 12, fontWeight: 600 }}>
-                Open to networking
-              </span>
+              <span style={{ color: '#34d399', fontSize: 12, fontWeight: 600 }}>Open to networking</span>
               <Sparkles style={{ width: 12, height: 12, color: '#34d399' }} />
             </div>
           )}
@@ -220,87 +213,95 @@ const MemberDetailPage: React.FC<{
               background: isConnected ? t.successBg : 'linear-gradient(135deg,#7c3aed,#4f46e5)',
               border: isConnected ? `1px solid ${t.successText}30` : 'none',
               color: isConnected ? t.successText : '#fff',
-            }}
-          >
-            {isConnected ? (
-              <>
-                <UserCheck style={{ width: 16, height: 16 }} />
-                <span style={{ fontSize: 13, fontWeight: 700 }}>Connected</span>
-              </>
-            ) : (
-              <>
-                <UserPlus style={{ width: 16, height: 16 }} />
-                <span style={{ fontSize: 13, fontWeight: 700 }}>Connect</span>
-              </>
-            )}
+            }}>
+            {isConnected
+              ? <><UserCheck style={{ width: 16, height: 16 }} /><span style={{ fontSize: 13, fontWeight: 700 }}>Connected</span></>
+              : <><UserPlus style={{ width: 16, height: 16 }} /><span style={{ fontSize: 13, fontWeight: 700 }}>Connect</span></>
+            }
           </button>
-          <button
-            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl transition-all active:scale-[0.97]"
-            style={{ background: t.surface2, border: `1px solid ${t.border}` }}
-          >
+          <button className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl transition-all active:scale-[0.97]"
+            style={{ background: t.surface2, border: `1px solid ${t.border}` }}>
             <MessageCircle style={{ width: 16, height: 16, color: t.accentSoft }} />
             <span style={{ color: t.text, fontSize: 13, fontWeight: 600 }}>Message</span>
           </button>
         </div>
       </div>
 
-      {/* Event Details card */}
+      {/* Personal Details */}
       <div className="px-5 mb-5">
-        <h3 style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Event Details</h3>
+        <h3 style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Personal Details</h3>
         <div className="rounded-2xl overflow-hidden" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+          {/* Email */}
+          <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: `1px solid ${t.divider}` }}>
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(99,102,241,0.1)' }}>
+              <Mail style={{ width: 14, height: 14, color: '#6366f1' }} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p style={{ color: t.textSec, fontSize: 11, fontWeight: 600 }}>Email</p>
+              <p className="truncate" style={{ color: t.text, fontSize: 13, fontWeight: 600 }}>
+                {maskEmail(member.email)}
+              </p>
+            </div>
+          </div>
+
+          {/* Phone */}
+          {member.phone && (
+            <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: `1px solid ${t.divider}` }}>
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(16,185,129,0.1)' }}>
+                <Phone style={{ width: 14, height: 14, color: '#10b981' }} />
+              </div>
+              <div className="flex-1">
+                <p style={{ color: t.textSec, fontSize: 11, fontWeight: 600 }}>Phone</p>
+                <p style={{ color: t.text, fontSize: 13, fontWeight: 600 }}>
+                  {'•'.repeat(6) + member.phone.slice(-4)}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Company */}
+          {member.company && (
+            <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: `1px solid ${t.divider}` }}>
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(245,158,11,0.1)' }}>
+                <Building2 style={{ width: 14, height: 14, color: '#f59e0b' }} />
+              </div>
+              <div className="flex-1">
+                <p style={{ color: t.textSec, fontSize: 11, fontWeight: 600 }}>Company</p>
+                <p style={{ color: t.text, fontSize: 13, fontWeight: 600 }}>{member.company}</p>
+              </div>
+            </div>
+          )}
 
           {/* Role */}
-          <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: `1px solid ${t.divider}` }}>
+          <div className="flex items-center gap-3 px-4 py-3"
+            style={{ borderBottom: member.badgeCode || !member.isCheckedIn ? `1px solid ${t.divider}` : undefined }}>
             <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(124,58,237,0.1)' }}>
               <Building2 style={{ width: 14, height: 14, color: '#7c3aed' }} />
             </div>
             <div className="flex-1">
-              <p style={{ color: t.textSec, fontSize: 11, fontWeight: 600 }}>Role</p>
-              <p style={{ color: t.text, fontSize: 13, fontWeight: 700 }}>{member.role}</p>
-            </div>
-          </div>
-
-          {/* Status */}
-          <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: `1px solid ${t.divider}` }}>
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(16,185,129,0.1)' }}>
-              <BadgeCheck style={{ width: 14, height: 14, color: '#10b981' }} />
-            </div>
-            <div className="flex-1">
-              <p style={{ color: t.textSec, fontSize: 11, fontWeight: 600 }}>Registration Status</p>
-              <p style={{ color: t.text, fontSize: 13, fontWeight: 700 }}>{member.status}</p>
-            </div>
-          </div>
-
-          {/* Registered */}
-          <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: `1px solid ${t.divider}` }}>
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(99,102,241,0.1)' }}>
-              <Calendar style={{ width: 14, height: 14, color: '#6366f1' }} />
-            </div>
-            <div className="flex-1">
-              <p style={{ color: t.textSec, fontSize: 11, fontWeight: 600 }}>Registered</p>
-              <p style={{ color: t.text, fontSize: 13, fontWeight: 700 }}>{formatJoinDate(member.joinedAt)}</p>
+              <p style={{ color: t.textSec, fontSize: 11, fontWeight: 600 }}>Event Role</p>
+              <p style={{ color: t.text, fontSize: 13, fontWeight: 600 }}>{member.role}</p>
             </div>
           </div>
 
           {/* Check-in */}
-          <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: member.badgeCode ? `1px solid ${t.divider}` : undefined }}>
+          <div className="flex items-center gap-3 px-4 py-3"
+            style={{ borderBottom: member.badgeCode ? `1px solid ${t.divider}` : undefined }}>
             <div className="w-8 h-8 rounded-lg flex items-center justify-center"
               style={{ background: member.isCheckedIn ? 'rgba(16,185,129,0.1)' : 'rgba(107,114,128,0.1)' }}>
               <Clock style={{ width: 14, height: 14, color: member.isCheckedIn ? '#10b981' : '#6b7280' }} />
             </div>
             <div className="flex-1">
               <p style={{ color: t.textSec, fontSize: 11, fontWeight: 600 }}>Check-in</p>
-              {member.isCheckedIn ? (
-                <p style={{ color: '#10b981', fontSize: 13, fontWeight: 700 }}>
-                  Checked in {member.checkedInAt ? `at ${formatCheckedInTime(member.checkedInAt)}` : ''}
-                </p>
-              ) : (
-                <p style={{ color: t.textMuted, fontSize: 13, fontWeight: 600 }}>Not yet checked in</p>
-              )}
+              <p style={{ color: member.isCheckedIn ? '#10b981' : t.textMuted, fontSize: 13, fontWeight: 600 }}>
+                {member.isCheckedIn
+                  ? `Checked in${member.checkedInAt ? ` at ${formatCheckedInTime(member.checkedInAt)}` : ''}`
+                  : 'Not checked in'}
+              </p>
             </div>
           </div>
 
-          {/* Badge code */}
+          {/* Badge */}
           {member.badgeCode && (
             <div className="flex items-center gap-3 px-4 py-3">
               <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(245,158,11,0.1)' }}>
@@ -322,34 +323,29 @@ const MemberDetailPage: React.FC<{
             background: member.networkingOptIn ? 'rgba(16,185,129,0.06)' : t.surface2,
             border: `1px solid ${member.networkingOptIn ? 'rgba(16,185,129,0.2)' : t.border}`,
           }}>
-          {member.networkingOptIn ? (
-            <>
-              <Wifi style={{ width: 20, height: 20, color: '#10b981', flexShrink: 0 }} />
-              <div>
-                <p style={{ color: t.text, fontSize: 13, fontWeight: 700 }}>Open to Networking</p>
-                <p style={{ color: t.textSec, fontSize: 12 }}>
-                  This attendee is looking to connect with others.
-                </p>
-              </div>
-            </>
-          ) : (
-            <>
-              <WifiOff style={{ width: 20, height: 20, color: t.textMuted, flexShrink: 0 }} />
-              <div>
+          {member.networkingOptIn
+            ? <>
+                <Wifi style={{ width: 20, height: 20, color: '#10b981', flexShrink: 0 }} />
+                <div>
+                  <p style={{ color: t.text, fontSize: 13, fontWeight: 700 }}>Open to Networking</p>
+                  <p style={{ color: t.textSec, fontSize: 12 }}>This attendee is looking to connect with others.</p>
+                </div>
+              </>
+            : <>
+                <WifiOff style={{ width: 20, height: 20, color: t.textMuted, flexShrink: 0 }} />
                 <p style={{ color: t.textMuted, fontSize: 13, fontWeight: 600 }}>Not networking at this event</p>
-              </div>
-            </>
-          )}
+              </>
+          }
         </div>
       </div>
 
-      {/* Privacy Notice */}
+      {/* Privacy notice */}
       <div className="px-5 pb-8">
         <div className="rounded-xl p-4" style={{ background: t.surface2, border: `1px solid ${t.border}` }}>
           <div className="flex items-start gap-2.5">
             <Globe style={{ width: 14, height: 14, color: t.textMuted, flexShrink: 0, marginTop: 1 }} />
             <p style={{ color: t.textMuted, fontSize: 11, lineHeight: 1.5 }}>
-              Personal contact information such as email and phone number is not shared. Use the Connect or Message buttons to reach out.
+              Some personal details are partially masked for privacy. Use Connect or Message to reach out directly.
             </p>
           </div>
         </div>
@@ -370,7 +366,6 @@ const MemberCard: React.FC<{
 
   return (
     <motion.button
-      key={member.userId}
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: Math.min(index * 0.04, 0.4), duration: 0.3 }}
@@ -396,38 +391,33 @@ const MemberCard: React.FC<{
             <h3 className="truncate" style={{ color: t.text, fontSize: 14, fontWeight: 700 }}>
               {member.name}
             </h3>
-            {isConnected && (
-              <UserCheck style={{ width: 13, height: 13, color: t.successText, flexShrink: 0 }} />
-            )}
+            {isConnected && <UserCheck style={{ width: 13, height: 13, color: t.successText, flexShrink: 0 }} />}
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap mb-1">
-            <span
-              className="px-2 py-0.5 rounded-md text-xs font-bold"
-              style={{ background: roleGrad(member.role), color: '#fff' }}
-            >
+          {/* Role + Company */}
+          <div className="flex items-center gap-1.5 mb-1 min-w-0">
+            <span className="px-2 py-0.5 rounded-md text-xs font-bold flex-shrink-0"
+              style={{ background: roleGrad(member.role), color: '#fff' }}>
               {member.role}
             </span>
-            {member.isCheckedIn && (
-              <span className="flex items-center gap-1" style={{ color: '#10b981', fontSize: 10, fontWeight: 600 }}>
-                <BadgeCheck style={{ width: 10, height: 10 }} /> Checked in
+            {member.company && (
+              <span className="truncate flex items-center gap-1" style={{ color: t.textSec, fontSize: 12 }}>
+                <Building2 style={{ width: 10, height: 10, color: t.textMuted, flexShrink: 0 }} />
+                {member.company}
               </span>
             )}
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="flex items-center gap-1" style={{ color: t.textMuted, fontSize: 11 }}>
-              <Calendar style={{ width: 10, height: 10 }} />
-              Joined {formatJoinDate(member.joinedAt)}
-            </span>
+          {/* Check-in badge */}
+          <div className="flex items-center gap-1" style={{ color: '#10b981', fontSize: 11, fontWeight: 600 }}>
+            <BadgeCheck style={{ width: 11, height: 11 }} />
+            Checked in{member.checkedInAt ? ` · ${formatCheckedInTime(member.checkedInAt)}` : ''}
           </div>
         </div>
 
         {/* Right */}
         <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
-          {member.networkingOptIn && (
-            <Wifi style={{ width: 13, height: 13, color: '#10b981' }} />
-          )}
+          {member.networkingOptIn && <Wifi style={{ width: 13, height: 13, color: '#10b981' }} />}
           <ChevronRight style={{ width: 14, height: 14, color: t.textMuted }} />
         </div>
       </div>
@@ -450,7 +440,8 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
-  const [checkedInOnly, setCheckedInOnly] = useState(false);
+  // Default: show only checked-in attendees
+  const [checkedInOnly, setCheckedInOnly] = useState(true);
   const [selectedMember, setSelectedMember] = useState<EventMember | null>(null);
   const [connectedIds, setConnectedIds] = useState<Set<number>>(new Set());
 
@@ -458,10 +449,7 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
   const eventName = eventConfig?.name ?? 'This Event';
 
   const fetchMembers = useCallback(async () => {
-    if (!eventId) {
-      setLoading(false);
-      return;
-    }
+    if (!eventId) { setLoading(false); return; }
     setLoading(true);
     setError(null);
     const res = await getEventMembersApi(eventId);
@@ -473,31 +461,28 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
     setLoading(false);
   }, [eventId]);
 
-  useEffect(() => {
-    fetchMembers();
-  }, [fetchMembers]);
+  useEffect(() => { fetchMembers(); }, [fetchMembers]);
 
-  // Unique roles for filter chips
   const availableRoles = useMemo(() => {
-    const roles = Array.from(new Set(members.map(m => m.role))).sort();
-    return roles;
-  }, [members]);
+    const base = checkedInOnly ? members.filter(m => m.isCheckedIn) : members;
+    return Array.from(new Set(base.map(m => m.role))).sort();
+  }, [members, checkedInOnly]);
 
   const filteredMembers = useMemo(() => {
     const q = searchQuery.toLowerCase();
     return members.filter(m => {
+      const matchesCheckedIn = !checkedInOnly || m.isCheckedIn;
       const matchesSearch = !q ||
         m.name.toLowerCase().includes(q) ||
         m.role.toLowerCase().includes(q) ||
-        m.email.toLowerCase().includes(q);
+        m.company.toLowerCase().includes(q);
       const matchesRole = roleFilter === 'all' || m.role === roleFilter;
-      const matchesCheckedIn = !checkedInOnly || m.isCheckedIn;
-      return matchesSearch && matchesRole && matchesCheckedIn;
+      return matchesCheckedIn && matchesSearch && matchesRole;
     });
   }, [members, searchQuery, roleFilter, checkedInOnly]);
 
-  const networkingCount = members.filter(m => m.networkingOptIn).length;
-  const checkedInCount = members.filter(m => m.isCheckedIn).length;
+  const checkedInCount = useMemo(() => members.filter(m => m.isCheckedIn).length, [members]);
+  const networkingCount = useMemo(() => members.filter(m => m.isCheckedIn && m.networkingOptIn).length, [members]);
 
   const handleConnect = (userId: number) => {
     if (connectedIds.has(userId)) return;
@@ -508,14 +493,10 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
       id: String(member.userId),
       name: member.name,
       title: member.role,
-      company: '',
+      company: member.company,
       avatar: member.avatar ?? '',
     }).catch(() => {
-      setConnectedIds(prev => {
-        const next = new Set(prev);
-        next.delete(userId);
-        return next;
-      });
+      setConnectedIds(prev => { const next = new Set(prev); next.delete(userId); return next; });
     });
     addPoints(10, 'New connection made!');
   };
@@ -523,14 +504,12 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
   return (
     <div className="min-h-screen relative" style={{ background: t.bgPage }}>
       {/* Header */}
-      <div
-        className="relative overflow-hidden px-5 pt-12 pb-5"
+      <div className="relative overflow-hidden px-5 pt-12 pb-5"
         style={{
           background: isDark
             ? 'linear-gradient(160deg,#1e1b4b 0%,#312e81 40%,#4f46e5 100%)'
             : 'linear-gradient(160deg,#7c3aed 0%,#6366f1 60%,#818cf8 100%)',
-        }}
-      >
+        }}>
         <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full opacity-12"
           style={{ background: 'radial-gradient(circle, #c4b5fd, transparent 70%)' }} />
 
@@ -554,26 +533,18 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
             {eventName}
           </h1>
           <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, marginBottom: 12 }}>
-            Registered attendees for this event
+            Attendees at this event
           </p>
 
           {/* Stats */}
           {!loading && !error && (
             <div className="flex items-center gap-2.5 mb-4 flex-wrap">
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg"
-                style={{ background: 'rgba(255,255,255,0.12)' }}>
-                <Users style={{ width: 13, height: 13, color: '#fff' }} />
-                <span style={{ color: '#fff', fontSize: 12, fontWeight: 700 }}>{members.length}</span>
-                <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11 }}>registered</span>
+                style={{ background: 'rgba(16,185,129,0.2)' }}>
+                <BadgeCheck style={{ width: 13, height: 13, color: '#34d399' }} />
+                <span style={{ color: '#34d399', fontSize: 12, fontWeight: 700 }}>{checkedInCount}</span>
+                <span style={{ color: 'rgba(52,211,153,0.7)', fontSize: 11 }}>checked in</span>
               </div>
-              {checkedInCount > 0 && (
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg"
-                  style={{ background: 'rgba(16,185,129,0.15)' }}>
-                  <BadgeCheck style={{ width: 13, height: 13, color: '#34d399' }} />
-                  <span style={{ color: '#34d399', fontSize: 12, fontWeight: 700 }}>{checkedInCount}</span>
-                  <span style={{ color: 'rgba(52,211,153,0.7)', fontSize: 11 }}>checked in</span>
-                </div>
-              )}
               {networkingCount > 0 && (
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg"
                   style={{ background: 'rgba(99,102,241,0.15)' }}>
@@ -582,6 +553,12 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
                   <span style={{ color: 'rgba(129,140,248,0.7)', fontSize: 11 }}>networking</span>
                 </div>
               )}
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg"
+                style={{ background: 'rgba(255,255,255,0.1)' }}>
+                <Users style={{ width: 13, height: 13, color: 'rgba(255,255,255,0.7)' }} />
+                <span style={{ color: '#fff', fontSize: 12, fontWeight: 700 }}>{members.length}</span>
+                <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11 }}>registered</span>
+              </div>
             </div>
           )}
 
@@ -589,19 +566,16 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2"
               style={{ width: 16, height: 16, color: 'rgba(255,255,255,0.4)' }} />
-            <input
-              type="text"
-              placeholder="Search by name or role…"
+            <input type="text"
+              placeholder="Search by name, company, or role…"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-10 py-2.5 rounded-xl outline-none"
               style={{
                 background: 'rgba(255,255,255,0.1)',
                 border: '1px solid rgba(255,255,255,0.15)',
-                color: '#fff',
-                fontSize: 13,
-              }}
-            />
+                color: '#fff', fontSize: 13,
+              }} />
             {searchQuery && (
               <button onClick={() => setSearchQuery('')}
                 className="absolute right-3 top-1/2 -translate-y-1/2 active:opacity-60">
@@ -612,7 +586,7 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
         </div>
       </div>
 
-      {/* Filter row: check-in toggle + role chips */}
+      {/* Filter bar */}
       <div className="px-5 py-3 flex gap-2 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
         {/* Checked-in toggle */}
         <button
@@ -623,18 +597,17 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
             color: checkedInOnly ? '#fff' : t.textSec,
             fontSize: 12, fontWeight: 700,
             border: `1.5px solid ${checkedInOnly ? '#10b981' : t.border}`,
-          }}
-        >
+          }}>
           <BadgeCheck style={{ width: 13, height: 13 }} />
           Checked in only
         </button>
 
-        {/* Divider between toggle and role chips */}
+        {/* Divider */}
         {availableRoles.length > 1 && (
           <div className="w-px flex-shrink-0 self-stretch mx-0.5" style={{ background: t.divider }} />
         )}
 
-        {/* All roles chip */}
+        {/* All roles */}
         {availableRoles.length > 1 && (
           <button
             onClick={() => setRoleFilter('all')}
@@ -644,16 +617,14 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
               color: roleFilter === 'all' ? '#fff' : t.textSec,
               fontSize: 12, fontWeight: 600,
               border: `1px solid ${roleFilter === 'all' ? t.accent : t.border}`,
-            }}
-          >
+            }}>
             All roles
           </button>
         )}
 
         {/* Per-role chips */}
         {availableRoles.length > 1 && availableRoles.map(role => (
-          <button
-            key={role}
+          <button key={role}
             onClick={() => setRoleFilter(role === roleFilter ? 'all' : role)}
             className="px-3.5 py-1.5 rounded-full flex-shrink-0 transition-all whitespace-nowrap"
             style={{
@@ -661,8 +632,7 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
               color: roleFilter === role ? '#fff' : t.textSec,
               fontSize: 12, fontWeight: 600,
               border: `1px solid ${roleFilter === role ? t.accent : t.border}`,
-            }}
-          >
+            }}>
             {role}
           </button>
         ))}
@@ -687,75 +657,84 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
               <Users style={{ width: 28, height: 28, color: '#ef4444' }} />
             </div>
             <div>
-              <h3 style={{ color: t.text, fontSize: 16, fontWeight: 700, marginBottom: 6 }}>
-                Couldn't load audience
-              </h3>
+              <h3 style={{ color: t.text, fontSize: 16, fontWeight: 700, marginBottom: 6 }}>Couldn't load audience</h3>
               <p style={{ color: t.textMuted, fontSize: 13, marginBottom: 16 }}>{error}</p>
-              <button
-                onClick={fetchMembers}
+              <button onClick={fetchMembers}
                 className="flex items-center gap-2 mx-auto px-5 py-2.5 rounded-xl"
-                style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', color: '#fff', fontSize: 13, fontWeight: 700 }}
-              >
+                style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', color: '#fff', fontSize: 13, fontWeight: 700 }}>
                 <RefreshCw style={{ width: 14, height: 14 }} /> Retry
               </button>
             </div>
           </div>
         )}
 
-        {/* Empty – no members for this event */}
+        {/* No members at all */}
         {!loading && !error && members.length === 0 && (
           <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
-            <div className="w-16 h-16 rounded-full flex items-center justify-center"
-              style={{ background: t.surface2 }}>
+            <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ background: t.surface2 }}>
               <Users style={{ width: 28, height: 28, color: t.emptyIcon }} />
             </div>
             <h3 style={{ color: t.text, fontSize: 16, fontWeight: 700 }}>No attendees yet</h3>
             <p style={{ color: t.textMuted, fontSize: 13, maxWidth: 240 }}>
-              No one has registered for this event yet. Check back soon!
+              No one has registered for this event yet.
             </p>
+          </div>
+        )}
+
+        {/* Checked-in empty when filter is on */}
+        {!loading && !error && members.length > 0 && filteredMembers.length === 0 && checkedInOnly && !searchQuery && (
+          <div className="flex flex-col items-center justify-center py-14 text-center gap-3">
+            <div className="w-16 h-16 rounded-full flex items-center justify-center"
+              style={{ background: 'rgba(16,185,129,0.1)' }}>
+              <BadgeCheck style={{ width: 28, height: 28, color: '#10b981' }} />
+            </div>
+            <h3 style={{ color: t.text, fontSize: 16, fontWeight: 700 }}>No check-ins yet</h3>
+            <p style={{ color: t.textMuted, fontSize: 13, maxWidth: 260 }}>
+              No attendees have checked in yet. Toggle the filter off to see all {members.length} registrations.
+            </p>
+            <button
+              onClick={() => setCheckedInOnly(false)}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl mt-1"
+              style={{ background: t.surface, border: `1px solid ${t.border}`, color: t.textSec, fontSize: 12, fontWeight: 600 }}>
+              <Filter style={{ width: 12, height: 12 }} /> Show all registrations
+            </button>
           </div>
         )}
 
         {/* Results count */}
-        {!loading && !error && members.length > 0 && (
+        {!loading && !error && filteredMembers.length > 0 && (
           <div className="py-3">
             <p style={{ color: t.textMuted, fontSize: 12, fontWeight: 600 }}>
-              {filteredMembers.length} attendee{filteredMembers.length !== 1 ? 's' : ''}
-              {searchQuery || roleFilter !== 'all' ? ' found' : ' registered'}
+              {filteredMembers.length} {checkedInOnly ? 'checked-in' : 'registered'} attendee{filteredMembers.length !== 1 ? 's' : ''}
+              {(searchQuery || roleFilter !== 'all') ? ' found' : ''}
             </p>
           </div>
         )}
 
-        {/* Members list */}
-        {!loading && !error && (
-          <div className="space-y-2.5">
-            {filteredMembers.map((member, index) => (
-              <MemberCard
-                key={member.userId}
-                member={member}
-                isConnected={connectedIds.has(member.userId)}
-                index={index}
-                onClick={() => setSelectedMember(member)}
-              />
-            ))}
+        {/* List */}
+        <div className="space-y-2.5">
+          {filteredMembers.map((member, index) => (
+            <MemberCard
+              key={member.userId}
+              member={member}
+              isConnected={connectedIds.has(member.userId)}
+              index={index}
+              onClick={() => setSelectedMember(member)}
+            />
+          ))}
 
-            {/* Search empty state */}
-            {filteredMembers.length === 0 && members.length > 0 && (
-              <div className="flex flex-col items-center justify-center py-12 text-center">
-                <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3"
-                  style={{ background: t.surface2 }}>
-                  <Search style={{ width: 24, height: 24, color: t.emptyIcon }} />
-                </div>
-                <h3 style={{ color: t.text, fontSize: 15, fontWeight: 700, marginBottom: 4 }}>
-                  No results found
-                </h3>
-                <p style={{ color: t.textMuted, fontSize: 13 }}>
-                  Try adjusting your search or filters
-                </p>
+          {/* Search empty */}
+          {!loading && !error && filteredMembers.length === 0 && (searchQuery || roleFilter !== 'all') && (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3"
+                style={{ background: t.surface2 }}>
+                <Search style={{ width: 24, height: 24, color: t.emptyIcon }} />
               </div>
-            )}
-          </div>
-        )}
+              <h3 style={{ color: t.text, fontSize: 15, fontWeight: 700, marginBottom: 4 }}>No results found</h3>
+              <p style={{ color: t.textMuted, fontSize: 13 }}>Try adjusting your search or filters</p>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Detail overlay */}

@@ -3,14 +3,11 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * GET /api/v1/events/:id/members   → paginated list of event members
  *
- * Response shape:
+ * API response per member:
  * {
- *   data: [{
- *     id, event_id, user_id, role, status, checked_in, checked_in_at,
- *     joined_at, badge_code, networking_opt_in,
- *     user: { id, name, email, profile_image }
- *   }],
- *   total, current_page, last_page
+ *   id, event_id, user_id, role, status, checked_in, checked_in_at,
+ *   joined_at, badge_code, networking_opt_in, metadata,
+ *   user: { id, name, email, profile_image, phone }
  * }
  */
 
@@ -23,6 +20,7 @@ export interface RawMemberUser {
   name: string;
   email: string;
   profile_image: string | null;
+  phone?: string | null;
 }
 
 export interface RawEventMember {
@@ -47,7 +45,9 @@ export interface EventMember {
   eventId: number;
   name: string;
   email: string;
+  phone: string | null;
   avatar: string | null;
+  company: string;
   role: string;
   status: string;
   isCheckedIn: boolean;
@@ -64,7 +64,25 @@ export interface EventMembersResponse {
   error?: { message: string };
 }
 
-// ─── Normalizer ───────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Derives a company name from an email address domain.
+ * e.g. scott@nbc.com → NBC, john@globalfinance.example.com → GlobalFinance
+ */
+function companyFromEmail(email: string): string {
+  if (!email) return '';
+  const domain = email.split('@')[1] ?? '';
+  const parts = domain.split('.');
+  // Remove the TLD (last segment, e.g. "com", "net")
+  const meaningful = parts.slice(0, -1);
+  const name = meaningful[0] ?? '';
+  if (!name) return '';
+  // Short names (≤ 4 chars) → uppercase (NBC, IBM), longer → Title case
+  return name.length <= 4
+    ? name.toUpperCase()
+    : name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
+}
 
 function normalizeRole(role: string): string {
   const map: Record<string, string> = {
@@ -88,17 +106,20 @@ function normalizeStatus(status: string): string {
     cancelled: 'Cancelled',
     waitlisted: 'Waitlisted',
   };
-  return map[status?.toLowerCase()] ?? status ?? 'Active';
+  return map[status?.toLowerCase()] ?? (status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Active');
 }
 
 function normalizeMember(raw: RawEventMember): EventMember {
+  const email = raw.user?.email ?? '';
   return {
     memberId: raw.id,
     userId: raw.user_id,
     eventId: raw.event_id,
     name: raw.user?.name ?? 'Unknown',
-    email: raw.user?.email ?? '',
+    email,
+    phone: raw.user?.phone ?? null,
     avatar: raw.user?.profile_image ?? null,
+    company: companyFromEmail(email),
     role: normalizeRole(raw.role),
     status: normalizeStatus(raw.status),
     isCheckedIn: Boolean(raw.checked_in),
@@ -116,11 +137,11 @@ const AUDIENCE_HEADERS: Record<string, string> = { 'X-Tenant-ID': '3' };
 // ─── API Methods ──────────────────────────────────────────────────────────────
 
 /**
- * GET /api/v1/events/:id/members
- * Returns all members registered to a specific event.
+ * GET /api/v1/events/:id/members?per_page=100
+ * Returns members registered to a specific event (up to 100 per call).
  */
 export async function getEventMembersApi(eventId: string | number): Promise<EventMembersResponse> {
-  const res = await apiGet<unknown>(`/api/v1/events/${eventId}/members`, AUDIENCE_HEADERS);
+  const res = await apiGet<unknown>(`/api/v1/events/${eventId}/members?per_page=100`, AUDIENCE_HEADERS);
   if (!res.success) {
     return { success: false, error: res.error ?? { message: 'Failed to fetch audience.' } };
   }
