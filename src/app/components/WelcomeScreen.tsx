@@ -6,9 +6,10 @@
  */
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import cxoLogo from '@/assets/cxo-logo-transparent.png';
-import { User, Mail, Briefcase, Building2, ArrowLeft, RefreshCw, CheckCircle2, AlertCircle, X, Phone } from 'lucide-react';
+import { User, Mail, Briefcase, Building2, ArrowLeft, RefreshCw, CheckCircle2, AlertCircle, X, Phone, LogOut } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { sendOtp, verifyOtp, registerUser, AuthUser } from '@/app/api/authClient';
+import { clearToken } from '@/app/api/client';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
@@ -106,6 +107,12 @@ interface WelcomeScreenProps { onLogin: () => void; }
 
 export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
   const { setUser } = useApp();
+
+  const handleLogout = useCallback(() => {
+    clearToken();
+    setUser(null);
+  }, [setUser]);
+
   const [sheetOpen, setSheetOpen] = useState(false);
   const [view, setView] = useState<SheetView>('phone');
   const [videoError, setVideoError] = useState(false);
@@ -378,6 +385,24 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
         <div className="absolute top-0 left-0 right-0" style={{ height: 200, overflow: 'hidden' }}>
           <NetworkNodes />
         </div>
+
+        {/* ── Log off button — top-left corner ─────────────────────────── */}
+        <button
+          onClick={handleLogout}
+          className="absolute z-30 flex items-center gap-1.5 rounded-full transition-all active:scale-95"
+          style={{
+            top: 'max(env(safe-area-inset-top, 12px), 12px)',
+            left: 16,
+            padding: '6px 12px 6px 10px',
+            background: 'rgba(0,0,0,0.45)',
+            border: '1px solid rgba(255,255,255,0.13)',
+            backdropFilter: 'blur(10px)',
+          }}
+          aria-label="Log off"
+        >
+          <LogOut size={13} color="rgba(255,255,255,0.6)" />
+          <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, fontWeight: 600, letterSpacing: '0.01em' }}>Log off</span>
+        </button>
 
         {/* ── Top bar ──────────────────────────────────────────────────── */}
         <div className="relative z-20 flex items-center justify-between px-6 pt-14 pb-2 flex-shrink-0">
