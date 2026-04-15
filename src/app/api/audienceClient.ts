@@ -224,14 +224,22 @@ export async function getEventMembersApi(
     return { success: false, error: membersRes.error ?? { message: 'Failed to fetch audience.' } };
   }
 
+  // Response shape: { data: { data: [...members], total, current_page, … }, checked_in_only }
+  // The outer `data` key is a Laravel paginator object, the actual array is one level deeper.
   const body = membersRes.data as Record<string, unknown>;
-  const rawList: unknown[] = Array.isArray(body?.data)
-    ? (body.data as unknown[])
-    : Array.isArray(membersRes.data)
-      ? (membersRes.data as unknown[])
-      : [];
+  const paginator = (body?.data ?? body) as Record<string, unknown>;
 
-  const total = typeof body?.total === 'number' ? body.total : rawList.length;
+  const rawList: unknown[] = Array.isArray(paginator?.data)
+    ? (paginator.data as unknown[])          // nested paginator: body.data.data
+    : Array.isArray(body?.data)
+      ? (body.data as unknown[])             // flat array at body.data
+      : Array.isArray(membersRes.data)
+        ? (membersRes.data as unknown[])     // flat array as the whole response
+        : [];
+
+  const total = typeof paginator?.total === 'number'
+    ? paginator.total
+    : rawList.length;
   const members = rawList.map(m => normalizeMember(m as RawEventMember, titleLookup));
 
   return { success: true, data: members, total };
