@@ -9,7 +9,6 @@ import cxoLogo from '@/assets/cxo-logo-transparent.png';
 import { User, Mail, Briefcase, Building2, ArrowLeft, RefreshCw, CheckCircle2, AlertCircle, X, Phone } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { sendOtp, verifyOtp, registerUser, AuthUser } from '@/app/api/authClient';
-import { checkEmailInAudience } from '@/app/api/audienceClient';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
@@ -101,7 +100,7 @@ const OtpInput: React.FC<OtpInputProps> = ({ value, onChange, hasError }) => {
 };
 
 // ─── Main Component ────────────────────────────────────────────────────────────
-type SheetView = 'phone' | 'otp' | 'not-found' | 'profile-review' | 'create-account';
+type SheetView = 'phone' | 'otp' | 'not-found' | 'profile-review' | 'create-account' | 'registered';
 
 interface WelcomeScreenProps { onLogin: () => void; }
 
@@ -134,7 +133,9 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
   const [createForm, setCreateForm] = useState({ firstName: '', lastName: '', title: '', company: '', phone: '' });
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState('');
-  const [audienceChecking, setAudienceChecking] = useState(false);
+
+  // ── Registered user (held until "Login" is pressed on the success screen) ──
+  const [registeredUserData, setRegisteredUserData] = useState<Parameters<typeof setUser>[0]>(null);
 
   const startResendCountdown = useCallback(() => {
     setResendCountdown(30);
@@ -180,29 +181,12 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
   }, [emailInput, startResendCountdown]);
 
   // ── Start signup (from 'not-found' screen) ────────────────────────────
-  // Uses type:'email_verify' to always send OTP for email ownership proof.
-  const handleStartSignup = useCallback(async () => {
-    const email = emailInput.trim();
-    setPhoneError('');
-    setPhoneLoading(true);
-
-    try {
-      const res = await sendOtp(email, 'email_verify');
-      if (!res.success) {
-        setPhoneError(res.error?.message ?? 'Failed to send verification code. Please try again.');
-        return;
-      }
-      setOtpContext('signup');
-      setOtpValue('');
-      setOtpError('');
-      setView('otp');
-      startResendCountdown();
-    } catch {
-      setPhoneError('Network error. Please check your connection and try again.');
-    } finally {
-      setPhoneLoading(false);
-    }
-  }, [emailInput, startResendCountdown]);
+  // Go directly to the registration form — no OTP step required.
+  const handleStartSignup = useCallback(() => {
+    setCreateForm({ firstName: '', lastName: '', title: '', company: '', phone: '' });
+    setCreateError('');
+    setView('create-account');
+  }, []);
 
   // ── Verify OTP (auto-submits when 6 digits entered) ───────────────────
   useEffect(() => {
@@ -291,17 +275,6 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
     setCreateLoading(true);
 
     try {
-      // Check whether this email is already in the audience before registering
-      setAudienceChecking(true);
-      const alreadyInAudience = await checkEmailInAudience(emailInput.trim());
-      setAudienceChecking(false);
-
-      if (alreadyInAudience) {
-        setCreateError('This email is already registered as an event attendee. Please log in instead.');
-        setCreateLoading(false);
-        return;
-      }
-
       const res = await registerUser({
         email: emailInput.trim(),
         firstName: createForm.firstName.trim(),
@@ -318,7 +291,9 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
 
       const { user } = res.data;
       const fullName = user.name || `${createForm.firstName.trim()} ${createForm.lastName.trim()}`;
-      setUser({
+
+      // Store the user so the success screen's "Login" button can sign them in
+      setRegisteredUserData({
         id: user.id,
         name: fullName,
         email: user.email ?? emailInput.trim(),
@@ -332,14 +307,21 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
         profileComplete: true,
         emailVerified: true,
       });
-      onLogin();
+
+      setView('registered');
     } catch {
       setCreateError('Network error. Please check your connection and try again.');
     } finally {
       setCreateLoading(false);
-      setAudienceChecking(false);
     }
-  }, [createForm, emailInput, setUser, onLogin]);
+  }, [createForm, emailInput, setUser]);
+
+  // ── Sign in after successful registration ─────────────────────────────
+  const handleLoginAfterRegister = useCallback(() => {
+    if (!registeredUserData) return;
+    setUser(registeredUserData);
+    onLogin();
+  }, [registeredUserData, setUser, onLogin]);
 
   // ── Reset and close sheet ─────────────────────────────────────────────
   const closeSheet = () => {
@@ -354,6 +336,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
       setExistingUser(null);
       setCreateForm({ firstName: '', lastName: '', title: '', company: '', phone: '' });
       setCreateError('');
+      setRegisteredUserData(null);
       if (resendRef.current) clearInterval(resendRef.current);
       setResendCountdown(0);
     }, 380);
@@ -701,7 +684,6 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
                 {/* Create account CTA */}
                 <button
                   onClick={handleStartSignup}
-                  disabled={phoneLoading}
                   className="w-full flex items-center justify-center gap-2 rounded-2xl transition-all active:scale-[0.98] mb-3"
                   style={{
                     height: 56,
@@ -709,16 +691,11 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
                     color: '#fff', fontWeight: 700, fontSize: 16,
                     boxShadow: '0 8px 28px rgba(124,58,237,0.45)',
                   }}>
-                  {phoneLoading
-                    ? <><RefreshCw size={18} style={{ animation: 'spin-cw 1s linear infinite' }} /> Sending code…</>
-                    : <>
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/>
-                          <line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/>
-                        </svg>
-                        Create an Account
-                      </>
-                  }
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                    <line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/>
+                  </svg>
+                  Create an Account
                 </button>
 
                 {/* Divider */}
@@ -757,18 +734,9 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
                   </div>
                   <h2 style={{ color: '#fff', fontSize: 22, fontWeight: 800, letterSpacing: '-0.03em' }}>Create your profile</h2>
                   <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13, marginTop: 3 }}>
-                    Email verified ✓ — tell us about yourself
+                    Tell us a bit about yourself to get started
                   </p>
                 </div>
-
-                {/* Audience check loading state */}
-                {audienceChecking && (
-                  <div className="flex items-center gap-2 px-4 py-3 rounded-xl mb-4"
-                    style={{ background: 'rgba(124,58,237,0.08)', border: '1px solid rgba(124,58,237,0.2)' }}>
-                    <RefreshCw size={14} color="#a78bfa" style={{ animation: 'spin-cw 1s linear infinite' }} />
-                    <p style={{ color: '#a78bfa', fontSize: 13 }}>Checking audience list…</p>
-                  </div>
-                )}
 
                 {createError && (
                   <div className="flex items-center gap-2 px-4 py-3 rounded-xl mb-4"
@@ -859,7 +827,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
 
                 <button
                   onClick={handleCreateAccount}
-                  disabled={createLoading || audienceChecking || !createForm.firstName.trim() || !createForm.lastName.trim()}
+                  disabled={createLoading || !createForm.firstName.trim() || !createForm.lastName.trim()}
                   className="w-full flex items-center justify-center gap-2 rounded-2xl mt-4 transition-all active:scale-[0.98]"
                   style={{
                     height: 54,
@@ -869,10 +837,10 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
                     color: (createForm.firstName && createForm.lastName) ? '#fff' : 'rgba(255,255,255,0.25)',
                     fontWeight: 700, fontSize: 16,
                     boxShadow: (createForm.firstName && createForm.lastName) ? '0 8px 28px rgba(124,58,237,0.45)' : 'none',
-                    opacity: createLoading || audienceChecking ? 0.7 : 1,
+                    opacity: createLoading ? 0.7 : 1,
                   }}>
                   {createLoading
-                    ? <><RefreshCw size={18} style={{ animation: 'spin-cw 1s linear infinite' }} /> {audienceChecking ? 'Checking…' : 'Creating account…'}</>
+                    ? <><RefreshCw size={18} style={{ animation: 'spin-cw 1s linear infinite' }} /> Creating account…</>
                     : <>
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                           <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
@@ -886,6 +854,77 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
                   style={{ color: '#7c3aed', fontSize: 13, fontWeight: 600 }}>
                   Already have an account? Sign in
                 </button>
+              </div>
+            )}
+
+            {/* ── REGISTERED SUCCESS VIEW ───────────────────────────────── */}
+            {view === 'registered' && (
+              <div className="px-6 pt-4 pb-10">
+                {/* Success icon */}
+                <div className="flex flex-col items-center text-center pt-2 mb-8">
+                  <div className="relative mb-5">
+                    <div className="w-20 h-20 rounded-full flex items-center justify-center"
+                      style={{ background: 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(5,150,105,0.08))', border: '2px solid rgba(16,185,129,0.35)' }}>
+                      <CheckCircle2 size={38} color="#34d399" />
+                    </div>
+                    <div className="absolute -right-1 -bottom-1 w-7 h-7 rounded-full flex items-center justify-center"
+                      style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', border: '2px solid rgba(10,10,20,1)' }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12"/>
+                      </svg>
+                    </div>
+                  </div>
+
+                  <h2 style={{ color: '#fff', fontSize: 24, fontWeight: 800, letterSpacing: '-0.03em', marginBottom: 8 }}>
+                    Account Created!
+                  </h2>
+                  <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14, lineHeight: 1.6, maxWidth: 280 }}>
+                    Your account has been created successfully. You can now log in and start networking.
+                  </p>
+                </div>
+
+                {/* Name chip */}
+                {registeredUserData && (
+                  <div className="flex items-center gap-3 px-4 py-3.5 rounded-2xl mb-6"
+                    style={{ background: 'rgba(124,58,237,0.1)', border: '1px solid rgba(124,58,237,0.2)' }}>
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                      style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)' }}>
+                      <User size={18} color="white" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p style={{ color: '#fff', fontSize: 15, fontWeight: 700, lineHeight: 1.3 }}>
+                        {registeredUserData.name}
+                      </p>
+                      <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12 }} className="truncate">
+                        {registeredUserData.email}
+                      </p>
+                    </div>
+                    <div className="flex-shrink-0 px-2 py-0.5 rounded-full"
+                      style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)' }}>
+                      <span style={{ color: '#34d399', fontSize: 10, fontWeight: 700 }}>New</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Login button */}
+                <button
+                  onClick={handleLoginAfterRegister}
+                  className="w-full flex items-center justify-center gap-2 rounded-2xl transition-all active:scale-[0.98]"
+                  style={{
+                    height: 56,
+                    background: 'linear-gradient(135deg,#7c3aed,#4f46e5)',
+                    color: '#fff', fontWeight: 700, fontSize: 16,
+                    boxShadow: '0 8px 28px rgba(124,58,237,0.45)',
+                  }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/>
+                  </svg>
+                  Log In
+                </button>
+
+                <p className="text-center mt-4" style={{ color: 'rgba(255,255,255,0.2)', fontSize: 11, lineHeight: 1.6 }}>
+                  You're all set! Tap Log In to start exploring.
+                </p>
               </div>
             )}
 
