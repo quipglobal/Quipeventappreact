@@ -1,0 +1,65 @@
+Event Access Control — What Was Built
+How it works
+Every event-scoped mobile endpoint now sits behind an event.member middleware guard. Any request from a user who isn't an active event member gets rejected with 403 NOT_EVENT_MEMBER before the controller even runs.
+
+Three new tools enable the correct flow:
+
+1. Check membership before entering an event
+GET /api/v1/events/{eventId}/access
+
+Always returns 200 — never blocks. The mobile app should call this before navigating into an event to decide what screen to show.
+
+{
+  "success": true,
+  "data": {
+    "is_member": false,
+    "membership_id": null,
+    "role": null,
+    "status": null,
+    "joined_at": null,
+    "event": {
+      "id": 2,
+      "name": "Acme Networking Night",
+      "status": "published",
+      "start_date": "...",
+      "end_date": "...",
+      "location": "New York, NY",
+      "venue": "The Grand Hall",
+      "banner_url": null,
+      "requires_code": false
+    }
+  }
+}
+
+2. Join an event by code
+POST /api/v1/events/join
+Body: { "event_code": "ACMENET" }
+  or: { "code": "ACMENET" }
+
+201 — successfully joined (new membership created, returns role, badge code, QR URL)
+200 — already a member (idempotent, returns existing membership)
+404 — invalid or inactive event code
+3. The middleware guard (enforced automatically)
+If a non-member tries to call any event endpoint (polls, surveys, agenda, leaderboard, etc.):
+
+HTTP 403
+{
+  "success": false,
+  "error": {
+    "code": "NOT_EVENT_MEMBER",
+    "message": "You are not a member of this event. Join the event using an event code to gain access."
+  }
+}
+
+Recommended mobile app flow
+1. User wants to open an event
+        ↓
+2. GET /events/{id}/access
+        ↓
+   is_member: true  →  navigate into event normally
+   is_member: false →  show "Enter event code" screen
+        ↓
+3. POST /events/join  { event_code: "XXXXX" }
+        ↓
+   success → navigate into event
+   INVALID_EVENT_CODE → show error "invalid code"

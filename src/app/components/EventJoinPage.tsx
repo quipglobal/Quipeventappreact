@@ -2,13 +2,16 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Ticket, Calendar, MapPin, Users, ChevronRight, Clock,
   ArrowRight, Globe, Video, Hash, Loader2, Play, Tv2,
-  LayoutGrid as GridIcon, RefreshCw,
+  LayoutGrid as GridIcon, RefreshCw, Lock, KeyRound, X,
 } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import { ImageWithFallback } from '@/app/components/figma/ImageWithFallback';
 import { EventConfig } from '@/app/types/config';
-import { listEventsApi, OrganizerEvent } from '@/app/api/eventsClient';
+import {
+  listEventsApi, OrganizerEvent,
+  checkEventAccess, joinEventWithCode,
+} from '@/app/api/eventsClient';
 import { getVideoFeedCategories, getVideoFeeds, VideoFeed } from '@/app/api/videoFeedsClient';
 
 type EventStatus = 'live' | 'upcoming' | 'past';
@@ -79,6 +82,13 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
   const [events, setEvents] = useState<OrganizerEvent[]>([]);
   const [eventsLoading, setEventsLoading] = useState(true);
 
+  // ── Access-gate state ─────────────────────────────────────────────────────
+  const [checkingEventId, setCheckingEventId] = useState<string | null>(null);
+  const [gateEvent, setGateEvent] = useState<OrganizerEvent | null>(null);
+  const [eventKey, setEventKey] = useState('');
+  const [keyError, setKeyError] = useState('');
+  const [isJoiningEvent, setIsJoiningEvent] = useState(false);
+
   // ── Feeds tab state ──────────────────────────────────────────────────────
   const [categories, setCategories] = useState<string[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -135,10 +145,44 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
     onJoinEvent();
   };
 
-  const handleEventCardClick = (ev: OrganizerEvent) => {
+  const enterEvent = (ev: OrganizerEvent) => {
     switchEvent(eventToConfig(ev));
     joinEvent();
     onJoinEvent();
+  };
+
+  const handleEventCardClick = async (ev: OrganizerEvent) => {
+    setCheckingEventId(ev.id);
+    try {
+      const res = await checkEventAccess(ev.id);
+      if (res.success && res.data?.is_member) {
+        enterEvent(ev);
+      } else {
+        setGateEvent(ev);
+        setEventKey('');
+        setKeyError('');
+      }
+    } catch {
+      setGateEvent(ev);
+      setEventKey('');
+      setKeyError('');
+    } finally {
+      setCheckingEventId(null);
+    }
+  };
+
+  const handleJoinWithKey = async () => {
+    if (!gateEvent || !eventKey.trim()) return;
+    setKeyError('');
+    setIsJoiningEvent(true);
+    const res = await joinEventWithCode(eventKey.trim());
+    setIsJoiningEvent(false);
+    if (res.success) {
+      setGateEvent(null);
+      enterEvent(gateEvent);
+    } else {
+      setKeyError(res.error?.message ?? 'Invalid event key. Please try again.');
+    }
   };
 
   // ── Sub-components ───────────────────────────────────────────────────────
@@ -146,14 +190,17 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
   const EventCard: React.FC<{ event: OrganizerEvent; compact?: boolean }> = ({ event, compact }) => {
     const stCfg = statusConfig[event.status] ?? statusConfig.upcoming;
     const catCfg = categoryConfig[event.category] ?? categoryConfig.conference;
+    const isChecking = checkingEventId === event.id;
     return (
       <button
-        onClick={() => handleEventCardClick(event)}
+        onClick={() => !isChecking && handleEventCardClick(event)}
+        disabled={isChecking}
         className="w-full text-left rounded-2xl overflow-hidden transition-all active:scale-[0.98]"
         style={{
           background: t.surface,
           boxShadow: t.shadow,
           border: `1px solid ${event.status === 'live' ? 'rgba(16,185,129,0.3)' : t.border}`,
+          opacity: isChecking ? 0.85 : 1,
         }}
       >
         <div className={`relative ${compact ? 'h-24' : 'h-32'} overflow-hidden`}>
@@ -165,6 +212,13 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
                 : 'linear-gradient(to top, rgba(0,0,0,0.75) 0%, rgba(0,0,0,0.15) 50%, transparent 100%)',
               ...(event.status === 'past' ? { filter: 'grayscale(0.4)' } : {}),
             }} />
+          {isChecking && (
+            <div className="absolute inset-0 flex items-center justify-center"
+              style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}>
+              <div className="w-8 h-8 border-3 border-white/30 border-t-white rounded-full"
+                style={{ borderWidth: 3, animation: 'spin 0.8s linear infinite' }} />
+            </div>
+          )}
           <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 px-2 py-1 rounded-full"
             style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(8px)' }}>
             <div className="w-1.5 h-1.5 rounded-full" style={{
@@ -507,6 +561,124 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Event Key Gate Modal ─────────────────────────────────────────── */}
+      {gateEvent && (
+        <div
+          className="fixed inset-0 z-[400] flex items-end sm:items-center justify-center"
+          style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)' }}
+          onClick={() => { setGateEvent(null); setKeyError(''); }}
+        >
+          <div
+            className="w-full max-w-sm mx-4 mb-8 rounded-3xl overflow-hidden"
+            style={{
+              background: isDark ? '#111120' : '#fff',
+              border: `1px solid rgba(124,58,237,0.3)`,
+              boxShadow: '0 24px 80px rgba(0,0,0,0.5)',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Modal header */}
+            <div className="relative px-6 pt-7 pb-5"
+              style={{ background: 'linear-gradient(135deg, rgba(124,58,237,0.18), rgba(79,70,229,0.12))' }}>
+              <button
+                onClick={() => { setGateEvent(null); setKeyError(''); }}
+                className="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center"
+                style={{ background: 'rgba(255,255,255,0.08)' }}>
+                <X size={14} color="rgba(255,255,255,0.6)" />
+              </button>
+
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-12 h-12 rounded-2xl flex items-center justify-center"
+                  style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)' }}>
+                  <Lock size={20} color="white" />
+                </div>
+                <div>
+                  <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                    Access Required
+                  </p>
+                  <h2 style={{ color: '#fff', fontSize: 16, fontWeight: 800, lineHeight: 1.3 }}>
+                    {gateEvent.title}
+                  </h2>
+                </div>
+              </div>
+
+              <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 13, lineHeight: 1.55 }}>
+                You are not a member of this event. Enter your event key to gain access.
+              </p>
+            </div>
+
+            {/* Key input */}
+            <div className="px-6 py-5">
+              <div className="flex items-center gap-2 mb-1.5">
+                <KeyRound size={13} style={{ color: '#7c3aed' }} />
+                <span style={{ color: t.textSec, fontSize: 12, fontWeight: 600 }}>Event Key</span>
+              </div>
+              <div className="flex gap-2 mb-3">
+                <input
+                  type="text"
+                  autoFocus
+                  placeholder="e.g. CISO2026"
+                  value={eventKey}
+                  onChange={e => { setEventKey(e.target.value.toUpperCase()); setKeyError(''); }}
+                  onKeyDown={e => e.key === 'Enter' && handleJoinWithKey()}
+                  className="flex-1 px-4 py-3 rounded-xl outline-none text-center tracking-widest"
+                  style={{
+                    background: t.inputBg,
+                    border: `1.5px solid ${keyError ? '#ef4444' : eventKey ? '#7c3aed' : t.inputBorder}`,
+                    color: t.text,
+                    fontSize: 18,
+                    fontWeight: 800,
+                    letterSpacing: '0.18em',
+                  }}
+                  maxLength={12}
+                />
+              </div>
+
+              {keyError && (
+                <div className="flex items-start gap-2 mb-3 px-3 py-2.5 rounded-xl"
+                  style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" className="mt-0.5 flex-shrink-0">
+                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                  </svg>
+                  <p style={{ color: '#f87171', fontSize: 12, fontWeight: 500, lineHeight: 1.4 }}>{keyError}</p>
+                </div>
+              )}
+
+              <button
+                onClick={handleJoinWithKey}
+                disabled={isJoiningEvent || !eventKey.trim()}
+                className="w-full py-3.5 rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+                style={{
+                  background: isJoiningEvent || !eventKey.trim()
+                    ? 'rgba(124,58,237,0.3)'
+                    : 'linear-gradient(135deg,#7c3aed,#4f46e5)',
+                  color: '#fff',
+                  fontWeight: 700,
+                  fontSize: 15,
+                  opacity: isJoiningEvent ? 0.8 : 1,
+                  boxShadow: eventKey.trim() && !isJoiningEvent ? '0 4px 20px rgba(124,58,237,0.35)' : 'none',
+                }}>
+                {isJoiningEvent ? (
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <>
+                    <Lock size={15} />
+                    Join Event
+                  </>
+                )}
+              </button>
+
+              <button
+                onClick={() => { setGateEvent(null); setKeyError(''); setEventKey(''); }}
+                className="w-full py-2.5 mt-2 rounded-xl text-center"
+                style={{ color: t.textMuted, fontSize: 13, fontWeight: 500 }}>
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

@@ -55,6 +55,27 @@ export interface JoinEventResponse {
   error?: { code: string; message: string };
 }
 
+export interface EventAccessData {
+  is_member: boolean;
+  membership_id: string | null;
+  role: string | null;
+  status: string | null;
+  joined_at: string | null;
+  event: {
+    id: number;
+    name: string;
+    slug: string;
+    status: string;
+    requires_code: boolean;
+  };
+}
+
+export interface EventAccessResponse {
+  success: boolean;
+  data?: EventAccessData;
+  error?: { code: string; message: string };
+}
+
 // ─── Normalizer ───────────────────────────────────────────────────────────────
 
 function normalizeStatus(raw: string | undefined): EventStatus {
@@ -176,4 +197,40 @@ export async function joinEventByCodeApi(code: string): Promise<JoinEventRespons
     return { success: false, error: { code: 'INVALID_CODE', message: 'Event not found. Please check your code.' } };
   }
   return { success: true, data: { eventId: matched.id, message: `Successfully joined ${matched.title}!` } };
+}
+
+/**
+ * GET /api/v1/events/{eventId}/access
+ * Check whether the current user is a member of the given event.
+ * Always returns 200 — never blocks.
+ */
+export async function checkEventAccess(eventId: string): Promise<EventAccessResponse> {
+  const res = await apiGet<unknown>(`/api/v1/events/${eventId}/access`, EVENTS_TENANT_HEADERS);
+  if (!res.success) {
+    return { success: false, error: res.error as { code: string; message: string } ?? { code: 'ERROR', message: 'Access check failed.' } };
+  }
+  const raw = res.data as Record<string, unknown>;
+  const data = (raw?.data ?? raw) as EventAccessData;
+  return { success: true, data };
+}
+
+/**
+ * POST /api/v1/events/join
+ * Join event using an event code — the real API endpoint.
+ * Body: { event_code: "XXXXX" }
+ * 201 → newly joined; 200 → already a member (idempotent); 404 → invalid code
+ */
+export async function joinEventWithCode(eventCode: string): Promise<JoinEventResponse> {
+  const res = await apiPost<unknown>(
+    '/api/v1/events/join',
+    { event_code: eventCode.trim() },
+    EVENTS_TENANT_HEADERS,
+  );
+  if (res.success && res.data) {
+    const raw = res.data as Record<string, unknown>;
+    const eventId = String(raw.event_id ?? raw.eventId ?? raw.id ?? '');
+    return { success: true, data: { eventId, message: 'Successfully joined event!' } };
+  }
+  const msg = (res.error?.message) ?? 'Invalid event key. Please try again.';
+  return { success: false, error: { code: res.error?.code ?? 'INVALID_CODE', message: msg } };
 }
