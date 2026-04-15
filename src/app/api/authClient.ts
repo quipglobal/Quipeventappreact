@@ -8,7 +8,7 @@
  *   GET  /api/v1/me                                             → { user }
  */
 
-import { apiGet, apiPost, saveToken, clearToken, TOKEN_KEY } from './client';
+import { apiGet, apiPost, apiPut, saveToken, clearToken, TOKEN_KEY } from './client';
 
 // ─── Shared Types ─────────────────────────────────────────────────────────────
 
@@ -131,33 +131,61 @@ export async function verifyOtp(identifier: string, code: string): Promise<Verif
 /**
  * POST /api/v1/auth/register
  * Creates a new user account for a verified email address.
+ * Falls back to PUT /api/v1/me/profile if the register endpoint is unavailable.
  */
 export async function registerUser(params: {
   identifier: string;
-  name: string;
+  firstName: string;
+  lastName: string;
+  phone?: string;
   title?: string;
   company?: string;
 }): Promise<RegisterResponse> {
-  const res = await apiPost<Record<string, unknown>>('/api/v1/auth/register', {
+  const fullName = `${params.firstName.trim()} ${params.lastName.trim()}`.trim();
+
+  const payload = {
     identifier: params.identifier,
-    name: params.name.trim(),
+    name: fullName,
+    first_name: params.firstName.trim(),
+    last_name: params.lastName.trim(),
+    phone: params.phone?.trim() ?? '',
+    title: params.title?.trim() ?? '',
+    company: params.company?.trim() ?? '',
+  };
+
+  const res = await apiPost<Record<string, unknown>>('/api/v1/auth/register', payload);
+
+  if (res.success && res.data) {
+    const raw = res.data;
+    const token = (raw.token as string) ?? '';
+    if (token) saveToken(token);
+    const userData = (raw.user ?? raw.data ?? raw) as Record<string, unknown>;
+    return { success: true, data: { token, user: normalizeUser(userData) } };
+  }
+
+  const profileRes = await apiPut<Record<string, unknown>>('/api/v1/me/profile', {
+    first_name: params.firstName.trim(),
+    last_name: params.lastName.trim(),
+    phone: params.phone?.trim() ?? '',
     title: params.title?.trim() ?? '',
     company: params.company?.trim() ?? '',
   });
 
-  if (!res.success || !res.data) {
+  if (!profileRes.success || !profileRes.data) {
     return {
       success: false,
-      error: res.error ?? { code: 'REGISTER_FAILED', message: 'Registration failed.' },
+      error: profileRes.error ?? { code: 'REGISTER_FAILED', message: 'Registration failed. Please try again.' },
     };
   }
 
-  const raw = res.data;
-  const token = (raw.token as string) ?? '';
-  if (token) saveToken(token);
+  const profileRaw = (profileRes.data as Record<string, unknown>);
+  const profileData = (profileRaw.data ?? profileRaw) as Record<string, unknown>;
+  const meRes = await apiGet<Record<string, unknown>>('/api/v1/me');
+  const meRaw = meRes.success && meRes.data
+    ? ((meRes.data as Record<string, unknown>).user ?? meRes.data) as Record<string, unknown>
+    : profileData;
 
-  const userData = (raw.user ?? raw.data ?? raw) as Record<string, unknown>;
-  return { success: true, data: { token, user: normalizeUser(userData) } };
+  return { success: true, data: { token: '', user: normalizeUser(meRaw) } };
 }
 
 /**

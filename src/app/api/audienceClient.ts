@@ -172,6 +172,33 @@ async function buildTitleLookup(eventId: string | number): Promise<Map<number, s
   return lookup;
 }
 
+// ─── Audience membership check ────────────────────────────────────────────────
+
+/**
+ * Checks whether an email address is already registered as a member of ANY
+ * active event in the Globex tenant. Used during signup to prevent duplicates.
+ * Returns true if the email is already in the audience.
+ */
+export async function checkEmailInAudience(email: string): Promise<boolean> {
+  const eventIds = [21, 20, 3];
+  const normalizedEmail = email.trim().toLowerCase();
+  for (const eventId of eventIds) {
+    try {
+      const res = await apiGet<unknown>(`/api/v1/events/${eventId}/members?per_page=200`, HEADERS);
+      if (!res.success) continue;
+      const body = res.data as Record<string, unknown>;
+      const list: unknown[] = Array.isArray(body?.data) ? (body.data as unknown[]) : [];
+      const found = list.some(
+        m => ((m as RawEventMember).user?.email ?? '').toLowerCase() === normalizedEmail,
+      );
+      if (found) return true;
+    } catch {
+      // non-fatal
+    }
+  }
+  return false;
+}
+
 // ─── API Method ───────────────────────────────────────────────────────────────
 
 /**

@@ -6,9 +6,10 @@
  */
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import cxoLogo from '@/assets/cxo-logo-transparent.png';
-import { User, Mail, Briefcase, Building2, ArrowLeft, RefreshCw, CheckCircle2, AlertCircle, X } from 'lucide-react';
+import { User, Mail, Briefcase, Building2, ArrowLeft, RefreshCw, CheckCircle2, AlertCircle, X, Phone } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { sendOtp, verifyOtp, registerUser, AuthUser } from '@/app/api/authClient';
+import { checkEmailInAudience } from '@/app/api/audienceClient';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
@@ -127,9 +128,10 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
   const [existingUser, setExistingUser] = useState<AuthUser | null>(null);
 
   // ── Create account form ───────────────────────────────────────────────
-  const [createForm, setCreateForm] = useState({ name: '', email: '', title: '', company: '' });
+  const [createForm, setCreateForm] = useState({ firstName: '', lastName: '', title: '', company: '', phone: '' });
   const [createLoading, setCreateLoading] = useState(false);
   const [createError, setCreateError] = useState('');
+  const [audienceChecking, setAudienceChecking] = useState(false);
 
   const startResendCountdown = useCallback(() => {
     setResendCountdown(30);
@@ -236,17 +238,34 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
 
   // ── Create new account ────────────────────────────────────────────────
   const handleCreateAccount = useCallback(async () => {
-    if (!createForm.name.trim()) {
-      setCreateError('Name is required.');
+    if (!createForm.firstName.trim()) {
+      setCreateError('First name is required.');
+      return;
+    }
+    if (!createForm.lastName.trim()) {
+      setCreateError('Last name is required.');
       return;
     }
     setCreateError('');
     setCreateLoading(true);
 
     try {
+      // Check whether this email is already in the audience before registering
+      setAudienceChecking(true);
+      const alreadyInAudience = await checkEmailInAudience(emailInput.trim());
+      setAudienceChecking(false);
+
+      if (alreadyInAudience) {
+        setCreateError('This email is already registered as an event attendee. Please log in instead.');
+        setCreateLoading(false);
+        return;
+      }
+
       const res = await registerUser({
         identifier: emailInput.trim(),
-        name: createForm.name.trim(),
+        firstName: createForm.firstName.trim(),
+        lastName: createForm.lastName.trim(),
+        phone: createForm.phone.trim(),
         title: createForm.title.trim(),
         company: createForm.company.trim(),
       });
@@ -257,14 +276,15 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
       }
 
       const { user } = res.data;
+      const fullName = user.name || `${createForm.firstName.trim()} ${createForm.lastName.trim()}`;
       setUser({
         id: user.id,
-        name: user.name,
-        email: user.email ?? '',
-        title: user.title ?? '',
-        company: user.company ?? '',
+        name: fullName,
+        email: user.email ?? emailInput.trim(),
+        title: user.title ?? createForm.title.trim(),
+        company: user.company ?? createForm.company.trim(),
         role: user.role,
-        avatar: user.avatar ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name)}&background=7c3aed&color=fff`,
+        avatar: user.avatar ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(fullName)}&background=7c3aed&color=fff`,
         points: user.points ?? 0,
         tier: user.tier ?? 'Bronze',
         interests: user.interests ?? [],
@@ -276,6 +296,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
       setCreateError('Network error. Please check your connection and try again.');
     } finally {
       setCreateLoading(false);
+      setAudienceChecking(false);
     }
   }, [createForm, emailInput, setUser, onLogin]);
 
@@ -289,7 +310,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
       setOtpValue('');
       setOtpError('');
       setExistingUser(null);
-      setCreateForm({ name: '', email: '', title: '', company: '' });
+      setCreateForm({ firstName: '', lastName: '', title: '', company: '', phone: '' });
       setCreateError('');
       if (resendRef.current) clearInterval(resendRef.current);
       setResendCountdown(0);
@@ -612,12 +633,25 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
                   <ArrowLeft size={15} /> Back
                 </button>
 
-                <div className="mb-6">
-                  <h2 style={{ color: '#fff', fontSize: 22, fontWeight: 800, letterSpacing: '-0.03em' }}>Create your account</h2>
+                <div className="mb-5">
+                  <div className="w-12 h-12 rounded-2xl flex items-center justify-center mb-4"
+                    style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', boxShadow: '0 8px 24px rgba(124,58,237,0.4)' }}>
+                    <User size={22} color="white" />
+                  </div>
+                  <h2 style={{ color: '#fff', fontSize: 22, fontWeight: 800, letterSpacing: '-0.03em' }}>Create your profile</h2>
                   <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13, marginTop: 3 }}>
-                    Number verified ✓ — tell us about yourself
+                    Email verified ✓ — tell us about yourself
                   </p>
                 </div>
+
+                {/* Audience check loading state */}
+                {audienceChecking && (
+                  <div className="flex items-center gap-2 px-4 py-3 rounded-xl mb-4"
+                    style={{ background: 'rgba(124,58,237,0.08)', border: '1px solid rgba(124,58,237,0.2)' }}>
+                    <RefreshCw size={14} color="#a78bfa" style={{ animation: 'spin-cw 1s linear infinite' }} />
+                    <p style={{ color: '#a78bfa', fontSize: 13 }}>Checking audience list…</p>
+                  </div>
+                )}
 
                 {createError && (
                   <div className="flex items-center gap-2 px-4 py-3 rounded-xl mb-4"
@@ -628,17 +662,29 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
                 )}
 
                 <div className="space-y-3">
-                  {/* Name */}
-                  <div className="relative">
-                    <User size={15} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: createForm.name ? '#a78bfa' : 'rgba(255,255,255,0.25)' }} />
-                    <input
-                      type="text" placeholder="Full name"
-                      value={createForm.name}
-                      onChange={e => setCreateForm(f => ({ ...f, name: e.target.value }))}
-                      onFocus={() => setFocusedField('name')} onBlur={() => setFocusedField('')}
-                      className="outline-none"
-                      style={inputStyle(focusedField === 'name', !!createForm.name)}
-                    />
+                  {/* First Name + Last Name side by side */}
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <User size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: createForm.firstName ? '#a78bfa' : 'rgba(255,255,255,0.25)' }} />
+                      <input
+                        type="text" placeholder="First name"
+                        value={createForm.firstName}
+                        onChange={e => setCreateForm(f => ({ ...f, firstName: e.target.value }))}
+                        onFocus={() => setFocusedField('firstName')} onBlur={() => setFocusedField('')}
+                        className="outline-none w-full"
+                        style={{ ...inputStyle(focusedField === 'firstName', !!createForm.firstName), paddingLeft: 36 }}
+                      />
+                    </div>
+                    <div className="relative flex-1">
+                      <input
+                        type="text" placeholder="Last name"
+                        value={createForm.lastName}
+                        onChange={e => setCreateForm(f => ({ ...f, lastName: e.target.value }))}
+                        onFocus={() => setFocusedField('lastName')} onBlur={() => setFocusedField('')}
+                        className="outline-none w-full"
+                        style={{ ...inputStyle(focusedField === 'lastName', !!createForm.lastName), paddingLeft: 16 }}
+                      />
+                    </div>
                   </div>
 
                   {/* Email (read-only — already verified by OTP) */}
@@ -650,7 +696,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
                     </div>
                   </div>
 
-                  {/* Title */}
+                  {/* Job Title */}
                   <div className="relative">
                     <Briefcase size={15} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: createForm.title ? '#a78bfa' : 'rgba(255,255,255,0.25)' }} />
                     <input
@@ -675,25 +721,41 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
                       style={inputStyle(focusedField === 'company', !!createForm.company)}
                     />
                   </div>
+
+                  {/* Phone Number */}
+                  <div className="relative">
+                    <Phone size={15} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: createForm.phone ? '#a78bfa' : 'rgba(255,255,255,0.25)' }} />
+                    <input
+                      type="tel" placeholder="Phone number (optional)"
+                      value={createForm.phone}
+                      onChange={e => setCreateForm(f => ({ ...f, phone: e.target.value }))}
+                      onFocus={() => setFocusedField('phone')} onBlur={() => setFocusedField('')}
+                      className="outline-none"
+                      style={inputStyle(focusedField === 'phone', !!createForm.phone)}
+                    />
+                  </div>
                 </div>
 
                 <p className="mt-4 text-center" style={{ color: 'rgba(255,255,255,0.2)', fontSize: 11, lineHeight: 1.6 }}>
                   By creating an account, you agree to our Terms of Service and Privacy Policy.
                 </p>
 
-                <button onClick={handleCreateAccount} disabled={createLoading}
+                <button
+                  onClick={handleCreateAccount}
+                  disabled={createLoading || audienceChecking || !createForm.firstName.trim() || !createForm.lastName.trim()}
                   className="w-full flex items-center justify-center gap-2 rounded-2xl mt-4 transition-all active:scale-[0.98]"
                   style={{
                     height: 54,
-                    background: createForm.name
+                    background: (createForm.firstName && createForm.lastName)
                       ? 'linear-gradient(135deg,#7c3aed,#4f46e5)'
                       : 'rgba(255,255,255,0.07)',
-                    color: createForm.name ? '#fff' : 'rgba(255,255,255,0.25)',
+                    color: (createForm.firstName && createForm.lastName) ? '#fff' : 'rgba(255,255,255,0.25)',
                     fontWeight: 700, fontSize: 16,
-                    boxShadow: createForm.name ? '0 8px 28px rgba(124,58,237,0.45)' : 'none',
+                    boxShadow: (createForm.firstName && createForm.lastName) ? '0 8px 28px rgba(124,58,237,0.45)' : 'none',
+                    opacity: createLoading || audienceChecking ? 0.7 : 1,
                   }}>
                   {createLoading
-                    ? <><RefreshCw size={18} style={{ animation: 'spin-cw 1s linear infinite' }} /> Creating account…</>
+                    ? <><RefreshCw size={18} style={{ animation: 'spin-cw 1s linear infinite' }} /> {audienceChecking ? 'Checking…' : 'Creating account…'}</>
                     : <>
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                           <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
@@ -705,7 +767,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
 
                 <button onClick={() => setView('phone')} className="w-full text-center mt-3"
                   style={{ color: '#7c3aed', fontSize: 13, fontWeight: 600 }}>
-                  Already have an account?
+                  Already have an account? Sign in
                 </button>
               </div>
             )}
