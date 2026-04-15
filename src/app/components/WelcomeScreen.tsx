@@ -101,7 +101,7 @@ const OtpInput: React.FC<OtpInputProps> = ({ value, onChange, hasError }) => {
 };
 
 // ─── Main Component ────────────────────────────────────────────────────────────
-type SheetView = 'phone' | 'otp' | 'profile-review' | 'create-account';
+type SheetView = 'phone' | 'otp' | 'not-found' | 'profile-review' | 'create-account';
 
 interface WelcomeScreenProps { onLogin: () => void; }
 
@@ -182,9 +182,9 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
         }
         const { user, accountExists, token } = res.data;
         if (!accountExists || !token || !user) {
-          // New email — no account yet, proceed to registration form
+          // New email — no account yet, tell user and offer signup
           setExistingUser(null);
-          setView('create-account');
+          setView('not-found');
         } else {
           // Existing account — token already saved, show profile review
           setExistingUser(user);
@@ -627,10 +627,72 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
               </div>
             )}
 
+            {/* ── NOT FOUND VIEW ───────────────────────────────────────── */}
+            {view === 'not-found' && (
+              <div className="px-6 pt-2 pb-10">
+                <div className="flex flex-col items-center text-center pt-4 mb-8">
+                  {/* Icon */}
+                  <div className="w-16 h-16 rounded-3xl flex items-center justify-center mb-5"
+                    style={{ background: 'rgba(239,68,68,0.1)', border: '1.5px solid rgba(239,68,68,0.25)' }}>
+                    <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#f87171" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+                      <line x1="11" y1="8" x2="11" y2="12"/><line x1="11" y1="16" x2="11.01" y2="16"/>
+                    </svg>
+                  </div>
+
+                  <h2 style={{ color: '#fff', fontSize: 22, fontWeight: 800, letterSpacing: '-0.03em', marginBottom: 8 }}>
+                    No account found
+                  </h2>
+                  <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14, lineHeight: 1.55, maxWidth: 280 }}>
+                    We couldn't find an account for
+                  </p>
+                  <div className="mt-1 px-3 py-1.5 rounded-xl" style={{ background: 'rgba(124,58,237,0.12)', border: '1px solid rgba(124,58,237,0.25)' }}>
+                    <span style={{ color: '#a78bfa', fontSize: 14, fontWeight: 600 }}>{emailInput.trim()}</span>
+                  </div>
+                </div>
+
+                {/* Create account CTA */}
+                <button
+                  onClick={() => setView('create-account')}
+                  className="w-full flex items-center justify-center gap-2 rounded-2xl transition-all active:scale-[0.98] mb-3"
+                  style={{
+                    height: 56,
+                    background: 'linear-gradient(135deg,#7c3aed,#4f46e5)',
+                    color: '#fff', fontWeight: 700, fontSize: 16,
+                    boxShadow: '0 8px 28px rgba(124,58,237,0.45)',
+                  }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                    <line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/>
+                  </svg>
+                  Create an Account
+                </button>
+
+                {/* Divider */}
+                <div className="flex items-center gap-3 my-4">
+                  <div className="flex-1 h-px" style={{ background: 'rgba(255,255,255,0.08)' }} />
+                  <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 12 }}>or</span>
+                  <div className="flex-1 h-px" style={{ background: 'rgba(255,255,255,0.08)' }} />
+                </div>
+
+                <button
+                  onClick={() => { setView('phone'); setEmailInput(''); setOtpValue(''); }}
+                  className="w-full flex items-center justify-center gap-2 rounded-2xl transition-all active:scale-[0.98]"
+                  style={{
+                    height: 52,
+                    background: 'rgba(255,255,255,0.05)',
+                    border: '1.5px solid rgba(255,255,255,0.1)',
+                    color: 'rgba(255,255,255,0.55)', fontWeight: 600, fontSize: 15,
+                  }}>
+                  Try a different email
+                </button>
+              </div>
+            )}
+
             {/* ── CREATE ACCOUNT VIEW ──────────────────────────────────── */}
             {view === 'create-account' && (
               <div className="px-6 pt-2 pb-10">
-                <button onClick={() => setView('phone')} className="flex items-center gap-2 mb-5 hover:opacity-70 transition-opacity"
+                <button onClick={() => setView('not-found')} className="flex items-center gap-2 mb-5 hover:opacity-70 transition-opacity"
                   style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, fontWeight: 500 }}>
                   <ArrowLeft size={15} /> Back
                 </button>
