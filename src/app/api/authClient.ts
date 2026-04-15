@@ -181,6 +181,7 @@ export async function registerUser(params: {
     phone: params.phone?.trim() ?? '',
     title: params.title?.trim() ?? '',
     company: params.company?.trim() ?? '',
+    tenant_id: 3,
   });
 
   if (!res.success || !res.data) {
