@@ -2,9 +2,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Ticket, Calendar, MapPin, Users, ChevronRight, Clock,
   ArrowRight, Globe, Video, Hash, Loader2, Play, Tv2,
-  LayoutGrid as GridIcon, RefreshCw, Lock, KeyRound, X,
+  LayoutGrid as GridIcon, RefreshCw, Lock, KeyRound, X, LogOut,
 } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
+import { clearToken } from '@/app/api/client';
 import { useTheme } from '@/app/context/ThemeContext';
 import { ImageWithFallback } from '@/app/components/figma/ImageWithFallback';
 import { EventConfig } from '@/app/types/config';
@@ -70,7 +71,13 @@ interface EventJoinPageProps {
 }
 
 export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => {
-  const { user, joinEvent, switchEvent } = useApp();
+  const { user, joinEvent, switchEvent, setUser } = useApp();
+
+  const handleLogout = useCallback(() => {
+    clearToken();
+    setUser(null);
+  }, [setUser]);
+
   const { t, isDark } = useTheme();
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('feeds');
@@ -346,11 +353,27 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
         <div className="absolute bottom-4 -left-10 w-36 h-36 rounded-full opacity-10"
           style={{ background: 'radial-gradient(circle, #818cf8, transparent 70%)' }} />
         <div className="relative z-10">
-          <div className="flex items-center gap-2 mb-1">
-            <Ticket style={{ width: 18, height: 18, color: '#c4b5fd' }} />
-            <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-              CXO Inc
-            </span>
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center gap-2">
+              <Ticket style={{ width: 18, height: 18, color: '#c4b5fd' }} />
+              <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                CXO Inc
+              </span>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-1.5 rounded-full transition-all active:scale-95"
+              style={{
+                padding: '5px 12px 5px 10px',
+                background: 'rgba(0,0,0,0.3)',
+                border: '1px solid rgba(255,255,255,0.18)',
+                backdropFilter: 'blur(8px)',
+              }}
+              aria-label="Log off"
+            >
+              <LogOut size={12} color="rgba(255,255,255,0.7)" />
+              <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 11, fontWeight: 600 }}>Log off</span>
+            </button>
           </div>
           <h1 style={{ color: '#fff', fontSize: 24, fontWeight: 800, letterSpacing: '-0.03em', marginBottom: 4 }}>
             Welcome{user ? `, ${user.name.split(' ')[0]}` : ''}!
