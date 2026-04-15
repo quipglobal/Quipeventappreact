@@ -202,12 +202,21 @@ export async function checkEmailInAudience(email: string): Promise<boolean> {
 // ─── API Method ───────────────────────────────────────────────────────────────
 
 /**
- * GET /api/v1/events/:id/members?per_page=100
- * Returns all event members, enriched with titles from the companies API.
+ * GET /api/v1/events/:id/members?per_page=100&checked_in_only=<bool>
+ * Returns event members enriched with titles from the companies API.
+ *
+ * IMPORTANT: The API defaults to checked-in members only when the param is
+ * omitted. We always send it explicitly so the caller's intent always wins:
+ *   checkedInOnly=false → checked_in_only=false → all registrations
+ *   checkedInOnly=true  → checked_in_only=true  → checked-in only
  */
-export async function getEventMembersApi(eventId: string | number): Promise<EventMembersResponse> {
+export async function getEventMembersApi(
+  eventId: string | number,
+  checkedInOnly: boolean = false,
+): Promise<EventMembersResponse> {
+  const qs = `per_page=100&checked_in_only=${checkedInOnly}`;
   const [membersRes, titleLookup] = await Promise.all([
-    apiGet<unknown>(`/api/v1/events/${eventId}/members?per_page=100`, HEADERS),
+    apiGet<unknown>(`/api/v1/events/${eventId}/members?${qs}`, HEADERS),
     buildTitleLookup(eventId),
   ]);
 

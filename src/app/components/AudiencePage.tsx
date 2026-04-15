@@ -479,34 +479,34 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
     if (!eventId) { setLoading(false); return; }
     setLoading(true);
     setError(null);
-    const res = await getEventMembersApi(eventId);
+    // Always pass checkedInOnly explicitly — without it the API defaults to
+    // returning checked-in members only, ignoring the admin's selection.
+    const res = await getEventMembersApi(eventId, checkedInOnly);
     if (res.success && res.data) {
       setMembers(res.data);
     } else {
       setError(res.error?.message ?? 'Failed to load audience');
     }
     setLoading(false);
-  }, [eventId]);
+  }, [eventId, checkedInOnly]);
 
   useEffect(() => { fetchMembers(); }, [fetchMembers]);
 
   const availableRoles = useMemo(() => {
-    const base = checkedInOnly ? members.filter(m => m.isCheckedIn) : members;
-    return Array.from(new Set(base.map(m => m.role))).sort();
-  }, [members, checkedInOnly]);
+    return Array.from(new Set(members.map(m => m.role))).sort();
+  }, [members]);
 
   const filteredMembers = useMemo(() => {
     const q = searchQuery.toLowerCase();
     return members.filter(m => {
-      const matchesCheckedIn = !checkedInOnly || m.isCheckedIn;
       const matchesSearch = !q ||
         m.name.toLowerCase().includes(q) ||
         m.role.toLowerCase().includes(q) ||
         m.company.toLowerCase().includes(q);
       const matchesRole = roleFilter === 'all' || m.role === roleFilter;
-      return matchesCheckedIn && matchesSearch && matchesRole;
+      return matchesSearch && matchesRole;
     });
-  }, [members, searchQuery, roleFilter, checkedInOnly]);
+  }, [members, searchQuery, roleFilter]);
 
   const checkedInCount = useMemo(() => members.filter(m => m.isCheckedIn).length, [members]);
   const networkingCount = useMemo(() => members.filter(m => m.isCheckedIn && m.networkingOptIn).length, [members]);
@@ -615,18 +615,18 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
 
       {/* Filter bar */}
       <div className="px-5 py-3 flex gap-2 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
-        {/* Checked-in toggle */}
+        {/* Checked-in Only toggle — always sends param explicitly to the API */}
         <button
           onClick={() => setCheckedInOnly(v => !v)}
           className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full flex-shrink-0 transition-all"
           style={{
-            background: checkedInOnly ? '#10b981' : t.surface,
+            background: checkedInOnly ? '#3b82f6' : t.surface,
             color: checkedInOnly ? '#fff' : t.textSec,
             fontSize: 12, fontWeight: 700,
-            border: `1.5px solid ${checkedInOnly ? '#10b981' : t.border}`,
+            border: `1.5px solid ${checkedInOnly ? '#3b82f6' : t.border}`,
           }}>
           <BadgeCheck style={{ width: 13, height: 13 }} />
-          Checked in ({checkedInCount})
+          {checkedInOnly ? 'Checked-in Only' : 'All Registrations'}
         </button>
 
         {/* Divider */}
