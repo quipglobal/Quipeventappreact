@@ -9,7 +9,6 @@ import cxoLogo from '@/assets/cxo-logo-transparent.png';
 import { User, Mail, Briefcase, Building2, ArrowLeft, RefreshCw, CheckCircle2, AlertCircle, X, Phone, LogOut } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { sendOtp, verifyOtp, registerUser, AuthUser } from '@/app/api/authClient';
-import { clearToken } from '@/app/api/client';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
@@ -109,8 +108,9 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
   const { setUser } = useApp();
 
   const handleLogout = useCallback(() => {
-    clearToken();
+    localStorage.removeItem('auth_token');
     setUser(null);
+    window.location.reload();
   }, [setUser]);
 
   const [sheetOpen, setSheetOpen] = useState(false);

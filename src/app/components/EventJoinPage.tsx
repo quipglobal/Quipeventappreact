@@ -5,7 +5,6 @@ import {
   LayoutGrid as GridIcon, RefreshCw, Lock, KeyRound, X, LogOut,
 } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
-import { clearToken } from '@/app/api/client';
 import { useTheme } from '@/app/context/ThemeContext';
 import { ImageWithFallback } from '@/app/components/figma/ImageWithFallback';
 import { EventConfig } from '@/app/types/config';
@@ -74,8 +73,9 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
   const { user, joinEvent, switchEvent, setUser } = useApp();
 
   const handleLogout = useCallback(() => {
-    clearToken();
+    localStorage.removeItem('auth_token');
     setUser(null);
+    window.location.reload();
   }, [setUser]);
 
   const { t, isDark } = useTheme();
