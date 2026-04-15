@@ -499,6 +499,9 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
   const filteredMembers = useMemo(() => {
     const q = searchQuery.toLowerCase();
     return members.filter(m => {
+      // Client-side checked-in filter — the backend ignores checked_in_only param
+      // so we apply it here based on the checked_in field returned per member.
+      if (checkedInOnly && !m.isCheckedIn) return false;
       const matchesSearch = !q ||
         m.name.toLowerCase().includes(q) ||
         m.role.toLowerCase().includes(q) ||
@@ -506,7 +509,7 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
       const matchesRole = roleFilter === 'all' || m.role === roleFilter;
       return matchesSearch && matchesRole;
     });
-  }, [members, searchQuery, roleFilter]);
+  }, [members, searchQuery, roleFilter, checkedInOnly]);
 
   const checkedInCount = useMemo(() => members.filter(m => m.isCheckedIn).length, [members]);
   const networkingCount = useMemo(() => members.filter(m => m.isCheckedIn && m.networkingOptIn).length, [members]);
