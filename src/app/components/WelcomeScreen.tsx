@@ -180,11 +180,13 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
           setOtpError(res.error?.message ?? 'Verification failed. Please try again.');
           return;
         }
-        const { user, isNewUser, token } = res.data;
-        if (isNewUser || !token || !user) {
+        const { user, accountExists, token } = res.data;
+        if (!accountExists || !token || !user) {
+          // New email — no account yet, proceed to registration form
           setExistingUser(null);
           setView('create-account');
         } else {
+          // Existing account — token already saved, show profile review
           setExistingUser(user);
           setView('profile-review');
         }
@@ -262,7 +264,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
       }
 
       const res = await registerUser({
-        identifier: emailInput.trim(),
+        email: emailInput.trim(),
         firstName: createForm.firstName.trim(),
         lastName: createForm.lastName.trim(),
         phone: createForm.phone.trim(),

@@ -2,10 +2,18 @@
  * Auth API Client — Email OTP flow
  * ─────────────────────────────────────────────────────────────────────────────
  * API CONTRACT (real backend):
- *   POST /api/v1/auth/send-otp     → { identifier, type }      → { success }
- *   POST /api/v1/auth/verify-otp   → { identifier, code, type } → { token, user, isNewUser }
- *   POST /api/v1/auth/register     → { identifier, name, title, company } → { token, user }
- *   GET  /api/v1/me                                             → { user }
+ *   POST /api/v1/auth/send-otp     → { identifier, type: "email_verify" }
+ *                                  → { success }
+ *
+ *   POST /api/v1/auth/verify-otp   → { identifier, code, type: "email_verify" }
+ *     Existing account:            → { verified, account_exists: true, token, token_type, user }
+ *     New email:                   → { verified, account_exists: false }
+ *
+ *   POST /api/v1/auth/register     → { email, first_name, last_name, phone?, title?, company? }
+ *                                  → { token, user }
+ *     409 ALREADY_ATTENDEE:        → { success: false, error: { code, message } }
+ *
+ *   GET  /api/v1/me                → { user }
  */
 
 import { apiGet, apiPost, apiPut, saveToken, clearToken, TOKEN_KEY } from './client';
@@ -38,7 +46,7 @@ export interface VerifyOtpResponse {
   data?: {
     token: string;
     user: AuthUser | null;
-    isNewUser: boolean;
+    accountExists: boolean;
   };
   error?: { code?: string; message: string };
 }
@@ -85,7 +93,10 @@ function normalizeUser(raw: Record<string, unknown>): AuthUser {
  * Sends an OTP code to the given email address.
  */
 export async function sendOtp(identifier: string): Promise<SendOtpResponse> {
-  const res = await apiPost<void>('/api/v1/auth/send-otp', { identifier, type: 'login' });
+  const res = await apiPost<void>('/api/v1/auth/send-otp', {
+    identifier,
+    type: 'email_verify',
+  });
   if (!res.success && res.error) {
     return { success: false, error: res.error };
   }
@@ -94,12 +105,14 @@ export async function sendOtp(identifier: string): Promise<SendOtpResponse> {
 
 /**
  * POST /api/v1/auth/verify-otp
- * Verifies the OTP and returns a token + user (or isNewUser flag).
+ * Verifies the OTP.
+ * - If account_exists: true  → returns token + user (existing account)
+ * - If account_exists: false → no token, proceed to registration
  */
 export async function verifyOtp(identifier: string, code: string): Promise<VerifyOtpResponse> {
   const res = await apiPost<Record<string, unknown>>(
     '/api/v1/auth/verify-otp',
-    { identifier, code, type: 'login' }
+    { identifier, code, type: 'email_verify' }
   );
 
   if (!res.success || !res.data) {
@@ -110,8 +123,10 @@ export async function verifyOtp(identifier: string, code: string): Promise<Verif
   }
 
   const raw = res.data;
+
+  // Backend returns account_exists: bool to differentiate new vs existing
+  const accountExists = Boolean(raw.account_exists ?? raw.accountExists ?? !!raw.token);
   const token = (raw.token as string) ?? '';
-  const isNewUser = Boolean(raw.is_new_user ?? raw.isNewUser ?? !raw.user);
   const userData = (raw.user ?? raw.data) as Record<string, unknown> | null | undefined;
 
   if (token) {
@@ -123,47 +138,27 @@ export async function verifyOtp(identifier: string, code: string): Promise<Verif
     data: {
       token,
       user: userData ? normalizeUser(userData) : null,
-      isNewUser,
+      accountExists,
     },
   };
 }
 
 /**
  * POST /api/v1/auth/register
- * Creates a new user account for a verified email address.
- * Falls back to PUT /api/v1/me/profile if the register endpoint is unavailable.
+ * Creates a new user account for a verified-by-OTP email address.
+ * Password is not required — backend auto-generates one for OTP-based signups.
+ * Returns HTTP 409 with ALREADY_ATTENDEE code if email is already an attendee.
  */
 export async function registerUser(params: {
-  identifier: string;
+  email: string;
   firstName: string;
   lastName: string;
   phone?: string;
   title?: string;
   company?: string;
 }): Promise<RegisterResponse> {
-  const fullName = `${params.firstName.trim()} ${params.lastName.trim()}`.trim();
-
-  const payload = {
-    identifier: params.identifier,
-    name: fullName,
-    first_name: params.firstName.trim(),
-    last_name: params.lastName.trim(),
-    phone: params.phone?.trim() ?? '',
-    title: params.title?.trim() ?? '',
-    company: params.company?.trim() ?? '',
-  };
-
-  const res = await apiPost<Record<string, unknown>>('/api/v1/auth/register', payload);
-
-  if (res.success && res.data) {
-    const raw = res.data;
-    const token = (raw.token as string) ?? '';
-    if (token) saveToken(token);
-    const userData = (raw.user ?? raw.data ?? raw) as Record<string, unknown>;
-    return { success: true, data: { token, user: normalizeUser(userData) } };
-  }
-
-  const profileRes = await apiPut<Record<string, unknown>>('/api/v1/me/profile', {
+  const res = await apiPost<Record<string, unknown>>('/api/v1/auth/register', {
+    email: params.email,
     first_name: params.firstName.trim(),
     last_name: params.lastName.trim(),
     phone: params.phone?.trim() ?? '',
@@ -171,21 +166,57 @@ export async function registerUser(params: {
     company: params.company?.trim() ?? '',
   });
 
-  if (!profileRes.success || !profileRes.data) {
+  if (!res.success || !res.data) {
     return {
       success: false,
-      error: profileRes.error ?? { code: 'REGISTER_FAILED', message: 'Registration failed. Please try again.' },
+      error: res.error ?? { code: 'REGISTER_FAILED', message: 'Registration failed. Please try again.' },
     };
   }
 
-  const profileRaw = (profileRes.data as Record<string, unknown>);
-  const profileData = (profileRaw.data ?? profileRaw) as Record<string, unknown>;
-  const meRes = await apiGet<Record<string, unknown>>('/api/v1/me');
-  const meRaw = meRes.success && meRes.data
-    ? ((meRes.data as Record<string, unknown>).user ?? meRes.data) as Record<string, unknown>
-    : profileData;
+  const raw = res.data;
+  const token = (raw.token as string) ?? '';
+  if (token) saveToken(token);
 
-  return { success: true, data: { token: '', user: normalizeUser(meRaw) } };
+  const userData = (raw.user ?? raw.data ?? raw) as Record<string, unknown>;
+  return { success: true, data: { token, user: normalizeUser(userData) } };
+}
+
+/**
+ * PUT /api/v1/me/profile
+ * Updates profile fields for an already-authenticated user.
+ */
+export async function updateProfile(params: {
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+  title?: string;
+  company?: string;
+}): Promise<MeResponse> {
+  const res = await apiPut<Record<string, unknown>>('/api/v1/me/profile', {
+    first_name: params.firstName?.trim(),
+    last_name: params.lastName?.trim(),
+    phone: params.phone?.trim(),
+    title: params.title?.trim(),
+    company: params.company?.trim(),
+  });
+
+  if (!res.success || !res.data) {
+    return {
+      success: false,
+      error: res.error ?? { code: 'UPDATE_FAILED', message: 'Profile update failed.' },
+    };
+  }
+
+  const meRes = await apiGet<Record<string, unknown>>('/api/v1/me');
+  if (meRes.success && meRes.data) {
+    const raw = (meRes.data as Record<string, unknown>);
+    const user = (raw.user ?? raw.data ?? raw) as Record<string, unknown>;
+    return { success: true, data: normalizeUser(user) };
+  }
+
+  const profileRaw = (res.data as Record<string, unknown>);
+  const profileData = (profileRaw.data ?? profileRaw) as Record<string, unknown>;
+  return { success: true, data: normalizeUser(profileData) };
 }
 
 /**
