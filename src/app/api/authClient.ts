@@ -1,19 +1,23 @@
 /**
  * Auth API Client — Email OTP flow
  * ─────────────────────────────────────────────────────────────────────────────
- * API CONTRACT (real backend):
- *   POST /api/v1/auth/send-otp     → { identifier, type: "email_verify" }
- *                                  → { success }
+ * Confirmed API behavior (tested 2025-04-15):
  *
- *   POST /api/v1/auth/verify-otp   → { identifier, code, type: "email_verify" }
- *     Existing account:            → { verified, account_exists: true, token, token_type, user }
- *     New email:                   → { verified, account_exists: false }
+ *   POST /api/v1/auth/send-otp  { identifier, type }
+ *     type:"login"        existing user  → { message:"OTP sent successfully.", expires_in:600 }
+ *     type:"login"        unknown user   → { message:"If this account exists…" } (no expires_in)
+ *     type:"email_verify" any user       → { message:"OTP sent successfully.", expires_in:600 }
+ *   → Use expires_in presence to detect whether the OTP was really sent.
  *
- *   POST /api/v1/auth/register     → { email, first_name, last_name, phone?, title?, company? }
- *                                  → { token, user }
- *     409 ALREADY_ATTENDEE:        → { success: false, error: { code, message } }
+ *   POST /api/v1/auth/verify-otp  { identifier, code, type }
+ *     Existing account → { verified:true, account_exists:true, token, user }
+ *     New email        → { verified:true, account_exists:false }
  *
- *   GET  /api/v1/me                → { user }
+ *   POST /api/v1/auth/register  { email, first_name, last_name, phone?, title?, company? }
+ *     Success          → { token, user }
+ *     409 ALREADY_ATTENDEE → { success:false, error:{ code, message } }
+ *
+ *   GET  /api/v1/me             → { user }
  */
 
 import { apiGet, apiPost, apiPut, saveToken, clearToken, TOKEN_KEY } from './client';
@@ -38,6 +42,8 @@ export interface AuthUser {
 
 export interface SendOtpResponse {
   success: boolean;
+  /** true = OTP was actually emailed (user exists for 'login' type, always for 'email_verify') */
+  otpSent: boolean;
   error?: { code?: string; message: string };
 }
 
@@ -53,10 +59,7 @@ export interface VerifyOtpResponse {
 
 export interface RegisterResponse {
   success: boolean;
-  data?: {
-    token: string;
-    user: AuthUser;
-  };
+  data?: { token: string; user: AuthUser };
   error?: { code?: string; message: string };
 }
 
@@ -90,29 +93,48 @@ function normalizeUser(raw: Record<string, unknown>): AuthUser {
 
 /**
  * POST /api/v1/auth/send-otp
- * Sends an OTP code to the given email address.
+ *
+ * type:'login'        — for existing-user login. If the user doesn't have an
+ *                       account the backend still returns 200 but omits
+ *                       expires_in. We use that absence to detect "no account".
+ * type:'email_verify' — for signup email verification. OTP always sent.
+ *
+ * Returns otpSent:true only when the code was actually emailed.
  */
-export async function sendOtp(identifier: string): Promise<SendOtpResponse> {
-  const res = await apiPost<void>('/api/v1/auth/send-otp', {
-    identifier,
-    type: 'email_verify',
-  });
+export async function sendOtp(
+  identifier: string,
+  type: 'login' | 'email_verify' = 'login'
+): Promise<SendOtpResponse> {
+  const res = await apiPost<Record<string, unknown>>(
+    '/api/v1/auth/send-otp',
+    { identifier, type }
+  );
+
   if (!res.success && res.error) {
-    return { success: false, error: res.error };
+    return { success: false, otpSent: false, error: res.error };
   }
-  return { success: true };
+
+  const data = (res.data as Record<string, unknown>) ?? {};
+  // For type:'login', the backend sends OTP only if the account exists.
+  // It signals this via expires_in being present in the response.
+  // For type:'email_verify' the OTP is always sent.
+  const otpSent = type === 'email_verify' || ('expires_in' in data);
+
+  return { success: true, otpSent };
 }
 
 /**
  * POST /api/v1/auth/verify-otp
- * Verifies the OTP.
- * - If account_exists: true  → returns token + user (existing account)
- * - If account_exists: false → no token, proceed to registration
+ * type should match what was used for send-otp.
  */
-export async function verifyOtp(identifier: string, code: string): Promise<VerifyOtpResponse> {
+export async function verifyOtp(
+  identifier: string,
+  code: string,
+  type: 'login' | 'email_verify' = 'login'
+): Promise<VerifyOtpResponse> {
   const res = await apiPost<Record<string, unknown>>(
     '/api/v1/auth/verify-otp',
-    { identifier, code, type: 'email_verify' }
+    { identifier, code, type }
   );
 
   if (!res.success || !res.data) {
@@ -123,15 +145,11 @@ export async function verifyOtp(identifier: string, code: string): Promise<Verif
   }
 
   const raw = res.data;
-
-  // Backend returns account_exists: bool to differentiate new vs existing
   const accountExists = Boolean(raw.account_exists ?? raw.accountExists ?? !!raw.token);
   const token = (raw.token as string) ?? '';
   const userData = (raw.user ?? raw.data) as Record<string, unknown> | null | undefined;
 
-  if (token) {
-    saveToken(token);
-  }
+  if (token) saveToken(token);
 
   return {
     success: true,
@@ -145,9 +163,8 @@ export async function verifyOtp(identifier: string, code: string): Promise<Verif
 
 /**
  * POST /api/v1/auth/register
- * Creates a new user account for a verified-by-OTP email address.
- * Password is not required — backend auto-generates one for OTP-based signups.
- * Returns HTTP 409 with ALREADY_ATTENDEE code if email is already an attendee.
+ * Creates a new account. No password — backend auto-generates one.
+ * Returns HTTP 409 ALREADY_ATTENDEE if email is an existing attendee.
  */
 export async function registerUser(params: {
   email: string;
@@ -209,12 +226,12 @@ export async function updateProfile(params: {
 
   const meRes = await apiGet<Record<string, unknown>>('/api/v1/me');
   if (meRes.success && meRes.data) {
-    const raw = (meRes.data as Record<string, unknown>);
+    const raw = meRes.data as Record<string, unknown>;
     const user = (raw.user ?? raw.data ?? raw) as Record<string, unknown>;
     return { success: true, data: normalizeUser(user) };
   }
 
-  const profileRaw = (res.data as Record<string, unknown>);
+  const profileRaw = res.data as Record<string, unknown>;
   const profileData = (profileRaw.data ?? profileRaw) as Record<string, unknown>;
   return { success: true, data: normalizeUser(profileData) };
 }

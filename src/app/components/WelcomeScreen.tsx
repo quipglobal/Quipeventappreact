@@ -123,6 +123,9 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
   const [otpError, setOtpError] = useState('');
   const [resendCountdown, setResendCountdown] = useState(0);
   const resendRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Tracks why we entered the OTP screen: 'login' (existing user check)
+  // or 'signup' (email verification before account creation)
+  const [otpContext, setOtpContext] = useState<'login' | 'signup'>('login');
 
   // ── Resolved existing user (if found) ─────────────────────────────────
   const [existingUser, setExistingUser] = useState<AuthUser | null>(null);
@@ -143,7 +146,9 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
     }, 1000);
   }, []);
 
-  // ── Submit email ──────────────────────────────────────────────────────
+  // ── Submit email (login path) ─────────────────────────────────────────
+  // Uses type:'login'. Backend only sends OTP when account exists; we detect
+  // this via the expires_in field. Non-existing users go to 'not-found'.
   const handlePhoneContinue = useCallback(async () => {
     const email = emailInput.trim();
     if (!isValidEmail(email)) { setPhoneError('Please enter a valid email address.'); return; }
@@ -151,11 +156,43 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
     setPhoneLoading(true);
 
     try {
-      const res = await sendOtp(email);
+      const res = await sendOtp(email, 'login');
+      if (!res.success) {
+        setPhoneError(res.error?.message ?? 'Failed to check your account. Please try again.');
+        return;
+      }
+      if (!res.otpSent) {
+        // No account with this email — skip OTP and show "not found" screen
+        setView('not-found');
+        return;
+      }
+      // Account exists — OTP was sent, proceed to verification
+      setOtpContext('login');
+      setOtpValue('');
+      setOtpError('');
+      setView('otp');
+      startResendCountdown();
+    } catch {
+      setPhoneError('Network error. Please check your connection and try again.');
+    } finally {
+      setPhoneLoading(false);
+    }
+  }, [emailInput, startResendCountdown]);
+
+  // ── Start signup (from 'not-found' screen) ────────────────────────────
+  // Uses type:'email_verify' to always send OTP for email ownership proof.
+  const handleStartSignup = useCallback(async () => {
+    const email = emailInput.trim();
+    setPhoneError('');
+    setPhoneLoading(true);
+
+    try {
+      const res = await sendOtp(email, 'email_verify');
       if (!res.success) {
         setPhoneError(res.error?.message ?? 'Failed to send verification code. Please try again.');
         return;
       }
+      setOtpContext('signup');
       setOtpValue('');
       setOtpError('');
       setView('otp');
@@ -173,22 +210,23 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
 
     setOtpLoading(true);
     const email = emailInput.trim();
+    const type = otpContext === 'signup' ? 'email_verify' : 'login';
 
-    verifyOtp(email, otpValue)
+    verifyOtp(email, otpValue, type)
       .then(res => {
         if (!res.success || !res.data) {
           setOtpError(res.error?.message ?? 'Verification failed. Please try again.');
           return;
         }
-        const { user, accountExists, token } = res.data;
-        if (!accountExists || !token || !user) {
-          // New email — no account yet, tell user and offer signup
-          setExistingUser(null);
-          setView('not-found');
-        } else {
-          // Existing account — token already saved, show profile review
+        const { user, accountExists } = res.data;
+        if (accountExists && user) {
+          // Existing account verified — token already saved by verifyOtp
           setExistingUser(user);
           setView('profile-review');
+        } else {
+          // No account — if we were doing signup OTP, go to form; else not-found
+          setExistingUser(null);
+          setView(otpContext === 'signup' ? 'create-account' : 'not-found');
         }
       })
       .catch(() => {
@@ -204,10 +242,11 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
   const handleResend = useCallback(async () => {
     if (resendCountdown > 0) return;
     const email = emailInput.trim();
+    const type = otpContext === 'signup' ? 'email_verify' : 'login';
     setOtpValue('');
     setOtpError('');
     try {
-      const res = await sendOtp(email);
+      const res = await sendOtp(email, type);
       if (!res.success) {
         setOtpError(res.error?.message ?? 'Failed to resend code. Please try again.');
         return;
@@ -216,7 +255,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
     } catch {
       setOtpError('Network error. Please check your connection and try again.');
     }
-  }, [resendCountdown, emailInput, startResendCountdown]);
+  }, [resendCountdown, emailInput, otpContext, startResendCountdown]);
 
   // ── Confirm existing profile ──────────────────────────────────────────
   const handleProfileConfirm = useCallback(() => {
@@ -311,6 +350,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
       setPhoneError('');
       setOtpValue('');
       setOtpError('');
+      setOtpContext('login');
       setExistingUser(null);
       setCreateForm({ firstName: '', lastName: '', title: '', company: '', phone: '' });
       setCreateError('');
@@ -520,7 +560,9 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
             {/* ── OTP VIEW ─────────────────────────────────────────────── */}
             {view === 'otp' && (
               <div className="px-6 pt-2 pb-10">
-                <button onClick={() => setView('phone')} className="flex items-center gap-2 mb-5 hover:opacity-70 transition-opacity"
+                <button
+                  onClick={() => setView(otpContext === 'signup' ? 'not-found' : 'phone')}
+                  className="flex items-center gap-2 mb-5 hover:opacity-70 transition-opacity"
                   style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, fontWeight: 500 }}>
                   <ArrowLeft size={15} /> Back
                 </button>
@@ -532,9 +574,14 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
                       <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
                     </svg>
                   </div>
-                  <h2 style={{ color: '#fff', fontSize: 22, fontWeight: 800, letterSpacing: '-0.03em' }}>Check your email</h2>
+                  <h2 style={{ color: '#fff', fontSize: 22, fontWeight: 800, letterSpacing: '-0.03em' }}>
+                    {otpContext === 'signup' ? 'Verify your email' : 'Check your email'}
+                  </h2>
                   <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, marginTop: 6, lineHeight: 1.5 }}>
-                    We sent a 6-digit code to<br /><span style={{ color: 'rgba(167,139,250,0.8)', fontWeight: 600 }}>{emailInput.trim()}</span>
+                    {otpContext === 'signup'
+                      ? <>Enter the code we sent to verify<br /><span style={{ color: 'rgba(167,139,250,0.8)', fontWeight: 600 }}>{emailInput.trim()}</span></>
+                      : <>We sent a 6-digit code to<br /><span style={{ color: 'rgba(167,139,250,0.8)', fontWeight: 600 }}>{emailInput.trim()}</span></>
+                    }
                   </p>
                 </div>
 
@@ -653,7 +700,8 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
 
                 {/* Create account CTA */}
                 <button
-                  onClick={() => setView('create-account')}
+                  onClick={handleStartSignup}
+                  disabled={phoneLoading}
                   className="w-full flex items-center justify-center gap-2 rounded-2xl transition-all active:scale-[0.98] mb-3"
                   style={{
                     height: 56,
@@ -661,11 +709,16 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
                     color: '#fff', fontWeight: 700, fontSize: 16,
                     boxShadow: '0 8px 28px rgba(124,58,237,0.45)',
                   }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/>
-                    <line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/>
-                  </svg>
-                  Create an Account
+                  {phoneLoading
+                    ? <><RefreshCw size={18} style={{ animation: 'spin-cw 1s linear infinite' }} /> Sending code…</>
+                    : <>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                          <line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/>
+                        </svg>
+                        Create an Account
+                      </>
+                  }
                 </button>
 
                 {/* Divider */}
