@@ -38,6 +38,7 @@ export interface AuthUser {
   interests?: string[];
   profileComplete?: boolean;
   emailVerified?: boolean;
+  badgeCode?: string;
 }
 
 export interface SendOtpResponse {
@@ -86,6 +87,7 @@ function normalizeUser(raw: Record<string, unknown>): AuthUser {
     interests: Array.isArray(raw.interests) ? raw.interests as string[] : [],
     profileComplete: Boolean(raw.profile_complete ?? raw.profileComplete ?? true),
     emailVerified: Boolean(raw.email_verified ?? raw.emailVerified ?? true),
+    badgeCode: (raw.badge_code ?? raw.badgeCode ?? undefined) as string | undefined,
   };
 }
 

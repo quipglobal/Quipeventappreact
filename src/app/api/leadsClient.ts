@@ -1,12 +1,12 @@
 /**
- * Leads (Sponsor Badge Scan) API Client
+ * Leads (Badge Scan) API Client — Universal, available to all roles
  * ─────────────────────────────────────────────────────────────────────────────
  * API CONTRACT (real backend):
- *   POST /api/leads/scan                → { code, name, company, title, notes, tags, priority, avatar }
- *                                       → { success, lead }
- *   GET  /api/leads                                                       → { leads }
- *   PUT  /api/leads/:id                 → { notes, tags, priority }       → { success, lead }
- *   POST /api/leads/draw                → { giveawayId?, excludeIds? }    → { success, winner }
+ *   POST /api/v1/events/:eventId/leads/scan  → { code, name, company, title, notes, tags, priority, avatar }
+ *                                            → { success, data: Lead }
+ *   GET  /api/v1/events/:eventId/leads                                        → { success, data: Lead[] }
+ *   PUT  /api/v1/events/:eventId/leads/:id  → { notes, tags, priority }      → { success, data: Lead }
+ *   POST /api/v1/events/:eventId/leads/draw → { giveawayId?, excludeIds? }   → { success, data: DrawWinner }
  *
  * Set VITE_USE_MOCK_API=true in .env to run without a live backend.
  */
@@ -15,6 +15,7 @@ import { apiGet, apiPost, apiPut } from './client';
 import type { Lead } from '@/app/context/AppContext';
 
 const USE_MOCK = false;
+const HEADERS: Record<string, string> = { 'X-Tenant-ID': '3' };
 const delay = (ms = 0) => new Promise<void>(r => setTimeout(r, ms));
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -98,24 +99,29 @@ const mockLeads: Lead[] = [
 // ─── Leads ─────────────────────────────────────────────────────────────────
 
 /**
- * POST /api/leads/scan
+ * POST /api/v1/events/:eventId/leads/scan
  * Submits a scanned QR badge payload to create a lead on the backend.
  */
-export async function scanBadgeLead(payload: SaveLeadPayload): Promise<SaveLeadResponse> {
+export async function scanBadgeLead(
+  eventId: string | number,
+  payload: SaveLeadPayload,
+): Promise<SaveLeadResponse> {
   if (USE_MOCK) {
     await delay(800);
-
     const newLead: Lead = {
       ...payload,
       id: `lead-${Date.now()}`,
       timestamp: new Date(),
     };
     mockLeads.unshift(newLead);
-    console.log(`[Mock] Lead created:`, newLead);
     return { success: true, data: newLead };
   }
 
-  const res = await apiPost<Lead>('/api/leads/scan', payload);
+  const res = await apiPost<Lead>(
+    `/api/v1/events/${eventId}/leads/scan`,
+    payload,
+    HEADERS,
+  );
   if (!res.success || !res.data) {
     return { success: false, error: res.error ?? { code: 'SCAN_FAILED', message: 'Failed to save scanned lead.' } };
   }
@@ -123,16 +129,19 @@ export async function scanBadgeLead(payload: SaveLeadPayload): Promise<SaveLeadR
 }
 
 /**
- * GET /api/leads
- * Fetches all leads captured by the authenticated sponsor.
+ * GET /api/v1/events/:eventId/leads
+ * Fetches all leads captured by the authenticated user.
  */
-export async function listLeads(): Promise<ListLeadsResponse> {
+export async function listLeads(eventId: string | number): Promise<ListLeadsResponse> {
   if (USE_MOCK) {
     await delay(500);
     return { success: true, data: [...mockLeads] };
   }
 
-  const res = await apiGet<{ leads: Lead[] } | Lead[]>('/api/leads');
+  const res = await apiGet<{ leads: Lead[] } | Lead[]>(
+    `/api/v1/events/${eventId}/leads`,
+    HEADERS,
+  );
   if (!res.success || !res.data) {
     return { success: false, error: res.error ?? { code: 'LIST_FAILED', message: 'Failed to fetch leads.' } };
   }
@@ -142,12 +151,13 @@ export async function listLeads(): Promise<ListLeadsResponse> {
 }
 
 /**
- * PUT /api/leads/:id
+ * PUT /api/v1/events/:eventId/leads/:id
  * Updates notes, tags, or priority for an existing lead.
  */
 export async function updateLeadApi(
+  eventId: string | number,
   id: string,
-  updates: Partial<Pick<Lead, 'notes' | 'tags' | 'priority'>>
+  updates: Partial<Pick<Lead, 'notes' | 'tags' | 'priority'>>,
 ): Promise<SaveLeadResponse> {
   if (USE_MOCK) {
     await delay(500);
@@ -159,7 +169,11 @@ export async function updateLeadApi(
     return { success: true };
   }
 
-  const res = await apiPut<Lead>(`/api/leads/${id}`, updates);
+  const res = await apiPut<Lead>(
+    `/api/v1/events/${eventId}/leads/${id}`,
+    updates,
+    HEADERS,
+  );
   if (!res.success) {
     return { success: false, error: res.error ?? { code: 'UPDATE_FAILED', message: 'Failed to update lead.' } };
   }
@@ -172,23 +186,20 @@ export async function updateLeadApi(
 // ─── Lucky Draw ─────────────────────────────────────────────────────────────
 
 /**
- * POST /api/leads/draw
- * Selects a winner server-side from the sponsor's lead pool.
+ * POST /api/v1/events/:eventId/leads/draw
+ * Selects a winner server-side from the user's lead pool.
  */
-export async function triggerLuckyDraw(params: {
-  giveawayId?: string;
-  excludeIds?: string[];
-}): Promise<LuckyDrawResponse> {
+export async function triggerLuckyDraw(
+  eventId: string | number,
+  params: { giveawayId?: string; excludeIds?: string[] },
+): Promise<LuckyDrawResponse> {
   if (USE_MOCK) {
     await delay(1200);
-
     const pool = mockLeads.filter(l => !params.excludeIds?.includes(l.id));
     if (pool.length === 0) {
       return { success: false, error: { code: 'EMPTY_POOL', message: 'No eligible participants in the draw pool.' } };
     }
-
     const winner = pool[Math.floor(Math.random() * pool.length)];
-    console.log(`[Mock] Lucky draw winner:`, winner.name);
     return {
       success: true,
       data: {
@@ -201,7 +212,11 @@ export async function triggerLuckyDraw(params: {
     };
   }
 
-  const res = await apiPost<DrawWinner>('/api/leads/draw', params);
+  const res = await apiPost<DrawWinner>(
+    `/api/v1/events/${eventId}/leads/draw`,
+    params,
+    HEADERS,
+  );
   if (!res.success || !res.data) {
     return { success: false, error: res.error ?? { code: 'DRAW_FAILED', message: 'Failed to select a winner.' } };
   }

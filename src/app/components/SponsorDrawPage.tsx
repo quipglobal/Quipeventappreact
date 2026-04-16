@@ -36,17 +36,17 @@ interface SponsorDrawPageProps {
 }
 
 export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
-  const { sponsorGiveaways, user, showToast } = useApp();
+  const { sponsorGiveaways, user, showToast, eventConfig } = useApp();
   const { t, isDark } = useTheme();
   const [poolLeads, setPoolLeads] = useState<Lead[]>([]);
 
   useEffect(() => {
-    listLeads().then(res => {
+    listLeads(eventConfig?.eventId ?? '0').then(res => {
       if (res.success && res.data) {
         setPoolLeads(res.data);
       }
     });
-  }, []);
+  }, [eventConfig?.eventId]);
 
   // Sponsor's own giveaways
   const myGiveaways = useMemo(() => {
@@ -88,7 +88,7 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
     setWinner(null);
 
     const excludeIds = drawHistory.map(d => d.winner.id);
-    const drawPromise = triggerLuckyDraw({
+    const drawPromise = triggerLuckyDraw(eventConfig?.eventId ?? '0', {
       giveawayId: selectedGiveaway?.id,
       excludeIds: excludeWon ? excludeIds : undefined,
     });

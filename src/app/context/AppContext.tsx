@@ -20,6 +20,7 @@ interface User {
   profileComplete: boolean;
   emailVerified?: boolean;
   isRegistered?: boolean;
+  badgeCode?: string;
 }
 
 export interface Lead {
@@ -234,6 +235,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           interests: u.interests ?? [],
           profileComplete: u.profileComplete ?? true,
           emailVerified: u.emailVerified ?? true,
+          badgeCode: u.badgeCode,
         });
       } else {
         clearToken();

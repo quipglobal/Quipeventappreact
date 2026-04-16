@@ -22,7 +22,7 @@ import { LeadsPage } from '@/app/components/LeadsPage';
 import { SponsorEventPage } from '@/app/components/SponsorEventPage';
 import { SponsorDrawPage } from '@/app/components/SponsorDrawPage';
 import { BottomNav } from '@/app/components/BottomNav';
-import { MyQrCodeButton } from '@/app/components/MyQrCodeButton';
+import { MyBadgePage } from '@/app/components/MyBadgePage';
 import { MeetingsPage } from '@/app/components/MeetingsPage';
 import { Bell, Search, MessageCircle, LayoutGrid } from 'lucide-react';
 
@@ -31,8 +31,8 @@ type Page =
   | 'home' | 'agenda' | 'events' | 'event-dashboard' | 'engage'
   | 'engage-sponsors' | 'engage-surveys' | 'engage-polls'
   | 'engage-challenges' | 'engage-audience' | 'engage-giveaways'
-  | 'leaderboard' | 'profile' | 'attendees' | 'booth' | 'scan'
-  | 'sponsor-event' | 'sponsor-draw' | 'partners' | 'meetings';
+  | 'leaderboard' | 'profile' | 'attendees' | 'leads' | 'booth' | 'scan'
+  | 'my-badge' | 'sponsor-event' | 'sponsor-draw' | 'partners' | 'meetings';
 
 interface EBState { hasError: boolean; message: string }
 class AppErrorBoundary extends Component<{ children: ReactNode }, EBState> {
@@ -62,7 +62,7 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, EBState> {
   }
 }
 
-const pagesWithGlobalHeader = ['home', 'engage-audience', 'engage', 'agenda', 'partners', 'leaderboard', 'events', 'event-dashboard', 'meetings', 'scan', 'attendees'];
+const pagesWithGlobalHeader = ['home', 'engage-audience', 'engage', 'agenda', 'partners', 'leaderboard', 'events', 'event-dashboard', 'meetings', 'scan', 'attendees', 'leads', 'my-badge'];
 
 function AppContent() {
   const [screen, setScreen] = useState<Screen>('splash');
@@ -127,7 +127,9 @@ function AppContent() {
       case 'leaderboard':     return <LeaderboardPage />;
       case 'profile':         return <ProfilePage />;
       case 'partners':        return <SponsorsListPage />;
-      case 'attendees':       return <LeadsPage onNavigateToDraw={() => setActivePage('sponsor-draw')} />;
+      case 'attendees':       return <LeadsPage onNavigateToDraw={() => setActivePage('sponsor-draw')} onNavigateToScan={() => setActivePage('scan')} />;
+      case 'leads':           return <LeadsPage onNavigateToDraw={() => setActivePage('sponsor-draw')} onNavigateToScan={() => setActivePage('scan')} />;
+      case 'my-badge':        return <MyBadgePage />;
       case 'booth':           return <PlaceholderPage title="Sponsor Booth" desc="Manage your booth profile and promotional materials." onBack={() => setActivePage('home')} />;
       case 'scan':            return <SponsorScannerPage />;
       case 'sponsor-event':   return <SponsorEventPage onBack={() => setActivePage('home')} onNavigate={handleNavigate} />;
@@ -143,7 +145,7 @@ function AppContent() {
     return true;
   })();
 
-  const mainTabs = ['home', 'events', 'event-dashboard', 'agenda', 'engage', 'leaderboard', 'profile', 'attendees', 'booth', 'scan', 'engage-audience', 'sponsor-event', 'sponsor-draw', 'partners', 'meetings'];
+  const mainTabs = ['home', 'events', 'event-dashboard', 'agenda', 'engage', 'leaderboard', 'profile', 'attendees', 'leads', 'my-badge', 'booth', 'scan', 'engage-audience', 'sponsor-event', 'sponsor-draw', 'partners', 'meetings'];
   const isMainTab = mainTabs.includes(activePage);
 
   const showGlobalHeader = pagesWithGlobalHeader.includes(activePage);
@@ -240,10 +242,7 @@ function AppContent() {
           {renderPage()}
 
           {showBottomNav && isMainTab && (
-            <>
-              <MyQrCodeButton />
-              <BottomNav activeTab={activePage} onTabChange={handleNavigate} />
-            </>
+            <BottomNav activeTab={activePage} onTabChange={handleNavigate} />
           )}
         </div>
       )}

@@ -544,7 +544,7 @@ interface LeadsPageProps {
 }
 
 export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, onNavigateToDraw }) => {
-  const { leads: contextLeads, updateLead, sponsorGiveaways, addSponsorGiveaway, removeSponsorGiveaway, user } = useApp();
+  const { leads: contextLeads, updateLead, sponsorGiveaways, addSponsorGiveaway, removeSponsorGiveaway, user, eventConfig } = useApp();
   const { t, isDark } = useTheme();
 
   const [activeTab, setActiveTab] = useState<LeadsTab>('leads');
@@ -554,12 +554,12 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
   const [apiLeads, setApiLeads] = useState<Lead[] | null>(null);
 
   useEffect(() => {
-    listLeads().then(res => {
+    listLeads(eventConfig?.eventId ?? '0').then(res => {
       if (res.success && res.data) {
         setApiLeads(res.data);
       }
     });
-  }, []);
+  }, [eventConfig?.eventId]);
 
   // If API returned leads, use those + context leads for newly scanned ones;
   // otherwise fall back to context leads only
@@ -600,7 +600,7 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
     if (apiLeads !== null) {
       setApiLeads(prev => prev ? prev.map(l => l.id === id ? { ...l, ...updates } : l) : prev);
     }
-    updateLeadApi(id, updates).catch(() => {});
+    updateLeadApi(eventConfig?.eventId ?? '0', id, updates).catch(() => {});
   };
 
   return (

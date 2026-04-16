@@ -1,34 +1,22 @@
 import React from 'react';
-import { PlaySquare, Calendar, Sparkles, Users, Handshake, ScanLine, UserCheck } from 'lucide-react';
+import { PlaySquare, Users, QrCode, ScanLine, UserCheck } from 'lucide-react';
 import { useTheme } from '@/app/context/ThemeContext';
-import { useApp } from '@/app/context/AppContext';
 
 interface BottomNavProps {
   activeTab: string;
   onTabChange: (tab: string) => void;
 }
 
+const tabs = [
+  { id: 'home',             label: 'Feed',       icon: PlaySquare, highlight: false },
+  { id: 'engage-audience',  label: 'Audience',   icon: Users,      highlight: false },
+  { id: 'my-badge',         label: 'My Badge',   icon: QrCode,     highlight: true  },
+  { id: 'scan',             label: 'Scan',       icon: ScanLine,   highlight: false },
+  { id: 'leads',            label: 'Leads',      icon: UserCheck,  highlight: false },
+];
+
 export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabChange }) => {
   const { t } = useTheme();
-  const { user } = useApp();
-
-  const isSponsor = user?.role === 'sponsor';
-
-  const tabs = isSponsor
-    ? [
-        { id: 'home',             label: 'Feed',       icon: PlaySquare, highlight: false },
-        { id: 'engage-audience',  label: 'Audience',   icon: Users,      highlight: false },
-        { id: 'scan',             label: 'Scan Badge', icon: ScanLine,   highlight: true  },
-        { id: 'agenda',           label: 'Agenda',     icon: Calendar,   highlight: false },
-        { id: 'attendees',        label: 'Leads',      icon: UserCheck,  highlight: false },
-      ]
-    : [
-        { id: 'home',             label: 'Feed',       icon: PlaySquare, highlight: false },
-        { id: 'engage-audience',  label: 'Audience',   icon: Users,      highlight: false },
-        { id: 'engage',           label: 'Engage',     icon: Sparkles,   highlight: true  },
-        { id: 'agenda',           label: 'Agenda',     icon: Calendar,   highlight: false },
-        { id: 'partners',         label: 'Partners',   icon: Handshake,  highlight: false },
-      ];
 
   return (
     <div

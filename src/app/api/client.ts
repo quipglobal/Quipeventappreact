@@ -137,11 +137,11 @@ export async function apiPost<T>(path: string, body: unknown, extraHeaders?: Rec
   }
 }
 
-export async function apiPut<T>(path: string, body: unknown): Promise<ApiEnvelope<T>> {
+export async function apiPut<T>(path: string, body: unknown, extraHeaders?: Record<string, string>): Promise<ApiEnvelope<T>> {
   try {
     const res = await fetchWithRetry(`${API_BASE_URL}${path}`, {
       method: 'PUT',
-      headers: buildHeaders(),
+      headers: buildHeaders(extraHeaders),
       body: JSON.stringify(body),
     });
     return parseResponse<T>(res);

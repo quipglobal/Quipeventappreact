@@ -37,7 +37,7 @@ const priorityConfig: Record<Priority, { label: string; icon: React.ElementType;
 
 export const SponsorScannerPage: React.FC = () => {
   const { t, isDark } = useTheme();
-  const { saveLead, leads } = useApp();
+  const { saveLead, leads, eventConfig } = useApp();
 
   const [mode, setMode] = useState<'scan' | 'manual'>('scan');
   const [manualCode, setManualCode] = useState('');
@@ -91,7 +91,7 @@ export const SponsorScannerPage: React.FC = () => {
     if (!scannedData) return;
     setIsSaving(true);
 
-    const res = await scanBadgeLead({
+    const res = await scanBadgeLead(eventConfig?.eventId ?? '0', {
       code: scannedData.code,
       name: scannedData.name,
       company: scannedData.company,

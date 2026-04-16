@@ -136,14 +136,28 @@ When running the Expo app as a web preview (port 8080), API calls go through the
 | `VITE_TENANT_ID` | Tenant ID header (`1` by default) |
 
 ### Web App API Clients (src/app/api/)
-- `authClient.ts` — Login, resend verification, get me (existing)
-- `eventsClient.ts` — List events (with status filter), get event, join by code
+- `authClient.ts` — Email OTP login/register, getMeApi (includes badgeCode from badge_code field)
+- `audienceClient.ts` — Event members list/detail via v2 flat API (`/api/v1/events/:id/members`)
+- `leadsClient.ts` — Universal badge scan leads: scanBadgeLead, listLeads, updateLeadApi, triggerLuckyDraw (all event-scoped: `/api/v1/events/:eventId/leads/*`)
+- `eventsClient.ts` — List events, get event, join by code
 - `feedClient.ts` — Paginated feed (video+poll), mark video watched
-- `userClient.ts` — Get profile, update profile fields, get points/tier
-- `agendaClient.ts` — List sessions (with day/track filters), get session, bookmark
-- `sponsorsClient.ts` — List sponsors (by tier), get sponsor detail
+- `agendaClient.ts` — List sessions with day/track filters, bookmark
+- `sponsorsClient.ts` — List sponsors by tier, get sponsor detail
 
-All clients have a mock layer that mirrors the expected API contract. Swap mock blocks for real `fetch()` calls when backend is wired. Base URL is `VITE_API_BASE_URL` env var.
+### Universal Badge System (Web App)
+- **BottomNav**: Single universal 5-tab nav for ALL roles — Feed | Audience | My Badge | Scan | Leads (role split removed)
+- **MyBadgePage** (`src/app/components/MyBadgePage.tsx`): Full-screen QR badge with user's id+badge_code+event as JSON payload, badge code pill, download/share
+- **SponsorScannerPage**: Universal scanner (all roles); passes eventId to backend
+- **LeadsPage**: Universal leads view (all roles); event-scoped API calls
+- **badgeCode** propagated from `/api/v1/me` → AuthUser → AppContext User
+
+### Backend Endpoints Needed
+See `BACKEND_SCAN_ENDPOINTS.md` for the full spec. Required:
+- `GET /api/v1/events/:eventId/members?badge_code=:code` — resolve badge to profile
+- `POST /api/v1/events/:eventId/leads/scan` — save a scanned lead
+- `GET /api/v1/events/:eventId/leads` — list user's leads
+- `PUT /api/v1/events/:eventId/leads/:id` — update a lead
+- `POST /api/v1/events/:eventId/leads/draw` — lucky draw winner
 
 ### Web App DataState Component
 `src/app/components/ui/DataState.tsx` — Reusable loading skeleton + error retry UI applied to: Feed, Events, Agenda, Sponsors pages.
