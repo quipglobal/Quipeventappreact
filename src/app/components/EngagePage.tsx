@@ -32,7 +32,11 @@ export const EngagePage: React.FC<EngagePageProps> = ({ onNavigate }) => {
   return (
     <div className="pb-24 min-h-screen" style={{ background: t.bgPage }}>
       {/* Header */}
-      <div className="px-5 pt-12 pb-8" style={{ background: 'linear-gradient(135deg,#4f46e5 0%,#7c3aed 55%,#9333ea 100%)' }}>
+      <div className="relative overflow-hidden px-5 pt-12 pb-8" style={{
+        background: eventConfig?.backgroundURL
+          ? `linear-gradient(160deg,rgba(10,5,30,0.82) 0%,rgba(30,10,60,0.72) 100%),url(${eventConfig.backgroundURL}) center/cover no-repeat`
+          : 'linear-gradient(135deg,#7c3aed 0%,#4f46e5 55%,#6366f1 100%)',
+      }}>
         <div className="flex items-center gap-3 mb-2">
           <Sparkles style={{ width: 26, height: 26, color: '#fff' }} />
           <h1 style={{ color: '#fff', fontSize: 24, fontWeight: 800, letterSpacing: '-0.03em' }}>Engage</h1>

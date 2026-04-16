@@ -642,9 +642,11 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
       {/* Header */}
       <div className="relative overflow-hidden px-5 pt-12 pb-5"
         style={{
-          background: isDark
-            ? 'linear-gradient(160deg,#1e1b4b 0%,#312e81 40%,#4f46e5 100%)'
-            : 'linear-gradient(160deg,#7c3aed 0%,#6366f1 60%,#818cf8 100%)',
+          background: eventConfig?.backgroundURL
+            ? `linear-gradient(160deg,rgba(10,5,30,0.82) 0%,rgba(30,10,60,0.72) 100%),url(${eventConfig.backgroundURL}) center/cover no-repeat`
+            : isDark
+              ? 'linear-gradient(160deg,#1e1b4b 0%,#312e81 40%,#4f46e5 100%)'
+              : 'linear-gradient(135deg,#7c3aed 0%,#4f46e5 55%,#6366f1 100%)',
         }}>
         <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full opacity-12"
           style={{ background: 'radial-gradient(circle, #c4b5fd, transparent 70%)' }} />

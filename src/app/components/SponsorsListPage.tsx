@@ -376,9 +376,11 @@ export const SponsorsListPage: React.FC<SponsorsListPageProps> = ({ onBack }) =>
       {/* Header */}
       <div className="relative overflow-hidden px-5 pt-12 pb-6"
         style={{
-          background: isDark
-            ? 'linear-gradient(155deg,#1c1917 0%,#292524 40%,#44403c 100%)'
-            : 'linear-gradient(155deg,#f97316 0%,#ef4444 65%,#ec4899 100%)',
+          background: eventConfig?.backgroundURL
+            ? `linear-gradient(160deg,rgba(10,5,30,0.82) 0%,rgba(30,10,60,0.72) 100%),url(${eventConfig.backgroundURL}) center/cover no-repeat`
+            : isDark
+              ? 'linear-gradient(160deg,#1e1b4b 0%,#312e81 40%,#4f46e5 100%)'
+              : 'linear-gradient(135deg,#7c3aed 0%,#4f46e5 55%,#6366f1 100%)',
         }}>
         <div className="absolute -top-10 -right-10 w-44 h-44 rounded-full opacity-10"
           style={{ background: 'radial-gradient(circle,#fff,transparent 70%)' }} />

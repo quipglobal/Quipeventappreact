@@ -71,13 +71,15 @@ export const AgendaPage: React.FC = () => {
     return matchSearch && matchDay && matchView;
   });
 
-  const GRAD = 'linear-gradient(135deg,#4f46e5 0%,#7c3aed 55%,#9333ea 100%)';
+  const headerBg = eventConfig?.backgroundURL
+    ? `linear-gradient(160deg,rgba(10,5,30,0.82) 0%,rgba(30,10,60,0.72) 100%),url(${eventConfig.backgroundURL}) center/cover no-repeat`
+    : 'linear-gradient(135deg,#7c3aed 0%,#4f46e5 55%,#6366f1 100%)';
 
   return (
     <div className="pb-24 min-h-screen" style={{ background: t.bgPage }}>
 
       {/* ── Sticky header ── */}
-      <div className="sticky top-0 z-10" style={{ background: GRAD }}>
+      <div className="sticky top-0 z-10" style={{ background: headerBg }}>
         <div className="px-5 pt-12 pb-3">
           {eventConfig.name && (
             <div className="flex items-center gap-1.5 mb-1">
