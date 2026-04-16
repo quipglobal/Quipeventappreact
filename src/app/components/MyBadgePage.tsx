@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { Loader2, AlertCircle, RefreshCw } from 'lucide-react';
-import { QRCodeCanvas } from 'qrcode.react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import { getMyBadgeApi, type BadgeData } from '@/app/api/badgeClient';
@@ -27,15 +26,19 @@ export const MyBadgePage: React.FC = () => {
 
   useEffect(() => { fetchBadge(); }, []);
 
-  const initials = (badge?.name ?? user?.name ?? '')
+  const displayName    = user?.name    ?? '';
+  const displayTitle   = user?.title   ?? '';
+  const displayCompany = user?.company ?? '';
+  const displayAvatar  = user?.avatar  ?? '';
+  const initials = displayName
     .split(' ')
     .map((n) => n[0])
     .join('')
     .slice(0, 2)
     .toUpperCase();
 
-  const eventBg = eventConfig?.backgroundURL;
-  const eventName = badge?.event_name ?? eventConfig?.name ?? 'Event';
+  const eventBg   = eventConfig?.backgroundURL;
+  const eventName = eventConfig?.name ?? 'Event';
 
   return (
     <div
@@ -118,8 +121,8 @@ export const MyBadgePage: React.FC = () => {
                 boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
               }}
             >
-              {badge.avatar ? (
-                <img src={badge.avatar} alt={badge.name} className="w-full h-full object-cover" />
+              {displayAvatar ? (
+                <img src={displayAvatar} alt={displayName} className="w-full h-full object-cover" />
               ) : (
                 <div
                   className="w-full h-full flex items-center justify-center"
@@ -132,20 +135,20 @@ export const MyBadgePage: React.FC = () => {
 
             {/* Name */}
             <p style={{ color: '#0f0f1a', fontSize: 20, fontWeight: 800, letterSpacing: '-0.03em', textAlign: 'center', lineHeight: 1.1, marginBottom: 4 }}>
-              {badge.name}
+              {displayName}
             </p>
 
             {/* Title + Company */}
-            {(badge.title || badge.company) && (
+            {(displayTitle || displayCompany) && (
               <div className="flex flex-col items-center gap-0.5 mb-5">
-                {badge.title && (
+                {displayTitle && (
                   <p style={{ color: '#7c3aed', fontSize: 12, fontWeight: 700, textAlign: 'center' }}>
-                    {badge.title}
+                    {displayTitle}
                   </p>
                 )}
-                {badge.company && (
+                {displayCompany && (
                   <p style={{ color: '#6b7280', fontSize: 11, textAlign: 'center' }}>
-                    {badge.company}
+                    {displayCompany}
                   </p>
                 )}
               </div>
@@ -155,22 +158,21 @@ export const MyBadgePage: React.FC = () => {
             <div className="w-full h-px mb-5" style={{ background: 'linear-gradient(90deg,transparent,rgba(124,58,237,0.15),transparent)' }} />
 
             {/* QR Code */}
-            <div
-              className="rounded-2xl p-4 flex items-center justify-center mb-5"
-              style={{
-                background: '#f5f3ff',
-                border: '1px solid rgba(124,58,237,0.12)',
-              }}
-            >
-              <QRCodeCanvas
-                value={badge.qr_content}
-                size={180}
-                bgColor="transparent"
-                fgColor="#1a0540"
-                level="M"
-                marginSize={0}
-              />
-            </div>
+            {(badge.qr_image || badge.qr_image_url) && (
+              <div
+                className="rounded-2xl p-4 flex items-center justify-center mb-5"
+                style={{
+                  background: '#f5f3ff',
+                  border: '1px solid rgba(124,58,237,0.12)',
+                }}
+              >
+                <img
+                  src={badge.qr_image ?? badge.qr_image_url}
+                  alt="Badge QR code"
+                  style={{ width: 180, height: 180, objectFit: 'contain', display: 'block' }}
+                />
+              </div>
+            )}
 
             {/* Badge code */}
             {badge.badge_code && (
