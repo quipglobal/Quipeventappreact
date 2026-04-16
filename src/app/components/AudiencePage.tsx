@@ -580,14 +580,10 @@ const MemberCard: React.FC<{
     >
       <div className="flex items-center gap-3.5">
         {/* Avatar */}
-        <div className="relative flex-shrink-0">
+        <div className="flex-shrink-0">
           <div className="w-12 h-12 rounded-xl overflow-hidden">
             <MemberAvatar member={member} size={48} rounded="rounded-none" />
           </div>
-          {member.networkingOptIn && (
-            <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2"
-              style={{ borderColor: t.surface }} />
-          )}
         </div>
 
         {/* Info */}
@@ -599,19 +595,21 @@ const MemberCard: React.FC<{
             {isConnected && <UserCheck style={{ width: 13, height: 13, color: t.successText, flexShrink: 0 }} />}
           </div>
 
-          {/* Title */}
+          {/* Job title */}
           {member.title && (
-            <p className="truncate mb-0.5" style={{ color: t.textSec, fontSize: 12, fontWeight: 500 }}>
+            <p className="truncate mb-1" style={{ color: t.textSec, fontSize: 12, fontWeight: 600 }}>
               {member.title}
             </p>
           )}
 
-          {/* Role + Company */}
-          <div className="flex items-center gap-1.5 mb-1 min-w-0">
-            <span className="px-2 py-0.5 rounded-md text-xs font-bold flex-shrink-0"
-              style={{ background: roleGrad(member.role), color: '#fff' }}>
-              {member.role}
-            </span>
+          {/* Role badge (non-Attendee only) + Company */}
+          <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+            {member.role !== 'Attendee' && (
+              <span className="px-2 py-0.5 rounded-md text-xs font-bold flex-shrink-0"
+                style={{ background: roleGrad(member.role), color: '#fff' }}>
+                {member.role}
+              </span>
+            )}
             {member.company && (
               <span className="truncate flex items-center gap-1" style={{ color: t.textSec, fontSize: 12 }}>
                 <Building2 style={{ width: 10, height: 10, color: t.textMuted, flexShrink: 0 }} />
@@ -620,16 +618,17 @@ const MemberCard: React.FC<{
             )}
           </div>
 
-          {/* Check-in badge */}
-          <div className="flex items-center gap-1" style={{ color: '#10b981', fontSize: 11, fontWeight: 600 }}>
-            <BadgeCheck style={{ width: 11, height: 11 }} />
-            Checked in{member.checkedInAt ? ` · ${formatCheckedInTime(member.checkedInAt)}` : ''}
-          </div>
+          {/* Check-in badge — only for members who actually checked in */}
+          {member.isCheckedIn && (
+            <div className="flex items-center gap-1 mt-1" style={{ color: '#10b981', fontSize: 11, fontWeight: 600 }}>
+              <BadgeCheck style={{ width: 11, height: 11 }} />
+              Checked in{member.checkedInAt ? ` · ${formatCheckedInTime(member.checkedInAt)}` : ''}
+            </div>
+          )}
         </div>
 
         {/* Right */}
-        <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
-          {member.networkingOptIn && <Wifi style={{ width: 13, height: 13, color: '#10b981' }} />}
+        <div className="flex-shrink-0">
           <ChevronRight style={{ width: 14, height: 14, color: t.textMuted }} />
         </div>
       </div>
