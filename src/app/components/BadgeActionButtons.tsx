@@ -15,14 +15,14 @@ export const BadgeActionButtons: React.FC<BadgeActionButtonsProps> = ({ onNaviga
       className="fixed left-0 right-0 z-50 pointer-events-none max-w-[430px] mx-auto"
       style={{ bottom: 80 }}
     >
-      <div className="flex items-center justify-center gap-3 pointer-events-auto">
+      <div className="flex items-center gap-3 px-4 pointer-events-auto">
 
         {/* ── My Badge ── */}
         <button
           onClick={() => onNavigate('my-badge')}
-          className="flex items-center gap-2 rounded-2xl transition-all active:scale-[0.96]"
+          className="flex-1 flex items-center justify-center gap-2 rounded-2xl transition-all active:scale-[0.96]"
           style={{
-            padding: '10px 20px',
+            padding: '12px 16px',
             background: isBadgeActive
               ? 'linear-gradient(135deg, #9333ea 0%, #6366f1 100%)'
               : 'linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)',
@@ -40,9 +40,9 @@ export const BadgeActionButtons: React.FC<BadgeActionButtonsProps> = ({ onNaviga
         {/* ── Scan Badge ── */}
         <button
           onClick={() => onNavigate('scan')}
-          className="flex items-center gap-2 rounded-2xl transition-all active:scale-[0.96]"
+          className="flex-1 flex items-center justify-center gap-2 rounded-2xl transition-all active:scale-[0.96]"
           style={{
-            padding: '10px 20px',
+            padding: '12px 16px',
             background: isScanActive
               ? 'linear-gradient(135deg, #9333ea 0%, #6366f1 100%)'
               : 'linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)',
