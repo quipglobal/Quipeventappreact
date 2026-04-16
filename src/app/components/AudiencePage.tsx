@@ -97,23 +97,32 @@ const DetailRow: React.FC<{
   noMask?: boolean;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   t: Record<string, any>;
-}> = ({ icon, iconBg, label, value, divider, valueColor, t }) => (
-  <div className="flex items-center gap-3 px-4 py-3"
-    style={{ borderBottom: divider ? `1px solid ${t.divider}` : undefined }}>
-    <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-      style={{ background: iconBg }}>
-      {icon}
+}> = ({ icon, iconBg, label, value, divider, valueColor, t }) => {
+  // Guard: coerce any non-null value to a safe string to prevent "Objects are not valid as a React child" crashes
+  const safeValue: string | null = value == null
+    ? null
+    : typeof value === 'string'
+      ? (value || null)
+      : String(value) || null;
+
+  return (
+    <div className="flex items-center gap-3 px-4 py-3"
+      style={{ borderBottom: divider ? `1px solid ${t.divider}` : undefined }}>
+      <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+        style={{ background: iconBg }}>
+        {icon}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p style={{ color: t.textSec, fontSize: 11, fontWeight: 600 }}>{label}</p>
+        {safeValue ? (
+          <p className="truncate" style={{ color: valueColor ?? t.text, fontSize: 13, fontWeight: 600 }}>{safeValue}</p>
+        ) : (
+          <p style={{ color: t.textMuted, fontSize: 13, fontStyle: 'italic' }}>—</p>
+        )}
+      </div>
     </div>
-    <div className="flex-1 min-w-0">
-      <p style={{ color: t.textSec, fontSize: 11, fontWeight: 600 }}>{label}</p>
-      {value ? (
-        <p className="truncate" style={{ color: valueColor ?? t.text, fontSize: 13, fontWeight: 600 }}>{value}</p>
-      ) : (
-        <p style={{ color: t.textMuted, fontSize: 13, fontStyle: 'italic' }}>—</p>
-      )}
-    </div>
-  </div>
-);
+  );
+};
 
 // ─── Detail Page ──────────────────────────────────────────────────────────────
 
@@ -394,12 +403,15 @@ const MemberDetailPage: React.FC<{
           style={{ background: t.surface, border: `1px solid ${t.border}` }}>
           {interestedTopics.length > 0 ? (
             <div className="flex flex-wrap gap-2">
-              {interestedTopics.map((topic, i) => (
-                <span key={i} className="px-2.5 py-1 rounded-lg text-xs font-semibold"
-                  style={{ background: 'rgba(124,58,237,0.12)', color: '#7c3aed' }}>
-                  {topic}
-                </span>
-              ))}
+              {interestedTopics.map((topic, i) => {
+                const label = typeof topic === 'string' ? topic : (topic && typeof topic === 'object' ? ((topic as Record<string, unknown>).name ?? (topic as Record<string, unknown>).label ?? JSON.stringify(topic)) : String(topic ?? ''));
+                return label ? (
+                  <span key={i} className="px-2.5 py-1 rounded-lg text-xs font-semibold"
+                    style={{ background: 'rgba(124,58,237,0.12)', color: '#7c3aed' }}>
+                    {String(label)}
+                  </span>
+                ) : null;
+              })}
             </div>
           ) : (
             <p style={{ color: t.textMuted, fontSize: 13, fontStyle: 'italic' }}>—</p>
@@ -422,18 +434,21 @@ const MemberDetailPage: React.FC<{
               </div>
             </div>
           ) : null}
-          {Object.entries(socialLinks).map(([platform, url], i, arr) => (
-            <div key={platform} className="flex items-center gap-3 px-4 py-3"
-              style={{ borderBottom: i < arr.length - 1 ? `1px solid ${t.divider}` : undefined }}>
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(99,102,241,0.1)' }}>
-                <Globe style={{ width: 14, height: 14, color: '#6366f1' }} />
+          {Object.entries(socialLinks).map(([platform, url], i, arr) => {
+            const safeUrl = typeof url === 'string' ? url : (url && typeof url === 'object' ? ((url as Record<string, unknown>).url ?? JSON.stringify(url)) : String(url ?? ''));
+            return safeUrl ? (
+              <div key={platform} className="flex items-center gap-3 px-4 py-3"
+                style={{ borderBottom: i < arr.length - 1 ? `1px solid ${t.divider}` : undefined }}>
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(99,102,241,0.1)' }}>
+                  <Globe style={{ width: 14, height: 14, color: '#6366f1' }} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p style={{ color: t.textSec, fontSize: 11, fontWeight: 600, textTransform: 'capitalize' }}>{platform}</p>
+                  <p className="truncate" style={{ color: '#6366f1', fontSize: 13, fontWeight: 600 }}>{String(safeUrl)}</p>
+                </div>
               </div>
-              <div className="flex-1 min-w-0">
-                <p style={{ color: t.textSec, fontSize: 11, fontWeight: 600, textTransform: 'capitalize' }}>{platform}</p>
-                <p className="truncate" style={{ color: '#6366f1', fontSize: 13, fontWeight: 600 }}>{url}</p>
-              </div>
-            </div>
-          ))}
+            ) : null;
+          })}
           {!linkedinUrl && Object.keys(socialLinks).length === 0 && (
             <div className="px-4 py-3">
               <p style={{ color: t.textMuted, fontSize: 13, fontStyle: 'italic' }}>—</p>
