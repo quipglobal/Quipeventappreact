@@ -82,16 +82,18 @@ export const MyBadgePage: React.FC = () => {
       {/* ── Badge Card ──────────────────────────────────────────────────── */}
       {!loading && badge && (
         <div
-          className="w-full max-w-[320px] rounded-3xl overflow-hidden"
+          className="w-full max-w-[320px]"
           style={{
             boxShadow: '0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.08)',
+            borderRadius: 28,
           }}
         >
           {/* ─ Event banner ─ */}
           <div
-            className="relative flex flex-col px-5"
+            className="relative flex flex-col px-5 overflow-hidden"
             style={{
-              height: 148,
+              height: 160,
+              borderRadius: '28px 28px 0 0',
               background: eventBg
                 ? `url(${eventBg}) center/cover no-repeat`
                 : 'linear-gradient(135deg,#7c3aed 0%,#4f46e5 55%,#6366f1 100%)',
@@ -99,14 +101,14 @@ export const MyBadgePage: React.FC = () => {
           >
             {/* dark gradient overlay so text is always readable */}
             <div className="absolute inset-0"
-              style={{ background: 'linear-gradient(to bottom, rgba(10,5,30,0.35) 0%, rgba(10,5,30,0.75) 100%)' }} />
+              style={{ background: 'linear-gradient(to bottom, rgba(10,5,30,0.25) 0%, rgba(10,5,30,0.80) 100%)' }} />
 
             {/* lanyard hole */}
             <div className="absolute top-3.5 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full z-10"
               style={{ background: 'rgba(0,0,0,0.5)', border: '2px solid rgba(255,255,255,0.3)' }} />
 
             {/* Event label + name — pinned to bottom */}
-            <div className="relative z-10 mt-auto pb-4">
+            <div className="relative z-10 mt-auto pb-14 pl-1">
               <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.18em', marginBottom: 3 }}>
                 Event Pass
               </p>
@@ -116,15 +118,19 @@ export const MyBadgePage: React.FC = () => {
             </div>
           </div>
 
-          {/* ─ White body ─ */}
-          <div className="bg-white px-6 pt-5 pb-6 flex flex-col items-center">
-
-            {/* Avatar */}
+          {/* ─ White body ─ (no overflow-hidden so avatar can float freely) */}
+          <div
+            className="bg-white px-6 pb-6 flex flex-col items-center"
+            style={{ borderRadius: '0 0 28px 28px', paddingTop: 0 }}
+          >
+            {/* Avatar — floats above the white section into the banner */}
             <div
-              className="w-20 h-20 rounded-2xl overflow-hidden mb-3 -mt-10 flex-shrink-0"
+              className="w-20 h-20 rounded-2xl overflow-hidden flex-shrink-0"
               style={{
                 border: '3px solid #ffffff',
-                boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
+                marginTop: -40,
+                marginBottom: 10,
               }}
             >
               {badge.avatar ? (
