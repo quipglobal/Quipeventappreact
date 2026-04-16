@@ -3,13 +3,13 @@ import {
   ArrowLeft, Search, Users, Clock, Sparkles,
   Building2, ChevronRight, UserPlus, UserCheck,
   MessageCircle, Globe, X, Wifi, WifiOff,
-  Loader2, BadgeCheck, QrCode, Calendar,
-  RefreshCw, Phone, Mail, Filter,
+  Loader2, BadgeCheck, QrCode,
+  RefreshCw, Phone, Mail, Filter, User,
 } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import { motion, AnimatePresence } from 'motion/react';
-import { getEventMembersApi, EventMember } from '@/app/api/audienceClient';
+import { getEventMembersApi, getMemberDetailApi, EventMember, MemberDetail } from '@/app/api/audienceClient';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -34,12 +34,6 @@ function formatCheckedInTime(iso: string | null): string {
   } catch { return iso; }
 }
 
-function formatDate(iso: string | null): string {
-  if (!iso) return '—';
-  try {
-    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  } catch { return iso; }
-}
 
 function maskEmail(email: string): string {
   if (!email) return '';
@@ -91,35 +85,66 @@ const MemberAvatar: React.FC<{ member: EventMember; size?: number; rounded?: str
   );
 };
 
+// ─── DetailRow helper ─────────────────────────────────────────────────────────
+
+const DetailRow: React.FC<{
+  icon: React.ReactNode;
+  iconBg: string;
+  label: string;
+  value: string | null | undefined;
+  divider?: boolean;
+  valueColor?: string;
+  noMask?: boolean;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  t: Record<string, any>;
+}> = ({ icon, iconBg, label, value, divider, valueColor, t }) => (
+  <div className="flex items-center gap-3 px-4 py-3"
+    style={{ borderBottom: divider ? `1px solid ${t.divider}` : undefined }}>
+    <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+      style={{ background: iconBg }}>
+      {icon}
+    </div>
+    <div className="flex-1 min-w-0">
+      <p style={{ color: t.textSec, fontSize: 11, fontWeight: 600 }}>{label}</p>
+      {value ? (
+        <p className="truncate" style={{ color: valueColor ?? t.text, fontSize: 13, fontWeight: 600 }}>{value}</p>
+      ) : (
+        <p style={{ color: t.textMuted, fontSize: 13, fontStyle: 'italic' }}>—</p>
+      )}
+    </div>
+  </div>
+);
+
 // ─── Detail Page ──────────────────────────────────────────────────────────────
 
 const MemberDetailPage: React.FC<{
   member: EventMember;
+  eventId: string | number;
   onBack: () => void;
   onConnect: (id: number) => void;
   isConnected: boolean;
-}> = ({ member, onBack, onConnect, isConnected }) => {
+}> = ({ member, eventId, onBack, onConnect, isConnected }) => {
   const { t, isDark } = useTheme();
+  const [detail, setDetail] = useState<MemberDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(true);
 
-  const rows: { icon: React.ElementType; label: string; value: string; color?: string }[] = [
-    { icon: Building2, label: 'Role', value: member.role },
-    { icon: BadgeCheck, label: 'Registration Status', value: member.status },
-    {
-      icon: Clock, label: 'Check-in',
-      value: member.isCheckedIn
-        ? `Checked in${member.checkedInAt ? ` at ${formatCheckedInTime(member.checkedInAt)}` : ''}`
-        : 'Not yet checked in',
-      color: member.isCheckedIn ? '#10b981' : undefined,
-    },
-    { icon: Calendar, label: 'Registered', value: formatDate(member.joinedAt) },
-  ];
+  useEffect(() => {
+    setDetailLoading(true);
+    getMemberDetailApi(eventId, member.memberId).then(res => {
+      if (res.success && res.data) setDetail(res.data);
+    }).finally(() => setDetailLoading(false));
+  }, [eventId, member.memberId]);
 
-  if (member.company) {
-    rows.unshift({ icon: Building2, label: 'Company', value: member.company });
-  }
-  if (member.badgeCode) {
-    rows.push({ icon: QrCode, label: 'Badge Code', value: member.badgeCode });
-  }
+  // Merge: rich detail overrides base member data where available
+  const firstName = detail?.firstName ?? member.name.split(' ')[0] ?? null;
+  const lastName = detail?.lastName ?? (member.name.includes(' ') ? member.name.split(' ').slice(1).join(' ') : null);
+  const company = detail?.company || member.company;
+  const title = detail?.title || member.title;
+  const industry = detail?.industry ?? null;
+  const bio = detail?.bio || member.bio;
+  const interestedTopics = detail?.interestedTopics ?? [];
+  const socialLinks = detail?.socialLinks ?? {};
+  const linkedinUrl = detail?.linkedinUrl ?? null;
 
   return (
     <motion.div
@@ -168,15 +193,15 @@ const MemberDetailPage: React.FC<{
               <h1 style={{ color: '#fff', fontSize: 22, fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1.15, marginBottom: 2 }}>
                 {member.name}
               </h1>
-              {member.title && (
+              {title && (
                 <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: 13, fontWeight: 600, marginBottom: 2 }}>
-                  {member.title}
+                  {title}
                 </p>
               )}
-              {member.company && (
+              {company && (
                 <p className="flex items-center gap-1.5 mb-1"
                   style={{ color: 'rgba(255,255,255,0.65)', fontSize: 12 }}>
-                  <Building2 style={{ width: 11, height: 11 }} /> {member.company}
+                  <Building2 style={{ width: 11, height: 11 }} /> {company}
                 </p>
               )}
               <div className="flex items-center gap-2 flex-wrap mt-1.5">
@@ -232,111 +257,197 @@ const MemberDetailPage: React.FC<{
         </div>
       </div>
 
-      {/* Biography */}
-      <div className="px-5 mb-5">
-        <h3 style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Biography</h3>
-        <div className="rounded-2xl px-4 py-4"
-          style={{ background: t.surface, border: `1px solid ${t.border}` }}>
-          {member.bio ? (
-            <p style={{ color: t.textSec, fontSize: 13, lineHeight: 1.7 }}>{member.bio}</p>
-          ) : (
-            <p style={{ color: t.textMuted, fontSize: 13, fontStyle: 'italic' }}>
-              No biography provided.
-            </p>
-          )}
+      {/* Loading shimmer while fetching rich profile */}
+      {detailLoading && (
+        <div className="px-5 mb-4">
+          <div className="h-2 rounded-full animate-pulse mb-1" style={{ background: t.border, width: '60%' }} />
+          <div className="h-2 rounded-full animate-pulse" style={{ background: t.border, width: '40%' }} />
         </div>
-      </div>
+      )}
 
-      {/* Personal Details */}
+      {/* ── Profile Details ───────────────────────────────── */}
       <div className="px-5 mb-5">
-        <h3 style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Personal Details</h3>
+        <h3 style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Profile Details</h3>
         <div className="rounded-2xl overflow-hidden" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
-          {/* Email */}
-          <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: `1px solid ${t.divider}` }}>
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(99,102,241,0.1)' }}>
-              <Mail style={{ width: 14, height: 14, color: '#6366f1' }} />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p style={{ color: t.textSec, fontSize: 11, fontWeight: 600 }}>Email</p>
-              <p className="truncate" style={{ color: t.text, fontSize: 13, fontWeight: 600 }}>
-                {maskEmail(member.email)}
-              </p>
-            </div>
-          </div>
 
-          {/* Phone */}
-          {member.phone && (
-            <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: `1px solid ${t.divider}` }}>
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(16,185,129,0.1)' }}>
-                <Phone style={{ width: 14, height: 14, color: '#10b981' }} />
-              </div>
-              <div className="flex-1">
-                <p style={{ color: t.textSec, fontSize: 11, fontWeight: 600 }}>Phone</p>
-                <p style={{ color: t.text, fontSize: 13, fontWeight: 600 }}>
-                  {'•'.repeat(6) + member.phone.slice(-4)}
-                </p>
-              </div>
-            </div>
-          )}
+          {/* First Name */}
+          <DetailRow
+            icon={<User style={{ width: 14, height: 14, color: '#6366f1' }} />}
+            iconBg="rgba(99,102,241,0.1)"
+            label="First Name"
+            value={firstName}
+            divider
+            t={t}
+          />
+
+          {/* Last Name */}
+          <DetailRow
+            icon={<User style={{ width: 14, height: 14, color: '#6366f1' }} />}
+            iconBg="rgba(99,102,241,0.1)"
+            label="Last Name"
+            value={lastName}
+            divider
+            t={t}
+          />
+
+          {/* Job Title */}
+          <DetailRow
+            icon={<BadgeCheck style={{ width: 14, height: 14, color: '#7c3aed' }} />}
+            iconBg="rgba(124,58,237,0.1)"
+            label="Job Title"
+            value={title}
+            divider
+            t={t}
+          />
 
           {/* Company */}
-          {member.company && (
-            <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: `1px solid ${t.divider}` }}>
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(245,158,11,0.1)' }}>
-                <Building2 style={{ width: 14, height: 14, color: '#f59e0b' }} />
-              </div>
-              <div className="flex-1">
-                <p style={{ color: t.textSec, fontSize: 11, fontWeight: 600 }}>Company</p>
-                <p style={{ color: t.text, fontSize: 13, fontWeight: 600 }}>{member.company}</p>
-              </div>
-            </div>
+          <DetailRow
+            icon={<Building2 style={{ width: 14, height: 14, color: '#f59e0b' }} />}
+            iconBg="rgba(245,158,11,0.1)"
+            label="Company"
+            value={company || null}
+            divider
+            t={t}
+          />
+
+          {/* Industry */}
+          <DetailRow
+            icon={<Globe style={{ width: 14, height: 14, color: '#06b6d4' }} />}
+            iconBg="rgba(6,182,212,0.1)"
+            label="Company Industry"
+            value={industry}
+            t={t}
+          />
+        </div>
+      </div>
+
+      {/* ── Introduction ─────────────────────────────────── */}
+      <div className="px-5 mb-5">
+        <h3 style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Introduction</h3>
+        <div className="rounded-2xl px-4 py-4"
+          style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+          {bio ? (
+            <p style={{ color: t.textSec, fontSize: 13, lineHeight: 1.7 }}>{bio}</p>
+          ) : (
+            <p style={{ color: t.textMuted, fontSize: 13, fontStyle: 'italic' }}>—</p>
           )}
+        </div>
+      </div>
 
-          {/* Role */}
-          <div className="flex items-center gap-3 px-4 py-3"
-            style={{ borderBottom: member.badgeCode || !member.isCheckedIn ? `1px solid ${t.divider}` : undefined }}>
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(124,58,237,0.1)' }}>
-              <Building2 style={{ width: 14, height: 14, color: '#7c3aed' }} />
+      {/* ── Interested Topics ────────────────────────────── */}
+      <div className="px-5 mb-5">
+        <h3 style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Interested Topics</h3>
+        <div className="rounded-2xl px-4 py-4"
+          style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+          {interestedTopics.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {interestedTopics.map((topic, i) => (
+                <span key={i} className="px-2.5 py-1 rounded-lg text-xs font-semibold"
+                  style={{ background: 'rgba(124,58,237,0.12)', color: '#7c3aed' }}>
+                  {topic}
+                </span>
+              ))}
             </div>
-            <div className="flex-1">
-              <p style={{ color: t.textSec, fontSize: 11, fontWeight: 600 }}>Event Role</p>
-              <p style={{ color: t.text, fontSize: 13, fontWeight: 600 }}>{member.role}</p>
-            </div>
-          </div>
+          ) : (
+            <p style={{ color: t.textMuted, fontSize: 13, fontStyle: 'italic' }}>—</p>
+          )}
+        </div>
+      </div>
 
-          {/* Check-in */}
-          <div className="flex items-center gap-3 px-4 py-3"
-            style={{ borderBottom: member.badgeCode ? `1px solid ${t.divider}` : undefined }}>
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center"
-              style={{ background: member.isCheckedIn ? 'rgba(16,185,129,0.1)' : 'rgba(107,114,128,0.1)' }}>
-              <Clock style={{ width: 14, height: 14, color: member.isCheckedIn ? '#10b981' : '#6b7280' }} />
-            </div>
-            <div className="flex-1">
-              <p style={{ color: t.textSec, fontSize: 11, fontWeight: 600 }}>Check-in</p>
-              <p style={{ color: member.isCheckedIn ? '#10b981' : t.textMuted, fontSize: 13, fontWeight: 600 }}>
-                {member.isCheckedIn
-                  ? `Checked in${member.checkedInAt ? ` at ${formatCheckedInTime(member.checkedInAt)}` : ''}`
-                  : 'Not checked in'}
-              </p>
-            </div>
-          </div>
-
-          {/* Badge */}
-          {member.badgeCode && (
-            <div className="flex items-center gap-3 px-4 py-3">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(245,158,11,0.1)' }}>
-                <QrCode style={{ width: 14, height: 14, color: '#f59e0b' }} />
+      {/* ── Social Links ─────────────────────────────────── */}
+      <div className="px-5 mb-5">
+        <h3 style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Social Links</h3>
+        <div className="rounded-2xl overflow-hidden" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+          {linkedinUrl ? (
+            <div className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: Object.keys(socialLinks).length > 0 ? `1px solid ${t.divider}` : undefined }}>
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(10,102,194,0.1)' }}>
+                <Globe style={{ width: 14, height: 14, color: '#0a66c2' }} />
               </div>
-              <div className="flex-1">
-                <p style={{ color: t.textSec, fontSize: 11, fontWeight: 600 }}>Badge Code</p>
-                <p style={{ color: t.text, fontSize: 13, fontWeight: 700, letterSpacing: '0.08em' }}>{member.badgeCode}</p>
+              <div className="flex-1 min-w-0">
+                <p style={{ color: t.textSec, fontSize: 11, fontWeight: 600 }}>LinkedIn</p>
+                <p className="truncate" style={{ color: '#6366f1', fontSize: 13, fontWeight: 600 }}>{linkedinUrl}</p>
               </div>
+            </div>
+          ) : null}
+          {Object.entries(socialLinks).map(([platform, url], i, arr) => (
+            <div key={platform} className="flex items-center gap-3 px-4 py-3"
+              style={{ borderBottom: i < arr.length - 1 ? `1px solid ${t.divider}` : undefined }}>
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(99,102,241,0.1)' }}>
+                <Globe style={{ width: 14, height: 14, color: '#6366f1' }} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p style={{ color: t.textSec, fontSize: 11, fontWeight: 600, textTransform: 'capitalize' }}>{platform}</p>
+                <p className="truncate" style={{ color: '#6366f1', fontSize: 13, fontWeight: 600 }}>{url}</p>
+              </div>
+            </div>
+          ))}
+          {!linkedinUrl && Object.keys(socialLinks).length === 0 && (
+            <div className="px-4 py-3">
+              <p style={{ color: t.textMuted, fontSize: 13, fontStyle: 'italic' }}>—</p>
             </div>
           )}
         </div>
       </div>
 
-      {/* Networking */}
+      {/* ── Event & Contact Details ──────────────────────── */}
+      <div className="px-5 mb-5">
+        <h3 style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Event Details</h3>
+        <div className="rounded-2xl overflow-hidden" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+          <DetailRow
+            icon={<Mail style={{ width: 14, height: 14, color: '#6366f1' }} />}
+            iconBg="rgba(99,102,241,0.1)"
+            label="Email"
+            value={maskEmail(member.email)}
+            divider
+            t={t}
+            noMask
+          />
+          {member.phone && (
+            <DetailRow
+              icon={<Phone style={{ width: 14, height: 14, color: '#10b981' }} />}
+              iconBg="rgba(16,185,129,0.1)"
+              label="Phone"
+              value={'•'.repeat(6) + member.phone.slice(-4)}
+              divider
+              t={t}
+              noMask
+            />
+          )}
+          <DetailRow
+            icon={<Building2 style={{ width: 14, height: 14, color: '#7c3aed' }} />}
+            iconBg="rgba(124,58,237,0.1)"
+            label="Event Role"
+            value={member.role}
+            divider
+            t={t}
+            noMask
+          />
+          <DetailRow
+            icon={<Clock style={{ width: 14, height: 14, color: member.isCheckedIn ? '#10b981' : '#6b7280' }} />}
+            iconBg={member.isCheckedIn ? 'rgba(16,185,129,0.1)' : 'rgba(107,114,128,0.1)'}
+            label="Check-in"
+            value={member.isCheckedIn
+              ? `Checked in${member.checkedInAt ? ` at ${formatCheckedInTime(member.checkedInAt)}` : ''}`
+              : 'Not checked in'}
+            valueColor={member.isCheckedIn ? '#10b981' : undefined}
+            divider={!!member.badgeCode}
+            t={t}
+            noMask
+          />
+          {member.badgeCode && (
+            <DetailRow
+              icon={<QrCode style={{ width: 14, height: 14, color: '#f59e0b' }} />}
+              iconBg="rgba(245,158,11,0.1)"
+              label="Badge Code"
+              value={member.badgeCode}
+              t={t}
+              noMask
+            />
+          )}
+        </div>
+      </div>
+
+      {/* ── Networking ───────────────────────────────────── */}
       <div className="px-5 mb-5">
         <div className="rounded-2xl p-4 flex items-center gap-3"
           style={{
@@ -769,6 +880,7 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
         {selectedMember && (
           <MemberDetailPage
             member={selectedMember}
+            eventId={eventId ?? ''}
             onBack={() => setSelectedMember(null)}
             onConnect={handleConnect}
             isConnected={connectedIds.has(selectedMember.userId)}

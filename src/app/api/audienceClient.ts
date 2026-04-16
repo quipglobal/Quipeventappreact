@@ -62,6 +62,22 @@ export interface EventMember {
   networkingOptIn: boolean;
 }
 
+/** Rich profile returned by GET /api/v1/events/:id/members/:memberId */
+export interface MemberDetail extends EventMember {
+  firstName: string | null;
+  lastName: string | null;
+  industry: string | null;
+  interestedTopics: string[];
+  socialLinks: Record<string, string>;
+  linkedinUrl: string | null;
+}
+
+export interface MemberDetailResponse {
+  success: boolean;
+  data?: MemberDetail;
+  error?: { message: string };
+}
+
 export interface EventMembersResponse {
   success: boolean;
   data?: EventMember[];
@@ -243,4 +259,75 @@ export async function getEventMembersApi(
   const members = rawList.map(m => normalizeMember(m as RawEventMember, titleLookup));
 
   return { success: true, data: members, total };
+}
+
+// ─── Member Detail ─────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/v1/events/:eventId/members/:memberId
+ * Fetches a single member's full profile. Fields like industry, bio,
+ * interestedTopics, and socialLinks are returned when the backend provides them;
+ * otherwise they fall back to null / empty.
+ */
+export async function getMemberDetailApi(
+  eventId: string | number,
+  memberId: number,
+): Promise<MemberDetailResponse> {
+  const res = await apiGet<unknown>(`/api/v1/events/${eventId}/members/${memberId}`, HEADERS);
+
+  if (!res.success) {
+    return { success: false, error: res.error ?? { message: 'Failed to fetch member profile.' } };
+  }
+
+  const raw = (res.data ?? {}) as RawEventMember & {
+    user?: RawMemberUser & {
+      first_name?: string | null;
+      last_name?: string | null;
+      title?: string | null;
+      bio?: string | null;
+      company?: string | null;
+      industry?: string | null;
+      interested_topics?: string[] | null;
+      social_links?: Record<string, string> | null;
+      linkedin_url?: string | null;
+    };
+  };
+
+  const u = raw.user ?? ({} as NonNullable<typeof raw.user>);
+  const email = u.email ?? '';
+
+  // Derive first/last name: use dedicated fields if available, else split full name
+  const fullName = u.name ?? '';
+  const nameParts = fullName.trim().split(/\s+/);
+  const firstName = u.first_name ?? nameParts[0] ?? null;
+  const lastName = u.last_name ?? (nameParts.length > 1 ? nameParts.slice(1).join(' ') : null);
+
+  const detail: MemberDetail = {
+    memberId: raw.id,
+    userId: raw.user_id,
+    eventId: typeof raw.event_id === 'number' ? raw.event_id : Number(eventId),
+    name: fullName,
+    email,
+    phone: u.phone ?? null,
+    avatar: u.profile_image ?? null,
+    company: u.company ?? companyFromEmail(email),
+    title: u.title ?? null,
+    bio: u.bio ?? null,
+    role: normalizeRole(raw.role),
+    status: normalizeStatus(raw.status),
+    isCheckedIn: Boolean(raw.checked_in),
+    checkedInAt: raw.checked_in_at ?? null,
+    joinedAt: raw.joined_at ?? raw.created_at ?? null,
+    badgeCode: raw.badge_code ?? null,
+    networkingOptIn: Boolean(raw.networking_opt_in),
+    // Rich profile fields
+    firstName,
+    lastName,
+    industry: u.industry ?? null,
+    interestedTopics: Array.isArray(u.interested_topics) ? u.interested_topics : [],
+    socialLinks: (u.social_links && typeof u.social_links === 'object') ? u.social_links : {},
+    linkedinUrl: u.linkedin_url ?? null,
+  };
+
+  return { success: true, data: detail };
 }
