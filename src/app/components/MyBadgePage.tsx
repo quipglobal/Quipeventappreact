@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Loader2, AlertCircle, RefreshCw } from 'lucide-react';
+import { QRCodeCanvas } from 'qrcode.react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import { getMyBadgeApi, type BadgeData } from '@/app/api/badgeClient';
@@ -8,9 +9,9 @@ export const MyBadgePage: React.FC = () => {
   const { user, eventConfig } = useApp();
   const { isDark } = useTheme();
 
-  const [badge, setBadge] = useState<BadgeData | null>(null);
+  const [badge, setBadge]     = useState<BadgeData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError]     = useState<string | null>(null);
 
   const fetchBadge = async () => {
     setLoading(true);
@@ -32,6 +33,7 @@ export const MyBadgePage: React.FC = () => {
   const displayAvatar  = user?.avatar  ?? '';
   const initials = displayName
     .split(' ')
+    .filter(Boolean)
     .map((n) => n[0])
     .join('')
     .slice(0, 2)
@@ -39,6 +41,13 @@ export const MyBadgePage: React.FC = () => {
 
   const eventBg   = eventConfig?.backgroundURL;
   const eventName = eventConfig?.name ?? 'Event';
+
+  const badgeCode = badge?.badge_code || user?.badgeCode || '';
+  const qrImageSrc = badge?.qr_image || badge?.qr_image_url || null;
+  const qrFallback = badgeCode
+    || JSON.stringify({ id: user?.id, badge_code: badgeCode, event: eventConfig?.code ?? '' });
+
+  const showCard = !loading && (badge || error === null);
 
   return (
     <div
@@ -63,8 +72,8 @@ export const MyBadgePage: React.FC = () => {
         </div>
       )}
 
-      {/* ── Error ───────────────────────────────────────────────────────── */}
-      {!loading && error && (
+      {/* ── Error (API failed AND no user context) ───────────────────────── */}
+      {!loading && error && !user && (
         <div className="flex flex-col items-center gap-4 text-center">
           <div className="w-16 h-16 rounded-2xl flex items-center justify-center"
             style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.2)' }}>
@@ -82,13 +91,11 @@ export const MyBadgePage: React.FC = () => {
         </div>
       )}
 
-      {/* ── Badge Card ──────────────────────────────────────────────────── */}
-      {!loading && badge && (
+      {/* ── Badge Card (shown once loading done, with or without API data) ── */}
+      {!loading && (badge || user) && (
         <div
           className="w-full max-w-[320px] rounded-3xl overflow-hidden"
-          style={{
-            boxShadow: '0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.08)',
-          }}
+          style={{ boxShadow: '0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.08)' }}
         >
           {/* ─ Event banner ─ */}
           <div
@@ -99,7 +106,6 @@ export const MyBadgePage: React.FC = () => {
                 : 'linear-gradient(135deg,#7c3aed 0%,#4f46e5 55%,#6366f1 100%)',
             }}
           >
-            {/* lanyard hole */}
             <div className="absolute top-3 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full"
               style={{ background: 'rgba(0,0,0,0.4)', border: '2px solid rgba(255,255,255,0.25)' }} />
             <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.15em', marginTop: 18 }}>
@@ -116,18 +122,13 @@ export const MyBadgePage: React.FC = () => {
             {/* Avatar */}
             <div
               className="w-20 h-20 rounded-2xl overflow-hidden mb-3 -mt-10 flex-shrink-0"
-              style={{
-                border: '3px solid #ffffff',
-                boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
-              }}
+              style={{ border: '3px solid #ffffff', boxShadow: '0 8px 24px rgba(0,0,0,0.2)' }}
             >
               {displayAvatar ? (
                 <img src={displayAvatar} alt={displayName} className="w-full h-full object-cover" />
               ) : (
-                <div
-                  className="w-full h-full flex items-center justify-center"
-                  style={{ background: 'linear-gradient(135deg,#7c3aed 0%,#4f46e5 100%)' }}
-                >
+                <div className="w-full h-full flex items-center justify-center"
+                  style={{ background: 'linear-gradient(135deg,#7c3aed 0%,#4f46e5 100%)' }}>
                   <span style={{ color: '#fff', fontSize: 28, fontWeight: 800 }}>{initials}</span>
                 </div>
               )}
@@ -155,42 +156,46 @@ export const MyBadgePage: React.FC = () => {
             )}
 
             {/* Divider */}
-            <div className="w-full h-px mb-5" style={{ background: 'linear-gradient(90deg,transparent,rgba(124,58,237,0.15),transparent)' }} />
+            <div className="w-full h-px mb-5"
+              style={{ background: 'linear-gradient(90deg,transparent,rgba(124,58,237,0.15),transparent)' }} />
 
-            {/* QR Code */}
-            {(badge.qr_image || badge.qr_image_url) && (
-              <div
-                className="rounded-2xl p-4 flex items-center justify-center mb-5"
-                style={{
-                  background: '#f5f3ff',
-                  border: '1px solid rgba(124,58,237,0.12)',
-                }}
-              >
+            {/* QR Code — server image preferred, client-generated fallback */}
+            <div
+              className="rounded-2xl p-4 flex items-center justify-center mb-5 w-full"
+              style={{ background: '#f5f3ff', border: '1px solid rgba(124,58,237,0.12)' }}
+            >
+              {qrImageSrc ? (
                 <img
-                  src={badge.qr_image ?? badge.qr_image_url}
+                  src={qrImageSrc}
                   alt="Badge QR code"
                   style={{ width: 180, height: 180, objectFit: 'contain', display: 'block' }}
                 />
-              </div>
-            )}
+              ) : (
+                <QRCodeCanvas
+                  value={qrFallback}
+                  size={180}
+                  bgColor="transparent"
+                  fgColor="#1a0540"
+                  level="M"
+                  marginSize={0}
+                />
+              )}
+            </div>
 
             {/* Badge code */}
-            {badge.badge_code && (
+            {badgeCode ? (
               <div
-                className="px-5 py-2 rounded-full"
-                style={{
-                  background: 'rgba(124,58,237,0.08)',
-                  border: '1px solid rgba(124,58,237,0.15)',
-                }}
+                className="px-5 py-2 rounded-full mb-2"
+                style={{ background: 'rgba(124,58,237,0.08)', border: '1px solid rgba(124,58,237,0.15)' }}
               >
                 <span style={{ color: '#7c3aed', fontSize: 14, fontWeight: 700, fontFamily: 'monospace', letterSpacing: '0.12em' }}>
-                  {badge.badge_code}
+                  {badgeCode}
                 </span>
               </div>
-            )}
+            ) : null}
 
             {/* Scan hint */}
-            <p style={{ color: '#9ca3af', fontSize: 10, marginTop: 10, textAlign: 'center', letterSpacing: '0.02em' }}>
+            <p style={{ color: '#9ca3af', fontSize: 10, marginTop: badgeCode ? 6 : 0, textAlign: 'center', letterSpacing: '0.02em' }}>
               Scan to connect at the event
             </p>
           </div>
