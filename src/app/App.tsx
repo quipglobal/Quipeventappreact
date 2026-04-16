@@ -23,6 +23,7 @@ import { SponsorEventPage } from '@/app/components/SponsorEventPage';
 import { SponsorDrawPage } from '@/app/components/SponsorDrawPage';
 import { BottomNav } from '@/app/components/BottomNav';
 import { MyBadgePage } from '@/app/components/MyBadgePage';
+import { BadgeActionButtons } from '@/app/components/BadgeActionButtons';
 import { MeetingsPage } from '@/app/components/MeetingsPage';
 import { Bell, Search, MessageCircle, LayoutGrid } from 'lucide-react';
 
@@ -242,7 +243,10 @@ function AppContent() {
           {renderPage()}
 
           {showBottomNav && isMainTab && (
-            <BottomNav activeTab={activePage} onTabChange={handleNavigate} />
+            <>
+              <BadgeActionButtons onNavigate={handleNavigate} activePage={activePage} />
+              <BottomNav activeTab={activePage} onTabChange={handleNavigate} />
+            </>
           )}
         </div>
       )}
