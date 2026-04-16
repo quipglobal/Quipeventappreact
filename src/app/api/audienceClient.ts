@@ -263,6 +263,40 @@ export async function getEventMembersApi(
 
 // ─── Me Profile (rich self-profile) ───────────────────────────────────────────
 
+/**
+ * Safely extracts a string from a field that the backend may return as either
+ * a plain string OR a relation object like { id, name, logo, website }.
+ * Returns null for null / undefined / empty.
+ */
+export function extractString(val: unknown): string | null {
+  if (val == null) return null;
+  if (typeof val === 'string') return val || null;
+  if (typeof val === 'object') {
+    const obj = val as Record<string, unknown>;
+    // Try common name-bearing keys
+    const name = obj.name ?? obj.label ?? obj.title ?? obj.display_name;
+    if (typeof name === 'string' && name) return name;
+    // Last resort: stringify if it's a primitive-like value
+    return null;
+  }
+  return String(val) || null;
+}
+
+/**
+ * Safely extracts an array of strings from a field that may be:
+ * - null / undefined → []
+ * - string[] → as-is
+ * - object[] → each item's .name/.label extracted
+ */
+function extractStringArray(val: unknown): string[] {
+  if (!Array.isArray(val)) return [];
+  return val.reduce<string[]>((acc, item) => {
+    const s = extractString(item);
+    if (s) acc.push(s);
+    return acc;
+  }, []);
+}
+
 /** Shape returned by GET /api/v1/me/profile */
 export interface MeProfile {
   id: number;
@@ -274,12 +308,14 @@ export interface MeProfile {
   title: string | null;
   bio: string | null;
   linkedin_url: string | null;
-  social_links: Record<string, string> | null;
+  social_links: Record<string, unknown> | null;
   avatar_url: string | null;
   profile_image: string | null;
-  company: string | null;
-  industry: string | null;
-  interested_topics: string[] | null;
+  /** May be a string OR a relation object { id, name, logo, website } */
+  company: unknown;
+  /** May be a string OR a relation object { id, name } */
+  industry: unknown;
+  interested_topics: unknown[] | null;
 }
 
 /**
@@ -289,10 +325,49 @@ export interface MeProfile {
  * apiGet's parseResponse returns the full body as ApiEnvelope<MeProfile>,
  * so res.data IS the MeProfile object.
  */
-export async function getMeProfileApi(): Promise<{ success: boolean; data?: MeProfile }> {
-  const res = await apiGet<MeProfile>('/api/v1/me/profile', HEADERS);
+/** Normalized safe version of MeProfile with all fields guaranteed to be primitives */
+export interface MeProfileNormalized {
+  id: number;
+  name: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string;
+  phone: string | null;
+  title: string | null;
+  bio: string | null;
+  linkedin_url: string | null;
+  social_links: Record<string, unknown> | null;
+  avatar_url: string | null;
+  profile_image: string | null;
+  company: string | null;
+  industry: string | null;
+  interested_topics: string[];
+}
+
+export async function getMeProfileApi(): Promise<{ success: boolean; data?: MeProfileNormalized }> {
+  const res = await apiGet<unknown>('/api/v1/me/profile', HEADERS);
   if (!res.success || !res.data) return { success: false };
-  return { success: true, data: res.data as MeProfile };
+  const raw = res.data as Record<string, unknown>;
+  // Normalize: extract safe strings from any field that may be an object relation
+  const normalized: MeProfileNormalized = {
+    id: typeof raw.id === 'number' ? raw.id : 0,
+    name: typeof raw.name === 'string' ? raw.name : '',
+    first_name: extractString(raw.first_name),
+    last_name: extractString(raw.last_name),
+    email: typeof raw.email === 'string' ? raw.email : '',
+    phone: extractString(raw.phone),
+    title: extractString(raw.title),
+    bio: extractString(raw.bio),
+    linkedin_url: extractString(raw.linkedin_url),
+    social_links: (raw.social_links && typeof raw.social_links === 'object') ? (raw.social_links as Record<string, unknown>) : null,
+    avatar_url: extractString(raw.avatar_url),
+    profile_image: extractString(raw.profile_image),
+    // company and industry may be relation objects { id, name, logo, website }
+    company: extractString(raw.company),
+    industry: extractString(raw.industry),
+    interested_topics: extractStringArray(raw.interested_topics),
+  };
+  return { success: true, data: normalized };
 }
 
 // ─── Member Detail ─────────────────────────────────────────────────────────────
@@ -313,17 +388,18 @@ export async function getMemberDetailApi(
     return { success: false, error: res.error ?? { message: 'Failed to fetch member profile.' } };
   }
 
+  // Use unknown for fields that may be relation objects, not just scalars
   const raw = (res.data ?? {}) as RawEventMember & {
     user?: RawMemberUser & {
-      first_name?: string | null;
-      last_name?: string | null;
-      title?: string | null;
-      bio?: string | null;
-      company?: string | null;
-      industry?: string | null;
-      interested_topics?: string[] | null;
-      social_links?: Record<string, string> | null;
-      linkedin_url?: string | null;
+      first_name?: unknown;
+      last_name?: unknown;
+      title?: unknown;
+      bio?: unknown;
+      company?: unknown;
+      industry?: unknown;
+      interested_topics?: unknown;
+      social_links?: Record<string, unknown> | null;
+      linkedin_url?: unknown;
     };
   };
 
@@ -333,8 +409,8 @@ export async function getMemberDetailApi(
   // Derive first/last name: use dedicated fields if available, else split full name
   const fullName = u.name ?? '';
   const nameParts = fullName.trim().split(/\s+/);
-  const firstName = u.first_name ?? nameParts[0] ?? null;
-  const lastName = u.last_name ?? (nameParts.length > 1 ? nameParts.slice(1).join(' ') : null);
+  const firstName = extractString(u.first_name) ?? nameParts[0] ?? null;
+  const lastName = extractString(u.last_name) ?? (nameParts.length > 1 ? nameParts.slice(1).join(' ') : null);
 
   const detail: MemberDetail = {
     memberId: raw.id,
@@ -344,9 +420,10 @@ export async function getMemberDetailApi(
     email,
     phone: u.phone ?? null,
     avatar: u.profile_image ?? null,
-    company: u.company ?? companyFromEmail(email),
-    title: u.title ?? null,
-    bio: u.bio ?? null,
+    // company may be a relation object { id, name, logo, website }
+    company: extractString(u.company) ?? companyFromEmail(email),
+    title: extractString(u.title),
+    bio: extractString(u.bio),
     role: normalizeRole(raw.role),
     status: normalizeStatus(raw.status),
     isCheckedIn: Boolean(raw.checked_in),
@@ -354,13 +431,17 @@ export async function getMemberDetailApi(
     joinedAt: raw.joined_at ?? raw.created_at ?? null,
     badgeCode: raw.badge_code ?? null,
     networkingOptIn: Boolean(raw.networking_opt_in),
-    // Rich profile fields
+    // Rich profile fields — all normalized to safe scalar types
     firstName,
     lastName,
-    industry: u.industry ?? null,
-    interestedTopics: Array.isArray(u.interested_topics) ? u.interested_topics : [],
-    socialLinks: (u.social_links && typeof u.social_links === 'object') ? u.social_links : {},
-    linkedinUrl: u.linkedin_url ?? null,
+    industry: extractString(u.industry),
+    interestedTopics: extractStringArray(u.interested_topics),
+    socialLinks: Object.fromEntries(
+      Object.entries(u.social_links ?? {})
+        .map(([k, v]) => [k, typeof v === 'string' ? v : (v != null ? String(v) : '')])
+        .filter(([, v]) => v),
+    ) as Record<string, string>,
+    linkedinUrl: extractString(u.linkedin_url),
   };
 
   return { success: true, data: detail };

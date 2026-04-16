@@ -184,8 +184,14 @@ const MemberDetailPage: React.FC<{
           company: me.company || base?.company || member.company,
           avatar: me.avatar_url || me.profile_image || base?.avatar || null,
           industry: me.industry || null,
-          interestedTopics: Array.isArray(me.interested_topics) ? me.interested_topics : [],
-          socialLinks: (me.social_links && typeof me.social_links === 'object') ? me.social_links : {},
+          // getMeProfileApi already normalizes interested_topics to string[]
+          interestedTopics: me.interested_topics,
+          // social_links values may be any type; coerce each to a string for safe rendering
+          socialLinks: Object.fromEntries(
+            Object.entries(me.social_links ?? {})
+              .map(([k, v]) => [k, typeof v === 'string' ? v : (v != null ? String(v) : '')])
+              .filter(([, v]) => v),
+          ) as Record<string, string>,
           linkedinUrl: me.linkedin_url || null,
         };
         setDetail(merged);
@@ -257,13 +263,13 @@ const MemberDetailPage: React.FC<{
               </h1>
               {title && (
                 <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: 13, fontWeight: 600, marginBottom: 2 }}>
-                  {title}
+                  {typeof title === 'string' ? title : String(title)}
                 </p>
               )}
               {company && (
                 <p className="flex items-center gap-1.5 mb-1"
                   style={{ color: 'rgba(255,255,255,0.65)', fontSize: 12 }}>
-                  <Building2 style={{ width: 11, height: 11 }} /> {company}
+                  <Building2 style={{ width: 11, height: 11 }} /> {typeof company === 'string' ? company : String(company)}
                 </p>
               )}
               <div className="flex items-center gap-2 flex-wrap mt-1.5">
