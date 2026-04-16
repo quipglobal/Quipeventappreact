@@ -39,7 +39,7 @@ export const MyBadgePage: React.FC = () => {
 
   return (
     <div
-      className="min-h-screen flex flex-col items-center justify-center pb-28 px-6"
+      className="min-h-screen flex flex-col items-center justify-center pt-20 pb-28 px-6"
       style={{
         background: eventBg
           ? `linear-gradient(160deg,rgba(10,5,30,0.92) 0%,rgba(30,10,60,0.85) 100%),url(${eventBg}) center/cover no-repeat fixed`
@@ -89,22 +89,31 @@ export const MyBadgePage: React.FC = () => {
         >
           {/* ─ Event banner ─ */}
           <div
-            className="relative h-24 flex flex-col items-center justify-center px-4"
+            className="relative flex flex-col px-5"
             style={{
+              height: 148,
               background: eventBg
-                ? `linear-gradient(160deg,rgba(20,5,50,0.7) 0%,rgba(50,10,80,0.55) 100%),url(${eventBg}) center/cover no-repeat`
+                ? `url(${eventBg}) center/cover no-repeat`
                 : 'linear-gradient(135deg,#7c3aed 0%,#4f46e5 55%,#6366f1 100%)',
             }}
           >
+            {/* dark gradient overlay so text is always readable */}
+            <div className="absolute inset-0"
+              style={{ background: 'linear-gradient(to bottom, rgba(10,5,30,0.35) 0%, rgba(10,5,30,0.75) 100%)' }} />
+
             {/* lanyard hole */}
-            <div className="absolute top-3 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full"
-              style={{ background: 'rgba(0,0,0,0.4)', border: '2px solid rgba(255,255,255,0.25)' }} />
-            <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.15em', marginTop: 18 }}>
-              Event Pass
-            </p>
-            <p style={{ color: '#fff', fontSize: 14, fontWeight: 800, letterSpacing: '-0.02em', textAlign: 'center', lineHeight: 1.2 }}>
-              {eventName}
-            </p>
+            <div className="absolute top-3.5 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full z-10"
+              style={{ background: 'rgba(0,0,0,0.5)', border: '2px solid rgba(255,255,255,0.3)' }} />
+
+            {/* Event label + name — pinned to bottom */}
+            <div className="relative z-10 mt-auto pb-4">
+              <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.18em', marginBottom: 3 }}>
+                Event Pass
+              </p>
+              <p style={{ color: '#fff', fontSize: 15, fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1.25 }}>
+                {eventName}
+              </p>
+            </div>
           </div>
 
           {/* ─ White body ─ */}
