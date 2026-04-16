@@ -261,6 +261,40 @@ export async function getEventMembersApi(
   return { success: true, data: members, total };
 }
 
+// ─── Me Profile (rich self-profile) ───────────────────────────────────────────
+
+/** Shape returned by GET /api/v1/me/profile */
+export interface MeProfile {
+  id: number;
+  name: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string;
+  phone: string | null;
+  title: string | null;
+  bio: string | null;
+  linkedin_url: string | null;
+  social_links: Record<string, string> | null;
+  avatar_url: string | null;
+  profile_image: string | null;
+  company: string | null;
+  industry: string | null;
+  interested_topics: string[] | null;
+}
+
+/**
+ * GET /api/v1/me/profile
+ * Returns the rich profile of the currently authenticated user.
+ * Backend response: { success: true, data: MeProfile }
+ * apiGet's parseResponse returns the full body as ApiEnvelope<MeProfile>,
+ * so res.data IS the MeProfile object.
+ */
+export async function getMeProfileApi(): Promise<{ success: boolean; data?: MeProfile }> {
+  const res = await apiGet<MeProfile>('/api/v1/me/profile', HEADERS);
+  if (!res.success || !res.data) return { success: false };
+  return { success: true, data: res.data as MeProfile };
+}
+
 // ─── Member Detail ─────────────────────────────────────────────────────────────
 
 /**

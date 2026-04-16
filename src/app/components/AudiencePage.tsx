@@ -9,7 +9,7 @@ import {
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import { motion, AnimatePresence } from 'motion/react';
-import { getEventMembersApi, getMemberDetailApi, EventMember, MemberDetail } from '@/app/api/audienceClient';
+import { getEventMembersApi, getMemberDetailApi, getMeProfileApi, EventMember, MemberDetail } from '@/app/api/audienceClient';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -125,15 +125,66 @@ const MemberDetailPage: React.FC<{
   isConnected: boolean;
 }> = ({ member, eventId, onBack, onConnect, isConnected }) => {
   const { t, isDark } = useTheme();
+  const { user } = useApp();
   const [detail, setDetail] = useState<MemberDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(true);
 
   useEffect(() => {
     setDetailLoading(true);
-    getMemberDetailApi(eventId, member.memberId).then(res => {
-      if (res.success && res.data) setDetail(res.data);
+    const isOwnProfile = !!user?.email && user.email.toLowerCase() === member.email.toLowerCase();
+
+    const memberDetailPromise = getMemberDetailApi(eventId, member.memberId);
+    // If viewing own profile, also fetch rich me/profile data
+    const meProfilePromise = isOwnProfile ? getMeProfileApi() : Promise.resolve({ success: false as const });
+
+    Promise.all([memberDetailPromise, meProfilePromise]).then(([memberRes, meRes]) => {
+      const base = memberRes.success && memberRes.data ? memberRes.data : null;
+      if (isOwnProfile && meRes.success && meRes.data) {
+        const me = meRes.data;
+        // Merge me/profile rich fields over the base member detail
+        const merged: MemberDetail = {
+          ...(base ?? {
+            memberId: member.memberId,
+            userId: member.userId,
+            eventId: typeof eventId === 'number' ? eventId : Number(eventId),
+            name: member.name,
+            email: member.email,
+            phone: member.phone,
+            avatar: member.avatar,
+            company: member.company,
+            title: member.title,
+            bio: member.bio,
+            role: member.role,
+            status: member.status,
+            isCheckedIn: member.isCheckedIn,
+            checkedInAt: member.checkedInAt,
+            joinedAt: member.joinedAt,
+            badgeCode: member.badgeCode,
+            networkingOptIn: member.networkingOptIn,
+            firstName: null,
+            lastName: null,
+            industry: null,
+            interestedTopics: [],
+            socialLinks: {},
+            linkedinUrl: null,
+          }),
+          firstName: me.first_name || null,
+          lastName: me.last_name || null,
+          title: me.title || base?.title || null,
+          bio: me.bio || base?.bio || null,
+          company: me.company || base?.company || member.company,
+          avatar: me.avatar_url || me.profile_image || base?.avatar || null,
+          industry: me.industry || null,
+          interestedTopics: Array.isArray(me.interested_topics) ? me.interested_topics : [],
+          socialLinks: (me.social_links && typeof me.social_links === 'object') ? me.social_links : {},
+          linkedinUrl: me.linkedin_url || null,
+        };
+        setDetail(merged);
+      } else if (base) {
+        setDetail(base);
+      }
     }).finally(() => setDetailLoading(false));
-  }, [eventId, member.memberId]);
+  }, [eventId, member.memberId, member.email, user?.email]);
 
   // Merge: rich detail overrides base member data where available
   const firstName = detail?.firstName ?? member.name.split(' ')[0] ?? null;
@@ -143,7 +194,9 @@ const MemberDetailPage: React.FC<{
   const industry = detail?.industry ?? null;
   const bio = detail?.bio || member.bio;
   const interestedTopics = detail?.interestedTopics ?? [];
-  const socialLinks = detail?.socialLinks ?? {};
+  const socialLinks = Object.fromEntries(
+    Object.entries(detail?.socialLinks ?? {}).filter(([k]) => !k.startsWith('cxo_'))
+  );
   const linkedinUrl = detail?.linkedinUrl ?? null;
 
   return (
