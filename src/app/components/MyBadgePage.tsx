@@ -1,262 +1,199 @@
-import React, { useRef, useCallback } from 'react';
-import { QrCode, Download, Share2 } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Loader2, AlertCircle, RefreshCw } from 'lucide-react';
+import { QRCodeCanvas } from 'qrcode.react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
-import { QRCodeCanvas } from 'qrcode.react';
+import { getMyBadgeApi, type BadgeData } from '@/app/api/badgeClient';
 
 export const MyBadgePage: React.FC = () => {
-  const { user, eventConfig, showToast } = useApp();
-  const { t, isDark } = useTheme();
-  const qrRef = useRef<HTMLDivElement>(null);
+  const { user, eventConfig } = useApp();
+  const { isDark } = useTheme();
 
-  if (!user) return null;
+  const [badge, setBadge] = useState<BadgeData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const qrPayload = JSON.stringify({
-    id: user.id,
-    badge_code: user.badgeCode ?? '',
-    event: eventConfig?.code ?? '',
-  });
+  const fetchBadge = async () => {
+    setLoading(true);
+    setError(null);
+    const res = await getMyBadgeApi();
+    if (res.success && res.data) {
+      setBadge(res.data);
+    } else {
+      setError(res.error ?? 'Could not load badge');
+    }
+    setLoading(false);
+  };
 
-  const initials = user.name
+  useEffect(() => { fetchBadge(); }, []);
+
+  const initials = (badge?.name ?? user?.name ?? '')
     .split(' ')
     .map((n) => n[0])
     .join('')
     .slice(0, 2)
     .toUpperCase();
 
-  const handleDownload = useCallback(() => {
-    const canvas = qrRef.current?.querySelector('canvas');
-    if (!canvas) return;
-    const link = document.createElement('a');
-    link.download = 'my-badge-qr.png';
-    link.href = canvas.toDataURL('image/png');
-    link.click();
-    showToast('Badge saved!');
-  }, [showToast]);
-
-  const handleShare = useCallback(async () => {
-    const canvas = qrRef.current?.querySelector('canvas');
-    if (!canvas) return;
-    if (navigator.share && navigator.canShare) {
-      try {
-        canvas.toBlob(async (blob) => {
-          if (!blob) return;
-          const file = new File([blob], 'my-badge-qr.png', { type: 'image/png' });
-          await navigator.share({ title: 'My Event Badge', files: [file] });
-        });
-      } catch {
-        navigator.clipboard?.writeText(qrPayload);
-        showToast('Badge data copied!');
-      }
-    } else {
-      navigator.clipboard?.writeText(qrPayload);
-      showToast('Badge data copied!');
-    }
-  }, [qrPayload, showToast]);
+  const eventBg = eventConfig?.backgroundURL;
+  const eventName = badge?.event_name ?? eventConfig?.name ?? 'Event';
 
   return (
     <div
-      className="min-h-screen pb-24 flex flex-col"
-      style={{ background: t.bgPage }}
+      className="min-h-screen flex flex-col items-center justify-center pb-28 px-6"
+      style={{
+        background: eventBg
+          ? `linear-gradient(160deg,rgba(10,5,30,0.92) 0%,rgba(30,10,60,0.85) 100%),url(${eventBg}) center/cover no-repeat fixed`
+          : isDark
+            ? 'linear-gradient(160deg,#0c0918 0%,#130d2e 50%,#0a0715 100%)'
+            : 'linear-gradient(160deg,#1e1b4b 0%,#312e81 50%,#1e1b4b 100%)',
+      }}
     >
-      {/* ── Page Header ─────────────────────────────────────────────── */}
-      <div
-        className="sticky top-0 z-30 px-5 py-3.5 backdrop-blur-md border-b flex items-center gap-3"
-        style={{
-          background: isDark ? 'rgba(7,7,15,0.85)' : 'rgba(255,255,255,0.9)',
-          borderColor: t.border,
-        }}
-      >
-        <div
-          className="w-8 h-8 rounded-xl flex items-center justify-center"
-          style={{ background: 'linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)' }}
-        >
-          <QrCode size={16} color="#fff" />
-        </div>
-        <div>
-          <h1 style={{ color: t.text, fontSize: 17, fontWeight: 800, lineHeight: 1 }}>
-            My Badge
-          </h1>
-          <p style={{ color: t.textMuted, fontSize: 11, marginTop: 2 }}>
-            Show this QR to be scanned
-          </p>
-        </div>
-      </div>
 
-      {/* ── Badge Card ───────────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col items-center justify-center px-6 py-8">
+      {/* ── Loading ─────────────────────────────────────────────────────── */}
+      {loading && (
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-16 h-16 rounded-2xl flex items-center justify-center"
+            style={{ background: 'rgba(124,58,237,0.2)', border: '1px solid rgba(124,58,237,0.3)' }}>
+            <Loader2 size={28} color="#a78bfa" className="animate-spin" />
+          </div>
+          <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 13 }}>Loading your badge…</p>
+        </div>
+      )}
+
+      {/* ── Error ───────────────────────────────────────────────────────── */}
+      {!loading && error && (
+        <div className="flex flex-col items-center gap-4 text-center">
+          <div className="w-16 h-16 rounded-2xl flex items-center justify-center"
+            style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.2)' }}>
+            <AlertCircle size={28} color="#f87171" />
+          </div>
+          <p style={{ color: '#f87171', fontSize: 14, fontWeight: 600 }}>Badge unavailable</p>
+          <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12 }}>{error}</p>
+          <button
+            onClick={fetchBadge}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl transition-all active:scale-[0.97]"
+            style={{ background: 'rgba(124,58,237,0.25)', border: '1px solid rgba(124,58,237,0.3)', color: '#c4b5fd', fontSize: 13, fontWeight: 600 }}>
+            <RefreshCw size={14} />
+            Try Again
+          </button>
+        </div>
+      )}
+
+      {/* ── Badge Card ──────────────────────────────────────────────────── */}
+      {!loading && badge && (
         <div
-          className="w-full max-w-xs rounded-3xl overflow-hidden"
+          className="w-full max-w-[320px] rounded-3xl overflow-hidden"
           style={{
-            background: isDark
-              ? 'linear-gradient(180deg, #1a1a2e 0%, #16162a 100%)'
-              : 'linear-gradient(180deg, #ffffff 0%, #f5f3ff 100%)',
-            border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(124,58,237,0.15)'}`,
-            boxShadow: isDark
-              ? '0 24px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(124,58,237,0.1)'
-              : '0 24px 60px rgba(124,58,237,0.12)',
+            boxShadow: '0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.08)',
           }}
         >
-          {/* Card top gradient bar */}
+          {/* ─ Event banner ─ */}
           <div
-            className="h-1.5 w-full"
-            style={{ background: 'linear-gradient(90deg, #7c3aed, #4f46e5, #ec4899)' }}
-          />
+            className="relative h-24 flex flex-col items-center justify-center px-4"
+            style={{
+              background: eventBg
+                ? `linear-gradient(160deg,rgba(20,5,50,0.7) 0%,rgba(50,10,80,0.55) 100%),url(${eventBg}) center/cover no-repeat`
+                : 'linear-gradient(135deg,#7c3aed 0%,#4f46e5 55%,#6366f1 100%)',
+            }}
+          >
+            {/* lanyard hole */}
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 w-5 h-5 rounded-full"
+              style={{ background: 'rgba(0,0,0,0.4)', border: '2px solid rgba(255,255,255,0.25)' }} />
+            <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.15em', marginTop: 18 }}>
+              Event Pass
+            </p>
+            <p style={{ color: '#fff', fontSize: 14, fontWeight: 800, letterSpacing: '-0.02em', textAlign: 'center', lineHeight: 1.2 }}>
+              {eventName}
+            </p>
+          </div>
 
-          <div className="px-6 pt-6 pb-5">
-            {/* Avatar + Name */}
-            <div className="flex items-center gap-4 mb-6">
-              <div
-                className="w-14 h-14 rounded-2xl overflow-hidden flex-shrink-0"
-                style={{
-                  border: `2px solid ${isDark ? 'rgba(124,58,237,0.3)' : 'rgba(124,58,237,0.2)'}`,
-                }}
-              >
-                {user.avatar ? (
-                  <img
-                    src={user.avatar}
-                    alt={user.name}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div
-                    className="w-full h-full flex items-center justify-center"
-                    style={{ background: 'linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)' }}
-                  >
-                    <span className="text-white font-bold text-lg">{initials}</span>
-                  </div>
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p style={{ color: t.text, fontSize: 16, fontWeight: 800, lineHeight: 1.2 }}>
-                  {user.name}
-                </p>
-                {user.title && (
-                  <p style={{ color: t.textSec, fontSize: 12, marginTop: 3, lineHeight: 1.3 }}>
-                    {user.title}
-                  </p>
-                )}
-                {user.company && (
-                  <p style={{ color: t.textMuted, fontSize: 11, marginTop: 2 }}>
-                    {user.company}
-                  </p>
-                )}
-              </div>
+          {/* ─ White body ─ */}
+          <div className="bg-white px-6 pt-5 pb-6 flex flex-col items-center">
+
+            {/* Avatar */}
+            <div
+              className="w-20 h-20 rounded-2xl overflow-hidden mb-3 -mt-10 flex-shrink-0"
+              style={{
+                border: '3px solid #ffffff',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
+              }}
+            >
+              {badge.avatar ? (
+                <img src={badge.avatar} alt={badge.name} className="w-full h-full object-cover" />
+              ) : (
+                <div
+                  className="w-full h-full flex items-center justify-center"
+                  style={{ background: 'linear-gradient(135deg,#7c3aed 0%,#4f46e5 100%)' }}
+                >
+                  <span style={{ color: '#fff', fontSize: 28, fontWeight: 800 }}>{initials}</span>
+                </div>
+              )}
             </div>
+
+            {/* Name */}
+            <p style={{ color: '#0f0f1a', fontSize: 20, fontWeight: 800, letterSpacing: '-0.03em', textAlign: 'center', lineHeight: 1.1, marginBottom: 4 }}>
+              {badge.name}
+            </p>
+
+            {/* Title + Company */}
+            {(badge.title || badge.company) && (
+              <div className="flex flex-col items-center gap-0.5 mb-5">
+                {badge.title && (
+                  <p style={{ color: '#7c3aed', fontSize: 12, fontWeight: 700, textAlign: 'center' }}>
+                    {badge.title}
+                  </p>
+                )}
+                {badge.company && (
+                  <p style={{ color: '#6b7280', fontSize: 11, textAlign: 'center' }}>
+                    {badge.company}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Divider */}
+            <div className="w-full h-px mb-5" style={{ background: 'linear-gradient(90deg,transparent,rgba(124,58,237,0.15),transparent)' }} />
 
             {/* QR Code */}
             <div
-              ref={qrRef}
-              className="rounded-2xl p-5 flex items-center justify-center mb-5"
+              className="rounded-2xl p-4 flex items-center justify-center mb-5"
               style={{
-                background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(124,58,237,0.04)',
-                border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(124,58,237,0.12)'}`,
+                background: '#f5f3ff',
+                border: '1px solid rgba(124,58,237,0.12)',
               }}
             >
-              <div className="relative flex items-center justify-center">
-                <QRCodeCanvas
-                  value={qrPayload}
-                  size={190}
-                  bgColor="transparent"
-                  fgColor={isDark ? '#ffffff' : '#1a1a2e'}
-                  level="M"
-                  marginSize={0}
-                />
-                {/* Centre logo overlay */}
-                <div
-                  className="absolute w-10 h-10 rounded-xl flex items-center justify-center shadow-lg"
-                  style={{
-                    background: 'linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)',
-                    boxShadow: '0 2px 10px rgba(124,58,237,0.5)',
-                  }}
-                >
-                  <span className="text-white font-bold text-xs">{initials}</span>
-                </div>
-              </div>
+              <QRCodeCanvas
+                value={badge.qr_content}
+                size={180}
+                bgColor="transparent"
+                fgColor="#1a0540"
+                level="M"
+                marginSize={0}
+              />
             </div>
 
-            {/* Badge code pill */}
-            {user.badgeCode && (
-              <div className="flex items-center justify-center mb-1">
-                <div
-                  className="px-4 py-1.5 rounded-full"
-                  style={{
-                    background: isDark ? 'rgba(124,58,237,0.15)' : 'rgba(124,58,237,0.08)',
-                    border: `1px solid ${isDark ? 'rgba(124,58,237,0.25)' : 'rgba(124,58,237,0.15)'}`,
-                  }}
-                >
-                  <span
-                    style={{
-                      color: '#7c3aed',
-                      fontSize: 13,
-                      fontWeight: 700,
-                      fontFamily: 'monospace',
-                      letterSpacing: '0.12em',
-                    }}
-                  >
-                    {user.badgeCode}
-                  </span>
-                </div>
+            {/* Badge code */}
+            {badge.badge_code && (
+              <div
+                className="px-5 py-2 rounded-full"
+                style={{
+                  background: 'rgba(124,58,237,0.08)',
+                  border: '1px solid rgba(124,58,237,0.15)',
+                }}
+              >
+                <span style={{ color: '#7c3aed', fontSize: 14, fontWeight: 700, fontFamily: 'monospace', letterSpacing: '0.12em' }}>
+                  {badge.badge_code}
+                </span>
               </div>
             )}
 
-            {/* Event name */}
-            {eventConfig?.name && (
-              <p
-                className="text-center"
-                style={{ color: t.textMuted, fontSize: 11, marginTop: 6 }}
-              >
-                {eventConfig.name}
-              </p>
-            )}
-          </div>
-
-          {/* Action buttons */}
-          <div
-            className="px-6 py-4 flex gap-3"
-            style={{
-              borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
-            }}
-          >
-            <button
-              onClick={handleDownload}
-              className="flex-1 py-2.5 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-[0.97]"
-              style={{
-                background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-                color: t.text,
-                fontSize: 13,
-                fontWeight: 600,
-                border: `1px solid ${t.border}`,
-              }}
-            >
-              <Download size={15} />
-              Save
-            </button>
-            <button
-              onClick={handleShare}
-              className="flex-1 py-2.5 rounded-xl flex items-center justify-center gap-2 transition-all active:scale-[0.97]"
-              style={{
-                background: 'linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)',
-                color: '#fff',
-                fontSize: 13,
-                fontWeight: 600,
-                boxShadow: '0 4px 16px rgba(124,58,237,0.35)',
-              }}
-            >
-              <Share2 size={15} />
-              Share
-            </button>
+            {/* Scan hint */}
+            <p style={{ color: '#9ca3af', fontSize: 10, marginTop: 10, textAlign: 'center', letterSpacing: '0.02em' }}>
+              Scan to connect at the event
+            </p>
           </div>
         </div>
-
-        {/* Help text */}
-        <p
-          className="text-center mt-6 px-8"
-          style={{ color: t.textMuted, fontSize: 12, lineHeight: 1.6 }}
-        >
-          Let others scan this QR code to connect with you at the event.
-        </p>
-      </div>
+      )}
     </div>
   );
 };
