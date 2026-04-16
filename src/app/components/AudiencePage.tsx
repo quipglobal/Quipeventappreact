@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  ArrowLeft, Search, Users, Clock, Sparkles,
+  ArrowLeft, Search, Users, Sparkles,
   Building2, ChevronRight, UserPlus, UserCheck,
   MessageCircle, Globe, X, Wifi, WifiOff,
-  Loader2, BadgeCheck, QrCode,
-  RefreshCw, Phone, Mail, Filter, User,
+  Loader2, BadgeCheck,
+  RefreshCw, Filter, User,
 } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
@@ -35,14 +35,6 @@ function formatCheckedInTime(iso: string | null): string {
 }
 
 
-function maskEmail(email: string): string {
-  if (!email) return '';
-  const [user, domain] = email.split('@');
-  if (!user || !domain) return email;
-  const visible = user.slice(0, 2);
-  const masked = '*'.repeat(Math.max(0, user.length - 2));
-  return `${visible}${masked}@${domain}`;
-}
 
 const roleGradients: Record<string, string> = {
   Speaker:   'linear-gradient(135deg,#f59e0b,#ea580c)',
@@ -266,24 +258,14 @@ const MemberDetailPage: React.FC<{
                   {typeof title === 'string' ? title : String(title)}
                 </p>
               )}
-              {company && (
-                <p className="flex items-center gap-1.5 mb-1"
-                  style={{ color: 'rgba(255,255,255,0.65)', fontSize: 12 }}>
-                  <Building2 style={{ width: 11, height: 11 }} /> {typeof company === 'string' ? company : String(company)}
-                </p>
-              )}
-              <div className="flex items-center gap-2 flex-wrap mt-1.5">
-                <span className="px-2.5 py-1 rounded-lg text-xs font-bold"
-                  style={{ background: roleGrad(member.role), color: '#fff' }}>
-                  {member.role}
-                </span>
-                {member.isCheckedIn && (
+              {member.isCheckedIn && (
+                <div className="flex items-center gap-1 mt-1.5">
                   <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold"
                     style={{ background: 'rgba(16,185,129,0.2)', color: '#34d399' }}>
                     <BadgeCheck style={{ width: 10, height: 10 }} /> Checked In
                   </span>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -463,63 +445,6 @@ const MemberDetailPage: React.FC<{
         </div>
       </div>
 
-      {/* ── Event & Contact Details ──────────────────────── */}
-      <div className="px-5 mb-5">
-        <h3 style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Event Details</h3>
-        <div className="rounded-2xl overflow-hidden" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
-          <DetailRow
-            icon={<Mail style={{ width: 14, height: 14, color: '#6366f1' }} />}
-            iconBg="rgba(99,102,241,0.1)"
-            label="Email"
-            value={maskEmail(member.email)}
-            divider
-            t={t}
-            noMask
-          />
-          {member.phone && (
-            <DetailRow
-              icon={<Phone style={{ width: 14, height: 14, color: '#10b981' }} />}
-              iconBg="rgba(16,185,129,0.1)"
-              label="Phone"
-              value={'•'.repeat(6) + member.phone.slice(-4)}
-              divider
-              t={t}
-              noMask
-            />
-          )}
-          <DetailRow
-            icon={<Building2 style={{ width: 14, height: 14, color: '#7c3aed' }} />}
-            iconBg="rgba(124,58,237,0.1)"
-            label="Event Role"
-            value={member.role}
-            divider
-            t={t}
-            noMask
-          />
-          <DetailRow
-            icon={<Clock style={{ width: 14, height: 14, color: member.isCheckedIn ? '#10b981' : '#6b7280' }} />}
-            iconBg={member.isCheckedIn ? 'rgba(16,185,129,0.1)' : 'rgba(107,114,128,0.1)'}
-            label="Check-in"
-            value={member.isCheckedIn
-              ? `Checked in${member.checkedInAt ? ` at ${formatCheckedInTime(member.checkedInAt)}` : ''}`
-              : 'Not checked in'}
-            valueColor={member.isCheckedIn ? '#10b981' : undefined}
-            divider={!!member.badgeCode}
-            t={t}
-            noMask
-          />
-          {member.badgeCode && (
-            <DetailRow
-              icon={<QrCode style={{ width: 14, height: 14, color: '#f59e0b' }} />}
-              iconBg="rgba(245,158,11,0.1)"
-              label="Badge Code"
-              value={member.badgeCode}
-              t={t}
-              noMask
-            />
-          )}
-        </div>
-      </div>
 
       {/* ── Networking ───────────────────────────────────── */}
       <div className="px-5 mb-5">
