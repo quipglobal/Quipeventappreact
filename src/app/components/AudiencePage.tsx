@@ -27,13 +27,6 @@ function avatarColor(userId: number): string {
   return AVATAR_COLORS[userId % AVATAR_COLORS.length];
 }
 
-function formatCheckedInTime(iso: string | null): string {
-  if (!iso) return '';
-  try {
-    return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-  } catch { return iso; }
-}
-
 
 
 const roleGradients: Record<string, string> = {
@@ -124,7 +117,8 @@ const MemberDetailPage: React.FC<{
   onBack: () => void;
   onConnect: (id: number) => void;
   isConnected: boolean;
-}> = ({ member, eventId, onBack, onConnect, isConnected }) => {
+  isCheckedIn: boolean;
+}> = ({ member, eventId, onBack, onConnect, isConnected, isCheckedIn }) => {
   const { t, isDark } = useTheme();
   const { user } = useApp();
   const [detail, setDetail] = useState<MemberDetail | null>(null);
@@ -241,7 +235,7 @@ const MemberDetailPage: React.FC<{
                 style={{ borderColor: 'rgba(255,255,255,0.25)' }}>
                 <MemberAvatar member={member} size={80} rounded="rounded-none" />
               </div>
-              {member.isCheckedIn && (
+              {isCheckedIn && (
                 <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-emerald-500 border-2 flex items-center justify-center"
                   style={{ borderColor: isDark ? '#312e81' : '#6366f1' }}>
                   <BadgeCheck style={{ width: 11, height: 11, color: '#fff' }} />
@@ -258,7 +252,7 @@ const MemberDetailPage: React.FC<{
                   {typeof title === 'string' ? title : String(title)}
                 </p>
               )}
-              {member.isCheckedIn && (
+              {isCheckedIn && (
                 <div className="flex items-center gap-1 mt-1.5">
                   <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold"
                     style={{ background: 'rgba(16,185,129,0.2)', color: '#34d399' }}>
@@ -489,9 +483,10 @@ const MemberDetailPage: React.FC<{
 const MemberCard: React.FC<{
   member: EventMember;
   isConnected: boolean;
+  isCheckedIn: boolean;
   index: number;
   onClick: () => void;
-}> = ({ member, isConnected, index, onClick }) => {
+}> = ({ member, isConnected, isCheckedIn, index, onClick }) => {
   const { t } = useTheme();
 
   return (
@@ -527,14 +522,8 @@ const MemberCard: React.FC<{
             </p>
           )}
 
-          {/* Role badge (non-Attendee only) + Company */}
+          {/* Company */}
           <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-            {member.role !== 'Attendee' && (
-              <span className="px-2 py-0.5 rounded-md text-xs font-bold flex-shrink-0"
-                style={{ background: roleGrad(member.role), color: '#fff' }}>
-                {member.role}
-              </span>
-            )}
             {member.company && (
               <span className="truncate flex items-center gap-1" style={{ color: t.textSec, fontSize: 12 }}>
                 <Building2 style={{ width: 10, height: 10, color: t.textMuted, flexShrink: 0 }} />
@@ -544,16 +533,22 @@ const MemberCard: React.FC<{
           </div>
 
           {/* Check-in badge — only for members who actually checked in */}
-          {member.isCheckedIn && (
+          {isCheckedIn && (
             <div className="flex items-center gap-1 mt-1" style={{ color: '#10b981', fontSize: 11, fontWeight: 600 }}>
               <BadgeCheck style={{ width: 11, height: 11 }} />
-              Checked in{member.checkedInAt ? ` · ${formatCheckedInTime(member.checkedInAt)}` : ''}
+              Checked in
             </div>
           )}
         </div>
 
-        {/* Right */}
-        <div className="flex-shrink-0">
+        {/* Right: role tag + chevron */}
+        <div className="flex-shrink-0 flex flex-col items-end gap-2">
+          {member.role !== 'Attendee' && (
+            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold"
+              style={{ background: roleGrad(member.role), color: '#fff', letterSpacing: '0.04em' }}>
+              {member.role.toUpperCase()}
+            </span>
+          )}
           <ChevronRight style={{ width: 14, height: 14, color: t.textMuted }} />
         </div>
       </div>
@@ -572,6 +567,7 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
   const { t, isDark } = useTheme();
 
   const [members, setMembers] = useState<EventMember[]>([]);
+  const [checkedInIds, setCheckedInIds] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -588,13 +584,22 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
     if (!eventId) { setLoading(false); return; }
     setLoading(true);
     setError(null);
-    // Always pass checkedInOnly explicitly — without it the API defaults to
-    // returning checked-in members only, ignoring the admin's selection.
-    const res = await getEventMembersApi(eventId, checkedInOnly);
-    if (res.success && res.data) {
-      setMembers(res.data);
+    // The list endpoint with checked_in_only=false returns ACTIVE registrations
+    // even if the user hasn't physically checked in. Get the *true* checked-in
+    // set from the dedicated checked_in_only=true endpoint and cross-reference.
+    const [listRes, checkedInRes] = await Promise.all([
+      getEventMembersApi(eventId, checkedInOnly),
+      getEventMembersApi(eventId, true),
+    ]);
+    if (listRes.success && listRes.data) {
+      setMembers(listRes.data);
     } else {
-      setError(res.error?.message ?? 'Failed to load audience');
+      setError(listRes.error?.message ?? 'Failed to load audience');
+    }
+    if (checkedInRes.success && checkedInRes.data) {
+      setCheckedInIds(new Set(checkedInRes.data.map(m => m.userId)));
+    } else {
+      setCheckedInIds(new Set());
     }
     setLoading(false);
   }, [eventId, checkedInOnly]);
@@ -617,8 +622,14 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
     });
   }, [members, searchQuery, roleFilter]);
 
-  const checkedInCount = useMemo(() => members.filter(m => m.isCheckedIn).length, [members]);
-  const networkingCount = useMemo(() => members.filter(m => m.isCheckedIn && m.networkingOptIn).length, [members]);
+  // Use the authoritative checked-in set from the dedicated endpoint,
+  // not the per-member isCheckedIn flag (which is true for any ACTIVE
+  // registration).
+  const checkedInCount = checkedInIds.size;
+  const networkingCount = useMemo(
+    () => members.filter(m => checkedInIds.has(m.userId) && m.networkingOptIn).length,
+    [members, checkedInIds],
+  );
 
   const handleConnect = (userId: number) => {
     if (connectedIds.has(userId)) return;
@@ -856,6 +867,7 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
               key={member.userId}
               member={member}
               isConnected={connectedIds.has(member.userId)}
+              isCheckedIn={checkedInIds.has(member.userId)}
               index={index}
               onClick={() => setSelectedMember(member)}
             />
@@ -884,6 +896,7 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
             onBack={() => setSelectedMember(null)}
             onConnect={handleConnect}
             isConnected={connectedIds.has(selectedMember.userId)}
+            isCheckedIn={checkedInIds.has(selectedMember.userId)}
           />
         )}
       </AnimatePresence>
