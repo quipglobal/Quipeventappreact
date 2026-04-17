@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Calendar, IdCard, ScanLine, Settings, Repeat, MessageCircle, X } from 'lucide-react';
+import { Calendar, IdCard, ScanLine, Settings, Repeat, MessageCircle, X, Trophy, Gift, UserCheck } from 'lucide-react';
 import { useTheme } from '@/app/context/ThemeContext';
 import { useApp } from '@/app/context/AppContext';
 
@@ -33,12 +33,15 @@ export const SideMenu: React.FC<SideMenuProps> = ({ open, onClose, onNavigate, o
   const go = (page: string) => { onNavigate(page); onClose(); };
 
   const items: MenuItem[] = [
-    { id: 'agenda',     label: 'Agenda',        icon: Calendar,      action: () => go('agenda') },
-    { id: 'my-badge',   label: 'My Badge',      icon: IdCard,        action: () => go('my-badge') },
-    { id: 'scan',       label: 'Scan Badge',    icon: ScanLine,      action: () => go('scan') },
-    { id: 'messages',   label: 'Messages',      icon: MessageCircle, action: () => go('meetings'), badge: unreadCount },
-    { id: 'settings',   label: 'Settings',      icon: Settings,      action: () => go('profile') },
-    { id: 'switch',     label: 'Switch Events', icon: Repeat,        action: () => { onSwitchEvents(); onClose(); } },
+    { id: 'agenda',      label: 'Agenda',           icon: Calendar,      action: () => go('agenda') },
+    { id: 'my-badge',    label: 'My Badge',         icon: IdCard,        action: () => go('my-badge') },
+    { id: 'scan',        label: 'Scan Badge',       icon: ScanLine,      action: () => go('scan') },
+    { id: 'connects',    label: 'My Connects',      icon: UserCheck,     action: () => go('leads') },
+    { id: 'leaderboard', label: 'Leaderboard',      icon: Trophy,        action: () => go('leaderboard') },
+    { id: 'giveaways',   label: 'Giveaways & Draw', icon: Gift,          action: () => go('engage-giveaways') },
+    { id: 'messages',    label: 'Messages',         icon: MessageCircle, action: () => go('meetings'), badge: unreadCount },
+    { id: 'settings',    label: 'Settings',         icon: Settings,      action: () => go('profile') },
+    { id: 'switch',      label: 'Switch Events',    icon: Repeat,        action: () => { onSwitchEvents(); onClose(); } },
   ];
 
   return (
