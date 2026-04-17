@@ -1,14 +1,16 @@
 import React from 'react';
-import { PlaySquare, Calendar, Sparkles, Users, Handshake, ScanLine, UserCheck } from 'lucide-react';
+import { PlaySquare, Sparkles, Users, Handshake, ScanLine, UserCheck, Calendar, MoreHorizontal } from 'lucide-react';
 import { useTheme } from '@/app/context/ThemeContext';
 import { useApp } from '@/app/context/AppContext';
 
 interface BottomNavProps {
   activeTab: string;
   onTabChange: (tab: string) => void;
+  onOpenMore: () => void;
+  isMoreOpen?: boolean;
 }
 
-export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabChange }) => {
+export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabChange, onOpenMore, isMoreOpen }) => {
   const { t } = useTheme();
   const { user } = useApp();
 
@@ -16,18 +18,18 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabChange }) 
 
   const tabs = isSponsor
     ? [
-        { id: 'home',             label: 'Feed',       icon: PlaySquare, highlight: false },
+        { id: 'home',             label: 'Home',       icon: PlaySquare, highlight: false },
         { id: 'engage-audience',  label: 'Audience',   icon: Users,      highlight: false },
         { id: 'scan',             label: 'Scan Badge', icon: ScanLine,   highlight: true  },
-        { id: 'agenda',           label: 'Agenda',     icon: Calendar,   highlight: false },
         { id: 'attendees',        label: 'Leads',      icon: UserCheck,  highlight: false },
+        { id: '__more',           label: 'More',       icon: MoreHorizontal, highlight: false, isMore: true },
       ]
     : [
-        { id: 'home',             label: 'Feed',       icon: PlaySquare, highlight: false },
-        { id: 'engage-audience',  label: 'Audience',   icon: Users,      highlight: false },
-        { id: 'engage',           label: 'Engage',     icon: Sparkles,   highlight: true  },
-        { id: 'agenda',           label: 'Agenda',     icon: Calendar,   highlight: false },
-        { id: 'partners',         label: 'Partners',   icon: Handshake,  highlight: false },
+        { id: 'home',             label: 'Home',     icon: PlaySquare,    highlight: false },
+        { id: 'engage-audience',  label: 'Audience', icon: Users,         highlight: false },
+        { id: 'engage',           label: 'Engage',   icon: Sparkles,      highlight: true  },
+        { id: 'partners',         label: 'Partners', icon: Handshake,     highlight: false },
+        { id: '__more',           label: 'More',     icon: MoreHorizontal, highlight: false, isMore: true },
       ];
 
   return (
@@ -43,13 +45,15 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabChange }) 
       <div className="flex items-center justify-around px-2 py-2 pb-3">
         {tabs.map((tab) => {
           const Icon = tab.icon;
-          const isActive = activeTab === tab.id;
+          const isMore = (tab as { isMore?: boolean }).isMore === true;
+          const isActive = isMore ? !!isMoreOpen : activeTab === tab.id;
+          const handleClick = () => (isMore ? onOpenMore() : onTabChange(tab.id));
 
           if (tab.highlight) {
             return (
               <button
                 key={tab.id}
-                onClick={() => onTabChange(tab.id)}
+                onClick={handleClick}
                 className="relative flex flex-col items-center gap-1 px-4 py-2 rounded-2xl transition-all active:scale-95"
               >
                 <div
@@ -99,7 +103,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabChange }) 
           return (
             <button
               key={tab.id}
-              onClick={() => onTabChange(tab.id)}
+              onClick={handleClick}
               className="relative flex flex-col items-center gap-1 px-3 py-2 rounded-2xl transition-all active:scale-95"
               style={{ color: isActive ? t.navActive : t.navInactive }}
             >

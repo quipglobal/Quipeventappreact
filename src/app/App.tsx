@@ -22,6 +22,7 @@ import { LeadsPage } from '@/app/components/LeadsPage';
 import { SponsorEventPage } from '@/app/components/SponsorEventPage';
 import { SponsorDrawPage } from '@/app/components/SponsorDrawPage';
 import { BottomNav } from '@/app/components/BottomNav';
+import { SideMenu } from '@/app/components/SideMenu';
 import { MyBadgePage } from '@/app/components/MyBadgePage';
 import { BadgeActionButtons } from '@/app/components/BadgeActionButtons';
 import { MeetingsPage } from '@/app/components/MeetingsPage';
@@ -68,6 +69,7 @@ const pagesWithGlobalHeader = ['home', 'engage-audience', 'engage', 'agenda', 'p
 function AppContent() {
   const [screen, setScreen] = useState<Screen>('splash');
   const [activePage, setActivePage] = useState<Page>('home');
+  const [moreOpen, setMoreOpen] = useState(false);
   const { user, sessionRestored, hasJoinedEvent, connectionRequests, conversations } = useApp();
   const { t, isDark } = useTheme();
 
@@ -245,9 +247,22 @@ function AppContent() {
           {showBottomNav && isMainTab && (
             <>
               <BadgeActionButtons onNavigate={handleNavigate} activePage={activePage} />
-              <BottomNav activeTab={activePage} onTabChange={handleNavigate} />
+              <BottomNav
+                activeTab={activePage}
+                onTabChange={handleNavigate}
+                onOpenMore={() => setMoreOpen(true)}
+                isMoreOpen={moreOpen}
+              />
             </>
           )}
+
+          <SideMenu
+            open={moreOpen}
+            onClose={() => setMoreOpen(false)}
+            onNavigate={handleNavigate}
+            onSwitchEvents={() => setScreen('event-join')}
+            unreadCount={unreadCount}
+          />
         </div>
       )}
     </div>
