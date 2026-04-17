@@ -28,6 +28,7 @@ import { SideMenu } from '@/app/components/SideMenu';
 import { MyBadgePage } from '@/app/components/MyBadgePage';
 import { BadgeActionButtons } from '@/app/components/BadgeActionButtons';
 import { MeetingsPage } from '@/app/components/MeetingsPage';
+import { SpeakersPage } from '@/app/components/SpeakersPage';
 import { Bell, Search, MessageCircle, LayoutGrid } from 'lucide-react';
 
 type Screen = 'splash' | 'welcome' | 'event-join' | 'main';
@@ -36,7 +37,7 @@ type Page =
   | 'engage-sponsors' | 'engage-surveys' | 'engage-polls'
   | 'engage-challenges' | 'engage-audience' | 'engage-giveaways'
   | 'leaderboard' | 'profile' | 'edit-profile' | 'attendees' | 'leads' | 'booth' | 'scan'
-  | 'my-badge' | 'sponsor-event' | 'sponsor-draw' | 'sponsor-giveaways' | 'partners' | 'meetings';
+  | 'my-badge' | 'sponsor-event' | 'sponsor-draw' | 'sponsor-giveaways' | 'partners' | 'meetings' | 'speakers';
 
 interface EBState { hasError: boolean; message: string }
 class AppErrorBoundary extends Component<{ children: ReactNode }, EBState> {
@@ -66,7 +67,7 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, EBState> {
   }
 }
 
-const pagesWithGlobalHeader = ['home', 'engage-audience', 'engage', 'agenda', 'partners', 'leaderboard', 'events', 'event-dashboard', 'meetings', 'scan', 'attendees', 'leads', 'my-badge', 'sponsor-giveaways'];
+const pagesWithGlobalHeader = ['home', 'engage-audience', 'engage', 'agenda', 'partners', 'leaderboard', 'events', 'event-dashboard', 'meetings', 'scan', 'attendees', 'leads', 'my-badge', 'sponsor-giveaways', 'speakers'];
 
 function AppContent() {
   const [screen, setScreen] = useState<Screen>('splash');
@@ -142,6 +143,7 @@ function AppContent() {
       case 'sponsor-draw':    return <SponsorDrawPage onBack={() => setActivePage('attendees')} />;
       case 'sponsor-giveaways': return <SponsorGiveawaysPage />;
       case 'meetings':        return <MeetingsPage />;
+      case 'speakers':        return <SpeakersPage />;
       default:                return <HomePage onNavigate={handleNavigate} />;
     }
   };
@@ -152,7 +154,7 @@ function AppContent() {
     return true;
   })();
 
-  const mainTabs = ['home', 'events', 'event-dashboard', 'agenda', 'engage', 'leaderboard', 'profile', 'attendees', 'leads', 'my-badge', 'booth', 'scan', 'engage-audience', 'sponsor-event', 'sponsor-draw', 'sponsor-giveaways', 'partners', 'meetings'];
+  const mainTabs = ['home', 'events', 'event-dashboard', 'agenda', 'engage', 'leaderboard', 'profile', 'attendees', 'leads', 'my-badge', 'booth', 'scan', 'engage-audience', 'sponsor-event', 'sponsor-draw', 'sponsor-giveaways', 'partners', 'meetings', 'speakers'];
   const isMainTab = mainTabs.includes(activePage);
 
   const showGlobalHeader = pagesWithGlobalHeader.includes(activePage);

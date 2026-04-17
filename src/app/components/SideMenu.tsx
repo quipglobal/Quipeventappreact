@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Calendar, IdCard, ScanLine, Settings, Repeat, MessageCircle, X, Trophy, Gift, UserCheck, Sparkles } from 'lucide-react';
+import { Calendar, IdCard, ScanLine, Settings, Repeat, MessageCircle, X, Trophy, Gift, UserCheck, Sparkles, Mic } from 'lucide-react';
 import { useTheme } from '@/app/context/ThemeContext';
 import { useApp } from '@/app/context/AppContext';
 
@@ -36,6 +36,7 @@ export const SideMenu: React.FC<SideMenuProps> = ({ open, onClose, onNavigate, o
 
   const items: MenuItem[] = [
     { id: 'agenda',      label: 'Agenda',           icon: Calendar,      action: () => go('agenda') },
+    { id: 'speakers',    label: 'Speakers',         icon: Mic,           action: () => go('speakers') },
     { id: 'my-badge',    label: 'My Badge',         icon: IdCard,        action: () => go('my-badge') },
     { id: 'scan',        label: 'Scan Badge',       icon: ScanLine,      action: () => go('scan') },
     { id: 'connects',    label: 'My Connects',      icon: UserCheck,     action: () => go('leads') },
