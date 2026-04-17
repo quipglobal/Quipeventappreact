@@ -138,8 +138,9 @@ function companyFromEmail(email: string): string {
 function normalizeRole(role: string): string {
   const map: Record<string, string> = {
     attendee: 'Attendee', speaker: 'Speaker', sponsor: 'Sponsor',
+    sponsor_rep: 'Sponsor', exhibitor: 'Sponsor',
     organizer: 'Organizer', vip: 'VIP', staff: 'Staff',
-    moderator: 'Moderator', exhibitor: 'Exhibitor',
+    moderator: 'Moderator',
   };
   return map[role?.toLowerCase()] ?? (role ? role.charAt(0).toUpperCase() + role.slice(1) : 'Attendee');
 }
@@ -278,7 +279,7 @@ export async function getMyEventRoleApi(
     let res;
     try {
       res = await apiGet<unknown>(
-        `/api/v1/events/${eventId}/members?per_page=${ROLE_LOOKUP_PAGE_SIZE}&page=${page}`,
+        `/api/v1/events/${eventId}/members?per_page=${ROLE_LOOKUP_PAGE_SIZE}&page=${page}&checked_in_only=false`,
         HEADERS,
       );
     } catch {
