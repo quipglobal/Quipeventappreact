@@ -3,21 +3,47 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * API CONTRACT (real backend):
  *   GET   /api/v1/me                         → ProfileResponse
- *   PATCH /api/v1/profile  { fields }        → ProfileResponse
+ *   POST  /api/v1/me/profile  { fields }     → ProfileResponse
  *   GET   /api/v1/events/:id/my-rank         → PointsResponse
  */
 
-import { apiGet, apiPatch } from './client';
+import { apiGet, apiPost } from './client';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+export interface SocialLinks {
+  twitter?: string;
+  website?: string;
+  github?: string;
+  facebook?: string;
+  instagram?: string;
+  [key: string]: string | undefined;
+}
+
+export interface InterestedTopic {
+  id: number;
+  name: string;
+  slug?: string;
+}
 
 export interface UserProfile {
   id: string;
   name: string;
+  firstName: string;
+  lastName: string;
   email: string;
+  phone: string;
   company: string;
+  companyId: number | null;
+  industry: string;
+  industryId: number | null;
   title: string;
+  bio: string;
   avatar: string;
+  profileImage: string;
+  linkedinUrl: string;
+  socialLinks: SocialLinks;
+  interestedTopics: InterestedTopic[];
   points: number;
   tier: string;
   role: 'attendee' | 'sponsor';
@@ -37,22 +63,98 @@ export interface PointsResponse {
   error?: { message: string };
 }
 
-export type ProfileUpdateFields = Partial<Pick<UserProfile, 'name' | 'company' | 'title' | 'avatar' | 'interests'>>;
+/** Fields accepted by POST /api/v1/me/profile (snake_case keys for backend). */
+export interface ProfileUpdatePayload {
+  first_name?: string;
+  last_name?: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+  title?: string;
+  bio?: string;
+  linkedin_url?: string;
+  company_id?: number | null;
+  industry_id?: number | null;
+  social_links?: SocialLinks;
+  avatar_url?: string;
+  profile_image?: string;
+  interests?: string[];
+}
 
 // ─── Normalizer ───────────────────────────────────────────────────────────────
 
+function pickString(...vals: unknown[]): string {
+  for (const v of vals) {
+    if (typeof v === 'string' && v) return v;
+  }
+  return '';
+}
+
 function normalizeProfile(raw: Record<string, unknown>): UserProfile {
+  const company = raw.company as Record<string, unknown> | string | null | undefined;
+  const industry = raw.industry as Record<string, unknown> | string | null | undefined;
+
+  const companyName =
+    typeof company === 'string' ? company :
+    company && typeof company === 'object' ? String(company.name ?? '') : '';
+  const companyId =
+    company && typeof company === 'object' && company.id != null ? Number(company.id) :
+    raw.company_id != null ? Number(raw.company_id) : null;
+
+  const industryName =
+    typeof industry === 'string' ? industry :
+    industry && typeof industry === 'object' ? String(industry.name ?? '') : '';
+  const industryId =
+    industry && typeof industry === 'object' && industry.id != null ? Number(industry.id) :
+    raw.industry_id != null ? Number(raw.industry_id) : null;
+
+  const topicsRaw = raw.interested_topics ?? raw.interestedTopics;
+  const interestedTopics: InterestedTopic[] = Array.isArray(topicsRaw)
+    ? topicsRaw.map((t: unknown) => {
+        if (typeof t === 'string') return { id: 0, name: t };
+        const obj = t as Record<string, unknown>;
+        return {
+          id: Number(obj.id ?? 0),
+          name: String(obj.name ?? ''),
+          slug: obj.slug ? String(obj.slug) : undefined,
+        };
+      }).filter(t => t.name)
+    : [];
+
+  const socialLinksRaw = raw.social_links ?? raw.socialLinks;
+  const socialLinks: SocialLinks = {};
+  if (socialLinksRaw && typeof socialLinksRaw === 'object' && !Array.isArray(socialLinksRaw)) {
+    for (const [k, v] of Object.entries(socialLinksRaw as Record<string, unknown>)) {
+      if (typeof v === 'string' && v) socialLinks[k] = v;
+    }
+  }
+
+  const firstName = pickString(raw.first_name, raw.firstName);
+  const lastName = pickString(raw.last_name, raw.lastName);
+  const fullName = pickString(raw.name) || `${firstName} ${lastName}`.trim();
+
   return {
     id: String(raw.id ?? ''),
-    name: (raw.name ?? `${raw.first_name ?? ''} ${raw.last_name ?? ''}`.trim()) as string,
-    email: (raw.email ?? '') as string,
-    company: (raw.company ?? raw.organization ?? '') as string,
-    title: (raw.title ?? raw.job_title ?? raw.position ?? '') as string,
-    avatar: (raw.avatar ?? raw.avatar_url ?? raw.photo ?? '') as string,
+    name: fullName,
+    firstName,
+    lastName,
+    email: pickString(raw.email),
+    phone: pickString(raw.phone),
+    company: companyName,
+    companyId,
+    industry: industryName,
+    industryId,
+    title: pickString(raw.title, raw.job_title, raw.position),
+    bio: pickString(raw.bio),
+    avatar: pickString(raw.avatar_url, raw.avatar, raw.photo),
+    profileImage: pickString(raw.profile_image, raw.profileImage),
+    linkedinUrl: pickString(raw.linkedin_url, raw.linkedinUrl),
+    socialLinks,
+    interestedTopics,
     points: Number(raw.points ?? raw.gamification_points ?? 0),
-    tier: (raw.tier ?? raw.membership_tier ?? 'Bronze') as string,
+    tier: pickString(raw.tier, raw.membership_tier) || 'Bronze',
     role: raw.role === 'sponsor' ? 'sponsor' : 'attendee',
-    interests: Array.isArray(raw.interests) ? raw.interests as string[] : [],
+    interests: interestedTopics.map(t => t.name),
     profileComplete: Boolean(raw.profile_complete ?? raw.profileComplete ?? true),
   };
 }
@@ -75,11 +177,11 @@ export async function getUserProfileApi(): Promise<ProfileResponse> {
 }
 
 /**
- * PATCH /api/v1/profile
+ * POST /api/v1/me/profile
  * Updates editable profile fields. Returns the updated profile on success.
  */
-export async function updateUserProfileApi(fields: ProfileUpdateFields): Promise<ProfileResponse> {
-  const res = await apiPatch<unknown>('/api/v1/profile', fields);
+export async function updateUserProfileApi(payload: ProfileUpdatePayload): Promise<ProfileResponse> {
+  const res = await apiPost<unknown>('/api/v1/me/profile', payload);
   if (!res.success || !res.data) {
     return { success: false, error: res.error ?? { message: 'Failed to update profile.' } };
   }

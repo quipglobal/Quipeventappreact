@@ -2,12 +2,16 @@ import React from 'react';
 import {
   Mail, Building2, Award, CheckCircle, BarChart3, Calendar,
   Bell, Globe, LogOut, User as UserIcon, Briefcase,
-  Trophy, TrendingUp, History, Moon, Sun, ChevronRight,
+  Trophy, TrendingUp, History, Moon, Sun, ChevronRight, Edit3,
 } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 
-export const ProfilePage: React.FC = () => {
+interface ProfilePageProps {
+  onEdit?: () => void;
+}
+
+export const ProfilePage: React.FC<ProfilePageProps> = ({ onEdit }) => {
   const { user, completedSurveys, votedPolls, metSponsors, pointsHistory, setUser } = useApp();
   const { t, isDark, toggleTheme, mode } = useTheme();
 
@@ -63,6 +67,16 @@ export const ProfilePage: React.FC = () => {
             <UserIcon style={{ width: 14, height: 14 }} />
             {user.role === 'attendee' ? 'Attendee' : 'Sponsor'}
           </span>
+          {onEdit && (
+            <button
+              onClick={onEdit}
+              className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold text-white"
+              style={{ background: 'rgba(255,255,255,0.18)', border: '1px solid rgba(255,255,255,0.35)' }}
+            >
+              <Edit3 style={{ width: 14, height: 14 }} />
+              Edit Profile
+            </button>
+          )}
         </div>
       </div>
 

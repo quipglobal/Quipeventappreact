@@ -22,6 +22,18 @@ interface User {
   emailVerified?: boolean;
   isRegistered?: boolean;
   badgeCode?: string;
+  // Extended profile (populated after a profile fetch / edit)
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+  bio?: string;
+  linkedinUrl?: string;
+  socialLinks?: Record<string, string>;
+  companyId?: number | null;
+  industry?: string;
+  industryId?: number | null;
+  profileImage?: string;
+  interestedTopics?: { id: number; name: string; slug?: string }[];
 }
 
 export interface Lead {

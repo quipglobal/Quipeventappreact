@@ -14,6 +14,7 @@ import { PollsListPage } from '@/app/components/PollsListPage';
 import { ChallengesPage } from '@/app/components/ChallengesPage';
 import { LeaderboardPage } from '@/app/components/LeaderboardPage';
 import { ProfilePage } from '@/app/components/ProfilePage';
+import { EditProfilePage } from '@/app/components/EditProfilePage';
 import { SponsorScannerPage } from '@/app/components/SponsorScannerPage';
 import { EventDashboardPage } from '@/app/components/EventDashboardPage';
 import { GiveawaysPage } from '@/app/components/GiveawaysPage';
@@ -34,7 +35,7 @@ type Page =
   | 'home' | 'agenda' | 'events' | 'event-dashboard' | 'engage'
   | 'engage-sponsors' | 'engage-surveys' | 'engage-polls'
   | 'engage-challenges' | 'engage-audience' | 'engage-giveaways'
-  | 'leaderboard' | 'profile' | 'attendees' | 'leads' | 'booth' | 'scan'
+  | 'leaderboard' | 'profile' | 'edit-profile' | 'attendees' | 'leads' | 'booth' | 'scan'
   | 'my-badge' | 'sponsor-event' | 'sponsor-draw' | 'sponsor-giveaways' | 'partners' | 'meetings';
 
 interface EBState { hasError: boolean; message: string }
@@ -129,7 +130,8 @@ function AppContent() {
       case 'engage-audience': return <AudiencePage />;
       case 'engage-giveaways':return <GiveawaysPage onBack={() => setActivePage('home')} />;
       case 'leaderboard':     return <LeaderboardPage />;
-      case 'profile':         return <ProfilePage />;
+      case 'profile':         return <ProfilePage onEdit={() => setActivePage('edit-profile')} />;
+      case 'edit-profile':    return <EditProfilePage onBack={() => setActivePage('profile')} />;
       case 'partners':        return <SponsorsListPage />;
       case 'attendees':       return <LeadsPage onNavigateToDraw={() => setActivePage('sponsor-draw')} onNavigateToScan={() => setActivePage('scan')} />;
       case 'leads':           return <LeadsPage onNavigateToDraw={() => setActivePage('sponsor-draw')} onNavigateToScan={() => setActivePage('scan')} />;
@@ -146,7 +148,7 @@ function AppContent() {
 
   const showBottomNav = (() => {
     if (activePage.startsWith('engage-') && activePage !== 'engage-audience') return false;
-    if (['booth', 'sponsor-event', 'sponsor-draw'].includes(activePage)) return false;
+    if (['booth', 'sponsor-event', 'sponsor-draw', 'edit-profile'].includes(activePage)) return false;
     return true;
   })();
 
