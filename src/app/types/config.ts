@@ -57,6 +57,8 @@ export interface Session {
   title: string;
   startTime: string;
   endTime: string;
+  startIso?: string;
+  endIso?: string;
   date: string;
   room: string;
   track: string;

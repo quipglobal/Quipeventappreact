@@ -92,6 +92,8 @@ function normalizeSession(raw: Record<string, unknown>): Session {
     title:       (raw.title ?? raw.name ?? '') as string,
     startTime:   formatTime(startIso),
     endTime:     formatTime(endIso),
+    startIso,
+    endIso,
     date:        extractDate(startIso) || (raw.date ?? raw.session_date ?? '') as string,
     room:        (raw.location ?? raw.room ?? raw.venue ?? '') as string,
     track:       (raw.track ?? raw.category ?? raw.stream ?? '') as string,
