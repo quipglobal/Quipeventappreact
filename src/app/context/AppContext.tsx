@@ -5,6 +5,7 @@ import { getMeApi } from '@/app/api/authClient';
 import { clearToken } from '@/app/api/client';
 import { sendMeetingRequest as sendMeetingRequestApi } from '@/app/api/meetingsClient';
 import { fetchPointsFromBackend, scheduleSyncPoints } from '@/app/api/pointsClient';
+import { getMyEventRoleApi } from '@/app/api/audienceClient';
 
 interface User {
   id: string;
@@ -246,6 +247,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setSessionRestored(true);
     });
   }, []);
+
+  // Reconcile per-event role: the global /me record may say 'attendee' even
+  // when the user is a sponsor rep for a specific event. Look up the user's
+  // role in the active event's audience and override accordingly.
+  //   found  → use the per-event role
+  //   absent → safe default 'attendee' (avoids stale sponsor privilege when
+  //            switching events)
+  //   error  → leave user.role unchanged (don't downgrade on a transient
+  //            network failure)
+  useEffect(() => {
+    if (!user?.email || !activeEventConfig?.eventId) return;
+    let cancelled = false;
+    getMyEventRoleApi(activeEventConfig.eventId, user.email).then(result => {
+      if (cancelled || !result.ok) return;
+      const desired: 'sponsor' | 'attendee' = result.found
+        ? (result.role.toLowerCase() === 'sponsor' ? 'sponsor' : 'attendee')
+        : 'attendee';
+      setUser(prev => {
+        if (!prev) return prev;
+        if (prev.role === desired) return prev;
+        return { ...prev, role: desired };
+      });
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.email, activeEventConfig?.eventId]);
 
   const joinEvent = () => {
     setHasJoinedEvent(true);

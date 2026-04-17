@@ -250,6 +250,67 @@ export async function checkEmailInAudience(email: string): Promise<boolean> {
   return false;
 }
 
+/**
+ * Looks up the current user's per-event role by scanning the event audience.
+ * Iterates pages until the user is found or the audience is exhausted.
+ *
+ * Returns a discriminated result:
+ *   { ok: true, found: true,  role }   — user is a member; role is normalized
+ *   { ok: true, found: false }         — audience fully scanned, user absent
+ *   { ok: false }                      — API error (caller should leave state alone)
+ */
+export type MyEventRoleResult =
+  | { ok: true; found: true; role: string }
+  | { ok: true; found: false }
+  | { ok: false };
+
+const ROLE_LOOKUP_PAGE_SIZE = 500;
+const ROLE_LOOKUP_MAX_PAGES = 10; // hard ceiling: 5,000 members
+
+export async function getMyEventRoleApi(
+  eventId: string | number,
+  email: string,
+): Promise<MyEventRoleResult> {
+  if (!email) return { ok: true, found: false };
+  const target = email.trim().toLowerCase();
+
+  for (let page = 1; page <= ROLE_LOOKUP_MAX_PAGES; page++) {
+    let res;
+    try {
+      res = await apiGet<unknown>(
+        `/api/v1/events/${eventId}/members?per_page=${ROLE_LOOKUP_PAGE_SIZE}&page=${page}`,
+        HEADERS,
+      );
+    } catch {
+      return { ok: false };
+    }
+    if (!res.success) return { ok: false };
+
+    const body = res.data as Record<string, unknown>;
+    const paginator = (body?.data ?? body) as Record<string, unknown>;
+    const list: unknown[] = Array.isArray(paginator?.data)
+      ? (paginator.data as unknown[])
+      : Array.isArray(body?.data)
+        ? (body.data as unknown[])
+        : [];
+
+    const me = list.find(
+      m => ((m as RawFlatMember).email ?? '').toLowerCase() === target,
+    ) as RawFlatMember | undefined;
+
+    if (me) {
+      return { ok: true, found: true, role: pickRole(me.roles ?? []) };
+    }
+
+    // Stop when this page wasn't full — no more pages to fetch
+    if (list.length < ROLE_LOOKUP_PAGE_SIZE) {
+      return { ok: true, found: false };
+    }
+  }
+
+  return { ok: true, found: false };
+}
+
 // ─── API Methods ──────────────────────────────────────────────────────────────
 
 /**
