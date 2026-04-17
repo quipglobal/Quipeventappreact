@@ -37,6 +37,8 @@ export interface Company {
   foundedYear: number | null;
   companyType: string | null;
   industries: string[];
+  marketSegments: string[];
+  keywords: string[];
   repCount: number;
   reps?: CompanyRep[];
 }
@@ -55,6 +57,15 @@ export interface CompanyDetailResponse {
 
 // ─── Normalizers ─────────────────────────────────────────────────────────────
 
+function extractNameArray(arr: unknown): string[] {
+  if (!Array.isArray(arr)) return [];
+  return arr.map((item) =>
+    item && typeof item === 'object' && 'name' in (item as object)
+      ? String((item as Record<string, unknown>).name)
+      : String(item)
+  ).filter(Boolean);
+}
+
 function normalizeEventCompany(raw: Record<string, unknown>): Company {
   return {
     id: raw.id as number,
@@ -69,7 +80,9 @@ function normalizeEventCompany(raw: Record<string, unknown>): Company {
     headquarters: (raw.headquarters ?? null) as string | null,
     foundedYear: null,
     companyType: (raw.company_type ?? raw.companyType ?? null) as string | null,
-    industries: Array.isArray(raw.industries) ? (raw.industries as string[]) : [],
+    industries: extractNameArray(raw.industries),
+    marketSegments: extractNameArray(raw.marketSegments ?? raw.market_segments),
+    keywords: extractNameArray(raw.keywords),
     repCount: 0,
   };
 }
@@ -111,7 +124,9 @@ function normalizeCompanyDetail(raw: Record<string, unknown>): Company {
     headquarters: (raw.headquarters ?? null) as string | null,
     foundedYear: (raw.foundedYear ?? null) as number | null,
     companyType: (raw.companyType ?? raw.company_type ?? null) as string | null,
-    industries: Array.isArray(raw.industries) ? (raw.industries as string[]) : [],
+    industries: extractNameArray(raw.industries),
+    marketSegments: extractNameArray(raw.marketSegments ?? raw.market_segments),
+    keywords: extractNameArray(raw.keywords),
     repCount: reps.length,
     reps,
   };

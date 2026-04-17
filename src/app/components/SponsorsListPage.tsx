@@ -186,22 +186,67 @@ const CompanyDetailPage: React.FC<{
             { label: 'Domain', value: data.domain },
             { label: 'Founded', value: data.foundedYear ? String(data.foundedYear) : null },
             { label: 'Revenue', value: data.revenueRange },
-            { label: 'Industries', value: data.industries.length ? data.industries.join(', ') : null },
+            { label: 'Headquarters', value: data.headquarters },
           ].filter(row => row.value).map((row, i, arr) => (
             <div key={row.label}
               className="flex items-center justify-between px-4 py-3"
               style={{ borderBottom: i < arr.length - 1 ? `1px solid ${t.divider}` : undefined }}>
               <span style={{ color: t.textSec, fontSize: 13 }}>{row.label}</span>
-              <span style={{ color: t.text, fontSize: 13, fontWeight: 600 }}>{row.value}</span>
+              <span style={{ color: t.text, fontSize: 13, fontWeight: 600, textAlign: 'right', maxWidth: '55%' }}>{row.value}</span>
             </div>
           ))}
-          {!data.employeeCount && !data.companyType && !data.domain && !data.foundedYear && (
+          {!data.employeeCount && !data.companyType && !data.domain && !data.foundedYear && !data.headquarters && (
             <div className="px-4 py-4">
               <p style={{ color: t.textMuted, fontSize: 13 }}>No additional details available.</p>
             </div>
           )}
         </div>
       </div>
+
+      {/* Industries */}
+      {data.industries.length > 0 && (
+        <div className="px-5 mb-5">
+          <h3 style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Industries</h3>
+          <div className="flex flex-wrap gap-2">
+            {data.industries.map(ind => (
+              <span key={ind} className="px-3 py-1.5 rounded-xl"
+                style={{ background: 'rgba(99,102,241,0.1)', color: '#6366f1', fontSize: 12, fontWeight: 600, border: '1px solid rgba(99,102,241,0.18)' }}>
+                {ind}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Market Segments */}
+      {data.marketSegments?.length > 0 && (
+        <div className="px-5 mb-5">
+          <h3 style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Market Segments</h3>
+          <div className="flex flex-wrap gap-2">
+            {data.marketSegments.map(seg => (
+              <span key={seg} className="px-3 py-1.5 rounded-xl"
+                style={{ background: 'rgba(16,185,129,0.1)', color: '#10b981', fontSize: 12, fontWeight: 600, border: '1px solid rgba(16,185,129,0.18)' }}>
+                {seg}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Keywords */}
+      {data.keywords?.length > 0 && (
+        <div className="px-5 mb-5">
+          <h3 style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Keywords</h3>
+          <div className="flex flex-wrap gap-2">
+            {data.keywords.map(kw => (
+              <span key={kw} className="px-3 py-1.5 rounded-xl"
+                style={{ background: 'rgba(124,58,237,0.08)', color: '#7c3aed', fontSize: 12, fontWeight: 600, border: '1px solid rgba(124,58,237,0.15)' }}>
+                {kw}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Representatives */}
       <div className="px-5 mb-8">
