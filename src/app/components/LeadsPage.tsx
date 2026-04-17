@@ -1,12 +1,11 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   ArrowLeft, Search, Users, Clock, Building2, ChevronRight,
   Flame, ThermometerSun, Snowflake, Tag, ScanLine, FileText,
   X, Edit3, Save, Trash2, Download, Filter, MoreVertical,
   MessageCircle, Sparkles, Briefcase, CheckCircle, Calendar, Gift,
-  Plus, Image, Package, Upload,
 } from 'lucide-react';
-import { useApp, Lead, SponsorGiveaway } from '@/app/context/AppContext';
+import { useApp, Lead } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { listLeads, updateLeadApi } from '@/app/api/leadsClient';
@@ -310,232 +309,8 @@ const LeadDetailView: React.FC<{
   );
 };
 
-// ─── Giveaway Form Component ─────────────────────────────────────────────────
-
-const GiveawayForm: React.FC<{
-  onAdd: (giveaway: { title: string; numberOfItems: number; image: string; sponsorName: string; sponsorId: string }) => void;
-}> = ({ onAdd }) => {
-  const { t } = useTheme();
-  const [title, setTitle] = useState('');
-  const [numberOfItems, setNumberOfItems] = useState('');
-  const [imagePreview, setImagePreview] = useState('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      alert('Image must be under 5MB');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setImagePreview(reader.result as string);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleSubmit = () => {
-    if (!title.trim() || !numberOfItems) return;
-    onAdd({
-      title: title.trim(),
-      numberOfItems: parseInt(numberOfItems, 10),
-      image: imagePreview,
-      sponsorName: '',
-      sponsorId: '',
-    });
-    setTitle('');
-    setNumberOfItems('');
-    setImagePreview('');
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  const isValid = title.trim().length > 0 && parseInt(numberOfItems, 10) > 0;
-
-  return (
-    <div className="rounded-2xl overflow-hidden" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
-      <div className="px-4 py-3 flex items-center gap-2" style={{ borderBottom: `1px solid ${t.border}` }}>
-        <Plus style={{ width: 16, height: 16, color: '#7c3aed' }} />
-        <span style={{ color: t.text, fontSize: 14, fontWeight: 700 }}>Add Giveaway</span>
-      </div>
-
-      <div className="p-4 space-y-4">
-        <div>
-          <label style={{ color: t.textSec, fontSize: 12, fontWeight: 600, marginBottom: 6, display: 'block' }}>
-            Giveaway Title
-          </label>
-          <input
-            type="text"
-            placeholder="e.g., Win a MacBook Pro"
-            value={title}
-            onChange={e => setTitle(e.target.value)}
-            className="w-full px-3.5 py-2.5 rounded-xl outline-none transition-colors"
-            style={{
-              background: t.surface2,
-              border: `1px solid ${t.border}`,
-              color: t.text,
-              fontSize: 14,
-            }}
-          />
-        </div>
-
-        <div>
-          <label style={{ color: t.textSec, fontSize: 12, fontWeight: 600, marginBottom: 6, display: 'block' }}>
-            Number of Items
-          </label>
-          <input
-            type="number"
-            placeholder="e.g., 50"
-            min="1"
-            value={numberOfItems}
-            onChange={e => setNumberOfItems(e.target.value)}
-            className="w-full px-3.5 py-2.5 rounded-xl outline-none transition-colors"
-            style={{
-              background: t.surface2,
-              border: `1px solid ${t.border}`,
-              color: t.text,
-              fontSize: 14,
-            }}
-          />
-        </div>
-
-        <div>
-          <label style={{ color: t.textSec, fontSize: 12, fontWeight: 600, marginBottom: 6, display: 'block' }}>
-            Upload Picture
-          </label>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            onChange={handleImageUpload}
-            className="hidden"
-          />
-          {imagePreview ? (
-            <div className="relative rounded-xl overflow-hidden" style={{ border: `1px solid ${t.border}` }}>
-              <img src={imagePreview} alt="Preview" className="w-full h-40 object-cover" />
-              <button
-                onClick={() => {
-                  setImagePreview('');
-                  if (fileInputRef.current) fileInputRef.current.value = '';
-                }}
-                className="absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center active:scale-90 transition-transform"
-                style={{ background: 'rgba(0,0,0,0.6)' }}
-              >
-                <X style={{ width: 14, height: 14, color: '#fff' }} />
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="w-full flex flex-col items-center justify-center gap-2 py-8 rounded-xl active:scale-[0.98] transition-transform"
-              style={{
-                background: t.surface2,
-                border: `2px dashed ${t.border}`,
-              }}
-            >
-              <Upload style={{ width: 24, height: 24, color: t.textMuted }} />
-              <span style={{ color: t.textSec, fontSize: 13, fontWeight: 600 }}>Tap to upload image</span>
-              <span style={{ color: t.textMuted, fontSize: 11 }}>JPG, PNG up to 5MB</span>
-            </button>
-          )}
-        </div>
-
-        <button
-          onClick={handleSubmit}
-          disabled={!isValid}
-          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-white active:scale-[0.97] transition-all"
-          style={{
-            background: isValid
-              ? 'linear-gradient(135deg,#7c3aed,#4f46e5)'
-              : 'rgba(124,58,237,0.3)',
-            opacity: isValid ? 1 : 0.6,
-            fontWeight: 700,
-            fontSize: 14,
-          }}
-        >
-          <Plus style={{ width: 16, height: 16 }} />
-          Add Giveaway
-        </button>
-      </div>
-    </div>
-  );
-};
-
-// ─── Giveaway Card ───────────────────────────────────────────────────────────
-
-const GiveawayCard: React.FC<{
-  giveaway: SponsorGiveaway;
-  onRemove: (id: string) => void;
-}> = ({ giveaway, onRemove }) => {
-  const { t } = useTheme();
-  const [showConfirm, setShowConfirm] = useState(false);
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -10 }}
-      className="rounded-2xl overflow-hidden"
-      style={{ background: t.surface, border: `1px solid ${t.border}`, boxShadow: t.shadow }}
-    >
-      {giveaway.image && (
-        <div className="relative h-36 overflow-hidden">
-          <img src={giveaway.image} alt={giveaway.title} className="w-full h-full object-cover" />
-          <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.4) 0%, transparent 50%)' }} />
-        </div>
-      )}
-      <div className="p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex-1 min-w-0">
-            <h3 className="truncate" style={{ color: t.text, fontSize: 15, fontWeight: 700 }}>{giveaway.title}</h3>
-            <div className="flex items-center gap-2 mt-1.5">
-              <Package style={{ width: 12, height: 12, color: '#7c3aed' }} />
-              <span style={{ color: t.textSec, fontSize: 12, fontWeight: 600 }}>
-                {giveaway.numberOfItems} item{giveaway.numberOfItems !== 1 ? 's' : ''} available
-              </span>
-            </div>
-          </div>
-          {showConfirm ? (
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => onRemove(giveaway.id)}
-                className="px-2.5 py-1 rounded-lg text-white active:scale-95 transition-transform"
-                style={{ background: '#ef4444', fontSize: 11, fontWeight: 700 }}
-              >
-                Delete
-              </button>
-              <button
-                onClick={() => setShowConfirm(false)}
-                className="px-2.5 py-1 rounded-lg active:scale-95 transition-transform"
-                style={{ background: t.surface2, color: t.textSec, fontSize: 11, fontWeight: 700 }}
-              >
-                Cancel
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setShowConfirm(true)}
-              className="p-1.5 rounded-lg active:scale-90 transition-transform"
-              style={{ background: t.surface2 }}
-            >
-              <Trash2 style={{ width: 14, height: 14, color: t.textMuted }} />
-            </button>
-          )}
-        </div>
-        <div className="flex items-center gap-1.5 mt-2">
-          <Clock style={{ width: 11, height: 11, color: t.textMuted }} />
-          <span style={{ color: t.textMuted, fontSize: 11 }}>
-            Added {timeAgo(giveaway.createdAt)}
-          </span>
-        </div>
-      </div>
-    </motion.div>
-  );
-};
-
 // ─── Leads Page Component ────────────────────────────────────────────────────
-
-type LeadsTab = 'leads' | 'giveaways';
+// (Giveaway management has moved to SponsorGiveawaysPage.tsx)
 
 interface LeadsPageProps {
   onBack?: () => void;
@@ -544,10 +319,9 @@ interface LeadsPageProps {
 }
 
 export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, onNavigateToDraw }) => {
-  const { leads: contextLeads, updateLead, sponsorGiveaways, addSponsorGiveaway, removeSponsorGiveaway, user, eventConfig } = useApp();
+  const { leads: contextLeads, updateLead, user, eventConfig } = useApp();
   const { t, isDark } = useTheme();
 
-  const [activeTab, setActiveTab] = useState<LeadsTab>('leads');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterPriority, setFilterPriority] = useState<Priority | 'all'>('all');
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
@@ -647,38 +421,6 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
             )}
           </div>
 
-          {/* Tabs */}
-          <div className="flex gap-1 mt-4 p-1 rounded-xl" style={{ background: 'rgba(255,255,255,0.08)' }}>
-            {([
-              { key: 'leads' as LeadsTab, label: 'Leads', icon: Users, count: allLeads.length },
-              { key: 'giveaways' as LeadsTab, label: 'Giveaways', icon: Gift, count: sponsorGiveaways.filter(g => g.sponsorId === (user?.id || 'sponsor')).length },
-            ]).map(tab => (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg transition-all"
-                style={{
-                  background: activeTab === tab.key ? 'rgba(255,255,255,0.18)' : 'transparent',
-                  color: activeTab === tab.key ? '#fff' : 'rgba(255,255,255,0.5)',
-                  fontSize: 13,
-                  fontWeight: activeTab === tab.key ? 700 : 600,
-                }}
-              >
-                <tab.icon style={{ width: 14, height: 14 }} />
-                <span>{tab.label}</span>
-                <span className="px-1.5 py-0.5 rounded-md" style={{
-                  background: activeTab === tab.key ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.08)',
-                  fontSize: 11,
-                  fontWeight: 700,
-                }}>
-                  {tab.count}
-                </span>
-              </button>
-            ))}
-          </div>
-
-          {activeTab === 'leads' && (
-            <>
               {/* Stats */}
               <div className="flex items-center gap-2.5 mt-4 mb-4">
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg"
@@ -729,14 +471,9 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
                   </button>
                 )}
               </div>
-            </>
-          )}
         </div>
       </div>
 
-      {/* ── LEADS TAB CONTENT ──────────────────────────────── */}
-      {activeTab === 'leads' && (
-        <>
       {/* ── Priority Filter Chips ──────────────────────────── */}
       <div className="px-5 py-3 flex gap-2">
         {(['all', 'hot', 'warm', 'cold'] as const).map(p => {
@@ -894,59 +631,6 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
           </div>
         )}
       </div>
-        </>
-      )}
-
-      {/* ── GIVEAWAYS TAB CONTENT ──────────────────────────── */}
-      {activeTab === 'giveaways' && (
-        <div className="px-5 py-4 pb-24 space-y-4">
-          <GiveawayForm
-            onAdd={(data) => {
-              addSponsorGiveaway({
-                ...data,
-                sponsorName: user?.company || user?.name || 'Sponsor',
-                sponsorId: user?.id || 'sponsor',
-              });
-            }}
-          />
-
-          {(() => {
-            const myGiveaways = sponsorGiveaways.filter(g => g.sponsorId === (user?.id || 'sponsor'));
-            return myGiveaways.length > 0 ? (
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <Gift style={{ width: 14, height: 14, color: '#7c3aed' }} />
-                  <span style={{ color: t.text, fontSize: 13, fontWeight: 700 }}>
-                    Your Giveaways ({myGiveaways.length})
-                  </span>
-                </div>
-                <div className="space-y-3">
-                  <AnimatePresence>
-                    {myGiveaways.map(g => (
-                      <GiveawayCard key={g.id} giveaway={g} onRemove={removeSponsorGiveaway} />
-                    ))}
-                  </AnimatePresence>
-                </div>
-              </div>
-            ) : null;
-          })()}
-
-          {sponsorGiveaways.filter(g => g.sponsorId === (user?.id || 'sponsor')).length === 0 && (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4"
-                style={{ background: t.surface2 }}>
-                <Gift style={{ width: 28, height: 28, color: t.emptyIcon }} />
-              </div>
-              <h3 style={{ color: t.text, fontSize: 16, fontWeight: 700, marginBottom: 4 }}>
-                No giveaways yet
-              </h3>
-              <p style={{ color: t.textMuted, fontSize: 13 }}>
-                Add giveaways above to attract attendees to your booth
-              </p>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* ── Detail Overlay ─────────────────────────────────── */}
       <AnimatePresence>

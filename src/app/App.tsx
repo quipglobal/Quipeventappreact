@@ -21,6 +21,7 @@ import { AudiencePage } from '@/app/components/AudiencePage';
 import { LeadsPage } from '@/app/components/LeadsPage';
 import { SponsorEventPage } from '@/app/components/SponsorEventPage';
 import { SponsorDrawPage } from '@/app/components/SponsorDrawPage';
+import { SponsorGiveawaysPage } from '@/app/components/SponsorGiveawaysPage';
 import { BottomNav } from '@/app/components/BottomNav';
 import { SideMenu } from '@/app/components/SideMenu';
 import { MyBadgePage } from '@/app/components/MyBadgePage';
@@ -34,7 +35,7 @@ type Page =
   | 'engage-sponsors' | 'engage-surveys' | 'engage-polls'
   | 'engage-challenges' | 'engage-audience' | 'engage-giveaways'
   | 'leaderboard' | 'profile' | 'attendees' | 'leads' | 'booth' | 'scan'
-  | 'my-badge' | 'sponsor-event' | 'sponsor-draw' | 'partners' | 'meetings';
+  | 'my-badge' | 'sponsor-event' | 'sponsor-draw' | 'sponsor-giveaways' | 'partners' | 'meetings';
 
 interface EBState { hasError: boolean; message: string }
 class AppErrorBoundary extends Component<{ children: ReactNode }, EBState> {
@@ -64,7 +65,7 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, EBState> {
   }
 }
 
-const pagesWithGlobalHeader = ['home', 'engage-audience', 'engage', 'agenda', 'partners', 'leaderboard', 'events', 'event-dashboard', 'meetings', 'scan', 'attendees', 'leads', 'my-badge'];
+const pagesWithGlobalHeader = ['home', 'engage-audience', 'engage', 'agenda', 'partners', 'leaderboard', 'events', 'event-dashboard', 'meetings', 'scan', 'attendees', 'leads', 'my-badge', 'sponsor-giveaways'];
 
 function AppContent() {
   const [screen, setScreen] = useState<Screen>('splash');
@@ -137,6 +138,7 @@ function AppContent() {
       case 'scan':            return <SponsorScannerPage />;
       case 'sponsor-event':   return <SponsorEventPage onBack={() => setActivePage('home')} onNavigate={handleNavigate} />;
       case 'sponsor-draw':    return <SponsorDrawPage onBack={() => setActivePage('attendees')} />;
+      case 'sponsor-giveaways': return <SponsorGiveawaysPage />;
       case 'meetings':        return <MeetingsPage />;
       default:                return <HomePage onNavigate={handleNavigate} />;
     }
@@ -148,7 +150,7 @@ function AppContent() {
     return true;
   })();
 
-  const mainTabs = ['home', 'events', 'event-dashboard', 'agenda', 'engage', 'leaderboard', 'profile', 'attendees', 'leads', 'my-badge', 'booth', 'scan', 'engage-audience', 'sponsor-event', 'sponsor-draw', 'partners', 'meetings'];
+  const mainTabs = ['home', 'events', 'event-dashboard', 'agenda', 'engage', 'leaderboard', 'profile', 'attendees', 'leads', 'my-badge', 'booth', 'scan', 'engage-audience', 'sponsor-event', 'sponsor-draw', 'sponsor-giveaways', 'partners', 'meetings'];
   const isMainTab = mainTabs.includes(activePage);
 
   const showGlobalHeader = pagesWithGlobalHeader.includes(activePage);
