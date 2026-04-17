@@ -7,6 +7,7 @@ import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import { SocialFeed } from '@/app/components/feed/SocialFeed';
 import { listSessionsApi } from '@/app/api/agendaClient';
+import { getEventSpeakersApi, type EventMember } from '@/app/api/audienceClient';
 import type { Session, Speaker } from '@/app/types/config';
 
 interface HomePageProps { onNavigate: (page: string) => void; }
@@ -56,6 +57,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
 
   const [sessions, setSessions] = useState<Session[]>([]);
   const [, setLoadingSessions]  = useState(false);
+  const [audienceSpeakers, setAudienceSpeakers] = useState<EventMember[]>([]);
 
   useEffect(() => {
     if (!eventConfig?.eventId) return;
@@ -68,9 +70,41 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
     return () => { cancelled = true; };
   }, [eventConfig?.eventId]);
 
+  // Pull the actual people in the event with the SPEAKER role so we can show
+  // them on the home page even if the agenda doesn't link to user profiles.
+  useEffect(() => {
+    // Reset on every event change so stale speakers from a previous event
+    // never linger and incorrectly suppress the agenda fallback.
+    setAudienceSpeakers([]);
+    if (!eventConfig?.eventId) return;
+    const targetEventId = eventConfig.eventId;
+    let cancelled = false;
+    getEventSpeakersApi(targetEventId, 24)
+      .then(res => {
+        // Guard against stale async races if the user switched events
+        // before this request resolved.
+        if (cancelled || targetEventId !== eventConfig.eventId) return;
+        if (res.success && res.data) setAudienceSpeakers(res.data);
+      })
+      .catch(() => { /* silent */ });
+    return () => { cancelled = true; };
+  }, [eventConfig?.eventId]);
+
   const nextSession = useMemo(() => pickNextSession(sessions), [sessions]);
 
+  // Prefer real audience speakers (richer profile data); fall back to speakers
+  // mentioned in agenda sessions for events whose audience isn't tagged yet.
   const featuredSpeakers: Speaker[] = useMemo(() => {
+    if (audienceSpeakers.length > 0) {
+      return audienceSpeakers.map(m => ({
+        id: String(m.userId),
+        name: m.name,
+        title: m.title ?? '',
+        company: m.company ?? '',
+        avatar: m.avatar ?? '',
+        bio: m.bio ?? '',
+      }));
+    }
     const seen = new Set<string>();
     const all: Speaker[] = [];
     sessions.forEach(s => {
@@ -82,7 +116,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
       });
     });
     return all.slice(0, 8);
-  }, [sessions]);
+  }, [audienceSpeakers, sessions]);
 
   if (!user) return null;
 

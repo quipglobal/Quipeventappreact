@@ -350,6 +350,50 @@ export async function getEventMembersApi(
 }
 
 /**
+ * GET /api/v1/events/:id/members?per_page=…  (paginated)
+ * Returns just the members whose role is "Speaker". Useful for the
+ * Speaker Spotlight on the home screen.
+ */
+export async function getEventSpeakersApi(
+  eventId: string | number,
+  limit: number = 20,
+): Promise<EventMembersResponse> {
+  const all: EventMember[] = [];
+  const PAGE_SIZE = 200;
+  const MAX_PAGES = 5; // up to 1,000 members scanned
+
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const res = await apiGet<unknown>(
+      `/api/v1/events/${eventId}/members?per_page=${PAGE_SIZE}&page=${page}&checked_in_only=false`,
+      HEADERS,
+    );
+    if (!res.success) {
+      return { success: false, error: res.error ?? { message: 'Failed to fetch speakers.' } };
+    }
+
+    const body = res.data as Record<string, unknown>;
+    const paginator = (body?.data ?? body) as Record<string, unknown>;
+    const list: unknown[] = Array.isArray(paginator?.data)
+      ? (paginator.data as unknown[])
+      : Array.isArray(body?.data)
+        ? (body.data as unknown[])
+        : [];
+
+    for (const raw of list) {
+      const m = raw as RawFlatMember;
+      if ((m.roles ?? []).some(r => String(r).toLowerCase() === 'speaker')) {
+        all.push(normalizeFlatMember(m, eventId));
+        if (all.length >= limit) break;
+      }
+    }
+
+    if (all.length >= limit || list.length < PAGE_SIZE) break;
+  }
+
+  return { success: true, data: all, total: all.length };
+}
+
+/**
  * GET /api/v1/events/:eventId/members/:memberId
  * Returns a single member's full profile (same flat v2 shape).
  */
