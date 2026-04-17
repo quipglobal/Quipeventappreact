@@ -14,36 +14,40 @@ const BACKEND =
 
 const backendUrl = new URL(BACKEND);
 
-app.use('/api', (req, res) => {
-  const target = `${BACKEND}${req.url === '/' ? '' : req.url}`;
-  const fullPath = backendUrl.pathname.replace(/\/$/, '') + '/api' + req.url;
-  const options = {
-    hostname: backendUrl.hostname,
-    port: backendUrl.port || (backendUrl.protocol === 'https:' ? 443 : 80),
-    path: fullPath,
-    method: req.method,
-    headers: {
-      ...req.headers,
-      host: backendUrl.hostname,
-    },
-  };
+function proxyTo(prefix) {
+  return (req, res) => {
+    const fullPath = backendUrl.pathname.replace(/\/$/, '') + prefix + req.url;
+    const options = {
+      hostname: backendUrl.hostname,
+      port: backendUrl.port || (backendUrl.protocol === 'https:' ? 443 : 80),
+      path: fullPath,
+      method: req.method,
+      headers: {
+        ...req.headers,
+        host: backendUrl.hostname,
+      },
+    };
 
-  const transport = backendUrl.protocol === 'https:' ? https : http;
-  const proxyReq = transport.request(options, (proxyRes) => {
-    res.status(proxyRes.statusCode || 200);
-    Object.entries(proxyRes.headers).forEach(([k, v]) => {
-      if (v !== undefined) res.setHeader(k, v);
+    const transport = backendUrl.protocol === 'https:' ? https : http;
+    const proxyReq = transport.request(options, (proxyRes) => {
+      res.status(proxyRes.statusCode || 200);
+      Object.entries(proxyRes.headers).forEach(([k, v]) => {
+        if (v !== undefined) res.setHeader(k, v);
+      });
+      proxyRes.pipe(res);
     });
-    proxyRes.pipe(res);
-  });
 
-  proxyReq.on('error', (err) => {
-    console.error('[proxy error]', err.message);
-    res.status(502).json({ success: false, error: { code: 'PROXY_ERROR', message: 'Backend unavailable.' } });
-  });
+    proxyReq.on('error', (err) => {
+      console.error('[proxy error]', err.message);
+      res.status(502).json({ success: false, error: { code: 'PROXY_ERROR', message: 'Backend unavailable.' } });
+    });
 
-  req.pipe(proxyReq);
-});
+    req.pipe(proxyReq);
+  };
+}
+
+app.use('/api',     proxyTo('/api'));
+app.use('/storage', proxyTo('/storage'));
 
 app.use(express.static(path.join(__dirname, 'dist')));
 

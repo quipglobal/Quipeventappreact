@@ -28,6 +28,13 @@ export default defineConfig({
         secure: true,
         rewrite: (p) => p,
       },
+      // Backend serves uploaded media (avatars, etc.) from /storage/...
+      '/storage': {
+        target: BACKEND,
+        changeOrigin: true,
+        secure: true,
+        rewrite: (p) => p,
+      },
     },
   },
 })

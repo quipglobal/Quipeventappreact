@@ -6,7 +6,7 @@ import {
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import {
-  getUserProfileApi, updateUserProfileApi,
+  getUserProfileApi, updateUserProfileApi, uploadAvatarApi,
   type UserProfile, type ProfileUpdatePayload, type SocialLinks,
 } from '@/app/api/userClient';
 import {
@@ -31,6 +31,7 @@ export const EditProfilePage: React.FC<EditProfilePageProps> = ({ onBack }) => {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [firstName, setFirstName] = useState('');
@@ -139,7 +140,7 @@ export const EditProfilePage: React.FC<EditProfilePageProps> = ({ onBack }) => {
     return companies.find(c => c.id === companyId)?.name ?? companyQuery;
   }, [companies, companyId, companyQuery]);
 
-  const handleFile = (file: File) => {
+  const handleFile = async (file: File) => {
     if (!file.type.startsWith('image/')) {
       setError('Please choose an image file.');
       return;
@@ -148,11 +149,17 @@ export const EditProfilePage: React.FC<EditProfilePageProps> = ({ onBack }) => {
       setError('Image must be smaller than 2 MB.');
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') setAvatarUrl(reader.result);
-    };
-    reader.readAsDataURL(file);
+
+    setError(null);
+    setUploadingAvatar(true);
+    const res = await uploadAvatarApi(file);
+    setUploadingAvatar(false);
+
+    if (!res.success || !res.data) {
+      setError(res.error?.message ?? 'Could not upload image.');
+      return;
+    }
+    setAvatarUrl(res.data.avatarUrl);
   };
 
   const toggleTopic = (id: number) => {
@@ -301,11 +308,14 @@ export const EditProfilePage: React.FC<EditProfilePageProps> = ({ onBack }) => {
               />
               <button
                 onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingAvatar}
                 aria-label="Change profile photo"
                 className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full flex items-center justify-center text-white"
-                style={{ background: '#7c3aed', border: `2px solid ${t.surface}` }}
+                style={{ background: '#7c3aed', border: `2px solid ${t.surface}`, opacity: uploadingAvatar ? 0.7 : 1 }}
               >
-                <Camera style={{ width: 14, height: 14 }} />
+                {uploadingAvatar
+                  ? <Loader2 className="animate-spin" style={{ width: 14, height: 14 }} />
+                  : <Camera style={{ width: 14, height: 14 }} />}
               </button>
               <input
                 ref={fileInputRef}
@@ -320,7 +330,9 @@ export const EditProfilePage: React.FC<EditProfilePageProps> = ({ onBack }) => {
             </div>
             <div className="flex-1 min-w-0">
               <p style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Profile Photo</p>
-              <p style={{ color: t.textMuted, fontSize: 12, marginBottom: 8 }}>JPG or PNG, up to 2 MB</p>
+              <p style={{ color: t.textMuted, fontSize: 12, marginBottom: 8 }}>
+                {uploadingAvatar ? 'Uploading…' : 'JPG or PNG, up to 2 MB'}
+              </p>
               <input
                 value={avatarUrl}
                 onChange={e => setAvatarUrl(e.target.value)}

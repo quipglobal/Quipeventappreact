@@ -7,7 +7,7 @@
  *   GET   /api/v1/events/:id/my-rank         → PointsResponse
  */
 
-import { apiGet, apiPost } from './client';
+import { apiGet, apiPost, API_BASE_URL, TOKEN_KEY } from './client';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -187,6 +187,60 @@ export async function updateUserProfileApi(payload: ProfileUpdatePayload): Promi
   }
   const raw = ((res.data as Record<string, unknown>)?.data ?? res.data) as Record<string, unknown>;
   return { success: true, data: normalizeProfile(raw) };
+}
+
+export interface AvatarUploadResponse {
+  success: boolean;
+  /** Absolute or root-relative URL the backend stored the image at. */
+  data?: { avatarUrl: string };
+  error?: { message: string };
+}
+
+/**
+ * POST /api/v1/me/profile/avatar  (multipart, field: avatar)
+ * Uploads an image file and returns the URL to use as `avatar_url`
+ * in subsequent profile updates.
+ */
+export async function uploadAvatarApi(file: File): Promise<AvatarUploadResponse> {
+  const form = new FormData();
+  form.append('avatar', file);
+
+  const token = localStorage.getItem(TOKEN_KEY);
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'X-Tenant-ID': '3',
+  };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}/api/v1/me/profile/avatar`, {
+      method: 'POST',
+      headers,
+      body: form,
+    });
+  } catch {
+    return { success: false, error: { message: 'Network error while uploading. Please try again.' } };
+  }
+
+  let body: Record<string, unknown> = {};
+  try { body = await res.json() as Record<string, unknown>; } catch { /* ignore */ }
+
+  if (!res.ok) {
+    const errors = body.errors as Record<string, string[]> | undefined;
+    const firstFieldError = errors ? Object.values(errors).flat()[0] : undefined;
+    return {
+      success: false,
+      error: { message: firstFieldError ?? (body.message as string) ?? 'Upload failed.' },
+    };
+  }
+
+  const data = (body.data ?? body) as Record<string, unknown>;
+  const avatarUrl = String(data.avatar_url ?? data.avatarUrl ?? '');
+  if (!avatarUrl) {
+    return { success: false, error: { message: 'Upload succeeded but no URL was returned.' } };
+  }
+  return { success: true, data: { avatarUrl } };
 }
 
 /**
