@@ -577,6 +577,16 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
   const [selectedMember, setSelectedMember] = useState<EventMember | null>(null);
   const [connectedIds, setConnectedIds] = useState<Set<number>>(new Set());
 
+  // The detail panel uses `absolute inset-0` relative to this page, so it
+  // anchors to the top of the (potentially long) attendee list. If the user
+  // taps a card after scrolling down, the detail header would render off
+  // screen above them. Scroll to top whenever a member is opened.
+  useEffect(() => {
+    if (selectedMember) {
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    }
+  }, [selectedMember]);
+
   const eventId = eventConfig?.eventId;
   const eventName = eventConfig?.name ?? 'This Event';
 
