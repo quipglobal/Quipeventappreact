@@ -4,7 +4,6 @@ import { motion } from 'motion/react';
 import { useTheme } from '@/app/context/ThemeContext';
 import { FeedPoll as FeedPollType } from '@/app/data/mockFeed';
 import { useApp } from '@/app/context/AppContext';
-import { submitPollVote } from '@/app/api/engageClient';
 
 interface FeedPollProps {
   poll: FeedPollType;
@@ -23,22 +22,15 @@ export const FeedPoll: React.FC<FeedPollProps> = ({ poll }) => {
     if (hasVoted || isSubmitting) return;
 
     setIsSubmitting(true);
-    const res = await submitPollVote(poll.id, optionId, liveOptions.map(o => ({ id: o.id, text: o.text, votes: o.votes })));
+    const updatedOptions = liveOptions.map(o =>
+      o.id === optionId ? { ...o, votes: o.votes + 1 } : o
+    );
+    setLiveOptions(updatedOptions);
+    setTotalVotes(totalVotes + 1);
+    setHasVoted(true);
+    setSelectedOptionId(optionId);
+    addPoints(10, 'Voted in a poll');
     setIsSubmitting(false);
-
-    if (res.success && res.data) {
-      const updatedOptions = liveOptions.map(o => {
-        const serverOption = res.data!.options.find(so => so.id === o.id);
-        return serverOption ? { ...o, votes: serverOption.votes } : o;
-      });
-      setLiveOptions(updatedOptions);
-      setTotalVotes(res.data.totalVotes);
-      setHasVoted(true);
-      setSelectedOptionId(optionId);
-      addPoints(10, 'Voted in a poll');
-    } else {
-      alert(res.error?.message ?? 'Failed to submit vote. Please try again.');
-    }
   };
 
   return (

@@ -1,19 +1,41 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Building2, FileText, BarChart3, Trophy, Sparkles, ArrowRight, Users } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
-import { mockSurveys, mockPolls, mockSponsors, mockChallenges } from '@/app/data/mockData';
+import { mockSponsors } from '@/app/data/mockData';
+import { listEventSurveysApi, listEventPollsApi, listEventChallengesApi } from '@/app/api/engageClient';
 
 interface EngagePageProps { onNavigate: (page: string) => void; }
 
 export const EngagePage: React.FC<EngagePageProps> = ({ onNavigate }) => {
   const { completedSurveys, votedPolls, metSponsors, completedChallenges, eventConfig, gamificationConfig } = useApp();
   const { t } = useTheme();
+  const eventId = eventConfig?.eventId;
 
-  const newSurveysCount  = mockSurveys.filter(s => !completedSurveys.includes(s.id)).length;
-  const livePollsCount   = mockPolls.filter(p => p.isLive && !votedPolls.includes(p.id)).length;
+  const [surveyIds, setSurveyIds] = useState<string[]>([]);
+  const [livePollIds, setLivePollIds] = useState<string[]>([]);
+  const [activeChallengeIds, setActiveChallengeIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!eventId) return;
+    let stale = false;
+    Promise.all([
+      listEventSurveysApi(eventId),
+      listEventPollsApi(eventId),
+      listEventChallengesApi(eventId),
+    ]).then(([sRes, pRes, cRes]) => {
+      if (stale) return;
+      if (sRes.success && sRes.data) setSurveyIds(sRes.data.filter(s => s.status === 'PUBLISHED' || s.status === 'OPEN').map(s => String(s.id)));
+      if (pRes.success && pRes.data) setLivePollIds(pRes.data.filter(p => p.status === 'LIVE').map(p => String(p.id)));
+      if (cRes.success && cRes.data) setActiveChallengeIds(cRes.data.filter(c => c.is_active).map(c => String(c.id)));
+    });
+    return () => { stale = true; };
+  }, [eventId]);
+
+  const newSurveysCount   = surveyIds.filter(id => !completedSurveys.includes(id)).length;
+  const livePollsCount    = livePollIds.filter(id => !votedPolls.includes(id)).length;
   const availableSponsors = mockSponsors.filter(s => !metSponsors.includes(s.id)).length;
-  const activeChallenges = mockChallenges.filter(c => !completedChallenges.includes(c.id)).length;
+  const activeChallenges  = activeChallengeIds.filter(id => !completedChallenges.includes(id)).length;
 
   const modules = [
     { id: 'sponsors',   title: 'Sponsors & Companies', desc: 'Connect with sponsors at their booths',    icon: Building2, grad: 'linear-gradient(135deg,#f97316,#ef4444)', pts: `+${gamificationConfig.pointActions.sponsorCheckIn} per check-in`, badge: availableSponsors > 0 ? `${availableSponsors} available` : null, badgeColor: '#f97316', enabled: eventConfig.modulesEnabled.sponsors },
