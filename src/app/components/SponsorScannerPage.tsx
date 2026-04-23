@@ -6,7 +6,7 @@ import {
 import { useTheme } from '@/app/context/ThemeContext';
 import { useApp } from '@/app/context/AppContext';
 import { motion, AnimatePresence } from 'motion/react';
-import { scanBadgeLead } from '@/app/api/leadsClient';
+import { scanBadgeLead, updateLeadApi } from '@/app/api/leadsClient';
 import { findMemberByBadgeCodeApi, checkInMemberApi, type EventMember } from '@/app/api/audienceClient';
 import { CameraScanner } from './CameraScanner';
 
@@ -30,6 +30,8 @@ interface ScannedAttendee {
   avatar: string;
   memberId?: number;
   isCheckedIn?: boolean;
+  /** Lead id created by the backend at scan time, if any. */
+  leadId?: string;
 }
 
 const avatarFor = (name: string, palette = '6b7280') =>
@@ -49,7 +51,7 @@ function attendeeFromMember(m: EventMember): ScannedAttendee {
 
 export const SponsorScannerPage: React.FC = () => {
   const { t, isDark } = useTheme();
-  const { saveLead, leads, eventConfig, addPoints, gamificationConfig, showToast } = useApp();
+  const { saveLead, updateLead, leads, eventConfig, addPoints, gamificationConfig, showToast } = useApp();
 
   const [mode, setMode] = useState<'scan' | 'manual'>('scan');
   const [manualCode, setManualCode] = useState('');
@@ -71,14 +73,73 @@ export const SponsorScannerPage: React.FC = () => {
 
     setResolving(true);
     try {
-      // Try server-side resolution via the audience members list
-      const member = await findMemberByBadgeCodeApi(eventId, trimmed);
+      // 1. Backend-first resolution. The scan endpoint resolves the attendee
+      //    profile, may auto check-in the attendee, and returns the lead row
+      //    that the backend created for this scan.
+      const scan = await scanBadgeLead(eventId, { code: trimmed });
 
+      if (scan.success && scan.data) {
+        const d = scan.data;
+        const attendee: ScannedAttendee = {
+          code: d.code || trimmed,
+          name: d.name || 'Unknown Attendee',
+          title: d.title || '',
+          company: d.company || '',
+          avatar: d.avatar || avatarFor(d.name || trimmed, '6366f1'),
+          memberId: d.memberId,
+          leadId: d.id,
+          isCheckedIn: d.checkedIn === true ? true : undefined,
+        };
+
+        // Auto check-in BEFORE save: prefer server flag, otherwise call the
+        // explicit member check-in endpoint when we have a memberId.
+        let checkedIn = d.checkedIn === true;
+        if (!checkedIn && typeof d.memberId === 'number') {
+          const ok = await checkInMemberApi(eventId, d.memberId);
+          if (ok) checkedIn = true;
+        }
+        if (checkedIn) {
+          setAutoCheckedIn(true);
+          attendee.isCheckedIn = true;
+          showToast(`Auto checked-in ${attendee.name}`);
+        }
+        setScannedData(attendee);
+
+        // Award scan points immediately (the backend already created the lead).
+        const pts =
+          typeof d.pointsAwarded === 'number'
+            ? d.pointsAwarded
+            : (gamificationConfig?.pointActions as Record<string, number> | undefined)?.scanBadge
+              ?? 25;
+        if (pts > 0) {
+          addPoints(pts, `Scanned ${attendee.name}'s badge`);
+        }
+
+        // Mirror the new lead into local state so My Leads shows it even if
+        // the user navigates away before pressing Save.
+        if (d.id) {
+          saveLead({
+            id: d.id,
+            code: d.code,
+            name: d.name,
+            company: d.company,
+            title: d.title,
+            notes: d.notes ?? '',
+            avatar: d.avatar,
+            tags: d.tags ?? [],
+            priority: d.priority ?? 'warm',
+          });
+        }
+        return;
+      }
+
+      // 2. Backend could not resolve the code — fall back to the audience
+      //    members list and (if found) call the check-in endpoint directly.
+      const member = await findMemberByBadgeCodeApi(eventId, trimmed);
       if (member) {
         const attendee = attendeeFromMember(member);
         setScannedData(attendee);
 
-        // Auto check-in if needed
         if (member.memberId && !member.isCheckedIn) {
           const ok = await checkInMemberApi(eventId, member.memberId);
           if (ok) {
@@ -87,7 +148,8 @@ export const SponsorScannerPage: React.FC = () => {
           }
         }
       } else {
-        // Unknown code — keep flow alive so a sponsor can still capture notes
+        // 3. Truly unknown code — keep the form alive so a sponsor can still
+        //    capture notes; lead will be created on Save.
         setScannedData({
           code: trimmed,
           name: 'Unknown Attendee',
@@ -111,6 +173,26 @@ export const SponsorScannerPage: React.FC = () => {
     if (!scannedData) return;
     setIsSaving(true);
 
+    // Path A: backend already created the lead at scan time. Just update
+    // notes/tags/priority on Save — no second scan call, no double points.
+    if (scannedData.leadId) {
+      const upd = await updateLeadApi(eventId, scannedData.leadId, {
+        notes,
+        tags: selectedTags,
+        priority,
+      });
+      setIsSaving(false);
+      if (upd.success) {
+        updateLead(scannedData.leadId, { notes, tags: selectedTags, priority });
+        resetScanner();
+      } else {
+        alert(upd.error?.message ?? 'Failed to update lead. Please try again.');
+      }
+      return;
+    }
+
+    // Path B: scan endpoint failed earlier (unknown code or backend down).
+    // Submit the full payload now to create the lead and award points.
     const res = await scanBadgeLead(eventId, {
       code: scannedData.code,
       name: scannedData.name,
@@ -137,10 +219,7 @@ export const SponsorScannerPage: React.FC = () => {
         priority: res.data.priority,
       });
 
-      // Auto check-in reconciliation:
-      //   - server already checked-in   → just toast (if we hadn't already)
-      //   - server returned memberId but did NOT check-in, and we didn't either
-      //     → call client-side fallback so the attendee shows as Active
+      // Auto check-in reconciliation for the fallback path
       if (!autoCheckedIn) {
         if (res.data.checkedIn) {
           showToast(`Auto checked-in ${res.data.name}`);
