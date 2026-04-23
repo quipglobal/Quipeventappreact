@@ -58,7 +58,7 @@ GET /api/v1/events/:eventId/members?badge_code=:badge_code
 
 ---
 
-### 2. Save a Scanned Lead
+### 2. Save a Scanned Lead (resolves attendee + auto check-in)
 
 ```
 POST /api/v1/events/:eventId/leads/scan
@@ -80,6 +80,12 @@ POST /api/v1/events/:eventId/leads/scan
 }
 ```
 
+> **Only `code` is required.** All other fields are optional client-supplied
+> hints (used as fallbacks if the badge code can't be resolved server-side).
+> When the badge code resolves to a known event member, the backend MUST
+> overwrite `name`/`title`/`company`/`avatar` with the canonical profile from
+> `event_members` so the lead form pre-fills the authoritative values.
+
 **Success response (201):**
 ```json
 {
@@ -94,16 +100,84 @@ POST /api/v1/events/:eventId/leads/scan
     "tags": ["Decision Maker", "Follow Up"],
     "priority": "hot",
     "avatar": "https://...",
-    "timestamp": "2026-04-16T10:30:00Z"
+    "timestamp": "2026-04-16T10:30:00Z",
+
+    "pointsAwarded": 10,
+    "checkedIn": true,
+    "isCheckedIn": true,
+    "memberId": 107
   }
 }
 ```
 
+**Required behavior (single round-trip — the client no longer falls back to
+member lookup + a separate check-in call when this works):**
+
+1. **Resolve attendee from `code`.** Look up `event_members` for this
+   `event_id` where `badge_code = :code`. If a row is found, use its
+   canonical `name`, `title`, `company` (object or `company_name`), and
+   `avatar_url` for the lead — ignore any conflicting client-supplied
+   fields. Include the resolved `memberId` (= `membership_id`) in the
+   response.
+2. **Auto check-in.** If the resolved member is not currently checked-in
+   (status != `ACTIVE` or `joined_at` is null), set
+   `status = 'ACTIVE'` and `joined_at = now()` as part of the same
+   request. Return `checkedIn: true` when this scan is what flipped them,
+   and `isCheckedIn: true` whenever the member is checked-in after the
+   call (covers both "we just did it" and "they were already in").
+   Already-checked-in attendees: `checkedIn: false`, `isCheckedIn: true`.
+3. **Award points.** Look up the event's gamification config for the
+   `lead_scan` activity and credit those points to the **scanning** user
+   (`auth()->id()`). Echo the points granted as `pointsAwarded` (number,
+   `0` if no config / already at daily cap). This must be idempotent per
+   `(event_id, scanned_by, badge_code)` — re-scanning the same person
+   updates the existing lead row and returns `pointsAwarded: 0`.
+4. **If the code does NOT resolve** to any event member, still create
+   the lead row using the client-supplied fields (so manual entry / QR
+   payloads from other events still work), and return
+   `memberId: null`, `checkedIn: false`, `isCheckedIn: false`.
+
 **Notes:**
 - The scanner belongs to the **authenticated user** — store `scanned_by: auth()->id()`.
-- The `code` field is the scanned badge code. Optionally cross-reference to `event_members.badge_code`.
+- The `code` field is the scanned badge code; resolution against
+  `event_members.badge_code` is now **required**, not optional.
 - `priority` is one of: `hot`, `warm`, `cold`.
 - `tags` is a JSON array of strings.
+
+---
+
+### 2b. Manual / Idempotent Check-In (client fallback)
+
+```
+POST /api/v1/events/:eventId/members/:memberId/check-in
+```
+
+**Headers:** `Authorization: Bearer <token>`, `X-Tenant-ID: 3`
+
+**Request body:** empty (`{}`)
+
+**Success response (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "membership_id": 107,
+    "status": "ACTIVE",
+    "joined_at": "2026-04-23T10:30:00Z"
+  }
+}
+```
+
+**Behavior:**
+- Idempotent. If the member is already `ACTIVE` (and `joined_at` set),
+  return `success: true` with the existing values — do NOT 4xx.
+- Sets `status = 'ACTIVE'` and `joined_at = now()` if not yet checked-in.
+- Used by the web/mobile client as a fallback when the scan endpoint
+  could not resolve the badge code itself but a subsequent member lookup
+  succeeded. Must be safe to call repeatedly.
+- Permissions: any authenticated event member can call this (the action
+  is performed by a sponsor/staff scanning a badge — it does not require
+  audience-list permissions).
 
 ---
 
