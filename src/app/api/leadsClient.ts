@@ -65,7 +65,16 @@ export interface SaveLeadPayload {
 
 export interface SaveLeadResponse {
   success: boolean;
-  data?: Lead & { pointsAwarded?: number; checkedIn?: boolean; memberId?: number };
+  data?: Lead & {
+    pointsAwarded?: number;
+    /** True iff the backend just auto-checked-in the attendee on this scan. */
+    checkedIn?: boolean;
+    /** True iff the attendee is currently checked-in to the event (regardless
+     *  of whether this scan is what flipped them). Used by the client to
+     *  decide whether to call the explicit check-in fallback. */
+    isCheckedIn?: boolean;
+    memberId?: number;
+  };
   error?: { code?: string; message: string };
 }
 
@@ -161,6 +170,8 @@ export async function scanBadgeLead(
     points_awarded?: number;
     checkedIn?: boolean;
     checked_in?: boolean;
+    isCheckedIn?: boolean;
+    is_checked_in?: boolean;
     memberId?: number;
     member_id?: number;
   }>(
@@ -177,6 +188,8 @@ export async function scanBadgeLead(
     points_awarded?: number;
     checkedIn?: boolean;
     checked_in?: boolean;
+    isCheckedIn?: boolean;
+    is_checked_in?: boolean;
     memberId?: number;
     member_id?: number;
   };
@@ -189,11 +202,19 @@ export async function scanBadgeLead(
     typeof raw.checkedIn === 'boolean' ? raw.checkedIn :
     typeof raw.checked_in === 'boolean' ? raw.checked_in :
     undefined;
+  // `isCheckedIn` reflects current state; `checkedIn` reflects "we just did it
+  // on this scan". If the server says it just checked them in, that also
+  // implies they're now checked-in.
+  const isCheckedIn =
+    typeof raw.isCheckedIn === 'boolean' ? raw.isCheckedIn :
+    typeof raw.is_checked_in === 'boolean' ? raw.is_checked_in :
+    checkedIn === true ? true :
+    undefined;
   const memberId =
     typeof raw.memberId === 'number' ? raw.memberId :
     typeof raw.member_id === 'number' ? raw.member_id :
     undefined;
-  return { success: true, data: { ...lead, pointsAwarded, checkedIn, memberId } };
+  return { success: true, data: { ...lead, pointsAwarded, checkedIn, isCheckedIn, memberId } };
 }
 
 /**

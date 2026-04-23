@@ -121,7 +121,7 @@ interface AppContextType extends AppState {
   setMetSponsors: (sponsors: string[]) => void;
   toggleBookmark: (sessionId: string) => void;
   completeChallenge: (challengeId: string, skipPoints?: boolean) => void;
-  saveLead: (lead: Omit<Lead, 'id' | 'timestamp'> & { id?: string }) => void;
+  saveLead: (lead: Omit<Lead, 'id' | 'timestamp'> & { id?: string }, options?: { silent?: boolean }) => void;
   updateLead: (id: string, updates: Partial<Pick<Lead, 'notes' | 'tags' | 'priority'>>) => void;
   showToast: (message: string, points?: number) => void;
   updateTier: () => void;
@@ -359,15 +359,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const saveLead = (leadData: Omit<Lead, 'id' | 'timestamp'> & { id?: string }) => {
+  const saveLead = (
+    leadData: Omit<Lead, 'id' | 'timestamp'> & { id?: string },
+    options?: { silent?: boolean },
+  ) => {
     const { id: providedId, ...rest } = leadData;
     const newLead: Lead = {
       ...rest,
       id: providedId ?? Date.now().toString(),
       timestamp: new Date(),
     };
-    setLeads(prev => [newLead, ...prev]);
-    showToast('Lead saved successfully');
+    setLeads(prev => {
+      // De-dupe by id so a backend-created lead mirrored at scan time doesn't
+      // appear twice when the user later saves notes for it.
+      const existing = prev.findIndex(l => l.id === newLead.id);
+      if (existing !== -1) {
+        const next = [...prev];
+        next[existing] = { ...prev[existing], ...newLead };
+        return next;
+      }
+      return [newLead, ...prev];
+    });
+    if (!options?.silent) {
+      showToast('Lead saved successfully');
+    }
   };
 
   const updateLead = (id: string, updates: Partial<Pick<Lead, 'notes' | 'tags' | 'priority'>>) => {

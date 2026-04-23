@@ -91,17 +91,24 @@ export const SponsorScannerPage: React.FC = () => {
           isCheckedIn: d.checkedIn === true ? true : undefined,
         };
 
-        // Auto check-in BEFORE save: prefer server flag, otherwise call the
-        // explicit member check-in endpoint when we have a memberId.
-        let checkedIn = d.checkedIn === true;
-        if (!checkedIn && typeof d.memberId === 'number') {
+        // Auto check-in BEFORE save:
+        //   - server already flipped them on this scan (`checkedIn === true`)
+        //     → just surface the toast/badge.
+        //   - attendee is currently NOT checked-in (`isCheckedIn === false`)
+        //     and we have a memberId → call the explicit check-in fallback.
+        //   - `isCheckedIn === true` → do nothing; they're already Active.
+        let didCheckIn = d.checkedIn === true;
+        const alreadyCheckedIn = d.isCheckedIn === true;
+        if (!didCheckIn && !alreadyCheckedIn && typeof d.memberId === 'number') {
           const ok = await checkInMemberApi(eventId, d.memberId);
-          if (ok) checkedIn = true;
+          if (ok) didCheckIn = true;
         }
-        if (checkedIn) {
+        if (didCheckIn) {
           setAutoCheckedIn(true);
           attendee.isCheckedIn = true;
           showToast(`Auto checked-in ${attendee.name}`);
+        } else if (alreadyCheckedIn) {
+          attendee.isCheckedIn = true;
         }
         setScannedData(attendee);
 
@@ -116,7 +123,9 @@ export const SponsorScannerPage: React.FC = () => {
         }
 
         // Mirror the new lead into local state so My Leads shows it even if
-        // the user navigates away before pressing Save.
+        // the user navigates away before pressing Save. Silent so we don't
+        // pop a "Lead saved" toast before the user has actually saved
+        // their notes — they get that toast when they press Save.
         if (d.id) {
           saveLead({
             id: d.id,
@@ -128,7 +137,7 @@ export const SponsorScannerPage: React.FC = () => {
             avatar: d.avatar,
             tags: d.tags ?? [],
             priority: d.priority ?? 'warm',
-          });
+          }, { silent: true });
         }
         return;
       }
