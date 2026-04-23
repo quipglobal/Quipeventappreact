@@ -18,9 +18,10 @@
  * isCheckedIn is inferred: joined_at != null OR status === 'ACTIVE'.
  */
 
-import { apiGet } from './client';
+import { apiGet, apiPost } from './client';
 
-const HEADERS: Record<string, string> = { 'X-Tenant-ID': '3' };
+const TENANT_ID = (import.meta.env.VITE_TENANT_ID ?? '3') as string;
+const HEADERS: Record<string, string> = { 'X-Tenant-ID': TENANT_ID };
 
 // ─── Raw API shape (v2 flat) ──────────────────────────────────────────────────
 
@@ -411,6 +412,78 @@ export async function getMemberDetailApi(
   const detail = normalizeFlatMemberDetail(raw, eventId);
 
   return { success: true, data: detail };
+}
+
+// ─── Badge code lookup + check-in ─────────────────────────────────────────────
+
+/**
+ * GET /api/v1/events/:eventId/members?badge_code=...
+ *
+ * Convenience client-side fallback: scans the audience pages and returns the
+ * first member whose `badgeCode` matches. Used when the scan endpoint cannot
+ * resolve a code so the lead form can still pre-fill the attendee profile.
+ */
+export async function findMemberByBadgeCodeApi(
+  eventId: string | number,
+  badgeCode: string,
+): Promise<EventMember | null> {
+  const target = badgeCode.trim().toLowerCase();
+  if (!target) return null;
+  const PAGE_SIZE = 200;
+  const MAX_PAGES = 10;
+
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const res = await apiGet<unknown>(
+      `/api/v1/events/${eventId}/members?per_page=${PAGE_SIZE}&page=${page}&checked_in_only=false`,
+      HEADERS,
+    );
+    if (!res.success) return null;
+
+    const body = res.data as Record<string, unknown>;
+    const paginator = (body?.data ?? body) as Record<string, unknown>;
+    const list: unknown[] = Array.isArray(paginator?.data)
+      ? (paginator.data as unknown[])
+      : Array.isArray(body?.data)
+        ? (body.data as unknown[])
+        : [];
+
+    const hit = list.find(
+      m => ((m as RawFlatMember).badge_code ?? '').toLowerCase() === target,
+    ) as RawFlatMember | undefined;
+
+    if (hit) return normalizeFlatMember(hit, eventId);
+    if (list.length < PAGE_SIZE) return null;
+  }
+  return null;
+}
+
+/**
+ * POST /api/v1/events/:eventId/members/:memberId/check-in
+ *
+ * Marks an attendee as checked-in to an event. Used by the badge scanner to
+ * auto check-in attendees when they're scanned but haven't joined yet.
+ *
+ * Backend contract (to implement if not present):
+ *   Request:  empty body
+ *   Response: { success: true, data: { membership_id, status: 'ACTIVE', joined_at } }
+ *
+ * Returns true on success, false on any error (caller treats failure as a no-op
+ * so the lead save still proceeds).
+ */
+export async function checkInMemberApi(
+  eventId: string | number,
+  memberId: number,
+): Promise<boolean> {
+  try {
+    const res = await apiPost<unknown>(
+      `/api/v1/events/${eventId}/members/${memberId}/check-in`,
+      {},
+      HEADERS,
+    );
+    return !!res.success;
+  } catch {
+    return false;
+  }
 }
 
 // ─── Me Profile (rich self-profile) ───────────────────────────────────────────

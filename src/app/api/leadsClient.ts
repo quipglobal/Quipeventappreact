@@ -13,8 +13,19 @@
  *
  * API CONTRACT (real backend):
  *   POST /api/v1/events/:eventId/leads/scan
- *     Body:    { code, name, company, title, notes, tags, priority, avatar }
- *     Returns: { success: true, data: Lead & { pointsAwarded?: number } }
+ *     Body:    { code, name?, company?, title?, notes?, tags?, priority?, avatar? }
+ *              `code` is the only required field (decoded from the badge QR);
+ *              the backend resolves the attendee profile from the code and
+ *              returns the canonical name/company/title/avatar.
+ *     Returns: { success: true, data: Lead & {
+ *                 pointsAwarded?: number,
+ *                 checkedIn?: boolean,    // true iff the backend just auto
+ *                                         //   checked-in this attendee as part
+ *                                         //   of the scan
+ *                 memberId?: number,      // resolved event member id (used by
+ *                                         //   the client to fall back to a
+ *                                         //   manual check-in call if needed)
+ *               } }
  *
  *   GET  /api/v1/events/:eventId/leads                  → { success, data: Lead[] }
  *   PUT  /api/v1/events/:eventId/leads/:id
@@ -43,18 +54,18 @@ const delay = (ms = 0) => new Promise<void>(r => setTimeout(r, ms));
 
 export interface SaveLeadPayload {
   code: string;
-  name: string;
-  company: string;
-  title: string;
-  notes: string;
-  tags: string[];
-  priority: 'hot' | 'warm' | 'cold';
+  name?: string;
+  company?: string;
+  title?: string;
+  notes?: string;
+  tags?: string[];
+  priority?: 'hot' | 'warm' | 'cold';
   avatar?: string;
 }
 
 export interface SaveLeadResponse {
   success: boolean;
-  data?: Lead & { pointsAwarded?: number };
+  data?: Lead & { pointsAwarded?: number; checkedIn?: boolean; memberId?: number };
   error?: { code?: string; message: string };
 }
 
@@ -130,15 +141,29 @@ export async function scanBadgeLead(
   if (USE_MOCK) {
     await delay(800);
     const newLead: Lead = {
-      ...payload,
       id: `lead-${Date.now()}`,
+      code: payload.code,
+      name: payload.name ?? 'Unknown Attendee',
+      company: payload.company ?? '',
+      title: payload.title ?? '',
+      notes: payload.notes ?? '',
+      tags: payload.tags ?? [],
+      priority: payload.priority ?? 'warm',
+      avatar: payload.avatar,
       timestamp: new Date(),
     };
     mockLeads.unshift(newLead);
     return { success: true, data: newLead };
   }
 
-  const res = await apiPost<Lead & { pointsAwarded?: number; points_awarded?: number }>(
+  const res = await apiPost<Lead & {
+    pointsAwarded?: number;
+    points_awarded?: number;
+    checkedIn?: boolean;
+    checked_in?: boolean;
+    memberId?: number;
+    member_id?: number;
+  }>(
     `/api/v1/events/${eventId}/leads/scan`,
     payload,
     HEADERS,
@@ -146,13 +171,29 @@ export async function scanBadgeLead(
   if (!res.success || !res.data) {
     return { success: false, error: res.error ?? { code: 'SCAN_FAILED', message: 'Failed to save scanned lead.' } };
   }
-  const raw = res.data as Lead & { timestamp: Date | string; pointsAwarded?: number; points_awarded?: number };
+  const raw = res.data as Lead & {
+    timestamp: Date | string;
+    pointsAwarded?: number;
+    points_awarded?: number;
+    checkedIn?: boolean;
+    checked_in?: boolean;
+    memberId?: number;
+    member_id?: number;
+  };
   const lead = normalizeLead(raw);
   const pointsAwarded =
     typeof raw.pointsAwarded === 'number' ? raw.pointsAwarded :
     typeof raw.points_awarded === 'number' ? raw.points_awarded :
     undefined;
-  return { success: true, data: { ...lead, pointsAwarded } };
+  const checkedIn =
+    typeof raw.checkedIn === 'boolean' ? raw.checkedIn :
+    typeof raw.checked_in === 'boolean' ? raw.checked_in :
+    undefined;
+  const memberId =
+    typeof raw.memberId === 'number' ? raw.memberId :
+    typeof raw.member_id === 'number' ? raw.member_id :
+    undefined;
+  return { success: true, data: { ...lead, pointsAwarded, checkedIn, memberId } };
 }
 
 /**
