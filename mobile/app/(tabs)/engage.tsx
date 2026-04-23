@@ -15,8 +15,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
 import { useChallenges, useCompleteChallenge, usePolls, useVotePoll, useSurveys, useSubmitSurvey, useGiveaways, useEnterGiveaway } from '@/hooks/useEngage';
 import { useLeaderboard } from '@/hooks/useAudience';
-import { useLeads, useLuckyDraw } from '@/hooks/useLeads';
+import { useLeads, useLuckyDraw, useSubmitScan } from '@/hooks/useLeads';
 import { DataState } from '@/components/DataState';
+import { BadgeCameraScanner } from '@/components/BadgeCameraScanner';
 import { colors, spacing, radius } from '@/constants/theme';
 import type { LeaderboardEntry } from '@/lib/api/types';
 
@@ -84,6 +85,34 @@ function LeadsView({ leads, onBack }: { leads: Array<{ id: string; name: string;
 
 function ScannerView({ onBack, onScanSuccess }: { onBack: () => void; onScanSuccess: () => void }) {
   const insets = useSafeAreaInsets();
+  const { addPoints, showToast } = useAuth();
+  const { mutateAsync: submitScanAsync, isPending } = useSubmitScan();
+  const inFlightRef = React.useRef(false);
+
+  const handleCodeDetected = async (code: string) => {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    try {
+      const res = await submitScanAsync({ badgeData: code });
+      if (res.success && res.data) {
+        // Mirror the web app: scan = lookup + auto check-in + points award.
+        addPoints(25, `Scanned ${res.data.name || 'attendee'}'s badge`);
+        onScanSuccess();
+      } else {
+        const msg = res.error?.message || 'We couldn\u2019t recognize that badge. Please try again.';
+        showToast(msg);
+        // Allow another scan attempt after a brief moment.
+        setTimeout(() => { inFlightRef.current = false; }, 800);
+        return;
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Scan failed. Please try again.';
+      showToast(msg);
+      setTimeout(() => { inFlightRef.current = false; }, 800);
+      return;
+    }
+    inFlightRef.current = false;
+  };
 
   return (
     <View style={styles.container}>
@@ -96,17 +125,8 @@ function ScannerView({ onBack, onScanSuccess }: { onBack: () => void; onScanSucc
         <Text style={styles.scannerSubtitle}>Point camera at attendee QR code</Text>
 
         <View style={styles.scannerFrame}>
-          <LinearGradient colors={['#1a0d2e', '#0d1a2e']} style={styles.scannerBg}>
-            <View style={styles.qrCorners}>
-              <View style={[styles.corner, styles.cornerTL]} />
-              <View style={[styles.corner, styles.cornerTR]} />
-              <View style={[styles.corner, styles.cornerBL]} />
-              <View style={[styles.corner, styles.cornerBR]} />
-            </View>
-            <Text style={styles.scanHintText}>Align QR code here</Text>
-          </LinearGradient>
+          <BadgeCameraScanner onCodeDetected={handleCodeDetected} busy={isPending} />
         </View>
-
       </View>
     </View>
   );
