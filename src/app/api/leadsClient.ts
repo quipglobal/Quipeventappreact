@@ -1,12 +1,32 @@
 /**
- * Leads (Badge Scan) API Client — Universal, available to all roles
+ * Leads (Badge Scan) API Client — Universal, available to ALL roles
  * ─────────────────────────────────────────────────────────────────────────────
+ * Any audience member can scan another attendee's badge. Each successful scan:
+ *   1. Creates a Lead row owned by the scanning user (visible only to them in
+ *      "My Leads"), including any conversation notes captured at scan time.
+ *   2. Awards the scanning user the points configured for the
+ *      `lead_scan` activity in the event's Gamification config (returned in the
+ *      response as `pointsAwarded`).
+ *   3. Surfaces the scanned-user → scanner relationship to the backend so the
+ *      organizer/admin can report on who scanned whom (the Lead row IS that
+ *      record — the backend can aggregate by scannerUserId / scannedUserCode).
+ *
  * API CONTRACT (real backend):
- *   POST /api/v1/events/:eventId/leads/scan  → { code, name, company, title, notes, tags, priority, avatar }
- *                                            → { success, data: Lead }
- *   GET  /api/v1/events/:eventId/leads                                        → { success, data: Lead[] }
- *   PUT  /api/v1/events/:eventId/leads/:id  → { notes, tags, priority }      → { success, data: Lead }
- *   POST /api/v1/events/:eventId/leads/draw → { giveawayId?, excludeIds? }   → { success, data: DrawWinner }
+ *   POST /api/v1/events/:eventId/leads/scan
+ *     Body:    { code, name, company, title, notes, tags, priority, avatar }
+ *     Returns: { success: true, data: Lead & { pointsAwarded?: number } }
+ *
+ *   GET  /api/v1/events/:eventId/leads                  → { success, data: Lead[] }
+ *   PUT  /api/v1/events/:eventId/leads/:id
+ *     Body:    { notes?, tags?, priority? }
+ *     Returns: { success, data: Lead }
+ *
+ *   POST /api/v1/events/:eventId/leads/draw
+ *     Body:    { giveawayId?, excludeIds? }
+ *     Returns: { success, data: DrawWinner }
+ *
+ * Headers: X-Tenant-ID (from VITE_TENANT_ID, default '1') + Bearer token
+ *          (handled by client.ts).
  *
  * Set VITE_USE_MOCK_API=true in .env to run without a live backend.
  */
@@ -15,7 +35,8 @@ import { apiGet, apiPost, apiPut } from './client';
 import type { Lead } from '@/app/context/AppContext';
 
 const USE_MOCK = false;
-const HEADERS: Record<string, string> = { 'X-Tenant-ID': '3' };
+const TENANT_ID = (import.meta.env.VITE_TENANT_ID ?? '1') as string;
+const HEADERS: Record<string, string> = { 'X-Tenant-ID': TENANT_ID };
 const delay = (ms = 0) => new Promise<void>(r => setTimeout(r, ms));
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -33,7 +54,7 @@ export interface SaveLeadPayload {
 
 export interface SaveLeadResponse {
   success: boolean;
-  data?: Lead;
+  data?: Lead & { pointsAwarded?: number };
   error?: { code?: string; message: string };
 }
 
@@ -117,7 +138,7 @@ export async function scanBadgeLead(
     return { success: true, data: newLead };
   }
 
-  const res = await apiPost<Lead>(
+  const res = await apiPost<Lead & { pointsAwarded?: number; points_awarded?: number }>(
     `/api/v1/events/${eventId}/leads/scan`,
     payload,
     HEADERS,
@@ -125,7 +146,13 @@ export async function scanBadgeLead(
   if (!res.success || !res.data) {
     return { success: false, error: res.error ?? { code: 'SCAN_FAILED', message: 'Failed to save scanned lead.' } };
   }
-  return { success: true, data: normalizeLead(res.data as Lead & { timestamp: Date | string }) };
+  const raw = res.data as Lead & { timestamp: Date | string; pointsAwarded?: number; points_awarded?: number };
+  const lead = normalizeLead(raw);
+  const pointsAwarded =
+    typeof raw.pointsAwarded === 'number' ? raw.pointsAwarded :
+    typeof raw.points_awarded === 'number' ? raw.points_awarded :
+    undefined;
+  return { success: true, data: { ...lead, pointsAwarded } };
 }
 
 /**

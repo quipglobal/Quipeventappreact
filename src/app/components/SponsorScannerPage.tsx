@@ -37,7 +37,7 @@ const priorityConfig: Record<Priority, { label: string; icon: React.ElementType;
 
 export const SponsorScannerPage: React.FC = () => {
   const { t, isDark } = useTheme();
-  const { saveLead, leads, eventConfig } = useApp();
+  const { saveLead, leads, eventConfig, addPoints, gamificationConfig } = useApp();
 
   const [mode, setMode] = useState<'scan' | 'manual'>('scan');
   const [manualCode, setManualCode] = useState('');
@@ -116,6 +116,17 @@ export const SponsorScannerPage: React.FC = () => {
         tags: res.data.tags,
         priority: res.data.priority,
       });
+
+      // Credit points: prefer server-returned value; fall back to local config.
+      const pts =
+        typeof res.data.pointsAwarded === 'number'
+          ? res.data.pointsAwarded
+          : (gamificationConfig?.pointActions as Record<string, number> | undefined)?.scanBadge
+            ?? 25;
+      if (pts > 0) {
+        addPoints(pts, `Scanned ${res.data.name}'s badge`);
+      }
+
       resetScanner();
     } else {
       alert(res.error?.message ?? 'Failed to save lead. Please try again.');
@@ -143,9 +154,9 @@ export const SponsorScannerPage: React.FC = () => {
       <div className="sticky top-0 z-30 px-5 py-3.5 backdrop-blur-md border-b flex items-center justify-between"
         style={{ background: isDark ? 'rgba(7,7,15,0.85)' : 'rgba(255,255,255,0.9)', borderColor: t.border }}>
         <div>
-          <h1 style={{ color: t.text, fontSize: 18, fontWeight: 800 }}>Lead Retrieval</h1>
+          <h1 style={{ color: t.text, fontSize: 18, fontWeight: 800 }}>Scan Badge</h1>
           <p style={{ color: t.textMuted, fontSize: 11, marginTop: 1 }}>
-            {leads.length} lead{leads.length !== 1 ? 's' : ''} captured today
+            {leads.length} badge{leads.length !== 1 ? 's' : ''} scanned · earn points per scan
           </p>
         </div>
         <div className="flex rounded-lg p-1" style={{ background: t.surface2, border: `1px solid ${t.border}` }}>
