@@ -124,7 +124,7 @@ function AppContent() {
       case 'events':          return <HomePage onNavigate={handleNavigate} />;
       case 'event-dashboard': return <EventDashboardPage onNavigate={handleNavigate} onBack={() => setActivePage('home')} />;
       case 'engage':          return <EngagePage onNavigate={handleNavigate} />;
-      case 'engage-sponsors': return <SponsorsListPage onBack={() => setActivePage('engage')} />;
+      case 'engage-sponsors': return <SponsorsListPage variant="reviews" onBack={() => setActivePage('engage')} />;
       case 'engage-surveys':  return <SurveysListPage  onBack={() => setActivePage('engage')} />;
       case 'engage-polls':    return <PollsListPage     onBack={() => setActivePage('engage')} />;
       case 'engage-challenges':return <ChallengesPage  onBack={() => setActivePage('engage')} />;
@@ -133,7 +133,7 @@ function AppContent() {
       case 'leaderboard':     return <LeaderboardPage />;
       case 'profile':         return <ProfilePage onEdit={() => setActivePage('edit-profile')} />;
       case 'edit-profile':    return <EditProfilePage onBack={() => setActivePage('profile')} />;
-      case 'partners':        return <SponsorsListPage />;
+      case 'partners':        return <SponsorsListPage variant="listing" />;
       case 'attendees':       return <LeadsPage onNavigateToDraw={() => setActivePage('sponsor-draw')} onNavigateToScan={() => setActivePage('scan')} />;
       case 'leads':           return <LeadsPage onNavigateToDraw={() => setActivePage('sponsor-draw')} onNavigateToScan={() => setActivePage('scan')} />;
       case 'my-badge':        return <MyBadgePage />;

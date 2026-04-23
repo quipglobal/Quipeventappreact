@@ -20,7 +20,16 @@ import {
   deleteMySponsorReviewApi,
 } from '@/app/api/sponsorReviewsClient';
 
-interface SponsorsListPageProps { onBack?: () => void; }
+interface SponsorsListPageProps {
+  onBack?: () => void;
+  /**
+   * 'listing' (default) — used for the Partners tab. Tap a company to see its
+   *   full profile (About, Company Details, Industries, Reps, etc). No reviews.
+   * 'reviews' — used for the Engage → Sponsor Reviews entry. Tap a company to
+   *   open a reviews-only screen for submitting/viewing feedback.
+   */
+  variant?: 'listing' | 'reviews';
+}
 
 // ─── Company logo / initials ──────────────────────────────────────────────────
 
@@ -443,7 +452,8 @@ const SponsorReviewsSection: React.FC<{ companyId: number; companyName: string }
 const CompanyDetailPage: React.FC<{
   company: Company;
   onBack: () => void;
-}> = ({ company, onBack }) => {
+  variant: 'listing' | 'reviews';
+}> = ({ company, onBack, variant }) => {
   const { t, isDark } = useTheme();
   const [detail, setDetail] = useState<Company | null>(null);
   const [loading, setLoading] = useState(true);
@@ -523,6 +533,10 @@ const CompanyDetailPage: React.FC<{
         </div>
       </div>
 
+      {variant === 'reviews' ? (
+        <SponsorReviewsSection companyId={data.companyId} companyName={data.name} />
+      ) : (
+      <>
       {/* Website */}
       {data.website && (
         <div className="mx-5 -mt-4 mb-5 relative z-10">
@@ -624,9 +638,6 @@ const CompanyDetailPage: React.FC<{
         </div>
       )}
 
-      {/* Reviews — attendees only */}
-      <SponsorReviewsSection companyId={data.companyId} companyName={data.name} />
-
       {/* Representatives */}
       <div className="px-5 mb-8">
         <h3 style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 8 }}>
@@ -712,6 +723,8 @@ const CompanyDetailPage: React.FC<{
           </div>
         )}
       </div>
+      </>
+      )}
     </motion.div>
   );
 };
@@ -763,7 +776,7 @@ const CompanyCard: React.FC<{
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-export const SponsorsListPage: React.FC<SponsorsListPageProps> = ({ onBack }) => {
+export const SponsorsListPage: React.FC<SponsorsListPageProps> = ({ onBack, variant = 'listing' }) => {
   const { eventConfig } = useApp();
   const { t, isDark } = useTheme();
 
@@ -822,14 +835,18 @@ export const SponsorsListPage: React.FC<SponsorsListPageProps> = ({ onBack }) =>
           <div className="flex items-center gap-2 mb-1">
             <Building2 style={{ width: 20, height: 20, color: 'rgba(255,255,255,0.7)' }} />
             <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-              Sponsor Reviews
+              {variant === 'reviews' ? 'Sponsor Reviews' : 'Partners'}
             </span>
           </div>
           <h1 style={{ color: '#fff', fontSize: 24, fontWeight: 800, letterSpacing: '-0.03em', marginBottom: 2 }}>
             {eventConfig?.name ?? 'Event'}
           </h1>
           <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, marginBottom: 12 }}>
-            {loading ? '…' : `Rate and review the ${companies.length} sponsor${companies.length !== 1 ? 's' : ''} at this event`}
+            {loading
+              ? '…'
+              : variant === 'reviews'
+                ? `Rate and review the ${companies.length} sponsor${companies.length !== 1 ? 's' : ''} at this event`
+                : `${companies.length} compan${companies.length !== 1 ? 'ies' : 'y'} attending this event`}
           </p>
 
           {/* Search */}
@@ -943,6 +960,7 @@ export const SponsorsListPage: React.FC<SponsorsListPageProps> = ({ onBack }) =>
           <CompanyDetailPage
             company={selected}
             onBack={() => setSelected(null)}
+            variant={variant}
           />
         )}
       </AnimatePresence>
