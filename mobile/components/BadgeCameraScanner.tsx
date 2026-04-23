@@ -41,7 +41,19 @@ export function BadgeCameraScanner({ onCodeDetected, busy }: Props) {
   const [permission, requestPermission] = useCameraPermissions();
   const [mode, setMode] = useState<Mode>('scan');
   const [manualCode, setManualCode] = useState('');
+  const [torchOn, setTorchOn] = useState(false);
   const lockedRef = useRef(false);
+
+  // Torch is a hardware feature only available on native platforms via
+  // expo-camera. Hide the toggle on web where it isn't supported.
+  const torchSupported = Platform.OS !== 'web';
+
+  // Reset torch when leaving scan mode (manual entry / permission denied) so
+  // it never lingers on after the camera is hidden, and on unmount.
+  useEffect(() => {
+    if (mode !== 'scan') setTorchOn(false);
+  }, [mode]);
+  useEffect(() => () => setTorchOn(false), []);
 
   // Reset the one-shot lock whenever the parent finishes processing a scan
   // so the next QR can be detected.
@@ -154,6 +166,7 @@ export function BadgeCameraScanner({ onCodeDetected, busy }: Props) {
       <CameraView
         style={StyleSheet.absoluteFillObject}
         facing="back"
+        enableTorch={torchSupported && torchOn}
         onBarcodeScanned={busy ? undefined : handleBarcodeScanned}
         barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
       />
@@ -171,6 +184,20 @@ export function BadgeCameraScanner({ onCodeDetected, busy }: Props) {
         <Ionicons name="keypad-outline" size={14} color="#fff" />
         <Text style={styles.manualLinkText}>Enter code manually</Text>
       </TouchableOpacity>
+      {torchSupported && (
+        <TouchableOpacity
+          style={[styles.torchBtn, torchOn && styles.torchBtnOn]}
+          onPress={() => setTorchOn(v => !v)}
+          accessibilityRole="button"
+          accessibilityLabel={torchOn ? 'Turn flashlight off' : 'Turn flashlight on'}
+        >
+          <Ionicons
+            name={torchOn ? 'flashlight' : 'flashlight-outline'}
+            size={18}
+            color={torchOn ? '#0d0d18' : '#fff'}
+          />
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -228,6 +255,23 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.2)',
   },
   manualLinkText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+  torchBtn: {
+    position: 'absolute',
+    top: spacing.md,
+    left: spacing.md,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  torchBtnOn: {
+    backgroundColor: '#fbbf24',
+    borderColor: '#fbbf24',
+  },
 
   statePanel: {
     flex: 1,
