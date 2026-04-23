@@ -13,6 +13,14 @@ export interface Event {
   status: 'upcoming' | 'live' | 'past';
 }
 
+export interface SessionAudienceMember {
+  id: string;
+  name: string;
+  title?: string;
+  company?: string;
+  avatar?: string;
+}
+
 export interface Session {
   id: string;
   title: string;
@@ -30,6 +38,7 @@ export interface Session {
   capacity?: number;
   attending?: number;
   accentColor?: string;
+  assignedAudience?: SessionAudienceMember[];
 }
 
 export interface FeedVideo {

@@ -19,11 +19,13 @@ import { colors, spacing, radius, typography } from '@/constants/theme';
 
 const { height: SH } = Dimensions.get('window');
 
+type AudienceMember = { id: string; name: string; title?: string; company?: string; avatar?: string };
 type Session = {
   id: string; day: number; time: string; duration: string;
   title: string; speaker: string; company: string;
   track: string; color: string; room: string;
   description: string; tags: string[];
+  assignedAudience: AudienceMember[];
 };
 
 const DAYS = ['Jan 16', 'Jan 17', 'Jan 18'];
@@ -53,6 +55,7 @@ export default function AgendaScreen() {
     room: s.room,
     description: s.description ?? '',
     tags: s.tags ?? [],
+    assignedAudience: s.assignedAudience ?? [],
   })).filter((s) => s.day === activeDay && (trackFilter === 'All' || s.track === trackFilter)), [allSessions, activeDay, trackFilter]);
 
   const openSession = useCallback((s: Session) => {
@@ -86,6 +89,37 @@ export default function AgendaScreen() {
             </View>
           </View>
           <Text style={styles.sessionTitle} numberOfLines={2}>{item.title}</Text>
+          {item.assignedAudience.length > 0 && (
+            <View style={styles.audienceBlock}>
+              <View style={styles.audienceHeader}>
+                <Ionicons name="people-outline" size={12} color={colors.textMuted} />
+                <Text style={styles.audienceHeaderText}>
+                  Audience · {item.assignedAudience.length} assigned
+                </Text>
+              </View>
+              {item.assignedAudience.slice(0, 3).map((m) => (
+                <View key={m.id} style={styles.audienceRow}>
+                  <View style={[styles.audienceAvatar, { backgroundColor: item.color + '25' }]}>
+                    {m.avatar ? null : (
+                      <Text style={[styles.audienceAvatarText, { color: item.color }]}>
+                        {m.name.charAt(0).toUpperCase()}
+                      </Text>
+                    )}
+                  </View>
+                  <Text style={styles.audienceLine} numberOfLines={1}>
+                    <Text style={styles.audienceName}>{m.name}</Text>
+                    {m.title ? <Text style={styles.audienceMeta}>{`  ·  ${m.title}`}</Text> : null}
+                    {m.company ? <Text style={styles.audienceMeta}>{`  ·  ${m.company}`}</Text> : null}
+                  </Text>
+                </View>
+              ))}
+              {item.assignedAudience.length > 3 && (
+                <Text style={styles.audienceMore}>
+                  +{item.assignedAudience.length - 3} more
+                </Text>
+              )}
+            </View>
+          )}
           <View style={styles.sessionFooter}>
             <View style={styles.speakerRow}>
               <View style={[styles.speakerAvatar, { backgroundColor: item.color + '25' }]}>
@@ -199,6 +233,31 @@ export default function AgendaScreen() {
                 </View>
               </View>
 
+              {selectedSession.assignedAudience.length > 0 && (
+                <View style={styles.sheetAudienceBlock}>
+                  <Text style={styles.sheetSectionTitle}>
+                    Assigned Audience · {selectedSession.assignedAudience.length}
+                  </Text>
+                  {selectedSession.assignedAudience.map((m) => (
+                    <View key={m.id} style={styles.sheetAudienceRow}>
+                      <View style={[styles.sheetAudienceAvatar, { backgroundColor: selectedSession.color + '25' }]}>
+                        <Text style={[styles.sheetAudienceInitial, { color: selectedSession.color }]}>
+                          {m.name.charAt(0).toUpperCase()}
+                        </Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.sheetAudienceName} numberOfLines={1}>{m.name}</Text>
+                        {(m.title || m.company) ? (
+                          <Text style={styles.sheetAudienceMeta} numberOfLines={1}>
+                            {[m.title, m.company].filter(Boolean).join(' · ')}
+                          </Text>
+                        ) : null}
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              )}
+
               <Text style={styles.sheetDesc}>{selectedSession.description}</Text>
 
               <View style={styles.sheetTags}>
@@ -251,6 +310,25 @@ const styles = StyleSheet.create({
   speakerAvatarText: { fontSize: 10, fontWeight: '700' },
   sessionSpeaker: { color: colors.textSecondary, fontSize: 12, flex: 1 },
   bookmarkBtn: { padding: 4 },
+
+  audienceBlock: { marginBottom: spacing.md, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, gap: 6 },
+  audienceHeader: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 },
+  audienceHeaderText: { color: colors.textMuted, fontSize: 10, fontWeight: '700', letterSpacing: 0.4, textTransform: 'uppercase' },
+  audienceRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  audienceAvatar: { width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  audienceAvatarText: { fontSize: 9, fontWeight: '700' },
+  audienceLine: { flex: 1, fontSize: 12, lineHeight: 16, color: colors.textSecondary },
+  audienceName: { color: colors.textPrimary, fontWeight: '600' },
+  audienceMeta: { color: colors.textMuted },
+  audienceMore: { color: colors.textMuted, fontSize: 11, marginLeft: 28 },
+
+  sheetAudienceBlock: { marginBottom: spacing.lg, gap: spacing.sm },
+  sheetSectionTitle: { color: colors.textPrimary, fontSize: 13, fontWeight: '700', marginBottom: 4, letterSpacing: 0.3 },
+  sheetAudienceRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  sheetAudienceAvatar: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  sheetAudienceInitial: { fontSize: 13, fontWeight: '700' },
+  sheetAudienceName: { color: colors.textPrimary, fontSize: 13, fontWeight: '600' },
+  sheetAudienceMeta: { color: colors.textMuted, fontSize: 11, marginTop: 1 },
 
   empty: { alignItems: 'center', paddingVertical: 60, gap: spacing.md },
   emptyText: { color: colors.textMuted, fontSize: 14 },

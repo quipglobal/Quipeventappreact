@@ -3,6 +3,34 @@ import { getEventId } from '@/lib/eventStore';
 import type { ApiResponse, Event, Session } from '@/lib/api/types';
 
 function normalizeSession(raw: any): Session {
+  const rawAud =
+    (Array.isArray(raw.assigned_audience) && raw.assigned_audience) ||
+    (Array.isArray(raw.assignedAudience) && raw.assignedAudience) ||
+    (Array.isArray(raw.audience) && raw.audience) ||
+    (Array.isArray(raw.assigned_users) && raw.assigned_users) ||
+    (Array.isArray(raw.attendees) && raw.attendees) ||
+    [];
+  const assignedAudience = (rawAud as any[])
+    .map((a) => {
+      const u = (a && typeof a.user === 'object' && a.user) ||
+                (a && typeof a.member === 'object' && a.member) ||
+                a;
+      const company = u.company;
+      return {
+        id: String(u.id ?? u.user_id ?? a.id ?? a.user_id ?? ''),
+        name: u.name ?? u.full_name ?? u.display_name ?? '',
+        title: u.title ?? u.job_title ?? '',
+        company:
+          typeof company === 'string'
+            ? company
+            : company && typeof company === 'object'
+              ? String(company.name ?? '')
+              : (u.company_name ?? ''),
+        avatar: u.avatar ?? u.avatar_url ?? u.profile_image ?? u.photo ?? '',
+      };
+    })
+    .filter((m) => m.id && m.name);
+
   return {
     id: String(raw.id),
     title: raw.title ?? raw.name ?? '',
@@ -17,6 +45,7 @@ function normalizeSession(raw: any): Session {
     accentColor: raw.accent_color ?? raw.accentColor ?? '#7c3aed',
     description: raw.description ?? '',
     tags: Array.isArray(raw.tags) ? raw.tags : [],
+    assignedAudience,
   };
 }
 
