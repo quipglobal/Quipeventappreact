@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   ArrowLeft, Building2, Globe, ChevronRight, Users,
-  Loader2, RefreshCw, Search, X,
-  BadgeCheck, Star, MessageSquare, Send, Trash2,
+  ExternalLink, Loader2, RefreshCw, Search, X,
+  Mail, Phone, BadgeCheck, Briefcase, Star, MessageSquare, Send, Trash2,
   Download,
 } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
@@ -12,6 +12,7 @@ import {
   getEventCompaniesApi,
   getCompanyDetailApi,
   type Company,
+  type CompanyRep,
 } from '@/app/api/companiesClient';
 import {
   submitSponsorReviewApi,
@@ -45,6 +46,24 @@ const CompanyLogo: React.FC<{ company: Company; size?: number }> = ({ company, s
     <div className="rounded-2xl flex items-center justify-center flex-shrink-0"
       style={{ width: size, height: size, background: `linear-gradient(135deg,${bg},${bg}bb)` }}>
       <span style={{ color: '#fff', fontSize: size * 0.3, fontWeight: 800, letterSpacing: '-0.02em' }}>{initials}</span>
+    </div>
+  );
+};
+
+// ─── Rep Avatar ───────────────────────────────────────────────────────────────
+
+const RepAvatar: React.FC<{ rep: CompanyRep; size?: number }> = ({ rep, size = 40 }) => {
+  const [err, setErr] = useState(false);
+  const initials = rep.fullName.split(' ').slice(0,2).map(w => w[0]?.toUpperCase() ?? '').join('');
+  const bg = logoColor(rep.id);
+  if (rep.avatarUrl && !err) {
+    return <img src={rep.avatarUrl} alt={rep.fullName} onError={()=>setErr(true)}
+      className="rounded-xl object-cover flex-shrink-0" style={{ width:size, height:size }} />;
+  }
+  return (
+    <div className="rounded-xl flex items-center justify-center flex-shrink-0"
+      style={{ width:size, height:size, background:`linear-gradient(135deg,${bg},${bg}aa)` }}>
+      <span style={{ color:'#fff', fontSize:size*0.33, fontWeight:800 }}>{initials}</span>
     </div>
   );
 };
@@ -492,18 +511,207 @@ const CompanyDetailPage: React.FC<{
                     <Users style={{ width: 10, height: 10 }} /> {data.employeeCount} employees
                   </span>
                 )}
+                {reps.length > 0 && !loading && (
+                  <span className="flex items-center gap-1 px-2.5 py-1 rounded-lg"
+                    style={{ background: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.85)', fontSize: 11, fontWeight: 600 }}>
+                    <Briefcase style={{ width: 10, height: 10 }} /> {reps.length} rep{reps.length !== 1 ? 's' : ''} at event
+                  </span>
+                )}
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Reviews — attendees only */}
-      <div className="mt-2">
-        <SponsorReviewsSection companyId={data.companyId} companyName={data.name} />
+      {/* Website */}
+      {data.website && (
+        <div className="mx-5 -mt-4 mb-5 relative z-10">
+          <a href={data.website} target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-3 px-4 py-3.5 rounded-2xl w-full"
+            style={{ background: t.surface, boxShadow: t.shadowHov, border: `1px solid ${t.border}` }}>
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center"
+              style={{ background: 'rgba(99,102,241,0.12)' }}>
+              <Globe style={{ width: 16, height: 16, color: '#6366f1' }} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p style={{ color: t.textSec, fontSize: 11, fontWeight: 600 }}>Website</p>
+              <p className="truncate" style={{ color: t.text, fontSize: 13, fontWeight: 700 }}>{data.website}</p>
+            </div>
+            <ExternalLink style={{ width: 14, height: 14, color: t.textMuted }} />
+          </a>
+        </div>
+      )}
+
+      {/* About */}
+      {data.description && (
+        <div className="px-5 mb-5">
+          <h3 style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 8 }}>About</h3>
+          <div className="rounded-2xl px-4 py-4" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+            <p style={{ color: t.textSec, fontSize: 13, lineHeight: 1.65 }}>{data.description}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Company Details */}
+      <div className="px-5 mb-5">
+        <h3 style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Company Details</h3>
+        <div className="rounded-2xl overflow-hidden" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+          {[
+            { label: 'Company Size', value: data.employeeCount },
+            { label: 'Type', value: data.companyType },
+            { label: 'Domain', value: data.domain },
+            { label: 'Founded', value: data.foundedYear ? String(data.foundedYear) : null },
+            { label: 'Revenue', value: data.revenueRange },
+            { label: 'Headquarters', value: data.headquarters },
+          ].filter(row => row.value).map((row, i, arr) => (
+            <div key={row.label}
+              className="flex items-center justify-between px-4 py-3"
+              style={{ borderBottom: i < arr.length - 1 ? `1px solid ${t.divider}` : undefined }}>
+              <span style={{ color: t.textSec, fontSize: 13 }}>{row.label}</span>
+              <span style={{ color: t.text, fontSize: 13, fontWeight: 600, textAlign: 'right', maxWidth: '55%' }}>{row.value}</span>
+            </div>
+          ))}
+          {!data.employeeCount && !data.companyType && !data.domain && !data.foundedYear && !data.headquarters && (
+            <div className="px-4 py-4">
+              <p style={{ color: t.textMuted, fontSize: 13 }}>No additional details available.</p>
+            </div>
+          )}
+        </div>
       </div>
 
-      <div className="h-8" />
+      {/* Industries */}
+      {data.industries.length > 0 && (
+        <div className="px-5 mb-5">
+          <h3 style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Industries</h3>
+          <div className="flex flex-wrap gap-2">
+            {data.industries.map(ind => (
+              <span key={ind} className="px-3 py-1.5 rounded-xl"
+                style={{ background: 'rgba(99,102,241,0.1)', color: '#6366f1', fontSize: 12, fontWeight: 600, border: '1px solid rgba(99,102,241,0.18)' }}>
+                {ind}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Market Segments */}
+      {data.marketSegments?.length > 0 && (
+        <div className="px-5 mb-5">
+          <h3 style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Market Segments</h3>
+          <div className="flex flex-wrap gap-2">
+            {data.marketSegments.map(seg => (
+              <span key={seg} className="px-3 py-1.5 rounded-xl"
+                style={{ background: 'rgba(16,185,129,0.1)', color: '#10b981', fontSize: 12, fontWeight: 600, border: '1px solid rgba(16,185,129,0.18)' }}>
+                {seg}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Keywords */}
+      {data.keywords?.length > 0 && (
+        <div className="px-5 mb-5">
+          <h3 style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Keywords</h3>
+          <div className="flex flex-wrap gap-2">
+            {data.keywords.map(kw => (
+              <span key={kw} className="px-3 py-1.5 rounded-xl"
+                style={{ background: 'rgba(124,58,237,0.08)', color: '#7c3aed', fontSize: 12, fontWeight: 600, border: '1px solid rgba(124,58,237,0.15)' }}>
+                {kw}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Reviews — attendees only */}
+      <SponsorReviewsSection companyId={data.companyId} companyName={data.name} />
+
+      {/* Representatives */}
+      <div className="px-5 mb-8">
+        <h3 style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 8 }}>
+          Event Representatives
+        </h3>
+
+        {loading && (
+          <div className="flex items-center justify-center py-8 gap-2">
+            <Loader2 style={{ width: 18, height: 18, color: '#7c3aed', animation: 'spin 1s linear infinite' }} />
+            <span style={{ color: t.textMuted, fontSize: 13 }}>Loading representatives…</span>
+            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+          </div>
+        )}
+
+        {!loading && error && (
+          <div className="rounded-2xl px-4 py-4" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+            <p style={{ color: t.textMuted, fontSize: 13 }}>{error}</p>
+          </div>
+        )}
+
+        {!loading && !error && reps.length === 0 && (
+          <div className="rounded-2xl px-4 py-4 flex items-center gap-3"
+            style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+            <Users style={{ width: 18, height: 18, color: t.emptyIcon }} />
+            <p style={{ color: t.textMuted, fontSize: 13 }}>No representatives listed for this event.</p>
+          </div>
+        )}
+
+        {!loading && reps.length > 0 && (
+          <div className="space-y-2.5">
+            {reps.map(rep => (
+              <div key={rep.id}
+                className="rounded-2xl px-4 py-4"
+                style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+                <div className="flex items-start gap-3 mb-3">
+                  <RepAvatar rep={rep} size={44} />
+                  <div className="flex-1 min-w-0">
+                    <p style={{ color: t.text, fontSize: 14, fontWeight: 700 }}>{rep.fullName}</p>
+                    {rep.title && (
+                      <p style={{ color: t.textSec, fontSize: 12, marginTop: 1 }}>{rep.title}</p>
+                    )}
+                    {rep.roles.length > 0 && (
+                      <div className="flex gap-1.5 mt-1.5 flex-wrap">
+                        {Array.from(new Set(rep.roles)).map(r => (
+                          <span key={r}
+                            className="px-2 py-0.5 rounded-md text-xs font-bold"
+                            style={{ background: 'rgba(124,58,237,0.12)', color: '#7c3aed' }}>
+                            {r.replace(/_/g, ' ')}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Contact rows */}
+                <div className="space-y-2 mt-1">
+                  {rep.email && (
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-md flex items-center justify-center"
+                        style={{ background: 'rgba(99,102,241,0.1)' }}>
+                        <Mail style={{ width: 11, height: 11, color: '#6366f1' }} />
+                      </div>
+                      <span style={{ color: t.textSec, fontSize: 12 }}>
+                        {rep.email.replace(/(.{2})(.*)(@.*)/, (_, a, b, c) => a + '*'.repeat(b.length) + c)}
+                      </span>
+                    </div>
+                  )}
+                  {rep.phone && (
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-md flex items-center justify-center"
+                        style={{ background: 'rgba(16,185,129,0.1)' }}>
+                        <Phone style={{ width: 11, height: 11, color: '#10b981' }} />
+                      </div>
+                      <span style={{ color: t.textSec, fontSize: 12 }}>
+                        {'••••' + rep.phone.slice(-4)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </motion.div>
   );
 };
