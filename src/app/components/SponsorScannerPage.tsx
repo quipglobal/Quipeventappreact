@@ -78,7 +78,19 @@ export const SponsorScannerPage: React.FC = () => {
       //    that the backend created for this scan.
       const scan = await scanBadgeLead(eventId, { code: trimmed });
 
-      if (scan.success && scan.data) {
+      // Treat the scan as resolved only when the server actually returned a
+      // recognizable attendee. A successful HTTP shape with no canonical
+      // identifier (no name, no code, no memberId) means the backend couldn't
+      // resolve the badge — fall through to the audience-list fallback.
+      const resolvedByBackend = !!(
+        scan.success &&
+        scan.data &&
+        ((scan.data.name && scan.data.name.trim()) ||
+          scan.data.code ||
+          typeof scan.data.memberId === 'number')
+      );
+
+      if (resolvedByBackend && scan.data) {
         const d = scan.data;
         const attendee: ScannedAttendee = {
           code: d.code || trimmed,
@@ -106,20 +118,27 @@ export const SponsorScannerPage: React.FC = () => {
         if (didCheckIn) {
           setAutoCheckedIn(true);
           attendee.isCheckedIn = true;
-          showToast(`Auto checked-in ${attendee.name}`);
         } else if (alreadyCheckedIn) {
           attendee.isCheckedIn = true;
         }
         setScannedData(attendee);
 
         // Award scan points immediately (the backend already created the lead).
+        // If we also auto checked-in, fold that into the same toast so the
+        // points feedback doesn't immediately overwrite a separate
+        // "Auto checked-in" toast.
         const pts =
           typeof d.pointsAwarded === 'number'
             ? d.pointsAwarded
             : (gamificationConfig?.pointActions as Record<string, number> | undefined)?.scanBadge
               ?? 25;
+        const reason = didCheckIn
+          ? `Auto checked-in & scanned ${attendee.name}`
+          : `Scanned ${attendee.name}'s badge`;
         if (pts > 0) {
-          addPoints(pts, `Scanned ${attendee.name}'s badge`);
+          addPoints(pts, reason);
+        } else if (didCheckIn) {
+          showToast(`Auto checked-in ${attendee.name}`);
         }
 
         // Mirror the new lead into local state so My Leads shows it even if
