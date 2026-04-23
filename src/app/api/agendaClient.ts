@@ -80,14 +80,15 @@ function normalizeSession(raw: Record<string, unknown>): Session {
       ? company
       : (company && typeof company === 'object'
           ? String((company as Record<string, unknown>).name ?? '')
-          : (u.company_name ?? u.organization ?? s.speaker_company ?? '') as string);
+          : (u.company_name ?? u.companyName ?? u.organization ?? s.speaker_company ?? '') as string);
 
     speakers.push({
       id: String(u.id ?? s.id ?? s.user_id ?? ''),
-      name: (u.name ?? u.full_name ?? u.display_name ?? s.speaker_name ?? composedName ?? '') as string,
-      title: (u.title ?? u.job_title ?? u.designation ?? s.speaker_title ?? '') as string,
+      name: (u.fullName ?? u.full_name ?? u.name ?? u.display_name ?? u.displayName
+              ?? s.speaker_name ?? composedName ?? '') as string,
+      title: (u.title ?? u.job_title ?? u.jobTitle ?? u.designation ?? s.speaker_title ?? '') as string,
       company: companyStr,
-      avatar: (u.avatar ?? u.avatar_url ?? u.photo ?? u.profile_image ?? '') as string,
+      avatar: (u.avatar ?? u.avatarUrl ?? u.avatar_url ?? u.photo ?? u.profile_image ?? u.profileImage ?? '') as string,
       role: (s.role ?? s.speaker_role ?? s.participation_role ?? s.session_role ?? s.type ?? u.role ?? '') as string,
     });
   });
@@ -117,12 +118,15 @@ function normalizeSession(raw: Record<string, unknown>): Session {
       existing.role = existing.role || 'Moderator';
       return;
     }
+    const fn = (u.first_name ?? u.firstName ?? '') as string;
+    const ln = (u.last_name ?? u.lastName ?? '') as string;
     speakers.push({
       id,
-      name: (u.name ?? u.full_name ?? u.display_name ?? '') as string,
-      title: (u.title ?? u.job_title ?? u.designation ?? '') as string,
-      company: (u.company ?? u.company_name ?? u.organization ?? '') as string,
-      avatar: (u.avatar ?? u.avatar_url ?? u.photo ?? '') as string,
+      name: (u.fullName ?? u.full_name ?? u.name ?? u.display_name ?? u.displayName
+              ?? `${fn} ${ln}`.trim() ?? '') as string,
+      title: (u.title ?? u.job_title ?? u.jobTitle ?? u.designation ?? '') as string,
+      company: (u.company ?? u.company_name ?? u.companyName ?? u.organization ?? '') as string,
+      avatar: (u.avatar ?? u.avatarUrl ?? u.avatar_url ?? u.photo ?? '') as string,
       role: 'Moderator',
     });
   });
@@ -150,14 +154,15 @@ function normalizeSession(raw: Record<string, unknown>): Session {
       const company = u.company;
       return {
         id: String(u.id ?? u.user_id ?? a.id ?? a.user_id ?? ''),
-        name: (u.name ?? u.full_name ?? u.display_name ?? composedName ?? '') as string,
-        avatar: (u.avatar ?? u.avatar_url ?? u.profile_image ?? u.photo ?? '') as string,
-        title: (u.title ?? u.job_title ?? u.designation ?? '') as string,
+        name: (u.fullName ?? u.full_name ?? u.name ?? u.display_name ?? u.displayName
+                ?? composedName ?? '') as string,
+        avatar: (u.avatar ?? u.avatarUrl ?? u.avatar_url ?? u.profile_image ?? u.profileImage ?? u.photo ?? '') as string,
+        title: (u.title ?? u.job_title ?? u.jobTitle ?? u.designation ?? '') as string,
         company: typeof company === 'string'
           ? company
           : (company && typeof company === 'object'
               ? String((company as Record<string, unknown>).name ?? '')
-              : (u.company_name ?? u.organization ?? '') as string),
+              : (u.company_name ?? u.companyName ?? u.organization ?? '') as string),
       };
     })
     .filter(m => m.id && m.name);
