@@ -241,6 +241,8 @@ function AppContent() {
                   </button>
                 </div>
               </div>
+
+              <BadgeActionButtons onNavigate={handleNavigate} activePage={activePage} />
             </div>
           )}
 
@@ -248,9 +250,6 @@ function AppContent() {
 
           {showBottomNav && isMainTab && (
             <>
-              {showGlobalHeader && (
-                <BadgeActionButtons onNavigate={handleNavigate} activePage={activePage} />
-              )}
               <BottomNav
                 activeTab={activePage}
                 onTabChange={handleNavigate}
