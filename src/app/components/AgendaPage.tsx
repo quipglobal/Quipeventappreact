@@ -297,10 +297,20 @@ export const AgendaPage: React.FC = () => {
                             </div>
                           )}
                         </div>
-                        <span style={{ color: t.textSec, fontSize: 12 }} className="truncate">
-                          {session.assignedAudience.slice(0, 2).map(m => m.name).join(', ')}
-                          {session.assignedAudience.length > 2 ? ` +${session.assignedAudience.length - 2} more` : ''}
-                        </span>
+                        <div className="flex-1 min-w-0">
+                          {session.assignedAudience.slice(0, 2).map((m, i) => (
+                            <div key={m.id || i} className="truncate" style={{ color: t.textSec, fontSize: 12, lineHeight: 1.35 }}>
+                              <span style={{ fontWeight: 600, color: t.textPri }}>{m.name}</span>
+                              {m.title ? <span style={{ color: t.textMuted }}> · {m.title}</span> : null}
+                              {m.company ? <span style={{ color: t.textMuted }}> · {m.company}</span> : null}
+                            </div>
+                          ))}
+                          {session.assignedAudience.length > 2 && (
+                            <div style={{ color: t.textMuted, fontSize: 11 }}>
+                              +{session.assignedAudience.length - 2} more
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}
