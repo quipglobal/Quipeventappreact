@@ -12,8 +12,8 @@ export const BadgeActionButtons: React.FC<BadgeActionButtonsProps> = ({ onNaviga
 
   return (
     <div
-      className="fixed left-0 right-0 z-50 pointer-events-none max-w-[430px] mx-auto"
-      style={{ bottom: 80 }}
+      className="fixed left-0 right-0 z-40 pointer-events-none max-w-[430px] mx-auto"
+      style={{ top: 72 }}
     >
       <div className="flex items-center gap-3 px-4 pointer-events-auto">
 

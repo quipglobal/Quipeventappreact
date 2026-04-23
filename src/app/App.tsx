@@ -28,7 +28,8 @@ import { SideMenu } from '@/app/components/SideMenu';
 import { MyBadgePage } from '@/app/components/MyBadgePage';
 import { MeetingsPage } from '@/app/components/MeetingsPage';
 import { SpeakersPage } from '@/app/components/SpeakersPage';
-import { Bell, Search, MessageCircle, LayoutGrid, QrCode, ScanLine } from 'lucide-react';
+import { BadgeActionButtons } from '@/app/components/BadgeActionButtons';
+import { Bell, Search, MessageCircle, LayoutGrid } from 'lucide-react';
 
 type Screen = 'splash' | 'welcome' | 'event-join' | 'main';
 type Page =
@@ -216,30 +217,6 @@ function AppContent() {
                     <LayoutGrid size={16} color={t.text} />
                   </button>
                   <button
-                    onClick={() => handleNavigate('my-badge')}
-                    className="w-9 h-9 rounded-full flex items-center justify-center transition-colors"
-                    title="My Badge"
-                    style={{
-                      background: activePage === 'my-badge'
-                        ? 'linear-gradient(135deg, #7c3aed, #4f46e5)'
-                        : t.surface,
-                      border: activePage === 'my-badge' ? 'none' : `1px solid ${t.border}`,
-                    }}>
-                    <QrCode size={16} color={activePage === 'my-badge' ? '#fff' : t.text} />
-                  </button>
-                  <button
-                    onClick={() => handleNavigate('scan')}
-                    className="w-9 h-9 rounded-full flex items-center justify-center transition-colors"
-                    title="Scan Badge"
-                    style={{
-                      background: activePage === 'scan'
-                        ? 'linear-gradient(135deg, #7c3aed, #4f46e5)'
-                        : t.surface,
-                      border: activePage === 'scan' ? 'none' : `1px solid ${t.border}`,
-                    }}>
-                    <ScanLine size={16} color={activePage === 'scan' ? '#fff' : t.text} />
-                  </button>
-                  <button
                     onClick={() => handleNavigate('meetings')}
                     className="w-9 h-9 rounded-full flex items-center justify-center transition-colors relative"
                     style={{
@@ -270,12 +247,17 @@ function AppContent() {
           {renderPage()}
 
           {showBottomNav && isMainTab && (
-            <BottomNav
-              activeTab={activePage}
-              onTabChange={handleNavigate}
-              onOpenMore={() => setMoreOpen(true)}
-              isMoreOpen={moreOpen}
-            />
+            <>
+              {showGlobalHeader && (
+                <BadgeActionButtons onNavigate={handleNavigate} activePage={activePage} />
+              )}
+              <BottomNav
+                activeTab={activePage}
+                onTabChange={handleNavigate}
+                onOpenMore={() => setMoreOpen(true)}
+                isMoreOpen={moreOpen}
+              />
+            </>
           )}
 
           <SideMenu
