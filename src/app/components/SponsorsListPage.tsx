@@ -419,12 +419,6 @@ const CompanyDetailPage: React.FC<{
                     <Users style={{ width: 10, height: 10 }} /> {data.employeeCount} employees
                   </span>
                 )}
-                {reps.length > 0 && !loading && (
-                  <span className="flex items-center gap-1 px-2.5 py-1 rounded-lg"
-                    style={{ background: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.85)', fontSize: 11, fontWeight: 600 }}>
-                    <Briefcase style={{ width: 10, height: 10 }} /> {reps.length} rep{reps.length !== 1 ? 's' : ''} at event
-                  </span>
-                )}
               </div>
             </div>
           </div>
