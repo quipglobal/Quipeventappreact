@@ -127,6 +127,11 @@ export const SponsorScannerPage: React.FC = () => {
         setScannedData(attendee);
 
         // Award scan points immediately (the backend already created the lead).
+        // The server is the source of truth — `pointsAwarded` reflects the
+        // event's lead_scan gamification config, and is 0 when the scan was
+        // a duplicate (no double points). If the server omits the field we
+        // fall back to the client-side gamification config; otherwise 0 (no
+        // toast, no points).
         // If we also auto checked-in, fold that into the same toast so the
         // points feedback doesn't immediately overwrite a separate
         // "Auto checked-in" toast.
@@ -134,7 +139,7 @@ export const SponsorScannerPage: React.FC = () => {
           typeof d.pointsAwarded === 'number'
             ? d.pointsAwarded
             : (gamificationConfig?.pointActions as Record<string, number> | undefined)?.scanBadge
-              ?? 25;
+              ?? 0;
         const reason = didCheckIn
           ? `Auto checked-in & scanned ${attendee.name}`
           : `Scanned ${attendee.name}'s badge`;
@@ -253,7 +258,7 @@ export const SponsorScannerPage: React.FC = () => {
         priority,
       });
       const pts =
-        (gamificationConfig?.pointActions as Record<string, number> | undefined)?.scanBadge ?? 25;
+        (gamificationConfig?.pointActions as Record<string, number> | undefined)?.scanBadge ?? 0;
       if (pts > 0) {
         addPoints(pts, `Scanned ${scannedData.name}'s badge`);
       }
@@ -284,11 +289,14 @@ export const SponsorScannerPage: React.FC = () => {
         }
       }
 
+      // Use the server's awarded points; 0 means duplicate scan (no toast,
+      // no double credit). Only fall back to the local config when the
+      // server omits the field entirely.
       const pts =
         typeof res.data.pointsAwarded === 'number'
           ? res.data.pointsAwarded
           : (gamificationConfig?.pointActions as Record<string, number> | undefined)?.scanBadge
-            ?? 25;
+            ?? 0;
       if (pts > 0) {
         addPoints(pts, `Scanned ${res.data.name}'s badge`);
       }
