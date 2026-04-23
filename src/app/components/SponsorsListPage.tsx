@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   ArrowLeft, Building2, Users, Globe, ChevronRight,
   ExternalLink, Loader2, RefreshCw, Search, X,
-  Mail, Phone, BadgeCheck, Briefcase,
+  Mail, Phone, BadgeCheck, Briefcase, Star, MessageSquare, Send, Trash2,
 } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
@@ -62,6 +62,266 @@ const RepAvatar: React.FC<{ rep: CompanyRep; size?: number }> = ({ rep, size = 4
   );
 };
 
+// ─── Sponsor Reviews ──────────────────────────────────────────────────────────
+
+interface SponsorReview {
+  id: string;
+  authorName: string;
+  authorEmail: string;
+  rating: number;
+  comment: string;
+  createdAt: number;
+}
+
+const reviewsKey = (companyId: number) => `cxo:sponsorReviews:${companyId}`;
+
+function loadReviews(companyId: number): SponsorReview[] {
+  try {
+    const raw = localStorage.getItem(reviewsKey(companyId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+}
+
+function saveReviews(companyId: number, reviews: SponsorReview[]) {
+  try { localStorage.setItem(reviewsKey(companyId), JSON.stringify(reviews)); } catch {}
+}
+
+function timeAgo(ts: number): string {
+  const s = Math.max(1, Math.floor((Date.now() - ts) / 1000));
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60); if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24); if (d < 30) return `${d}d ago`;
+  return new Date(ts).toLocaleDateString();
+}
+
+const StarRating: React.FC<{
+  value: number;
+  onChange?: (v: number) => void;
+  size?: number;
+  readOnly?: boolean;
+}> = ({ value, onChange, size = 22, readOnly }) => {
+  const [hover, setHover] = useState(0);
+  const display = hover || value;
+  return (
+    <div className="flex items-center gap-1">
+      {[1, 2, 3, 4, 5].map(n => {
+        const filled = n <= display;
+        return (
+          <button
+            key={n}
+            type="button"
+            disabled={readOnly}
+            onClick={() => !readOnly && onChange?.(n)}
+            onMouseEnter={() => !readOnly && setHover(n)}
+            onMouseLeave={() => !readOnly && setHover(0)}
+            className={readOnly ? '' : 'active:scale-90 transition-transform'}
+            style={{ cursor: readOnly ? 'default' : 'pointer', padding: 0, background: 'none', border: 'none' }}
+          >
+            <Star
+              style={{
+                width: size,
+                height: size,
+                color: filled ? '#f59e0b' : '#cbd5e1',
+                fill: filled ? '#f59e0b' : 'transparent',
+              }}
+            />
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
+const SponsorReviewsSection: React.FC<{ companyId: number; companyName: string }> = ({ companyId, companyName }) => {
+  const { t } = useTheme();
+  const { user } = useApp();
+  const [reviews, setReviews] = useState<SponsorReview[]>([]);
+  const [rating, setRating] = useState(0);
+  const [comment, setComment] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [justSubmitted, setJustSubmitted] = useState(false);
+
+  const myEmail = user?.email?.toLowerCase() ?? '';
+
+  useEffect(() => {
+    const loaded = loadReviews(companyId);
+    setReviews(loaded);
+    const mine = loaded.find(r => r.authorEmail.toLowerCase() === myEmail);
+    setRating(mine?.rating ?? 0);
+    setComment(mine?.comment ?? '');
+    setJustSubmitted(false);
+  }, [companyId, myEmail]);
+
+  const myReview = reviews.find(r => r.authorEmail.toLowerCase() === myEmail);
+  const otherReviews = reviews.filter(r => r.authorEmail.toLowerCase() !== myEmail);
+  const avgRating = reviews.length
+    ? reviews.reduce((s, r) => s + r.rating, 0) / reviews.length
+    : 0;
+
+  const handleSubmit = () => {
+    if (!rating || !user?.email) return;
+    setSubmitting(true);
+    const newReview: SponsorReview = {
+      id: `rev_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      authorName: user.name || user.email.split('@')[0],
+      authorEmail: user.email,
+      rating,
+      comment: comment.trim(),
+      createdAt: Date.now(),
+    };
+    const next = [newReview, ...reviews.filter(r => r.authorEmail.toLowerCase() !== myEmail)];
+    saveReviews(companyId, next);
+    setReviews(next);
+    setRating(0);
+    setComment('');
+    setSubmitting(false);
+    setJustSubmitted(true);
+    setTimeout(() => setJustSubmitted(false), 2400);
+  };
+
+  const handleDeleteMine = () => {
+    const next = reviews.filter(r => r.authorEmail.toLowerCase() !== myEmail);
+    saveReviews(companyId, next);
+    setReviews(next);
+  };
+
+  return (
+    <div className="px-5 mb-6">
+      <div className="flex items-center justify-between mb-2">
+        <h3 style={{ color: t.text, fontSize: 14, fontWeight: 700 }}>Reviews</h3>
+        {reviews.length > 0 && (
+          <div className="flex items-center gap-1.5">
+            <Star style={{ width: 14, height: 14, color: '#f59e0b', fill: '#f59e0b' }} />
+            <span style={{ color: t.text, fontSize: 13, fontWeight: 700 }}>{avgRating.toFixed(1)}</span>
+            <span style={{ color: t.textMuted, fontSize: 12 }}>· {reviews.length} review{reviews.length !== 1 ? 's' : ''}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Write / edit review */}
+      {user?.email ? (
+        <div className="rounded-2xl px-4 py-4 mb-3" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+          <p style={{ color: t.textSec, fontSize: 12, fontWeight: 600, marginBottom: 8 }}>
+            {myReview ? 'Update your review' : `How was your experience with ${companyName}?`}
+          </p>
+          <div className="flex items-center gap-3 mb-3">
+            <StarRating value={rating} onChange={setRating} size={26} />
+            <span style={{ color: t.textMuted, fontSize: 12, fontWeight: 600 }}>
+              {rating > 0 ? `${rating} / 5` : 'Tap to rate'}
+            </span>
+          </div>
+          <textarea
+            value={comment}
+            onChange={e => setComment(e.target.value.slice(0, 500))}
+            placeholder="Share your feedback (optional)…"
+            rows={3}
+            className="w-full rounded-xl px-3 py-2.5 outline-none resize-none"
+            style={{
+              background: t.surface2,
+              border: `1px solid ${t.border}`,
+              color: t.text,
+              fontSize: 13,
+              lineHeight: 1.5,
+            }}
+          />
+          <div className="flex items-center justify-between mt-2">
+            <span style={{ color: t.textMuted, fontSize: 11 }}>{comment.length}/500</span>
+            <button
+              onClick={handleSubmit}
+              disabled={!rating || submitting}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl active:scale-[0.97] transition-all"
+              style={{
+                background: rating ? 'linear-gradient(135deg,#f97316,#ef4444)' : t.surface2,
+                color: rating ? '#fff' : t.textMuted,
+                fontSize: 12,
+                fontWeight: 700,
+                opacity: !rating || submitting ? 0.6 : 1,
+                cursor: !rating || submitting ? 'not-allowed' : 'pointer',
+                border: rating ? 'none' : `1px solid ${t.border}`,
+              }}
+            >
+              <Send style={{ width: 12, height: 12 }} />
+              {myReview ? 'Update Review' : 'Submit Review'}
+            </button>
+          </div>
+          {justSubmitted && (
+            <p className="mt-2" style={{ color: '#10b981', fontSize: 12, fontWeight: 600 }}>
+              Thanks for your feedback!
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className="rounded-2xl px-4 py-3 mb-3 flex items-center gap-2"
+          style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+          <MessageSquare style={{ width: 14, height: 14, color: t.textMuted }} />
+          <p style={{ color: t.textMuted, fontSize: 12 }}>Sign in to leave a review.</p>
+        </div>
+      )}
+
+      {/* My current review */}
+      {myReview && (
+        <div className="rounded-2xl px-4 py-3 mb-3"
+          style={{ background: 'rgba(249,115,22,0.06)', border: '1px solid rgba(249,115,22,0.25)' }}>
+          <div className="flex items-start justify-between gap-2 mb-1">
+            <div className="flex items-center gap-2">
+              <BadgeCheck style={{ width: 13, height: 13, color: '#f97316' }} />
+              <span style={{ color: '#f97316', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Your review
+              </span>
+            </div>
+            <button
+              onClick={handleDeleteMine}
+              className="flex items-center gap-1 px-2 py-1 rounded-md active:opacity-70"
+              style={{ color: t.textMuted, fontSize: 11, fontWeight: 600 }}
+            >
+              <Trash2 style={{ width: 11, height: 11 }} /> Delete
+            </button>
+          </div>
+          <div className="flex items-center gap-2 mb-1.5">
+            <StarRating value={myReview.rating} readOnly size={14} />
+            <span style={{ color: t.textMuted, fontSize: 11 }}>{timeAgo(myReview.createdAt)}</span>
+          </div>
+          {myReview.comment && (
+            <p style={{ color: t.textSec, fontSize: 13, lineHeight: 1.55 }}>{myReview.comment}</p>
+          )}
+        </div>
+      )}
+
+      {/* Other reviews */}
+      {otherReviews.length === 0 && !myReview && (
+        <div className="rounded-2xl px-4 py-4 flex items-center gap-3"
+          style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+          <MessageSquare style={{ width: 16, height: 16, color: t.emptyIcon }} />
+          <p style={{ color: t.textMuted, fontSize: 13 }}>No reviews yet — be the first to share your feedback.</p>
+        </div>
+      )}
+
+      {otherReviews.length > 0 && (
+        <div className="space-y-2.5">
+          {otherReviews.map(r => (
+            <div key={r.id} className="rounded-2xl px-4 py-3"
+              style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <span style={{ color: t.text, fontSize: 13, fontWeight: 700 }}>{r.authorName}</span>
+                <span style={{ color: t.textMuted, fontSize: 11 }}>{timeAgo(r.createdAt)}</span>
+              </div>
+              <div className="mb-1.5">
+                <StarRating value={r.rating} readOnly size={14} />
+              </div>
+              {r.comment && (
+                <p style={{ color: t.textSec, fontSize: 13, lineHeight: 1.55 }}>{r.comment}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── Company Detail Page ──────────────────────────────────────────────────────
 
 const CompanyDetailPage: React.FC<{
@@ -111,7 +371,7 @@ const CompanyDetailPage: React.FC<{
             className="flex items-center gap-1.5 mb-5 active:opacity-70 transition-opacity"
             style={{ color: 'rgba(255,255,255,0.72)' }}>
             <ArrowLeft style={{ width: 18, height: 18 }} />
-            <span style={{ fontSize: 13, fontWeight: 600 }}>Partners</span>
+            <span style={{ fontSize: 13, fontWeight: 600 }}>Sponsor Reviews</span>
           </button>
 
           <div className="flex items-start gap-4">
@@ -247,6 +507,9 @@ const CompanyDetailPage: React.FC<{
           </div>
         </div>
       )}
+
+      {/* Reviews */}
+      <SponsorReviewsSection companyId={data.companyId} companyName={data.name} />
 
       {/* Representatives */}
       <div className="px-5 mb-8">
@@ -443,14 +706,14 @@ export const SponsorsListPage: React.FC<SponsorsListPageProps> = ({ onBack }) =>
           <div className="flex items-center gap-2 mb-1">
             <Building2 style={{ width: 20, height: 20, color: 'rgba(255,255,255,0.7)' }} />
             <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-              Partners & Companies
+              Sponsor Reviews
             </span>
           </div>
           <h1 style={{ color: '#fff', fontSize: 24, fontWeight: 800, letterSpacing: '-0.03em', marginBottom: 2 }}>
             {eventConfig?.name ?? 'Event'}
           </h1>
           <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, marginBottom: 12 }}>
-            {loading ? '…' : `${companies.length} compan${companies.length !== 1 ? 'ies' : 'y'} attending`}
+            {loading ? '…' : `Rate and review the ${companies.length} sponsor${companies.length !== 1 ? 's' : ''} at this event`}
           </p>
 
           {/* Search */}
