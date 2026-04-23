@@ -144,6 +144,11 @@ const SponsorReviewsSection: React.FC<{ companyId: number; companyName: string }
   const [submitting, setSubmitting] = useState(false);
   const [justSubmitted, setJustSubmitted] = useState(false);
 
+  // Reviews are an attendee-only feature. Sponsor reps don't see this section
+  // (neither write nor read) so they can't view feedback about their own
+  // company through the attendee app.
+  const isSponsorRep = user?.role === 'sponsor';
+
   const myEmail = user?.email?.toLowerCase() ?? '';
 
   useEffect(() => {
@@ -154,6 +159,8 @@ const SponsorReviewsSection: React.FC<{ companyId: number; companyName: string }
     setComment(mine?.comment ?? '');
     setJustSubmitted(false);
   }, [companyId, myEmail]);
+
+  if (isSponsorRep) return null;
 
   const myReview = reviews.find(r => r.authorEmail.toLowerCase() === myEmail);
   const otherReviews = reviews.filter(r => r.authorEmail.toLowerCase() !== myEmail);
@@ -508,7 +515,7 @@ const CompanyDetailPage: React.FC<{
         </div>
       )}
 
-      {/* Reviews */}
+      {/* Reviews — attendees only */}
       <SponsorReviewsSection companyId={data.companyId} companyName={data.name} />
 
       {/* Representatives */}
