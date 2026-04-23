@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  ArrowLeft, Building2, Globe, ChevronRight,
+  ArrowLeft, Building2, Globe, ChevronRight, Users,
   Loader2, RefreshCw, Search, X,
   BadgeCheck, Star, MessageSquare, Send, Trash2,
   Download,
