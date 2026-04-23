@@ -84,6 +84,38 @@ function normalizeSession(raw: Record<string, unknown>): Session {
     });
   }
 
+  // Assigned audience — backend may use any of these field names depending on
+  // version. We normalize them all into a single typed array.
+  const rawAudience = (
+    Array.isArray(raw.assigned_audience) ? raw.assigned_audience :
+    Array.isArray(raw.assignedAudience)   ? raw.assignedAudience  :
+    Array.isArray(raw.audience)           ? raw.audience          :
+    Array.isArray(raw.assigned_users)     ? raw.assigned_users    :
+    Array.isArray(raw.attendees)          ? raw.attendees         :
+    []
+  ) as Record<string, unknown>[];
+
+  const assignedAudience = rawAudience
+    .map(a => {
+      // Some backends nest the user under `user` or `member`
+      const u = (a.user && typeof a.user === 'object' ? a.user as Record<string, unknown> : null)
+        ?? (a.member && typeof a.member === 'object' ? a.member as Record<string, unknown> : null)
+        ?? a;
+      const company = u.company;
+      return {
+        id: String(u.id ?? u.user_id ?? a.id ?? a.user_id ?? ''),
+        name: (u.name ?? u.full_name ?? u.display_name ?? '') as string,
+        avatar: (u.avatar ?? u.avatar_url ?? u.profile_image ?? u.photo ?? '') as string,
+        title: (u.title ?? u.job_title ?? '') as string,
+        company: typeof company === 'string'
+          ? company
+          : (company && typeof company === 'object'
+              ? String((company as Record<string, unknown>).name ?? '')
+              : (u.company_name ?? '') as string),
+      };
+    })
+    .filter(m => m.id && m.name);
+
   const startIso = (raw.start_time ?? raw.startTime ?? '') as string;
   const endIso   = (raw.end_time   ?? raw.endTime   ?? '') as string;
 
@@ -100,6 +132,7 @@ function normalizeSession(raw: Record<string, unknown>): Session {
     type:        (raw.type ?? raw.session_type ?? '') as string,
     tags:        Array.isArray(raw.tags) ? raw.tags as string[] : [],
     speakers,
+    assignedAudience,
     description: (raw.description ?? raw.summary ?? '') as string,
     pollId:      raw.poll_id   ? String(raw.poll_id)   : undefined,
     surveyId:    raw.survey_id ? String(raw.survey_id) : undefined,

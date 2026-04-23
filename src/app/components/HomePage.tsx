@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Gift, ChevronRight, Sparkles, Star, TrendingUp, Calendar,
-  MapPin, Trophy, Mic, Clock, Crown, ArrowRight,
+  MapPin, Trophy, Mic, Clock, Crown, ArrowRight, Users,
 } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
@@ -301,6 +301,37 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
                 <span style={{ color: t.textSec, fontSize: 11 }}>
                   {nextSession.speakers.map(s => s.name).slice(0, 2).join(', ')}
                   {nextSession.speakers.length > 2 ? ` +${nextSession.speakers.length - 2}` : ''}
+                </span>
+              </div>
+            )}
+            {nextSession.assignedAudience && nextSession.assignedAudience.length > 0 && (
+              <div className="flex items-center gap-2 mt-2.5 pt-2.5"
+                style={{ borderTop: `1px dashed ${t.divider}` }}>
+                <Users size={11} color={t.textMuted} />
+                <div className="flex -space-x-1.5">
+                  {nextSession.assignedAudience.slice(0, 4).map((m, i) => (
+                    <div key={m.id || i}
+                      title={m.name}
+                      className="w-6 h-6 rounded-full overflow-hidden border-2 flex-shrink-0"
+                      style={{ borderColor: t.surface, background: 'linear-gradient(135deg,#4f46e5,#7c3aed)' }}>
+                      {m.avatar ? (
+                        <img src={m.avatar} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-[9px] font-bold text-white">
+                          {m.name.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {nextSession.assignedAudience.length > 4 && (
+                    <div className="w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0"
+                      style={{ borderColor: t.surface, background: t.surface2, color: t.textSec, fontSize: 9, fontWeight: 700 }}>
+                      +{nextSession.assignedAudience.length - 4}
+                    </div>
+                  )}
+                </div>
+                <span style={{ color: t.textMuted, fontSize: 11 }}>
+                  {nextSession.assignedAudience.length} attending
                 </span>
               </div>
             )}

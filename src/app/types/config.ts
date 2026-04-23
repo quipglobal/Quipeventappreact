@@ -65,10 +65,19 @@ export interface Session {
   type: string;
   tags: string[];
   speakers: Speaker[];
+  assignedAudience?: SessionAudienceMember[];
   description: string;
   pollId?: string;
   surveyId?: string;
   isBookmarked?: boolean;
+}
+
+export interface SessionAudienceMember {
+  id: string;
+  name: string;
+  avatar: string;
+  title?: string;
+  company?: string;
 }
 
 export interface Speaker {

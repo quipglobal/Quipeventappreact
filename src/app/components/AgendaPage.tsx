@@ -258,6 +258,53 @@ export const AgendaPage: React.FC = () => {
                     </div>
                   )}
 
+                  {/* Assigned Audience */}
+                  {session.assignedAudience && session.assignedAudience.length > 0 && (
+                    <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${t.divider}` }}>
+                      <div className="flex items-center gap-1.5 mb-2">
+                        <Users style={{ width: 12, height: 12, color: t.textMuted }} />
+                        <span style={{ color: t.textMuted, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                          Audience
+                        </span>
+                        <span style={{ color: t.textSec, fontSize: 11, fontWeight: 600 }}>
+                          · {session.assignedAudience.length} assigned
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="flex -space-x-2">
+                          {session.assignedAudience.slice(0, 5).map((m, i) => (
+                            <div
+                              key={m.id || i}
+                              title={m.name}
+                              className="w-7 h-7 rounded-full overflow-hidden border-2 flex-shrink-0"
+                              style={{ borderColor: t.surface, background: 'linear-gradient(135deg,#4f46e5,#7c3aed)' }}
+                            >
+                              {m.avatar ? (
+                                <img src={m.avatar} alt={m.name} className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-white text-[10px] font-bold">
+                                  {m.name.charAt(0).toUpperCase()}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                          {session.assignedAudience.length > 5 && (
+                            <div
+                              className="w-7 h-7 rounded-full border-2 flex items-center justify-center flex-shrink-0"
+                              style={{ borderColor: t.surface, background: t.surface2, color: t.textSec, fontSize: 10, fontWeight: 700 }}
+                            >
+                              +{session.assignedAudience.length - 5}
+                            </div>
+                          )}
+                        </div>
+                        <span style={{ color: t.textSec, fontSize: 12 }} className="truncate">
+                          {session.assignedAudience.slice(0, 2).map(m => m.name).join(', ')}
+                          {session.assignedAudience.length > 2 ? ` +${session.assignedAudience.length - 2} more` : ''}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Track / Tags — only shown if they exist */}
                   {(session.track || session.tags.length > 0) && (
                     <div className="flex flex-wrap gap-2 mt-3">
