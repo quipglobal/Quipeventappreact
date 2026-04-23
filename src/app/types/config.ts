@@ -87,6 +87,7 @@ export interface Speaker {
   company: string;
   avatar: string;
   bio?: string;
+  role?: string;
 }
 
 export interface Sponsor {

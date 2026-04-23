@@ -235,25 +235,66 @@ export const AgendaPage: React.FC = () => {
                         </span>
                       </div>
                       <div className="flex flex-col gap-2">
-                        {session.speakers.map((spk, i) => (
-                          <div key={spk.id || i} className="flex items-center gap-2">
-                            {spk.avatar ? (
-                              <img src={spk.avatar} alt={spk.name} className="w-7 h-7 rounded-full flex-shrink-0 object-cover" />
-                            ) : (
-                              <div className="w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center bg-violet-600 text-white text-xs font-bold">
-                                {spk.name.charAt(0)}
-                              </div>
-                            )}
-                            <div>
-                              <p style={{ color: t.text, fontSize: 12, fontWeight: 600 }}>{spk.name}</p>
-                              {(spk.title || spk.company) && (
-                                <p style={{ color: t.textMuted, fontSize: 11 }}>
-                                  {[spk.title, spk.company].filter(Boolean).join(' · ')}
-                                </p>
+                        {session.speakers.map((spk, i) => {
+                          const displayName = spk.name?.trim() || spk.title?.trim() || 'Unnamed Speaker';
+                          const subtitle = spk.name?.trim()
+                            ? [spk.title, spk.company].filter(Boolean).join(' · ')
+                            : spk.company?.trim() || '';
+                          const isModerator = (spk.role || '').toLowerCase().includes('moderator');
+                          return (
+                            <div key={spk.id || i} className="flex items-center gap-2">
+                              {spk.avatar ? (
+                                <img src={spk.avatar} alt={displayName} className="w-7 h-7 rounded-full flex-shrink-0 object-cover" />
+                              ) : (
+                                <div className="w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center bg-violet-600 text-white text-xs font-bold">
+                                  {displayName.charAt(0).toUpperCase()}
+                                </div>
                               )}
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <p style={{ color: t.text, fontSize: 12, fontWeight: 600 }} className="truncate">
+                                    {displayName}
+                                  </p>
+                                  {isModerator && (
+                                    <span
+                                      className="px-1.5 py-0.5 rounded"
+                                      style={{
+                                        background: 'rgba(245,158,11,0.15)',
+                                        color: '#f59e0b',
+                                        fontSize: 9,
+                                        fontWeight: 700,
+                                        textTransform: 'uppercase',
+                                        letterSpacing: '0.05em',
+                                      }}
+                                    >
+                                      Moderator
+                                    </span>
+                                  )}
+                                  {!isModerator && spk.role && spk.role.toLowerCase() !== 'speaker' && (
+                                    <span
+                                      className="px-1.5 py-0.5 rounded"
+                                      style={{
+                                        background: t.accentBg,
+                                        color: t.accentSoft,
+                                        fontSize: 9,
+                                        fontWeight: 700,
+                                        textTransform: 'uppercase',
+                                        letterSpacing: '0.05em',
+                                      }}
+                                    >
+                                      {spk.role}
+                                    </span>
+                                  )}
+                                </div>
+                                {subtitle && (
+                                  <p style={{ color: t.textMuted, fontSize: 11 }} className="truncate">
+                                    {subtitle}
+                                  </p>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   )}

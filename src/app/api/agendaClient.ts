@@ -67,10 +67,11 @@ function normalizeSession(raw: Record<string, unknown>): Session {
   (rawSpeakers as Record<string, unknown>[]).forEach(s => {
     speakers.push({
       id: String(s.id ?? ''),
-      name: (s.name ?? s.speaker_name ?? '') as string,
-      title: (s.title ?? s.speaker_title ?? s.job_title ?? '') as string,
-      company: (s.company ?? s.speaker_company ?? '') as string,
-      avatar: (s.avatar ?? s.avatar_url ?? s.photo ?? '') as string,
+      name: (s.name ?? s.speaker_name ?? s.full_name ?? s.display_name ?? '') as string,
+      title: (s.title ?? s.speaker_title ?? s.job_title ?? s.designation ?? '') as string,
+      company: (s.company ?? s.speaker_company ?? s.company_name ?? s.organization ?? '') as string,
+      avatar: (s.avatar ?? s.avatar_url ?? s.photo ?? s.profile_image ?? '') as string,
+      role: (s.role ?? s.speaker_role ?? s.participation_role ?? s.session_role ?? s.type ?? '') as string,
     });
   });
 
@@ -81,8 +82,33 @@ function normalizeSession(raw: Record<string, unknown>): Session {
       title: (raw.speaker_title ?? '') as string,
       company: (raw.speaker_company ?? '') as string,
       avatar: (raw.speaker_avatar ?? '') as string,
+      role: (raw.speaker_role ?? '') as string,
     });
   }
+
+  // Some backends send moderators as a separate array. Merge them in with role="Moderator".
+  const rawModerators = Array.isArray(raw.moderators) ? raw.moderators :
+                        Array.isArray(raw.moderator) ? raw.moderator : [];
+  (rawModerators as Record<string, unknown>[]).forEach(m => {
+    const sp = (m && typeof m === 'object' ? m : {}) as Record<string, unknown>;
+    const u = (sp.user && typeof sp.user === 'object' ? sp.user as Record<string, unknown> : sp);
+    const id = String(u.id ?? sp.id ?? '');
+    if (!id) return;
+    if (speakers.some(x => x.id === id)) {
+      // Already in speakers list — just tag the role
+      const existing = speakers.find(x => x.id === id)!;
+      existing.role = existing.role || 'Moderator';
+      return;
+    }
+    speakers.push({
+      id,
+      name: (u.name ?? u.full_name ?? u.display_name ?? '') as string,
+      title: (u.title ?? u.job_title ?? u.designation ?? '') as string,
+      company: (u.company ?? u.company_name ?? u.organization ?? '') as string,
+      avatar: (u.avatar ?? u.avatar_url ?? u.photo ?? '') as string,
+      role: 'Moderator',
+    });
+  });
 
   // Assigned audience — backend may use any of these field names depending on
   // version. We normalize them all into a single typed array.
