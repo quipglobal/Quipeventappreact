@@ -13,6 +13,11 @@ import {
   getCompanyDetailApi,
   type Company,
 } from '@/app/api/companiesClient';
+import {
+  submitSponsorReviewApi,
+  getSponsorReviewsApi,
+  deleteMySponsorReviewApi,
+} from '@/app/api/sponsorReviewsClient';
 
 interface SponsorsListPageProps { onBack?: () => void; }
 
@@ -119,12 +124,15 @@ const StarRating: React.FC<{
 
 const SponsorReviewsSection: React.FC<{ companyId: number; companyName: string }> = ({ companyId, companyName }) => {
   const { t } = useTheme();
-  const { user } = useApp();
+  const { user, eventConfig } = useApp();
+  const eventId = eventConfig?.eventId ?? 0;
   const [reviews, setReviews] = useState<SponsorReview[]>([]);
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [justSubmitted, setJustSubmitted] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [pointsBanner, setPointsBanner] = useState<number | null>(null);
 
   // Reviews are an attendee-only feature. Sponsor reps don't see this section
   // (neither write nor read) so they can't view feedback about their own
@@ -133,14 +141,42 @@ const SponsorReviewsSection: React.FC<{ companyId: number; companyName: string }
 
   const myEmail = user?.email?.toLowerCase() ?? '';
 
+  // Load reviews. Backend is source of truth when available; localStorage acts
+  // as an offline cache so reviews survive a page reload while backend route
+  // is being built.
   useEffect(() => {
-    const loaded = loadReviews(companyId);
-    setReviews(loaded);
-    const mine = loaded.find(r => r.authorEmail.toLowerCase() === myEmail);
-    setRating(mine?.rating ?? 0);
-    setComment(mine?.comment ?? '');
+    let cancelled = false;
+    const cached = loadReviews(companyId);
+    setReviews(cached);
+    const mineCached = cached.find(r => r.authorEmail.toLowerCase() === myEmail);
+    setRating(mineCached?.rating ?? 0);
+    setComment(mineCached?.comment ?? '');
     setJustSubmitted(false);
-  }, [companyId, myEmail]);
+    setSubmitError(null);
+    setPointsBanner(null);
+
+    if (eventId && companyId) {
+      getSponsorReviewsApi(eventId, companyId).then(res => {
+        if (cancelled || !res.success || !res.data) return;
+        const fromServer: SponsorReview[] = res.data.reviews.map(r => ({
+          id: r.id,
+          authorName: r.authorName,
+          authorEmail: r.authorEmail,
+          rating: r.rating,
+          comment: r.comment,
+          createdAt: r.createdAt,
+        }));
+        setReviews(fromServer);
+        saveReviews(companyId, fromServer);
+        const mine = fromServer.find(r => r.authorEmail.toLowerCase() === myEmail);
+        if (mine) {
+          setRating(mine.rating);
+          setComment(mine.comment);
+        }
+      });
+    }
+    return () => { cancelled = true; };
+  }, [companyId, myEmail, eventId]);
 
   if (isSponsorRep) return null;
 
@@ -150,10 +186,13 @@ const SponsorReviewsSection: React.FC<{ companyId: number; companyName: string }
     ? reviews.reduce((s, r) => s + r.rating, 0) / reviews.length
     : 0;
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!rating || !user?.email) return;
     setSubmitting(true);
-    const newReview: SponsorReview = {
+    setSubmitError(null);
+    setPointsBanner(null);
+
+    const optimistic: SponsorReview = {
       id: `rev_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       authorName: user.name || user.email.split('@')[0],
       authorEmail: user.email,
@@ -161,20 +200,49 @@ const SponsorReviewsSection: React.FC<{ companyId: number; companyName: string }
       comment: comment.trim(),
       createdAt: Date.now(),
     };
-    const next = [newReview, ...reviews.filter(r => r.authorEmail.toLowerCase() !== myEmail)];
-    saveReviews(companyId, next);
-    setReviews(next);
-    setRating(0);
-    setComment('');
+    const optimisticList = [optimistic, ...reviews.filter(r => r.authorEmail.toLowerCase() !== myEmail)];
+    saveReviews(companyId, optimisticList);
+    setReviews(optimisticList);
+
+    if (eventId && companyId) {
+      const res = await submitSponsorReviewApi(eventId, companyId, {
+        rating: optimistic.rating,
+        comment: optimistic.comment,
+      });
+      if (res.success && res.data) {
+        const server: SponsorReview = {
+          id: res.data.id,
+          authorName: res.data.authorName || optimistic.authorName,
+          authorEmail: res.data.authorEmail || optimistic.authorEmail,
+          rating: res.data.rating,
+          comment: res.data.comment,
+          createdAt: res.data.createdAt,
+        };
+        const finalList = [server, ...reviews.filter(r => r.authorEmail.toLowerCase() !== myEmail)];
+        saveReviews(companyId, finalList);
+        setReviews(finalList);
+        if (typeof res.data.pointsAwarded === 'number' && res.data.pointsAwarded > 0) {
+          setPointsBanner(res.data.pointsAwarded);
+        }
+      } else if (res.error) {
+        setSubmitError(res.error.message);
+      }
+    }
+
     setSubmitting(false);
     setJustSubmitted(true);
     setTimeout(() => setJustSubmitted(false), 2400);
   };
 
-  const handleDeleteMine = () => {
+  const handleDeleteMine = async () => {
     const next = reviews.filter(r => r.authorEmail.toLowerCase() !== myEmail);
     saveReviews(companyId, next);
     setReviews(next);
+    setRating(0);
+    setComment('');
+    if (eventId && companyId) {
+      await deleteMySponsorReviewApi(eventId, companyId);
+    }
   };
 
   const handleDownloadCsv = () => {
@@ -271,9 +339,14 @@ const SponsorReviewsSection: React.FC<{ companyId: number; companyName: string }
               {myReview ? 'Update Review' : 'Submit Review'}
             </button>
           </div>
-          {justSubmitted && (
+          {justSubmitted && !submitError && (
             <p className="mt-2" style={{ color: '#10b981', fontSize: 12, fontWeight: 600 }}>
-              Thanks for your feedback!
+              Thanks for your feedback!{pointsBanner ? ` +${pointsBanner} pts` : ''}
+            </p>
+          )}
+          {submitError && (
+            <p className="mt-2" style={{ color: '#ef4444', fontSize: 12, fontWeight: 600 }}>
+              Saved locally — backend sync failed: {submitError}
             </p>
           )}
         </div>
