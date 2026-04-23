@@ -143,6 +143,13 @@ const mockLeads: Lead[] = [
  * POST /api/v1/events/:eventId/leads/scan
  * Submits a scanned QR badge payload to create a lead on the backend.
  */
+/**
+ * Session-scoped flag: once the backend confirms `/leads/scan` is not yet
+ * deployed (HTTP 404), we skip the round-trip on subsequent scans. The
+ * SponsorScannerPage already has a graceful audience-list fallback path.
+ */
+let scanEndpointMissing = false;
+
 export async function scanBadgeLead(
   eventId: string | number,
   payload: SaveLeadPayload,
@@ -165,6 +172,13 @@ export async function scanBadgeLead(
     return { success: true, data: newLead };
   }
 
+  if (scanEndpointMissing) {
+    return {
+      success: false,
+      error: { code: 'NOT_IMPLEMENTED', message: 'Scan endpoint not deployed.' },
+    };
+  }
+
   const res = await apiPost<Lead & {
     pointsAwarded?: number;
     points_awarded?: number;
@@ -180,6 +194,18 @@ export async function scanBadgeLead(
     HEADERS,
   );
   if (!res.success || !res.data) {
+    // If the backend hasn't deployed `/leads/scan` yet (404), remember that
+    // for the rest of the session so we don't keep round-tripping. Surface a
+    // distinct error code so callers can degrade gracefully (audience-list
+    // fallback + local-only save) instead of alerting the raw Laravel
+    // "route ... could not be found" message.
+    if (res.error?.code === '404') {
+      scanEndpointMissing = true;
+      return {
+        success: false,
+        error: { code: 'NOT_IMPLEMENTED', message: 'Scan endpoint not deployed.' },
+      };
+    }
     return { success: false, error: res.error ?? { code: 'SCAN_FAILED', message: 'Failed to save scanned lead.' } };
   }
   const raw = res.data as Lead & {

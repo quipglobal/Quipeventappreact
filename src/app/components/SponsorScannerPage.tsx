@@ -234,6 +234,29 @@ export const SponsorScannerPage: React.FC = () => {
 
     setIsSaving(false);
 
+    // If the backend `/leads/scan` endpoint isn't deployed yet, fall back to a
+    // local-only save so the sponsor still captures the lead. Don't surface
+    // the raw Laravel "route ... could not be found" message.
+    if (!res.success && res.error?.code === 'NOT_IMPLEMENTED') {
+      saveLead({
+        code: scannedData.code,
+        name: scannedData.name,
+        company: scannedData.company,
+        title: scannedData.title,
+        notes,
+        avatar: scannedData.avatar,
+        tags: selectedTags,
+        priority,
+      });
+      const pts =
+        (gamificationConfig?.pointActions as Record<string, number> | undefined)?.scanBadge ?? 25;
+      if (pts > 0) {
+        addPoints(pts, `Scanned ${scannedData.name}'s badge`);
+      }
+      resetScanner();
+      return;
+    }
+
     if (res.success && res.data) {
       saveLead({
         id: res.data.id,
