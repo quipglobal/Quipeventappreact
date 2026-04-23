@@ -65,13 +65,30 @@ function normalizeSession(raw: Record<string, unknown>): Session {
 
   const rawSpeakers = Array.isArray(raw.speakers) ? raw.speakers : [];
   (rawSpeakers as Record<string, unknown>[]).forEach(s => {
+    // Pivot rows commonly nest the actual user data under `user`/`member`/`profile`.
+    const u = (s.user && typeof s.user === 'object' ? s.user as Record<string, unknown> : null)
+      ?? (s.member && typeof s.member === 'object' ? s.member as Record<string, unknown> : null)
+      ?? (s.profile && typeof s.profile === 'object' ? s.profile as Record<string, unknown> : null)
+      ?? s;
+
+    const firstName = (u.first_name ?? u.firstName ?? '') as string;
+    const lastName  = (u.last_name  ?? u.lastName  ?? '') as string;
+    const composedName = `${firstName} ${lastName}`.trim();
+
+    const company = u.company;
+    const companyStr = typeof company === 'string'
+      ? company
+      : (company && typeof company === 'object'
+          ? String((company as Record<string, unknown>).name ?? '')
+          : (u.company_name ?? u.organization ?? s.speaker_company ?? '') as string);
+
     speakers.push({
-      id: String(s.id ?? ''),
-      name: (s.name ?? s.speaker_name ?? s.full_name ?? s.display_name ?? '') as string,
-      title: (s.title ?? s.speaker_title ?? s.job_title ?? s.designation ?? '') as string,
-      company: (s.company ?? s.speaker_company ?? s.company_name ?? s.organization ?? '') as string,
-      avatar: (s.avatar ?? s.avatar_url ?? s.photo ?? s.profile_image ?? '') as string,
-      role: (s.role ?? s.speaker_role ?? s.participation_role ?? s.session_role ?? s.type ?? '') as string,
+      id: String(u.id ?? s.id ?? s.user_id ?? ''),
+      name: (u.name ?? u.full_name ?? u.display_name ?? s.speaker_name ?? composedName ?? '') as string,
+      title: (u.title ?? u.job_title ?? u.designation ?? s.speaker_title ?? '') as string,
+      company: companyStr,
+      avatar: (u.avatar ?? u.avatar_url ?? u.photo ?? u.profile_image ?? '') as string,
+      role: (s.role ?? s.speaker_role ?? s.participation_role ?? s.session_role ?? s.type ?? u.role ?? '') as string,
     });
   });
 
@@ -127,17 +144,20 @@ function normalizeSession(raw: Record<string, unknown>): Session {
       const u = (a.user && typeof a.user === 'object' ? a.user as Record<string, unknown> : null)
         ?? (a.member && typeof a.member === 'object' ? a.member as Record<string, unknown> : null)
         ?? a;
+      const firstName = (u.first_name ?? u.firstName ?? '') as string;
+      const lastName  = (u.last_name  ?? u.lastName  ?? '') as string;
+      const composedName = `${firstName} ${lastName}`.trim();
       const company = u.company;
       return {
         id: String(u.id ?? u.user_id ?? a.id ?? a.user_id ?? ''),
-        name: (u.name ?? u.full_name ?? u.display_name ?? '') as string,
+        name: (u.name ?? u.full_name ?? u.display_name ?? composedName ?? '') as string,
         avatar: (u.avatar ?? u.avatar_url ?? u.profile_image ?? u.photo ?? '') as string,
-        title: (u.title ?? u.job_title ?? '') as string,
+        title: (u.title ?? u.job_title ?? u.designation ?? '') as string,
         company: typeof company === 'string'
           ? company
           : (company && typeof company === 'object'
               ? String((company as Record<string, unknown>).name ?? '')
-              : (u.company_name ?? '') as string),
+              : (u.company_name ?? u.organization ?? '') as string),
       };
     })
     .filter(m => m.id && m.name);
