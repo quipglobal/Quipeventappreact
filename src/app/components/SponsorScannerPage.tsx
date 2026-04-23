@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   QrCode, Type, Save, X, ScanLine, Building2,
-  Flame, ThermometerSun, Snowflake, CheckCircle2,
+  Flame, ThermometerSun, Snowflake, CheckCircle2, AlertTriangle,
 } from 'lucide-react';
 import { useTheme } from '@/app/context/ThemeContext';
 import { useApp } from '@/app/context/AppContext';
@@ -32,6 +32,8 @@ interface ScannedAttendee {
   isCheckedIn?: boolean;
   /** Lead id created by the backend at scan time, if any. */
   leadId?: string;
+  /** True when the badge code didn't match any event member. */
+  unrecognized?: boolean;
 }
 
 const avatarFor = (name: string, palette = '6b7280') =>
@@ -101,6 +103,7 @@ export const SponsorScannerPage: React.FC = () => {
           memberId: d.memberId,
           leadId: d.id,
           isCheckedIn: d.checkedIn === true ? true : undefined,
+          unrecognized: typeof d.memberId !== 'number',
         };
 
         // Auto check-in BEFORE save:
@@ -184,6 +187,7 @@ export const SponsorScannerPage: React.FC = () => {
           title: 'Event Attendee',
           company: '',
           avatar: avatarFor(trimmed),
+          unrecognized: true,
         });
       }
     } finally {
@@ -397,6 +401,20 @@ export const SponsorScannerPage: React.FC = () => {
                     </div>
                   )}
                 </div>
+                {scannedData.unrecognized && (
+                  <div className="mt-3 px-3 py-2 rounded-lg flex items-start gap-2"
+                    style={{ background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.35)' }}>
+                    <AlertTriangle style={{ width: 14, height: 14, color: '#f59e0b', marginTop: 1, flexShrink: 0 }} />
+                    <div>
+                      <p style={{ color: '#b45309', fontSize: 12, fontWeight: 700, lineHeight: 1.3 }}>
+                        Badge not recognized
+                      </p>
+                      <p style={{ color: t.textSec, fontSize: 11, marginTop: 2, lineHeight: 1.4 }}>
+                        This code didn't match anyone in the audience list. Saving as a manual entry — double-check the details before saving.
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="mb-4">
