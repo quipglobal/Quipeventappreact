@@ -49,11 +49,11 @@ export function BadgeCameraScanner({ onCodeDetected, busy }: Props) {
   const torchSupported = Platform.OS !== 'web';
 
   // Reset torch when leaving scan mode (manual entry / permission denied) so
-  // it never lingers on after the camera is hidden, and on unmount.
+  // it never lingers on after the camera is hidden. Unmount is handled by
+  // CameraView itself — tearing down the view releases the torch.
   useEffect(() => {
     if (mode !== 'scan') setTorchOn(false);
   }, [mode]);
-  useEffect(() => () => setTorchOn(false), []);
 
   // Reset the one-shot lock whenever the parent finishes processing a scan
   // so the next QR can be detected.
