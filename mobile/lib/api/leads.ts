@@ -4,6 +4,15 @@ import type { ApiResponse, Lead } from '@/lib/api/types';
 
 const ACCENT_COLORS = ['#7c3aed', '#06b6d4', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6'];
 
+// Session-scoped flag mirroring the web `scanEndpointMissing` pattern.
+// If the backend hasn't shipped the GET /events/:id/leads route yet, we set
+// this on the first 404 and stop pestering the server. We also throw from
+// listLeads() so React Query preserves whatever's already in cache (e.g. a
+// lead the user just scanned and we optimistically inserted) instead of
+// overwriting it with a `{success:false}` response.
+let leadsListEndpointMissing = false;
+let warnedListMissing = false;
+
 function normalizeLead(raw: any, index = 0): Lead {
   return {
     id: String(raw.id ?? raw.lead_id ?? raw.code ?? Date.now()),
@@ -37,8 +46,31 @@ export async function listLeads(): Promise<ApiResponse<Lead[]>> {
   const eventId = getEventId();
   if (__DEV__) console.log(`[Leads] listLeads eventId=${eventId}`);
   if (!eventId) return { success: true, data: [] };
+
+  // Backend hasn't shipped GET /events/:id/leads yet — short-circuit and
+  // throw so React Query's existing (optimistic) cache survives.
+  if (leadsListEndpointMissing) {
+    throw new Error('LEADS_LIST_NOT_IMPLEMENTED');
+  }
+
   const res = await request<any>(`/api/v1/events/${eventId}/leads`);
-  if (!res.success) return res as ApiResponse<Lead[]>;
+  if (!res.success) {
+    const msg = res.error?.message ?? '';
+    // Laravel returns "The route ... could not be found." on a missing route.
+    if (/could not be found|not found|404/i.test(msg)) {
+      leadsListEndpointMissing = true;
+      if (!warnedListMissing && __DEV__) {
+        warnedListMissing = true;
+        console.warn(
+          '[Leads] GET /events/:id/leads returned 404. Falling back to local-only ' +
+            'leads cache. Backend needs to register the leads index route to enable ' +
+            'cross-device sync.',
+        );
+      }
+      throw new Error('LEADS_LIST_NOT_IMPLEMENTED');
+    }
+    return res as ApiResponse<Lead[]>;
+  }
   const raw: any[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
   return { success: true, data: raw.map((r, i) => normalizeLead(r, i)) };
 }

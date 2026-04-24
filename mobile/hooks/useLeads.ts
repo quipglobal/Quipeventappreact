@@ -7,8 +7,14 @@ export function useLeads() {
   return useQuery({
     queryKey: ['leads'],
     queryFn: listLeads,
-    select: (res) => res.data ?? [],
+    select: (res) => res?.data ?? [],
     staleTime: 1000 * 30,
+    // Don't retry — if the server returns 4xx (e.g. the leads-list route
+    // isn't registered yet), retrying just spams the backend. listLeads()
+    // already detects the missing-route case and throws so React Query
+    // preserves the prior cache (which contains optimistically-inserted
+    // leads from useSubmitScan).
+    retry: false,
   });
 }
 
