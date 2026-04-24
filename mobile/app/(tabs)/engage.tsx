@@ -95,8 +95,17 @@ function ScannerView({ onBack, onScanSuccess }: { onBack: () => void; onScanSucc
     try {
       const res = await submitScanAsync({ badgeData: code });
       if (res.success && res.data) {
-        // Mirror the web app: scan = lookup + auto check-in + points award.
-        addPoints(25, `Scanned ${res.data.name || 'attendee'}'s badge`);
+        const name = res.data.name || 'attendee';
+        // Use the server-awarded points (0 on duplicate scans means no
+        // double-credit and no toast). Don't fall back to a hardcoded
+        // number — the backend is the source of truth.
+        const pts = typeof res.data.pointsAwarded === 'number' ? res.data.pointsAwarded : 0;
+        if (pts > 0) {
+          addPoints(pts, `Scanned ${name}'s badge`);
+        }
+        // Confirm the lead actually saved (this is what the user reported
+        // missing — the lead landing in the Leads tab + event report).
+        showToast(`Saved ${name} to your leads`);
         onScanSuccess();
       } else {
         const msg = res.error?.message || 'We couldn\u2019t recognize that badge. Please try again.';

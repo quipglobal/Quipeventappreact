@@ -6,17 +6,31 @@ const ACCENT_COLORS = ['#7c3aed', '#06b6d4', '#10b981', '#f59e0b', '#ec4899', '#
 
 function normalizeLead(raw: any, index = 0): Lead {
   return {
-    id: String(raw.id),
+    id: String(raw.id ?? raw.lead_id ?? raw.code ?? Date.now()),
     name: raw.name ?? raw.full_name ?? '',
     title: raw.title ?? raw.job_title ?? raw.position ?? '',
     company: raw.company ?? raw.organization ?? '',
     email: raw.email ?? '',
-    scannedAt: raw.scanned_at ?? raw.created_at
-      ? new Date(raw.scanned_at ?? raw.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+    scannedAt: raw.scanned_at ?? raw.created_at ?? raw.timestamp
+      ? new Date(raw.scanned_at ?? raw.created_at ?? raw.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
       : new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
     color: raw.color ?? ACCENT_COLORS[index % ACCENT_COLORS.length],
-    status: raw.status ?? 'warm',
+    status: raw.status ?? raw.priority ?? 'warm',
   };
+}
+
+/**
+ * Extra fields we surface from the scan response so the caller can:
+ *  - award the actual server-side points (`pointsAwarded`)
+ *  - tell the user whether the attendee was auto checked-in (`checkedIn`)
+ *  - decide if a fallback `/members/:id/check-in` call is needed
+ *    (`isCheckedIn`, `memberId`)
+ */
+export interface ScanResultExtras {
+  pointsAwarded?: number;
+  checkedIn?: boolean;
+  isCheckedIn?: boolean;
+  memberId?: number;
 }
 
 export async function listLeads(): Promise<ApiResponse<Lead[]>> {
@@ -38,19 +52,50 @@ export interface ScanPayload {
   eventId?: string;
 }
 
-export async function submitScan(payload: ScanPayload): Promise<ApiResponse<Lead>> {
+export async function submitScan(
+  payload: ScanPayload,
+): Promise<ApiResponse<Lead & ScanResultExtras>> {
   const eventId = getEventId();
   if (__DEV__) console.log(`[Leads] submitScan eventId=${eventId} payload=`, payload);
   if (!eventId) return { success: false, error: { code: 'NO_EVENT', message: 'No active event' } };
-  const res = await request<any>(`/api/v1/events/${eventId}/scan`, {
+  // Match the web client + Task #11 backend contract: POST to
+  // /api/v1/events/:eventId/leads/scan with `{ code }`. The backend resolves
+  // the attendee, auto check-ins, persists the lead row, and returns
+  // `pointsAwarded` (0 on duplicate scans) so the report tabs see all scans.
+  const res = await request<any>(`/api/v1/events/${eventId}/leads/scan`, {
     method: 'POST',
     body: JSON.stringify({
-      badge_code: payload.badgeData,
-      user_id: payload.attendeeId,
+      code: payload.badgeData,
+      // Optional client hints — server prefers its own canonical resolution.
+      name: payload.name,
+      company: payload.company,
+      title: payload.title,
     }),
   });
-  if (!res.success || !res.data) return res as ApiResponse<Lead>;
-  return { success: true, data: normalizeLead(res.data) };
+  if (!res.success || !res.data) return res as ApiResponse<Lead & ScanResultExtras>;
+
+  const raw = res.data as any;
+  const lead = normalizeLead(raw);
+
+  const pointsAwarded =
+    typeof raw.pointsAwarded === 'number' ? raw.pointsAwarded :
+    typeof raw.points_awarded === 'number' ? raw.points_awarded :
+    undefined;
+  const checkedIn =
+    typeof raw.checkedIn === 'boolean' ? raw.checkedIn :
+    typeof raw.checked_in === 'boolean' ? raw.checked_in :
+    undefined;
+  const isCheckedIn =
+    typeof raw.isCheckedIn === 'boolean' ? raw.isCheckedIn :
+    typeof raw.is_checked_in === 'boolean' ? raw.is_checked_in :
+    checkedIn === true ? true :
+    undefined;
+  const memberId =
+    typeof raw.memberId === 'number' ? raw.memberId :
+    typeof raw.member_id === 'number' ? raw.member_id :
+    undefined;
+
+  return { success: true, data: { ...lead, pointsAwarded, checkedIn, isCheckedIn, memberId } };
 }
 
 export async function updateLeadStatus(leadId: string, status: Lead['status']): Promise<ApiResponse<Lead>> {
