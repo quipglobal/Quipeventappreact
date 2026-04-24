@@ -1,5 +1,6 @@
 import { request } from '@/lib/apiClient';
 import { getEventId } from '@/lib/eventStore';
+import { findMemberByBadgeCode, checkInMember } from '@/lib/api/audience';
 import type { ApiResponse, Lead } from '@/lib/api/types';
 
 const ACCENT_COLORS = ['#7c3aed', '#06b6d4', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6'];
@@ -84,12 +85,35 @@ export interface ScanPayload {
   eventId?: string;
 }
 
+/**
+ * Heuristic: was this server error a "badge code didn't match any attendee"
+ * rejection (vs. a generic 500, auth issue, etc)? When true, we fall back to
+ * a client-side audience scan so case-sensitivity, whitespace, or a backend
+ * lookup quirk don't strand the sponsor.
+ */
+function isAttendeeNotFoundError(err?: { code?: string; message?: string }): boolean {
+  if (!err) return false;
+  const msg = (err.message ?? '').toLowerCase();
+  return (
+    err.code === 'ATTENDEE_NOT_FOUND' ||
+    err.code === 'NOT_FOUND' ||
+    msg.includes('no attendee') ||
+    msg.includes('not in audience') ||
+    (msg.includes('badge') && msg.includes('not'))
+  );
+}
+
 export async function submitScan(
   payload: ScanPayload,
 ): Promise<ApiResponse<Lead & ScanResultExtras>> {
   const eventId = getEventId();
   if (__DEV__) console.log(`[Leads] submitScan eventId=${eventId} payload=`, payload);
   if (!eventId) return { success: false, error: { code: 'NO_EVENT', message: 'No active event' } };
+  const code = (payload.badgeData ?? '').trim();
+  if (!code) {
+    return { success: false, error: { code: 'INVALID_CODE', message: 'Empty badge code.' } };
+  }
+
   // Match the web client + Task #11 backend contract: POST to
   // /api/v1/events/:eventId/leads/scan with `{ code }`. The backend resolves
   // the attendee, auto check-ins, persists the lead row, and returns
@@ -97,37 +121,80 @@ export async function submitScan(
   const res = await request<any>(`/api/v1/events/${eventId}/leads/scan`, {
     method: 'POST',
     body: JSON.stringify({
-      code: payload.badgeData,
+      code,
       // Optional client hints — server prefers its own canonical resolution.
       name: payload.name,
       company: payload.company,
       title: payload.title,
     }),
   });
-  if (!res.success || !res.data) return res as ApiResponse<Lead & ScanResultExtras>;
 
-  const raw = res.data as any;
-  const lead = normalizeLead(raw);
+  if (res.success && res.data) {
+    const raw = res.data as any;
+    const lead = normalizeLead(raw);
+    const pointsAwarded =
+      typeof raw.pointsAwarded === 'number' ? raw.pointsAwarded :
+      typeof raw.points_awarded === 'number' ? raw.points_awarded :
+      undefined;
+    const checkedIn =
+      typeof raw.checkedIn === 'boolean' ? raw.checkedIn :
+      typeof raw.checked_in === 'boolean' ? raw.checked_in :
+      undefined;
+    const isCheckedIn =
+      typeof raw.isCheckedIn === 'boolean' ? raw.isCheckedIn :
+      typeof raw.is_checked_in === 'boolean' ? raw.is_checked_in :
+      checkedIn === true ? true :
+      undefined;
+    const memberId =
+      typeof raw.memberId === 'number' ? raw.memberId :
+      typeof raw.member_id === 'number' ? raw.member_id :
+      undefined;
+    return { success: true, data: { ...lead, pointsAwarded, checkedIn, isCheckedIn, memberId } };
+  }
 
-  const pointsAwarded =
-    typeof raw.pointsAwarded === 'number' ? raw.pointsAwarded :
-    typeof raw.points_awarded === 'number' ? raw.points_awarded :
-    undefined;
-  const checkedIn =
-    typeof raw.checkedIn === 'boolean' ? raw.checkedIn :
-    typeof raw.checked_in === 'boolean' ? raw.checked_in :
-    undefined;
-  const isCheckedIn =
-    typeof raw.isCheckedIn === 'boolean' ? raw.isCheckedIn :
-    typeof raw.is_checked_in === 'boolean' ? raw.is_checked_in :
-    checkedIn === true ? true :
-    undefined;
-  const memberId =
-    typeof raw.memberId === 'number' ? raw.memberId :
-    typeof raw.member_id === 'number' ? raw.member_id :
-    undefined;
+  // Server rejected the badge code. If it's the specific "no attendee found"
+  // case, fall back to a client-side audience scan (case-insensitive). This
+  // mirrors web's findMemberByBadgeCodeApi safety net so a sponsor still
+  // captures the lead even when the backend lookup is overly strict.
+  if (isAttendeeNotFoundError(res.error)) {
+    if (__DEV__) console.log(`[Leads] submitScan fallback: scanning audience for code=${code}`);
+    const member = await findMemberByBadgeCode(eventId, code);
+    if (member) {
+      // Best-effort auto check-in (mirrors web behaviour).
+      let didCheckIn = false;
+      if (member.memberId && !member.isCheckedIn) {
+        didCheckIn = await checkInMember(eventId, member.memberId);
+      }
+      const lead = normalizeLead({
+        id: member.memberId ?? member.userId ?? code,
+        name: member.name,
+        title: member.title,
+        company: member.company,
+        email: member.email,
+      });
+      return {
+        success: true,
+        data: {
+          ...lead,
+          pointsAwarded: 0, // server didn't award; we don't double-credit
+          checkedIn: didCheckIn || member.isCheckedIn,
+          isCheckedIn: didCheckIn || member.isCheckedIn,
+          memberId: member.memberId ?? undefined,
+        },
+      };
+    }
+    // Truly not in the audience for this event — clearer message than the
+    // raw backend "No attendee found for this badge code".
+    return {
+      success: false,
+      error: {
+        code: 'ATTENDEE_NOT_IN_AUDIENCE',
+        message: `Badge "${code}" isn't in this event's audience. Ask the organizer to add the attendee, then try again.`,
+      },
+    };
+  }
 
-  return { success: true, data: { ...lead, pointsAwarded, checkedIn, isCheckedIn, memberId } };
+  return res as ApiResponse<Lead & ScanResultExtras>;
 }
 
 export async function updateLeadStatus(leadId: string, status: Lead['status']): Promise<ApiResponse<Lead>> {
