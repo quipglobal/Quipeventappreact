@@ -153,12 +153,14 @@ export interface Lead {
   color: string;
   status: 'hot' | 'warm' | 'cold';
   notes?: string;
-  /** Original badge code from the scan — needed when retrying sync to
-   *  the backend after a local-only save. */
+  /** Original badge code captured at scan time. Used as a secondary dedupe
+   *  key when reconciling locally-saved (`pendingSync: true`) leads with the
+   *  backend so a server-confirmed lead replaces its local twin instead of
+   *  duplicating it. */
   code?: string;
-  /** True when the lead was captured locally (audience-list fallback or
-   *  /leads/scan rejection) and hasn't been persisted to the server yet.
-   *  The Leads UI shows a "Saved on this device" indicator when set. */
+  /** True when this lead was saved client-side only because the backend
+   *  rejected /leads/scan. Cleared when reconciliation succeeds and we swap
+   *  the synthetic id for the canonical server id. */
   pendingSync?: boolean;
 }
 

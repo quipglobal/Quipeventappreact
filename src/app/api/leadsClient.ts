@@ -150,6 +150,17 @@ const mockLeads: Lead[] = [
  */
 let scanEndpointMissing = false;
 
+/**
+ * Clear the session-scoped "scan endpoint is missing" short-circuit. Call
+ * this when there's evidence the backend may have come online since the
+ * flag was set (e.g. a successful `GET /leads` round-trip), so subsequent
+ * reconciliation pushes actually hit the network instead of being silently
+ * dropped.
+ */
+export function resetScanEndpointMissing(): void {
+  scanEndpointMissing = false;
+}
+
 export async function scanBadgeLead(
   eventId: string | number,
   payload: SaveLeadPayload,

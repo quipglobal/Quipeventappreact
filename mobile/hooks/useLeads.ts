@@ -1,33 +1,47 @@
+import { useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { listLeads, submitScan, updateLeadStatus, triggerLuckyDraw } from '@/lib/api/leads';
+import { listLeads, submitScan, updateLeadStatus, triggerLuckyDraw, reconcilePendingLead } from '@/lib/api/leads';
 import type { ScanPayload } from '@/lib/api/leads';
 import type { ApiResponse, Lead } from '@/lib/api/types';
 
+/**
+ * Merge a fresh server list with the existing cached leads, deduping by id
+ * primarily and by badge `code` (case-insensitive) or `email` as secondary
+ * keys. This ensures a server-side lead replaces its local twin (which used
+ * a synthetic id from the audience-fallback path) instead of appearing
+ * twice. Local-only leads are kept at the front of the list.
+ */
+function mergeLeads(serverLeads: Lead[], cachedLeads: Lead[]): Lead[] {
+  const serverIds = new Set(serverLeads.map(l => l.id));
+  const serverCodes = new Set(
+    serverLeads.map(l => l.code?.toLowerCase()).filter((c): c is string => !!c),
+  );
+  const serverEmails = new Set(
+    serverLeads.map(l => l.email?.toLowerCase()).filter((c): c is string => !!c),
+  );
+  const localOnly = cachedLeads.filter(l => {
+    if (serverIds.has(l.id)) return false;
+    if (l.code && serverCodes.has(l.code.toLowerCase())) return false;
+    if (l.email && serverEmails.has(l.email.toLowerCase())) return false;
+    return true;
+  });
+  return [...localOnly, ...serverLeads];
+}
+
 export function useLeads() {
   const queryClient = useQueryClient();
-  return useQuery({
+  const reconciledIdsRef = useRef<Set<string>>(new Set());
+
+  const query = useQuery({
     queryKey: ['leads'],
-    // Wrap listLeads so we can preserve any locally-saved leads that
-    // are still flagged `pendingSync` — the server list won't include
-    // them yet, so naively replacing the cache would erase the offline
-    // indicator before the user retries the upload.
     queryFn: async () => {
-      const prev = queryClient.getQueryData<ApiResponse<Lead[]>>(['leads']);
-      const prevPending = (prev?.data ?? []).filter((l) => l.pendingSync === true);
       const res = await listLeads();
       if (!res.success || !res.data) return res;
-      const serverIds = new Set(res.data.map((l) => l.id));
-      // Also dedupe by badge code when present: if the server has already
-      // reconciled the same attendee under a different id (e.g. a retry
-      // succeeded on another device), drop the local pending row instead
-      // of letting both linger.
-      const serverCodes = new Set(
-        res.data.map((l) => l.code).filter((c): c is string => Boolean(c)),
-      );
-      const preservedPending = prevPending.filter(
-        (l) => !serverIds.has(l.id) && !(l.code && serverCodes.has(l.code)),
-      );
-      return { success: true, data: [...preservedPending, ...res.data] };
+      // Merge with whatever's currently cached so optimistic / pendingSync
+      // rows aren't blown away on a successful refetch.
+      const cached = queryClient.getQueryData<ApiResponse<Lead[]>>(['leads']);
+      const cachedLeads = cached?.data ?? [];
+      return { success: true, data: mergeLeads(res.data, cachedLeads) };
     },
     select: (res) => res?.data ?? [],
     staleTime: 1000 * 30,
@@ -38,6 +52,87 @@ export function useLeads() {
     // leads from useSubmitScan).
     retry: false,
   });
+
+  // Once the list endpoint actually returns data, push any locally-saved
+  // (pendingSync) leads that haven't been reconciled yet. On success, swap
+  // the synthetic id for the canonical server id and clear `pendingSync`.
+  // We track per-id so we don't keep re-pushing a lead the server still
+  // can't accept (the entry is left in the cache as pending and retried on
+  // the next mount / event switch).
+  useEffect(() => {
+    if (!query.isSuccess) return;
+    const data = query.data ?? [];
+    const pending = data.filter(
+      l => l.pendingSync && !reconciledIdsRef.current.has(l.id),
+    );
+    if (pending.length === 0) return;
+    let cancelled = false;
+
+    // Mark in-flight up front to prevent re-entry during the awaits below.
+    pending.forEach(l => reconciledIdsRef.current.add(l.id));
+
+    void (async () => {
+      const reconciled = await Promise.all(
+        pending.map(async (local) => {
+          try {
+            const server = await reconcilePendingLead(local);
+            return { local, server };
+          } catch {
+            return { local, server: null };
+          }
+        }),
+      );
+      if (cancelled) return;
+
+      const successes = reconciled.filter(r => r.server) as { local: Lead; server: Lead }[];
+      // Failed pushes: un-mark so the next pass retries them.
+      reconciled
+        .filter(r => !r.server)
+        .forEach(r => reconciledIdsRef.current.delete(r.local.id));
+
+      if (successes.length === 0) return;
+
+      queryClient.setQueryData<ApiResponse<Lead[]>>(['leads'], (prev) => {
+        const existing = prev?.data ?? [];
+        const successByLocalId = new Map(
+          successes.map(s => [s.local.id, s.server]),
+        );
+        // Replace the pending row in-place with the canonical server one,
+        // preserving locally-edited notes/status if the server returned
+        // empty defaults.
+        const next = existing.map(l => {
+          const server = successByLocalId.get(l.id);
+          if (!server) return l;
+          return {
+            ...server,
+            notes: l.notes || server.notes,
+            status: l.status ?? server.status,
+            color: l.color ?? server.color,
+            pendingSync: false,
+          };
+        });
+        // Drop any duplicates that might have crept in (e.g. the server id
+        // was already in the list because a parallel refetch landed first).
+        const seen = new Set<string>();
+        const deduped: Lead[] = [];
+        for (const l of next) {
+          if (seen.has(l.id)) continue;
+          seen.add(l.id);
+          deduped.push(l);
+        }
+        return { success: true, data: deduped };
+      });
+
+      // Refetch to pull any server-side changes (timestamps, etc) after
+      // the reconciliation. The custom queryFn merges with the cache so
+      // our just-confirmed leads stay put.
+      queryClient.invalidateQueries({ queryKey: ['leads'] });
+    })();
+
+    return () => { cancelled = true; };
+  }, [query.isSuccess, query.data, queryClient]);
+
+  return query;
 }
 
 export function useSubmitScan() {
@@ -52,7 +147,21 @@ export function useSubmitScan() {
         const newLead = res.data;
         queryClient.setQueryData<ApiResponse<Lead[]>>(['leads'], (prev) => {
           const existing = prev?.data ?? [];
-          const dedup = existing.filter((l) => l.id !== newLead.id);
+          // Primary dedupe by id.
+          let dedup = existing.filter((l) => l.id !== newLead.id);
+          // Secondary dedupe: if a local-only (pendingSync) twin shares the
+          // same code/email, drop it — the new lead is its server-confirmed
+          // (or freshly-resolved) version.
+          const code = newLead.code?.toLowerCase();
+          const email = newLead.email?.toLowerCase();
+          if (code || email) {
+            dedup = dedup.filter((l) => {
+              if (!l.pendingSync) return true;
+              if (code && l.code && l.code.toLowerCase() === code) return false;
+              if (email && l.email && l.email.toLowerCase() === email) return false;
+              return true;
+            });
+          }
           return { success: true, data: [newLead, ...dedup] };
         });
       }

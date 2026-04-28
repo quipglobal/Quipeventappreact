@@ -307,9 +307,12 @@ export const SponsorScannerPage: React.FC = () => {
     // Backend rejected the save (route missing, duplicate, server error,
     // etc). The user's notes are still valuable — persist locally so the
     // lead lands in "My Leads" instead of vanishing. This mirrors the
-    // mobile audience-fallback behaviour. Mark `pendingSync: true` so
-    // the My Leads UI shows a "Saved on this device" indicator and a
-    // Retry-sync action.
+    // mobile audience-fallback behaviour.
+    //
+    // Mark as `pendingSync: true` so the LeadsPage reconciliation step can
+    // push it to the backend the next time the leads-list endpoint succeeds
+    // (or the user navigates back to the list). Until then, the UI can show
+    // a "syncing" indicator on the row.
     saveLead({
       code: scannedData.code,
       name: scannedData.name,

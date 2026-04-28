@@ -26,7 +26,9 @@ function normalizeLead(raw: any, index = 0): Lead {
       : new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
     color: raw.color ?? ACCENT_COLORS[index % ACCENT_COLORS.length],
     status: raw.status ?? raw.priority ?? 'warm',
-    code: raw.code ?? undefined,
+    // Preserve the original badge code on the Lead so the reconciliation
+    // flow can dedupe local-only leads against the server's view by code.
+    code: raw.code ?? raw.badge_code ?? undefined,
     pendingSync: raw.pendingSync === true ? true : undefined,
   };
 }
@@ -173,10 +175,14 @@ export async function submitScan(
         title: member.title,
         company: member.company,
         email: member.email,
+        code,
       });
       return {
         success: true,
         data: {
+          // Mark as pending so the reconciliation step in useLeads can push
+          // it back to /leads/scan once the leads-list endpoint is reachable
+          // and dedupe it with the server's canonical row.
           ...lead,
           // Preserve the badge code so the UI can later retry the
           // /leads/scan POST without making the user re-scan.
@@ -204,6 +210,34 @@ export async function submitScan(
   }
 
   return res as ApiResponse<Lead & ScanResultExtras>;
+}
+
+/**
+ * Pushes a single locally-saved (pendingSync) lead to the backend now that
+ * the leads-list endpoint is reachable. On success, returns the canonical
+ * server-side Lead so the caller can swap the synthetic id for the server
+ * id and clear `pendingSync`. On any failure (or when the server can still
+ * not resolve the badge), returns null so the caller leaves the lead
+ * pending and tries again next time.
+ */
+export async function reconcilePendingLead(local: Lead): Promise<Lead | null> {
+  if (!local.pendingSync) return null;
+  // Need a badge code to resubmit; if we don't have one we can't reconcile.
+  const code = local.code ?? '';
+  if (!code) return null;
+  const res = await submitScan({
+    badgeData: code,
+    name: local.name,
+    company: local.company,
+    title: local.title,
+  });
+  if (!res.success || !res.data) return null;
+  // Re-using submitScan means a fallback that hit the audience-list path
+  // again will return another `pendingSync: true` lead — don't treat that
+  // as a successful reconciliation, otherwise we'd churn the cache without
+  // making progress.
+  if (res.data.pendingSync) return null;
+  return res.data;
 }
 
 export async function updateLeadStatus(leadId: string, status: Lead['status']): Promise<ApiResponse<Lead>> {

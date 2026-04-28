@@ -47,12 +47,14 @@ export interface Lead {
   avatar?: string;
   tags: string[];
   priority: 'hot' | 'warm' | 'cold';
-  /** True when the lead was saved locally because the backend
-   *  /leads/scan call failed. The lead is captured on this device but
-   *  hasn't been synced to the server — switching devices or clearing
-   *  storage will lose it. The UI shows a "Saved on this device"
-   *  indicator and a Retry-sync action when this is set. */
+  /** True when this lead was saved client-side only (the backend rejected the
+   *  /leads/scan call) and still needs to be reconciled with the server.
+   *  Cleared once the server confirms the lead and we replace the synthetic
+   *  id with the canonical server id. */
   pendingSync?: boolean;
+  /** Optional email captured at scan time — used as a secondary dedupe key
+   *  alongside `code` when reconciling local-only leads with the backend. */
+  email?: string;
 }
 
 interface PointEvent {
@@ -129,10 +131,10 @@ interface AppContextType extends AppState {
   completeChallenge: (challengeId: string, skipPoints?: boolean) => void;
   saveLead: (lead: Omit<Lead, 'id' | 'timestamp'> & { id?: string }, options?: { silent?: boolean }) => void;
   updateLead: (id: string, updates: Partial<Pick<Lead, 'notes' | 'tags' | 'priority'>>) => void;
-  /** Clear the `pendingSync` flag once a previously offline-only lead
-   *  has been successfully posted to the backend. Optionally swaps the
-   *  local synthetic id for the canonical server id. */
-  markLeadSynced: (localId: string, serverId?: string) => void;
+  /** Replace a local-only lead (matched by `oldId`) with the canonical
+   *  server-side lead now that the backend has accepted it. Clears
+   *  `pendingSync` and substitutes the synthetic id with the server id. */
+  replaceLead: (oldId: string, newLead: Lead) => void;
   showToast: (message: string, points?: number) => void;
   updateTier: () => void;
   switchEvent: (config: EventConfig) => void;
@@ -388,6 +390,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         next[existing] = { ...prev[existing], ...newLead };
         return next;
       }
+      // Secondary dedupe: if there's a local-only (`pendingSync`) lead with
+      // the same badge code (or email), this incoming lead is the
+      // server-confirmed twin — replace the pending row in-place so the user
+      // doesn't see a duplicate. We swap the id and clear `pendingSync` by
+      // dropping the old entry entirely and inserting the new one at the
+      // same index to preserve list ordering.
+      const code = newLead.code?.toLowerCase();
+      const email = newLead.email?.toLowerCase();
+      const pendingTwinIdx = prev.findIndex(l =>
+        l.pendingSync && (
+          (code && l.code && l.code.toLowerCase() === code) ||
+          (email && l.email && l.email.toLowerCase() === email)
+        )
+      );
+      if (pendingTwinIdx !== -1) {
+        const next = [...prev];
+        next[pendingTwinIdx] = {
+          ...prev[pendingTwinIdx],
+          ...newLead,
+          // Explicitly clear the pending flag now that the server confirmed it.
+          pendingSync: false,
+        };
+        return next;
+      }
       return [newLead, ...prev];
     });
     if (!options?.silent) {
@@ -400,41 +426,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast('Lead updated successfully');
   };
 
-  const markLeadSynced = (localId: string, serverId?: string) => {
+  const replaceLead = (oldId: string, newLead: Lead) => {
     setLeads(prev => {
-      const targetId = serverId ?? localId;
-      // Cache the local row once outside the loop so dedupe stays O(n)
-      // even when the canonical server id already exists in prev.
-      const localRow = prev.find(l => l.id === localId);
-      // Build the synced lead first so we can safely replace + dedupe in
-      // a single pass. If the server id already exists locally (rare:
-      // e.g. a parallel scan reconciled the same attendee), drop the
-      // duplicate copy rather than ending up with two entries with the
-      // same id (which would violate React's key uniqueness assumption).
-      const seen = new Set<string>();
-      const next: Lead[] = [];
-      for (const lead of prev) {
-        if (lead.id === localId) {
-          const merged = { ...lead, id: targetId, pendingSync: false };
-          if (!seen.has(merged.id)) {
-            seen.add(merged.id);
-            next.push(merged);
-          }
-        } else if (lead.id === targetId) {
-          // Spread the local row first so the canonical server row's
-          // fields take precedence — fields the server owns (e.g.
-          // authoritative timestamps, scores) should win over the
-          // older local snapshot in this rare duplicate-id case.
-          const merged = { ...(localRow ?? {}), ...lead, id: targetId, pendingSync: false };
-          if (!seen.has(merged.id)) {
-            seen.add(merged.id);
-            next.push(merged);
-          }
-        } else if (!seen.has(lead.id)) {
-          seen.add(lead.id);
-          next.push(lead);
-        }
+      const idx = prev.findIndex(l => l.id === oldId);
+      if (idx === -1) {
+        // Old lead is gone (already reconciled or removed) — only add if the
+        // new lead isn't already in the list under its server id.
+        if (prev.some(l => l.id === newLead.id)) return prev;
+        return [{ ...newLead, pendingSync: false }, ...prev];
       }
+      // Drop any other lead that already lives under the server id (rare,
+      // but possible if a parallel sync raced ahead) so we don't duplicate.
+      const filtered = prev.filter((l, i) => i === idx || l.id !== newLead.id);
+      const replaceIdx = filtered.findIndex(l => l.id === oldId);
+      const next = [...filtered];
+      next[replaceIdx] = { ...filtered[replaceIdx], ...newLead, pendingSync: false };
       return next;
     });
   };
@@ -573,7 +579,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         completeChallenge,
         saveLead,
         updateLead,
-        markLeadSynced,
+        replaceLead,
         showToast,
         updateTier,
         switchEvent,

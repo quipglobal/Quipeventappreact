@@ -9,7 +9,12 @@ import {
 import { useApp, Lead } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import { motion, AnimatePresence } from 'motion/react';
-import { listLeads, updateLeadApi, scanBadgeLead } from '@/app/api/leadsClient';
+import {
+  listLeads,
+  updateLeadApi,
+  scanBadgeLead,
+  resetScanEndpointMissing,
+} from '@/app/api/leadsClient';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -320,40 +325,168 @@ interface LeadsPageProps {
 }
 
 export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, onNavigateToDraw }) => {
-  const { leads: contextLeads, updateLead, markLeadSynced, showToast, user, eventConfig } = useApp();
+  const { leads: contextLeads, updateLead, replaceLead, showToast, user, eventConfig } = useApp();
   const { t, isDark } = useTheme();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterPriority, setFilterPriority] = useState<Priority | 'all'>('all');
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [apiLeads, setApiLeads] = useState<Lead[] | null>(null);
+  const [reconciling, setReconciling] = useState(false);
+
+  // Reconcile any local-only (`pendingSync: true`) leads with the backend
+  // once the leads-list endpoint is reachable. The flow is:
+  //
+  //   1. Fetch GET /leads. A successful response is our signal that the
+  //      backend's leads routes are deployed for this session, so we also
+  //      reset the session-scoped `/leads/scan` 404 short-circuit (it may
+  //      have tripped earlier in the same session before the rollout).
+  //   2. Push each pending lead via /leads/scan. On success the server
+  //      returns the canonical lead row, and we swap our synthetic id for
+  //      the server id (clearing `pendingSync`).
+  //   3. Re-fetch GET /leads so the freshly-confirmed leads land in
+  //      `apiLeads` under their server ids. Any pending lead that was
+  //      already on the server is deduped via the secondary code/email key
+  //      in the merge below.
+  //
+  // We keep a guard ref so we only reconcile each pending lead once per
+  // page mount even if `contextLeads` changes (e.g. a fresh scan adds a
+  // new pending row mid-reconcile — that one will be picked up on the
+  // next mount or by a subsequent fetch). The ref is reset whenever the
+  // active event changes so leads from one event don't suppress
+  // reconciliation in another.
+  const reconciledIdsRef = React.useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    listLeads(eventConfig?.eventId ?? '0').then(res => {
-      if (res.success && res.data) {
-        setApiLeads(res.data);
+    let cancelled = false;
+    const eventId = eventConfig?.eventId ?? '0';
+
+    // Reset per-event reconciliation history when the event changes so a
+    // pending lead created under event A isn't accidentally treated as
+    // "already attempted" under event B.
+    reconciledIdsRef.current = new Set();
+
+    const run = async () => {
+      // 1. Initial list fetch — proves the backend is reachable and gives us
+      //    the canonical view to merge against.
+      const initial = await listLeads(eventId);
+      if (cancelled) return;
+      if (initial.success && initial.data) {
+        setApiLeads(initial.data);
+        // The list endpoint is live; if `/leads/scan` was previously marked
+        // as missing earlier in this session (e.g. backend rolled out the
+        // routes after the user opened the app), allow reconciliation to
+        // actually hit the network on retry.
+        resetScanEndpointMissing();
       }
-    });
+
+      // 2. Snapshot pending leads at this point — only attempt reconciliation
+      //    if the list fetch succeeded, so we don't push leads that the
+      //    server still can't accept (avoids hammering when offline).
+      if (!initial.success) return;
+
+      const pending = contextLeads.filter(
+        l => l.pendingSync && !reconciledIdsRef.current.has(l.id),
+      );
+      if (pending.length === 0) return;
+
+      setReconciling(true);
+      // Mark them as in-flight immediately so a fast re-render doesn't
+      // re-queue the same lead.
+      pending.forEach(l => reconciledIdsRef.current.add(l.id));
+
+      const pushed = await Promise.all(
+        pending.map(async lead => {
+          const res = await scanBadgeLead(eventId, {
+            code: lead.code,
+            name: lead.name,
+            company: lead.company,
+            title: lead.title,
+            notes: lead.notes,
+            avatar: lead.avatar,
+            tags: lead.tags,
+            priority: lead.priority,
+          });
+          if (res.success && res.data?.id) {
+            return { lead, server: res.data };
+          }
+          return { lead, server: null as null };
+        }),
+      );
+      if (cancelled) return;
+
+      let anyPushed = false;
+      for (const { lead, server } of pushed) {
+        if (server) {
+          // Swap synthetic id → server id and clear pendingSync.
+          // Preserve any locally-edited notes/tags/priority over the
+          // (likely empty) server echo, since the user typed those.
+          replaceLead(lead.id, {
+            ...server,
+            notes: lead.notes || server.notes || '',
+            tags: lead.tags?.length ? lead.tags : (server.tags ?? []),
+            priority: lead.priority ?? server.priority ?? 'warm',
+            timestamp: server.timestamp ?? lead.timestamp ?? new Date(),
+          });
+          anyPushed = true;
+        } else {
+          // Leave it pending — un-mark so a future reconciliation pass
+          // (e.g. event switch, page remount) will retry.
+          reconciledIdsRef.current.delete(lead.id);
+        }
+      }
+      setReconciling(false);
+
+      // 3. Re-fetch the list so freshly-pushed leads come back with their
+      //    canonical server-side state (timestamps, etc).
+      if (anyPushed) {
+        const refreshed = await listLeads(eventId);
+        if (cancelled) return;
+        if (refreshed.success && refreshed.data) {
+          setApiLeads(refreshed.data);
+        }
+      }
+    };
+
+    void run();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventConfig?.eventId]);
 
-  // If API returned leads, use those + context leads for newly scanned ones;
-  // otherwise fall back to context leads only
+  // Merge API leads with context leads. Dedup primarily by id, secondarily
+  // by badge code (case-insensitive) or email — so a server-side lead that
+  // was created from a previously local-only scan replaces its local twin
+  // instead of appearing twice. Local-only leads (pending sync, or scanned
+  // since the last fetch) are preserved at the top.
   const allLeads = useMemo(() => {
     if (apiLeads !== null) {
       const apiIds = new Set(apiLeads.map(l => l.id));
-      // Also dedupe by badge code so if the server already reconciled
-      // the same attendee under a different id, the local context row
-      // doesn't show as a stale pending duplicate alongside it.
+      // Dedupe local-only rows that the server has already reconciled
+      // under a different id. Match on id first, then badge code
+      // (case-insensitive), then email (case-insensitive) — so a stale
+      // pending local twin doesn't render alongside its server
+      // counterpart.
       const apiCodes = new Set(
-        apiLeads.map(l => l.code).filter((c): c is string => Boolean(c)),
+        apiLeads.map(l => l.code?.toLowerCase()).filter((c): c is string => !!c),
       );
-      const newlyScanned = contextLeads.filter(
-        l => !apiIds.has(l.id) && !(l.code && apiCodes.has(l.code)),
+      const apiEmails = new Set(
+        apiLeads.map(l => l.email?.toLowerCase()).filter((c): c is string => !!c),
       );
-      return [...newlyScanned, ...apiLeads];
+      const localOnly = contextLeads.filter(l => {
+        if (apiIds.has(l.id)) return false;
+        if (l.code && apiCodes.has(l.code.toLowerCase())) return false;
+        if (l.email && apiEmails.has(l.email.toLowerCase())) return false;
+        return true;
+      });
+      return [...localOnly, ...apiLeads];
     }
     return [...contextLeads];
   }, [apiLeads, contextLeads]);
+
+  const pendingCount = useMemo(
+    () => allLeads.filter(l => l.pendingSync).length,
+    [allLeads],
+  );
 
   // Filter
   const filteredLeads = useMemo(() => {
@@ -422,25 +555,28 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
       // returned a canonical Lead row. scanBadgeLead returns
       // `success: false` for the missing-endpoint and generic-failure
       // paths, so a `success: true` with a server-assigned id is a
-      // strong signal the row was persisted. We additionally swap the
-      // local synthetic id for the canonical one when they differ.
-      const rawServerId = res.success && res.data?.id ? String(res.data.id) : '';
-      if (rawServerId) {
-        const serverId = rawServerId !== lead.id ? rawServerId : undefined;
-        markLeadSynced(lead.id, serverId);
+      // strong signal the row was persisted. Swap the local synthetic
+      // id for the canonical server row, preserving any locally-edited
+      // notes / tags / priority over the (likely empty) server echo.
+      if (res.success && res.data?.id) {
+        const canonical: Lead = {
+          ...res.data,
+          notes: lead.notes || res.data.notes || '',
+          tags: lead.tags?.length ? lead.tags : (res.data.tags ?? []),
+          priority: lead.priority ?? res.data.priority ?? 'warm',
+          timestamp: res.data.timestamp ?? lead.timestamp ?? new Date(),
+        };
+        replaceLead(lead.id, canonical);
         // Also fold the canonical server row into the API-leads cache so
         // any server-side fields (e.g. authoritative timestamps, points)
         // replace the locally-saved snapshot. Drop both the old local id
         // and the new server id from the cache before inserting to avoid
         // duplicates if either was already present.
-        if (res.data) {
-          const canonical = res.data;
-          setApiLeads(prev => {
-            const base = prev ?? [];
-            const filtered = base.filter(l => l.id !== lead.id && l.id !== canonical.id);
-            return [canonical, ...filtered];
-          });
-        }
+        setApiLeads(prev => {
+          const base = prev ?? [];
+          const filtered = base.filter(l => l.id !== lead.id && l.id !== canonical.id);
+          return [canonical, ...filtered];
+        });
         showToast(`Synced ${lead.name} to the server`);
       } else {
         showToast('Still couldn\u2019t sync. Saved on this device for now.');
@@ -500,13 +636,36 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
           </div>
 
               {/* Stats */}
-              <div className="flex items-center gap-2.5 mt-4 mb-4">
+              <div className="flex items-center gap-2.5 mt-4 mb-4 flex-wrap">
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg"
                   style={{ background: 'rgba(255,255,255,0.12)' }}>
                   <Users style={{ width: 13, height: 13, color: '#fff' }} />
                   <span style={{ color: '#fff', fontSize: 13, fontWeight: 700 }}>{allLeads.length}</span>
                   <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11 }}>total</span>
                 </div>
+                {(reconciling || pendingCount > 0) && (
+                  <div
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg"
+                    style={{ background: 'rgba(245,158,11,0.18)', border: '1px solid rgba(245,158,11,0.35)' }}
+                    title={
+                      reconciling
+                        ? 'Syncing leads with the server…'
+                        : `${pendingCount} lead${pendingCount === 1 ? '' : 's'} saved offline — waiting for the server to accept them`
+                    }
+                  >
+                    <RefreshCw
+                      style={{
+                        width: 12,
+                        height: 12,
+                        color: '#fbbf24',
+                        animation: reconciling ? 'spin 1.2s linear infinite' : undefined,
+                      }}
+                    />
+                    <span style={{ color: '#fbbf24', fontSize: 12, fontWeight: 700 }}>
+                      {reconciling ? 'Syncing…' : `${pendingCount} pending`}
+                    </span>
+                  </div>
+                )}
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg"
                   style={{ background: 'rgba(239,68,68,0.15)' }}>
                   <Flame style={{ width: 12, height: 12, color: '#f87171' }} />
@@ -648,6 +807,21 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5">
                     <h3 className="truncate" style={{ color: t.text, fontSize: 14, fontWeight: 700 }}>{lead.name}</h3>
+                    {lead.pendingSync && (
+                      <span
+                        className="flex items-center gap-1 px-1.5 py-0.5 rounded-md flex-shrink-0"
+                        style={{
+                          background: 'rgba(245,158,11,0.12)',
+                          border: '1px solid rgba(245,158,11,0.35)',
+                        }}
+                        title="Saved locally — will sync to the server when the leads endpoint is reachable"
+                      >
+                        <CloudOff style={{ width: 9, height: 9, color: '#b45309' }} />
+                        <span style={{ color: '#b45309', fontSize: 9, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                          Sync
+                        </span>
+                      </span>
+                    )}
                   </div>
                   <p className="truncate" style={{ color: t.textSec, fontSize: 12, marginBottom: 2 }}>{lead.title}</p>
                   <div className="flex items-center gap-2">
