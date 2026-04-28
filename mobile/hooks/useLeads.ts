@@ -1,8 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { listLeads, submitScan, updateLeadStatus, triggerLuckyDraw, reconcilePendingLead } from '@/lib/api/leads';
 import type { ScanPayload } from '@/lib/api/leads';
 import type { ApiResponse, Lead } from '@/lib/api/types';
+import { loadCachedLeads, saveCachedLeads } from '@/lib/leadsStorage';
 
 /**
  * Merge a fresh server list with the existing cached leads, deduping by id
@@ -32,6 +33,48 @@ export function useLeads() {
   const queryClient = useQueryClient();
   const reconciledIdsRef = useRef<Set<string>>(new Set());
 
+  // Hydrate the React Query cache from AsyncStorage on first mount so any
+  // offline-saved (pendingSync) leads survive an app restart. We gate the
+  // server fetch on hydration completing — otherwise listLeads() could
+  // return + populate the cache before the persisted rows are loaded, and
+  // the merge in queryFn would never see the persisted local-only entries.
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void loadCachedLeads().then((cached) => {
+      if (cancelled) return;
+      if (cached.length > 0) {
+        const existing = queryClient.getQueryData<ApiResponse<Lead[]>>(['leads']);
+        // Only seed the cache if it's empty — if another code path
+        // (e.g. an optimistic submitScan) already populated it during
+        // this session, don't overwrite that fresher data.
+        if (!existing?.data || existing.data.length === 0) {
+          queryClient.setQueryData<ApiResponse<Lead[]>>(['leads'], {
+            success: true,
+            data: cached,
+          });
+        }
+      }
+      setHydrated(true);
+    });
+    return () => { cancelled = true; };
+  }, [queryClient]);
+
+  // Persist any subsequent change to the leads cache (optimistic inserts,
+  // server merges, status updates, reconciliation) back to AsyncStorage.
+  // Subscribing to the query cache lets us cover every code path that
+  // mutates the entry without having to wire persistence into each call
+  // site individually.
+  useEffect(() => {
+    const cache = queryClient.getQueryCache();
+    const unsubscribe = cache.subscribe((event) => {
+      if (event?.query.queryKey?.[0] !== 'leads') return;
+      const data = queryClient.getQueryData<ApiResponse<Lead[]>>(['leads']);
+      void saveCachedLeads(data?.data ?? []);
+    });
+    return unsubscribe;
+  }, [queryClient]);
+
   const query = useQuery({
     queryKey: ['leads'],
     queryFn: async () => {
@@ -45,6 +88,9 @@ export function useLeads() {
     },
     select: (res) => res?.data ?? [],
     staleTime: 1000 * 30,
+    // Wait for the AsyncStorage hydration to complete before hitting the
+    // server, so the queryFn merge sees any persisted local-only leads.
+    enabled: hydrated,
     // Don't retry — if the server returns 4xx (e.g. the leads-list route
     // isn't registered yet), retrying just spams the backend. listLeads()
     // already detects the missing-route case and throws so React Query

@@ -6,6 +6,7 @@ import { clearToken } from '@/app/api/client';
 import { sendMeetingRequest as sendMeetingRequestApi } from '@/app/api/meetingsClient';
 import { fetchPointsFromBackend, scheduleSyncPoints } from '@/app/api/pointsClient';
 import { getMyEventRoleApi } from '@/app/api/audienceClient';
+import { loadLeadsFromStorage, saveLeadsToStorage } from '@/app/lib/leadsStorage';
 
 interface User {
   id: string;
@@ -229,7 +230,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [bookmarkedSessions, setBookmarkedSessions] = useState<string[]>([]);
   const [completedChallenges, setCompletedChallenges] = useState<string[]>([]);
   const [pointsHistory, setPointsHistory] = useState<PointEvent[]>([]);
-  const [leads, setLeads] = useState<Lead[]>([]);
+  // Hydrate leads from localStorage synchronously on first render so any
+  // offline-saved (pendingSync) leads survive a page reload — without this
+  // the in-memory state would start empty and the pending notes/scans would
+  // be lost. The reconciliation effect in LeadsPage will then push any
+  // pending rows up to the backend on the next mount.
+  const [leads, setLeads] = useState<Lead[]>(() => loadLeadsFromStorage());
   const [sponsorGiveaways, setSponsorGiveaways] = useState<SponsorGiveaway[]>([]);
   const [hasJoinedEvent, setHasJoinedEvent] = useState(false);
   const [toast, setToast] = useState<{ message: string; points?: number } | null>(null);
@@ -237,6 +243,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [connectionRequests, setConnectionRequests] = useState<ConnectionRequest[]>([]);
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
+
+  // Persist leads to localStorage on every change so anything captured —
+  // especially `pendingSync: true` rows that haven't reached the backend
+  // yet — survives a tab close / page reload. Reads are cheap (a single
+  // JSON.stringify of a small array), so no debouncing needed.
+  useEffect(() => {
+    saveLeadsToStorage(leads);
+  }, [leads]);
 
   useEffect(() => {
     getMeApi().then(async res => {
