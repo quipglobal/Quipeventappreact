@@ -1,8 +1,8 @@
-import { useQuery } from '@tanstack/react-query';
+import { useAuthedQuery } from '@/hooks/useAuthedQuery';
 import { listAttendees, getLeaderboard } from '@/lib/api/users';
 
 export function useAudience(filters?: { tier?: string; search?: string }) {
-  return useQuery({
+  return useAuthedQuery({
     queryKey: ['attendees', filters],
     queryFn: () => listAttendees(filters),
     select: (res) => res.data ?? [],
@@ -11,7 +11,7 @@ export function useAudience(filters?: { tier?: string; search?: string }) {
 }
 
 export function useLeaderboard() {
-  return useQuery({
+  return useAuthedQuery({
     queryKey: ['leaderboard'],
     queryFn: getLeaderboard,
     select: (res) => res.data ?? [],

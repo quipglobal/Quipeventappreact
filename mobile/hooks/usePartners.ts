@@ -1,9 +1,9 @@
-import { useQuery } from '@tanstack/react-query';
+import { useAuthedQuery } from '@/hooks/useAuthedQuery';
 import { listSponsors, getSponsor } from '@/lib/api/sponsors';
 import type { Sponsor } from '@/lib/api/types';
 
 export function usePartners(tier?: Sponsor['tier']) {
-  return useQuery({
+  return useAuthedQuery({
     queryKey: ['sponsors', tier],
     queryFn: () => listSponsors(tier),
     select: (res) => res.data ?? [],
@@ -12,7 +12,7 @@ export function usePartners(tier?: Sponsor['tier']) {
 }
 
 export function useSponsor(id: string) {
-  return useQuery({
+  return useAuthedQuery({
     queryKey: ['sponsor', id],
     queryFn: () => getSponsor(id),
     select: (res) => res.data,

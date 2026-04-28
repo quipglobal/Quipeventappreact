@@ -1,4 +1,5 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAuthedQuery } from '@/hooks/useAuthedQuery';
 import {
   listChallenges, completeChallenge as apiCompleteChallenge,
   listPolls, votePoll,
@@ -7,7 +8,7 @@ import {
 } from '@/lib/api/engage';
 
 export function useChallenges() {
-  return useQuery({
+  return useAuthedQuery({
     queryKey: ['challenges'],
     queryFn: listChallenges,
     select: (res) => res.data ?? [],
@@ -27,7 +28,7 @@ export function useCompleteChallenge() {
 }
 
 export function usePolls() {
-  return useQuery({
+  return useAuthedQuery({
     queryKey: ['polls'],
     queryFn: listPolls,
     select: (res) => res.data ?? [],
@@ -48,7 +49,7 @@ export function useVotePoll() {
 }
 
 export function useSurveys() {
-  return useQuery({
+  return useAuthedQuery({
     queryKey: ['surveys'],
     queryFn: listSurveys,
     select: (res) => res.data ?? [],
@@ -69,7 +70,7 @@ export function useSubmitSurvey() {
 }
 
 export function useGiveaways() {
-  return useQuery({
+  return useAuthedQuery({
     queryKey: ['giveaways'],
     queryFn: listGiveaways,
     select: (res) => res.data ?? [],

@@ -1,8 +1,9 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAuthedQuery } from '@/hooks/useAuthedQuery';
 import { listSessions, getSession, bookmarkSession } from '@/lib/api/events';
 
 export function useAgenda(filters?: { day?: number; track?: string }) {
-  return useQuery({
+  return useAuthedQuery({
     queryKey: ['sessions', filters],
     queryFn: () => listSessions(filters),
     select: (res) => res.data ?? [],
@@ -11,7 +12,7 @@ export function useAgenda(filters?: { day?: number; track?: string }) {
 }
 
 export function useSession(id: string) {
-  return useQuery({
+  return useAuthedQuery({
     queryKey: ['session', id],
     queryFn: () => getSession(id),
     select: (res) => res.data,

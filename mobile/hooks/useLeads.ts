@@ -114,9 +114,15 @@ export function useLeads() {
     },
     select: (res) => res?.data ?? [],
     staleTime: 1000 * 30,
-    // Wait for the AsyncStorage hydration to complete (and for a user
-    // to be signed in) before hitting the server, so the queryFn merge
-    // sees any persisted local-only leads.
+    // Justified inline gate (instead of `useAuthedQuery`): we need to
+    // wait for the AsyncStorage hydration to complete in addition to
+    // requiring a signed-in user, so the queryFn merge sees any
+    // persisted local-only leads. `!!userId` is strictly stronger than
+    // `useAuthedQuery`'s `!!token && !!user?.id` check (`userId` only
+    // exists when `user.id` does), so this also satisfies the
+    // signed-in-only invariant the wrapper enforces — which means a
+    // sign-out cannot leave this query running, same as if it had been
+    // migrated to `useAuthedQuery`.
     enabled: !!userId && hydratedForUserId === userId,
     // Don't retry — if the server returns 4xx (e.g. the leads-list route
     // isn't registered yet), retrying just spams the backend. listLeads()

@@ -1,11 +1,12 @@
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useMutation } from '@tanstack/react-query';
+import { useAuthedQuery } from '@/hooks/useAuthedQuery';
 import { listEventsByTenant, findEventByCode } from '@/lib/api/events';
 import { getUserPoints } from '@/lib/api/users';
 
 const TENANT_ID = '3';
 
 export function useEvents() {
-  return useQuery({
+  return useAuthedQuery({
     queryKey: ['events', TENANT_ID],
     queryFn: async () => {
       const res = await listEventsByTenant(TENANT_ID);
@@ -31,7 +32,7 @@ export function useJoinEvent() {
 }
 
 export function useUserPoints() {
-  return useQuery({
+  return useAuthedQuery({
     queryKey: ['userPoints'],
     queryFn: getUserPoints,
     select: (res) => res.data,
