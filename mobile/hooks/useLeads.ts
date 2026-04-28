@@ -17,7 +17,16 @@ export function useLeads() {
       const res = await listLeads();
       if (!res.success || !res.data) return res;
       const serverIds = new Set(res.data.map((l) => l.id));
-      const preservedPending = prevPending.filter((l) => !serverIds.has(l.id));
+      // Also dedupe by badge code when present: if the server has already
+      // reconciled the same attendee under a different id (e.g. a retry
+      // succeeded on another device), drop the local pending row instead
+      // of letting both linger.
+      const serverCodes = new Set(
+        res.data.map((l) => l.code).filter((c): c is string => Boolean(c)),
+      );
+      const preservedPending = prevPending.filter(
+        (l) => !serverIds.has(l.id) && !(l.code && serverCodes.has(l.code)),
+      );
       return { success: true, data: [...preservedPending, ...res.data] };
     },
     select: (res) => res?.data ?? [],

@@ -341,7 +341,15 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
   const allLeads = useMemo(() => {
     if (apiLeads !== null) {
       const apiIds = new Set(apiLeads.map(l => l.id));
-      const newlyScanned = contextLeads.filter(l => !apiIds.has(l.id));
+      // Also dedupe by badge code so if the server already reconciled
+      // the same attendee under a different id, the local context row
+      // doesn't show as a stale pending duplicate alongside it.
+      const apiCodes = new Set(
+        apiLeads.map(l => l.code).filter((c): c is string => Boolean(c)),
+      );
+      const newlyScanned = contextLeads.filter(
+        l => !apiIds.has(l.id) && !(l.code && apiCodes.has(l.code)),
+      );
       return [...newlyScanned, ...apiLeads];
     }
     return [...contextLeads];
