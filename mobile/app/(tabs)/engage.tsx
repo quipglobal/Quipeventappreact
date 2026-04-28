@@ -140,7 +140,7 @@ function LeadsView({ leads, onBack }: { leads: Lead[]; onBack: () => void }) {
               <View style={styles.pendingSyncBar}>
                 <Ionicons name="cloud-offline-outline" size={14} color="#d97706" />
                 <Text style={styles.pendingSyncText}>
-                  Saved on this device — not synced
+                  Saved on this device — not synced to server
                 </Text>
                 <TouchableOpacity
                   onPress={() => handleRetry(l)}
