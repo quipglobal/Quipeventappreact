@@ -6,7 +6,7 @@ import { clearToken } from '@/app/api/client';
 import { sendMeetingRequest as sendMeetingRequestApi } from '@/app/api/meetingsClient';
 import { fetchPointsFromBackend, scheduleSyncPoints } from '@/app/api/pointsClient';
 import { getMyEventRoleApi } from '@/app/api/audienceClient';
-import { loadLeadsFromStorage, saveLeadsToStorage } from '@/app/lib/leadsStorage';
+import { loadLeadsFromStorage, saveLeadsToStorage, clearLeadsStorage } from '@/app/lib/leadsStorage';
 
 interface User {
   id: string;
@@ -230,12 +230,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [bookmarkedSessions, setBookmarkedSessions] = useState<string[]>([]);
   const [completedChallenges, setCompletedChallenges] = useState<string[]>([]);
   const [pointsHistory, setPointsHistory] = useState<PointEvent[]>([]);
-  // Hydrate leads from localStorage synchronously on first render so any
-  // offline-saved (pendingSync) leads survive a page reload — without this
-  // the in-memory state would start empty and the pending notes/scans would
-  // be lost. The reconciliation effect in LeadsPage will then push any
-  // pending rows up to the backend on the next mount.
-  const [leads, setLeads] = useState<Lead[]>(() => loadLeadsFromStorage());
+  // Leads start empty; a user-scoped hydration effect below pulls any
+  // persisted offline leads from localStorage once the current user is
+  // known, so a different user on the same device never sees the prior
+  // user's leads.
+  const [leads, setLeads] = useState<Lead[]>([]);
   const [sponsorGiveaways, setSponsorGiveaways] = useState<SponsorGiveaway[]>([]);
   const [hasJoinedEvent, setHasJoinedEvent] = useState(false);
   const [toast, setToast] = useState<{ message: string; points?: number } | null>(null);
@@ -244,13 +243,49 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
 
-  // Persist leads to localStorage on every change so anything captured —
-  // especially `pendingSync: true` rows that haven't reached the backend
-  // yet — survives a tab close / page reload. Reads are cheap (a single
-  // JSON.stringify of a small array), so no debouncing needed.
+  // Tracks which user id (if any) the current `leads` array was last
+  // hydrated for. State (not a ref) so the persistence effect below can
+  // depend on it and avoid clobbering a freshly-loaded array with the
+  // pre-hydration empty default on the same render.
+  const [hydratedForUserId, setHydratedForUserId] = useState<string | null>(null);
+
+  // Hydrate the user's persisted leads as soon as the current user is
+  // known. Storage keys are namespaced by user id, so no other user's
+  // leads can leak in here. On user change (logout → null, or account
+  // switch) we also wipe the prior user's persisted slot so a different
+  // user inspecting the same device can't recover those rows in-app.
   useEffect(() => {
-    saveLeadsToStorage(leads);
-  }, [leads]);
+    const uid = user?.id ?? null;
+    if (hydratedForUserId === uid) return;
+    if (hydratedForUserId) {
+      // Transitioning away from a known user (logout or account switch):
+      // explicitly clear their persisted leads. Trade-off: if the same
+      // user logs back in, any unsynced leads are gone — but logout is a
+      // strong signal of intent to wipe local state, and the alternative
+      // (keeping the storage around) violates our cross-account isolation
+      // guarantee.
+      clearLeadsStorage(hydratedForUserId);
+    }
+    if (!uid) {
+      setLeads([]);
+      setHydratedForUserId(null);
+      return;
+    }
+    setLeads(loadLeadsFromStorage(uid));
+    setHydratedForUserId(uid);
+  }, [user?.id, hydratedForUserId]);
+
+  // Persist leads to localStorage (under the current user's namespaced
+  // key) on every change so anything captured — especially
+  // `pendingSync: true` rows that haven't reached the backend yet —
+  // survives a tab close / page reload. Skips the write until hydration
+  // has actually completed for this user so we don't overwrite the
+  // freshly-loaded array with the pre-hydration empty default on the
+  // same render.
+  useEffect(() => {
+    if (!user?.id || hydratedForUserId !== user.id) return;
+    saveLeadsToStorage(user.id, leads);
+  }, [leads, user?.id, hydratedForUserId]);
 
   useEffect(() => {
     getMeApi().then(async res => {

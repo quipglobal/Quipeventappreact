@@ -17,7 +17,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
 import { useChallenges, useCompleteChallenge, usePolls, useVotePoll, useSurveys, useSubmitSurvey, useGiveaways, useEnterGiveaway } from '@/hooks/useEngage';
 import { useLeaderboard } from '@/hooks/useAudience';
-import { useLeads, useLuckyDraw, useSubmitScan } from '@/hooks/useLeads';
+import { useLeads, useLuckyDraw, useSubmitScan, leadsQueryKey } from '@/hooks/useLeads';
 import { DataState } from '@/components/DataState';
 import { BadgeCameraScanner } from '@/components/BadgeCameraScanner';
 import { colors, spacing, radius } from '@/constants/theme';
@@ -53,7 +53,7 @@ function BadgeScanPanel({ onScanPress }: { onScanPress: () => void }) {
 function LeadsView({ leads, onBack }: { leads: Lead[]; onBack: () => void }) {
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
-  const { showToast } = useAuth();
+  const { showToast, user } = useAuth();
   // Track which leads are currently being retried so we can disable the
   // retry button and show a spinner without re-rendering the whole list.
   const [retryingIds, setRetryingIds] = useState<Set<string>>(new Set());
@@ -82,14 +82,15 @@ function LeadsView({ leads, onBack }: { leads: Lead[]; onBack: () => void }) {
         // both ids, since the server-assigned id likely differs) with the
         // canonical row, then trigger a refetch to reconcile.
         const newLead = res.data;
-        queryClient.setQueryData<ApiResponse<Lead[]>>(['leads'], (prev) => {
+        const leadsKey = leadsQueryKey(user?.id ?? null);
+        queryClient.setQueryData<ApiResponse<Lead[]>>(leadsKey, (prev) => {
           const existing = prev?.data ?? [];
           const filtered = existing.filter(
             (l) => l.id !== lead.id && l.id !== newLead.id,
           );
           return { success: true, data: [newLead, ...filtered] };
         });
-        queryClient.invalidateQueries({ queryKey: ['leads'] });
+        queryClient.invalidateQueries({ queryKey: leadsKey });
         showToast?.(`Synced ${lead.name} to the server`);
       } else {
         showToast?.('Still couldn\u2019t sync. Saved on this device for now.');

@@ -1,16 +1,38 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Lead } from '@/lib/api/types';
 
-const KEY = 'cxo:offline_leads:v1';
+const KEY_PREFIX = 'cxo:offline_leads:v1';
+// Legacy unscoped key from an in-progress version of this work before
+// per-user scoping landed. Cleared on first load so any leads that got
+// written under it can't leak across user accounts on this device.
+const LEGACY_UNSCOPED_KEY = 'cxo:offline_leads:v1';
+
+function keyFor(userId: string): string {
+  return `${KEY_PREFIX}:${userId}`;
+}
 
 /**
- * Load any previously-cached leads from AsyncStorage. Returns an empty
- * array if no cache exists, the cache is malformed, or storage is
- * unavailable. Never throws — callers can use the result directly.
+ * One-shot cleanup for the legacy unscoped key. Safe to call on every
+ * load — if the key isn't there, this is a no-op.
  */
-export async function loadCachedLeads(): Promise<Lead[]> {
+async function purgeLegacyUnscopedKey(): Promise<void> {
   try {
-    const raw = await AsyncStorage.getItem(KEY);
+    await AsyncStorage.removeItem(LEGACY_UNSCOPED_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Load any previously-cached leads for the given user. Returns an empty
+ * array if no cache exists, the cache is malformed, storage is
+ * unavailable, or no userId is provided. Never throws.
+ */
+export async function loadCachedLeads(userId: string | null | undefined): Promise<Lead[]> {
+  await purgeLegacyUnscopedKey();
+  if (!userId) return [];
+  try {
+    const raw = await AsyncStorage.getItem(keyFor(userId));
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -26,21 +48,26 @@ export async function loadCachedLeads(): Promise<Lead[]> {
 }
 
 /**
- * Persist the leads cache to AsyncStorage. Silently swallows errors —
- * if storage fails we keep the in-memory cache and the user just loses
- * the persistence guarantee for this session.
+ * Persist the leads cache for the given user. Silently no-ops when no
+ * userId is provided so anonymous data never lands in a user slot.
  */
-export async function saveCachedLeads(leads: Lead[]): Promise<void> {
+export async function saveCachedLeads(userId: string | null | undefined, leads: Lead[]): Promise<void> {
+  if (!userId) return;
   try {
-    await AsyncStorage.setItem(KEY, JSON.stringify(leads));
+    await AsyncStorage.setItem(keyFor(userId), JSON.stringify(leads));
   } catch {
     // ignore
   }
 }
 
-export async function clearCachedLeads(): Promise<void> {
+/**
+ * Wipe the leads cache for the given user. Called on logout so a
+ * different user signing in on the same device can't see prior leads.
+ */
+export async function clearCachedLeads(userId: string | null | undefined): Promise<void> {
+  if (!userId) return;
   try {
-    await AsyncStorage.removeItem(KEY);
+    await AsyncStorage.removeItem(keyFor(userId));
   } catch {
     // ignore
   }

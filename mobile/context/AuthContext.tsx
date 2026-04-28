@@ -1,7 +1,10 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import { AuthUser, getMe, setToken, clearToken, setUnauthorizedHandler, clearUnauthorizedHandler } from '@/lib/apiClient';
+import { clearCachedLeads } from '@/lib/leadsStorage';
+import { leadsQueryKey } from '@/lib/leadsCacheKey';
 
 interface AppContextValue {
   user: AuthUser | null;
@@ -37,6 +40,7 @@ const TOKEN_KEY = 'cxo_auth_token';
 const CACHED_USER_KEY = 'cxo_cached_user';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const queryClient = useQueryClient();
   const [user, setUserState] = useState<AuthUser | null>(null);
   const [token, setTokenState] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -52,7 +56,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // Re-install on every user change so the handler captures the
+    // *current* user id and can scrub their leads cache + persisted slot
+    // when the backend invalidates the session (e.g. expired token).
+    // Without re-installing, the closure would forever reference the
+    // user who was signed in at mount time.
+    const priorUserId = user?.id ?? null;
     setUnauthorizedHandler(() => {
+      if (priorUserId) {
+        queryClient.removeQueries({ queryKey: leadsQueryKey(priorUserId) });
+        void clearCachedLeads(priorUserId);
+      }
       setTokenState(null);
       setUserState(null);
       setCompletedChallenges([]);
@@ -63,7 +77,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       router.replace('/(auth)/welcome');
     });
     return () => clearUnauthorizedHandler();
-  }, []);
+  }, [user?.id, queryClient]);
 
   async function restoreSession() {
     try {
@@ -127,15 +141,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    // Snapshot the user being logged out *before* we wipe state so we
+    // can scrub their leads cache + persisted slot. Doing this here (in
+    // the auth layer) rather than inside `useLeads` means the cleanup
+    // runs regardless of which screen is mounted at sign-out time, so a
+    // user who logs out from, say, the schedule tab still has their
+    // local leads wiped before the next user signs in.
+    const priorUserId = user?.id ?? null;
     await clearToken();
     await AsyncStorage.multiRemove([TOKEN_KEY, CACHED_USER_KEY]);
+    if (priorUserId) {
+      // Drop the user-scoped leads slot from the in-memory query cache so
+      // a subsequent reader (even on the same render pass) can never
+      // observe the prior account's leads.
+      queryClient.removeQueries({ queryKey: leadsQueryKey(priorUserId) });
+      // And wipe the persisted copy from AsyncStorage. Failures here are
+      // swallowed inside clearCachedLeads — at worst the persisted slot
+      // lingers, but the in-memory + key-scoping protections still keep
+      // it out of any other user's view.
+      void clearCachedLeads(priorUserId);
+    }
     setTokenState(null);
     setUserState(null);
     setCompletedChallenges([]);
     setBookmarkedSessions([]);
     setVotedPolls([]);
     setCompletedSurveys([]);
-  }, []);
+  }, [user?.id, queryClient]);
 
   const setUser = useCallback((u: AuthUser) => {
     setUserState(u);
