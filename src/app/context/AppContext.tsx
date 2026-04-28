@@ -401,11 +401,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const markLeadSynced = (localId: string, serverId?: string) => {
-    setLeads(prev => prev.map(lead =>
-      lead.id === localId
-        ? { ...lead, id: serverId ?? lead.id, pendingSync: false }
-        : lead,
-    ));
+    setLeads(prev => {
+      const targetId = serverId ?? localId;
+      // Build the synced lead first so we can safely replace + dedupe in
+      // a single pass. If the server id already exists locally (rare:
+      // e.g. a parallel scan reconciled the same attendee), drop the
+      // duplicate copy rather than ending up with two entries with the
+      // same id (which would violate React's key uniqueness assumption).
+      const seen = new Set<string>();
+      const next: Lead[] = [];
+      for (const lead of prev) {
+        if (lead.id === localId) {
+          const merged = { ...lead, id: targetId, pendingSync: false };
+          if (!seen.has(merged.id)) {
+            seen.add(merged.id);
+            next.push(merged);
+          }
+        } else if (lead.id === targetId) {
+          // Preserve any extra fields that may already exist on the
+          // canonical row (e.g. updated notes from another device) by
+          // merging the older local row into it.
+          const localRow = prev.find(l => l.id === localId);
+          const merged = { ...lead, ...(localRow ?? {}), id: targetId, pendingSync: false };
+          if (!seen.has(merged.id)) {
+            seen.add(merged.id);
+            next.push(merged);
+          }
+        } else {
+          if (!seen.has(lead.id)) {
+            seen.add(lead.id);
+            next.push(lead);
+          }
+        }
+      }
+      return next;
+    });
   };
 
   const sendConnectionRequest = async (toUser: ConnectionRequest['fromUser'], message?: string): Promise<void> => {

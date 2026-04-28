@@ -412,6 +412,19 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
       if (rawServerId) {
         const serverId = rawServerId !== lead.id ? rawServerId : undefined;
         markLeadSynced(lead.id, serverId);
+        // Also fold the canonical server row into the API-leads cache so
+        // any server-side fields (e.g. authoritative timestamps, points)
+        // replace the locally-saved snapshot. Drop both the old local id
+        // and the new server id from the cache before inserting to avoid
+        // duplicates if either was already present.
+        if (res.data) {
+          const canonical = res.data;
+          setApiLeads(prev => {
+            const base = prev ?? [];
+            const filtered = base.filter(l => l.id !== lead.id && l.id !== canonical.id);
+            return [canonical, ...filtered];
+          });
+        }
         showToast(`Synced ${lead.name} to the server`);
       } else {
         showToast('Still couldn\u2019t sync. Saved on this device for now.');
