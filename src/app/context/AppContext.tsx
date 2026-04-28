@@ -421,10 +421,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             next.push(merged);
           }
         } else if (lead.id === targetId) {
-          // Preserve any extra fields that may already exist on the
-          // canonical row (e.g. updated notes from another device) by
-          // merging the older local row into it.
-          const merged = { ...lead, ...(localRow ?? {}), id: targetId, pendingSync: false };
+          // Spread the local row first so the canonical server row's
+          // fields take precedence — fields the server owns (e.g.
+          // authoritative timestamps, scores) should win over the
+          // older local snapshot in this rare duplicate-id case.
+          const merged = { ...(localRow ?? {}), ...lead, id: targetId, pendingSync: false };
           if (!seen.has(merged.id)) {
             seen.add(merged.id);
             next.push(merged);
