@@ -1,14 +1,15 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   ArrowLeft, Search, Users, Clock, Building2, ChevronRight,
   Flame, ThermometerSun, Snowflake, Tag, ScanLine, FileText,
   X, Edit3, Save, Trash2, Download, Filter, MoreVertical,
   MessageCircle, Sparkles, Briefcase, CheckCircle, Calendar, Gift,
+  CloudOff, RefreshCw,
 } from 'lucide-react';
 import { useApp, Lead } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import { motion, AnimatePresence } from 'motion/react';
-import { listLeads, updateLeadApi } from '@/app/api/leadsClient';
+import { listLeads, updateLeadApi, scanBadgeLead } from '@/app/api/leadsClient';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -319,7 +320,7 @@ interface LeadsPageProps {
 }
 
 export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, onNavigateToDraw }) => {
-  const { leads: contextLeads, updateLead, user, eventConfig } = useApp();
+  const { leads: contextLeads, updateLead, markLeadSynced, showToast, user, eventConfig } = useApp();
   const { t, isDark } = useTheme();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -375,6 +376,54 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
       setApiLeads(prev => prev ? prev.map(l => l.id === id ? { ...l, ...updates } : l) : prev);
     }
     updateLeadApi(eventConfig?.eventId ?? '0', id, updates).catch(() => {});
+  };
+
+  // Track which leads are currently being retried so we can disable the
+  // retry button and show a spinner without re-rendering the whole list.
+  const [retryingIds, setRetryingIds] = useState<Set<string>>(new Set());
+  // Atomic in-flight guard: setState is async, so a fast double-tap can
+  // slip through the `retryingIds.has(...)` check before React re-renders.
+  // A ref updates synchronously so a second invocation aborts immediately.
+  const inFlightRetriesRef = useRef<Set<string>>(new Set());
+
+  const handleRetrySync = async (lead: Lead, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (inFlightRetriesRef.current.has(lead.id)) return;
+    inFlightRetriesRef.current.add(lead.id);
+    setRetryingIds(prev => new Set(prev).add(lead.id));
+    try {
+      const res = await scanBadgeLead(eventConfig?.eventId ?? '0', {
+        code: lead.code,
+        name: lead.name,
+        company: lead.company,
+        title: lead.title,
+        notes: lead.notes,
+        avatar: lead.avatar,
+        tags: lead.tags,
+        priority: lead.priority,
+      });
+      // Only treat this as a true sync when the backend actually
+      // returned a canonical Lead row. scanBadgeLead returns
+      // `success: false` for the missing-endpoint and generic-failure
+      // paths, so a `success: true` with a server-assigned id is a
+      // strong signal the row was persisted. We additionally swap the
+      // local synthetic id for the canonical one when they differ.
+      const rawServerId = res.success && res.data?.id ? String(res.data.id) : '';
+      if (rawServerId) {
+        const serverId = rawServerId !== lead.id ? rawServerId : undefined;
+        markLeadSynced(lead.id, serverId);
+        showToast(`Synced ${lead.name} to the server`);
+      } else {
+        showToast('Still couldn\u2019t sync. Saved on this device for now.');
+      }
+    } finally {
+      inFlightRetriesRef.current.delete(lead.id);
+      setRetryingIds(prev => {
+        const next = new Set(prev);
+        next.delete(lead.id);
+        return next;
+      });
+    }
   };
 
   return (
@@ -575,6 +624,52 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
 
                 <ChevronRight style={{ width: 14, height: 14, color: t.textMuted, flexShrink: 0, marginTop: 4 }} />
               </div>
+
+              {/* Pending-sync indicator: shown when the lead was saved
+                  locally because the backend POST /leads/scan failed.
+                  Includes a Retry-sync button that re-attempts the
+                  upload and clears the flag on success. */}
+              {lead.pendingSync && (
+                <div
+                  className="mt-3 px-3 py-2 rounded-lg flex items-center gap-2"
+                  style={{
+                    background: 'rgba(245,158,11,0.10)',
+                    border: '1px solid rgba(245,158,11,0.25)',
+                  }}
+                >
+                  <CloudOff style={{ width: 13, height: 13, color: '#d97706', flexShrink: 0 }} />
+                  <span style={{ color: '#b45309', fontSize: 11, fontWeight: 600, flex: 1, textAlign: 'left' }}>
+                    Saved on this device — not synced to server
+                  </span>
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => { void handleRetrySync(lead, e); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void handleRetrySync(lead); } }}
+                    aria-label={`Retry syncing ${lead.name}`}
+                    aria-busy={retryingIds.has(lead.id)}
+                    aria-disabled={retryingIds.has(lead.id)}
+                    className="flex items-center gap-1 px-2 py-1 rounded-md cursor-pointer active:scale-95 transition-transform"
+                    style={{
+                      background: 'rgba(245,158,11,0.18)',
+                      color: '#b45309',
+                      fontSize: 10,
+                      fontWeight: 700,
+                      opacity: retryingIds.has(lead.id) ? 0.6 : 1,
+                      pointerEvents: retryingIds.has(lead.id) ? 'none' : 'auto',
+                    }}
+                  >
+                    <RefreshCw
+                      style={{
+                        width: 10,
+                        height: 10,
+                        animation: retryingIds.has(lead.id) ? 'spin 1s linear infinite' : undefined,
+                      }}
+                    />
+                    {retryingIds.has(lead.id) ? 'Syncing…' : 'Retry'}
+                  </span>
+                </div>
+              )}
 
               {/* Notes preview */}
               {lead.notes && (

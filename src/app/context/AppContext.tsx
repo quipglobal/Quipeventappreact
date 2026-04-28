@@ -47,6 +47,12 @@ export interface Lead {
   avatar?: string;
   tags: string[];
   priority: 'hot' | 'warm' | 'cold';
+  /** True when the lead was saved locally because the backend
+   *  /leads/scan call failed. The lead is captured on this device but
+   *  hasn't been synced to the server — switching devices or clearing
+   *  storage will lose it. The UI shows a "Saved on this device"
+   *  indicator and a Retry-sync action when this is set. */
+  pendingSync?: boolean;
 }
 
 interface PointEvent {
@@ -123,6 +129,10 @@ interface AppContextType extends AppState {
   completeChallenge: (challengeId: string, skipPoints?: boolean) => void;
   saveLead: (lead: Omit<Lead, 'id' | 'timestamp'> & { id?: string }, options?: { silent?: boolean }) => void;
   updateLead: (id: string, updates: Partial<Pick<Lead, 'notes' | 'tags' | 'priority'>>) => void;
+  /** Clear the `pendingSync` flag once a previously offline-only lead
+   *  has been successfully posted to the backend. Optionally swaps the
+   *  local synthetic id for the canonical server id. */
+  markLeadSynced: (localId: string, serverId?: string) => void;
   showToast: (message: string, points?: number) => void;
   updateTier: () => void;
   switchEvent: (config: EventConfig) => void;
@@ -390,6 +400,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast('Lead updated successfully');
   };
 
+  const markLeadSynced = (localId: string, serverId?: string) => {
+    setLeads(prev => prev.map(lead =>
+      lead.id === localId
+        ? { ...lead, id: serverId ?? lead.id, pendingSync: false }
+        : lead,
+    ));
+  };
+
   const sendConnectionRequest = async (toUser: ConnectionRequest['fromUser'], message?: string): Promise<void> => {
     const tempId = `cr-${Date.now()}`;
     const newReq: ConnectionRequest = {
@@ -524,6 +542,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         completeChallenge,
         saveLead,
         updateLead,
+        markLeadSynced,
         showToast,
         updateTier,
         switchEvent,

@@ -26,6 +26,8 @@ function normalizeLead(raw: any, index = 0): Lead {
       : new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
     color: raw.color ?? ACCENT_COLORS[index % ACCENT_COLORS.length],
     status: raw.status ?? raw.priority ?? 'warm',
+    code: raw.code ?? undefined,
+    pendingSync: raw.pendingSync === true ? true : undefined,
   };
 }
 
@@ -176,6 +178,13 @@ export async function submitScan(
         success: true,
         data: {
           ...lead,
+          // Preserve the badge code so the UI can later retry the
+          // /leads/scan POST without making the user re-scan.
+          code,
+          // Server didn't persist a lead row (it rejected the badge),
+          // so flag this lead as locally-only. The Leads tab shows a
+          // "Saved on this device" indicator and a Retry-sync action.
+          pendingSync: true,
           pointsAwarded: 0, // server didn't award; we don't double-credit
           checkedIn: didCheckIn || member.isCheckedIn,
           isCheckedIn: didCheckIn || member.isCheckedIn,

@@ -5,6 +5,7 @@ import {
   ScrollView,
   StyleSheet,
   TouchableOpacity,
+  ActivityIndicator,
   Alert,
   Platform,
 } from 'react-native';
@@ -12,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
 import { useChallenges, useCompleteChallenge, usePolls, useVotePoll, useSurveys, useSubmitSurvey, useGiveaways, useEnterGiveaway } from '@/hooks/useEngage';
 import { useLeaderboard } from '@/hooks/useAudience';
@@ -19,7 +21,8 @@ import { useLeads, useLuckyDraw, useSubmitScan } from '@/hooks/useLeads';
 import { DataState } from '@/components/DataState';
 import { BadgeCameraScanner } from '@/components/BadgeCameraScanner';
 import { colors, spacing, radius } from '@/constants/theme';
-import type { LeaderboardEntry } from '@/lib/api/types';
+import { submitScan } from '@/lib/api/leads';
+import type { ApiResponse, LeaderboardEntry, Lead } from '@/lib/api/types';
 
 function BadgeScanPanel({ onScanPress }: { onScanPress: () => void }) {
   return (
@@ -47,8 +50,60 @@ function BadgeScanPanel({ onScanPress }: { onScanPress: () => void }) {
   );
 }
 
-function LeadsView({ leads, onBack }: { leads: Array<{ id: string; name: string; title: string; company: string; scannedAt: string; color: string; status: string }>; onBack: () => void }) {
+function LeadsView({ leads, onBack }: { leads: Lead[]; onBack: () => void }) {
   const insets = useSafeAreaInsets();
+  const queryClient = useQueryClient();
+  const { showToast } = useAuth();
+  // Track which leads are currently being retried so we can disable the
+  // retry button and show a spinner without re-rendering the whole list.
+  const [retryingIds, setRetryingIds] = useState<Set<string>>(new Set());
+  // Atomic in-flight guard: setState is async, so a fast double-tap can
+  // slip through the `retryingIds.has(...)` check before React re-renders.
+  // A ref updates synchronously so a second invocation aborts immediately.
+  const inFlightRetriesRef = React.useRef<Set<string>>(new Set());
+
+  const handleRetry = async (lead: Lead) => {
+    if (inFlightRetriesRef.current.has(lead.id)) return;
+    if (!lead.code) {
+      showToast?.('Cannot retry — original badge code is missing.');
+      return;
+    }
+    inFlightRetriesRef.current.add(lead.id);
+    setRetryingIds((prev) => new Set(prev).add(lead.id));
+    try {
+      const res = await submitScan({
+        badgeData: lead.code,
+        name: lead.name,
+        company: lead.company,
+        title: lead.title,
+      });
+      if (res.success && res.data && !res.data.pendingSync) {
+        // Backend accepted this time. Replace the local entry (matched by
+        // both ids, since the server-assigned id likely differs) with the
+        // canonical row, then trigger a refetch to reconcile.
+        const newLead = res.data;
+        queryClient.setQueryData<ApiResponse<Lead[]>>(['leads'], (prev) => {
+          const existing = prev?.data ?? [];
+          const filtered = existing.filter(
+            (l) => l.id !== lead.id && l.id !== newLead.id,
+          );
+          return { success: true, data: [newLead, ...filtered] };
+        });
+        queryClient.invalidateQueries({ queryKey: ['leads'] });
+        showToast?.(`Synced ${lead.name} to the server`);
+      } else {
+        showToast?.('Still couldn\u2019t sync. Saved on this device for now.');
+      }
+    } finally {
+      inFlightRetriesRef.current.delete(lead.id);
+      setRetryingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(lead.id);
+        return next;
+      });
+    }
+  };
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.xl }]}>
       <TouchableOpacity style={styles.backBtn} onPress={onBack}>
@@ -64,21 +119,51 @@ function LeadsView({ leads, onBack }: { leads: Array<{ id: string; name: string;
           <Text style={styles.emptyLeadsSub}>Scan attendee badges to build your list</Text>
         </View>
       )}
-      {leads.map((l) => (
-        <View key={l.id} style={styles.leadCard}>
-          <View style={[styles.leadAvatar, { backgroundColor: l.color + '22', borderColor: l.color + '44' }]}>
-            <Text style={[styles.leadAvatarText, { color: l.color }]}>{l.name[0]}</Text>
+      {leads.map((l) => {
+        const isRetrying = retryingIds.has(l.id);
+        return (
+          <View key={l.id} style={styles.leadCard}>
+            <View style={styles.leadCardRow}>
+              <View style={[styles.leadAvatar, { backgroundColor: l.color + '22', borderColor: l.color + '44' }]}>
+                <Text style={[styles.leadAvatarText, { color: l.color }]}>{l.name[0]}</Text>
+              </View>
+              <View style={styles.leadInfo}>
+                <Text style={styles.leadName}>{l.name}</Text>
+                <Text style={styles.leadRole}>{l.title} · {l.company}</Text>
+                <Text style={styles.leadTime}>Scanned at {l.scannedAt}</Text>
+              </View>
+              <View style={[styles.statusDot, {
+                backgroundColor: l.status === 'hot' ? '#ef4444' : l.status === 'warm' ? '#f59e0b' : '#6b7280'
+              }]} />
+            </View>
+            {l.pendingSync && (
+              <View style={styles.pendingSyncBar}>
+                <Ionicons name="cloud-offline-outline" size={14} color="#d97706" />
+                <Text style={styles.pendingSyncText}>
+                  Saved on this device — not synced
+                </Text>
+                <TouchableOpacity
+                  onPress={() => handleRetry(l)}
+                  disabled={isRetrying}
+                  style={[styles.pendingSyncBtn, isRetrying && styles.pendingSyncBtnDisabled]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Retry syncing ${l.name}`}
+                  accessibilityState={{ disabled: isRetrying, busy: isRetrying }}
+                >
+                  {isRetrying ? (
+                    <ActivityIndicator size="small" color="#b45309" />
+                  ) : (
+                    <Ionicons name="refresh" size={12} color="#b45309" />
+                  )}
+                  <Text style={styles.pendingSyncBtnText}>
+                    {isRetrying ? 'Syncing…' : 'Retry'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
-          <View style={styles.leadInfo}>
-            <Text style={styles.leadName}>{l.name}</Text>
-            <Text style={styles.leadRole}>{l.title} · {l.company}</Text>
-            <Text style={styles.leadTime}>Scanned at {l.scannedAt}</Text>
-          </View>
-          <View style={[styles.statusDot, {
-            backgroundColor: l.status === 'hot' ? '#ef4444' : l.status === 'warm' ? '#f59e0b' : '#6b7280'
-          }]} />
-        </View>
-      ))}
+        );
+      })}
     </ScrollView>
   );
 }
@@ -698,7 +783,8 @@ const styles = StyleSheet.create({
   cornerBR: { bottom: 0, right: 0, borderBottomWidth: 3, borderRightWidth: 3 },
   scanHintText: { color: 'rgba(255,255,255,0.4)', fontSize: 13 },
 
-  leadCard: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.lg, borderRadius: radius.xl, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.sm },
+  leadCard: { padding: spacing.lg, borderRadius: radius.xl, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.sm },
+  leadCardRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   leadAvatar: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
   leadAvatarText: { fontSize: 18, fontWeight: '700' },
   leadInfo: { flex: 1 },
@@ -706,6 +792,30 @@ const styles = StyleSheet.create({
   leadRole: { color: colors.textSecondary, fontSize: 12, marginTop: 2 },
   leadTime: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
   statusDot: { width: 10, height: 10, borderRadius: 5 },
+  pendingSyncBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.lg,
+    backgroundColor: 'rgba(245,158,11,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(245,158,11,0.25)',
+  },
+  pendingSyncText: { color: '#b45309', fontSize: 11, fontWeight: '600', flex: 1 },
+  pendingSyncBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(245,158,11,0.18)',
+  },
+  pendingSyncBtnDisabled: { opacity: 0.6 },
+  pendingSyncBtnText: { color: '#b45309', fontSize: 10, fontWeight: '700' },
 
   drawPage: { flex: 1, alignItems: 'center', padding: spacing.xl },
   drawTitle: { color: colors.textPrimary, fontSize: 28, fontWeight: '800', marginBottom: 4 },

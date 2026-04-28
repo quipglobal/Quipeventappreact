@@ -153,6 +153,13 @@ export interface Lead {
   color: string;
   status: 'hot' | 'warm' | 'cold';
   notes?: string;
+  /** Original badge code from the scan — needed when retrying sync to
+   *  the backend after a local-only save. */
+  code?: string;
+  /** True when the lead was captured locally (audience-list fallback or
+   *  /leads/scan rejection) and hasn't been persisted to the server yet.
+   *  The Leads UI shows a "Saved on this device" indicator when set. */
+  pendingSync?: boolean;
 }
 
 export interface Meeting {

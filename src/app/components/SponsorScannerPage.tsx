@@ -307,7 +307,9 @@ export const SponsorScannerPage: React.FC = () => {
     // Backend rejected the save (route missing, duplicate, server error,
     // etc). The user's notes are still valuable — persist locally so the
     // lead lands in "My Leads" instead of vanishing. This mirrors the
-    // mobile audience-fallback behaviour.
+    // mobile audience-fallback behaviour. Mark `pendingSync: true` so
+    // the My Leads UI shows a "Saved on this device" indicator and a
+    // Retry-sync action.
     saveLead({
       code: scannedData.code,
       name: scannedData.name,
@@ -317,6 +319,7 @@ export const SponsorScannerPage: React.FC = () => {
       avatar: scannedData.avatar,
       tags: selectedTags,
       priority,
+      pendingSync: true,
     });
     // Only award local fallback points if scan-time didn't already credit
     // them (e.g. when the badge wasn't recognized by the backend at scan
