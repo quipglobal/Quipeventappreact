@@ -403,6 +403,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const markLeadSynced = (localId: string, serverId?: string) => {
     setLeads(prev => {
       const targetId = serverId ?? localId;
+      // Cache the local row once outside the loop so dedupe stays O(n)
+      // even when the canonical server id already exists in prev.
+      const localRow = prev.find(l => l.id === localId);
       // Build the synced lead first so we can safely replace + dedupe in
       // a single pass. If the server id already exists locally (rare:
       // e.g. a parallel scan reconciled the same attendee), drop the
@@ -421,17 +424,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           // Preserve any extra fields that may already exist on the
           // canonical row (e.g. updated notes from another device) by
           // merging the older local row into it.
-          const localRow = prev.find(l => l.id === localId);
           const merged = { ...lead, ...(localRow ?? {}), id: targetId, pendingSync: false };
           if (!seen.has(merged.id)) {
             seen.add(merged.id);
             next.push(merged);
           }
-        } else {
-          if (!seen.has(lead.id)) {
-            seen.add(lead.id);
-            next.push(lead);
-          }
+        } else if (!seen.has(lead.id)) {
+          seen.add(lead.id);
+          next.push(lead);
         }
       }
       return next;
