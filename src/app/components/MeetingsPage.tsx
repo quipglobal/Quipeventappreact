@@ -319,7 +319,16 @@ export const MeetingsPage: React.FC = () => {
   // first call immediately on mount / sign-in). Without the gate the
   // screen would keep firing `GET /meetings` every 30s after sign-out,
   // 401-ing each time and burning unauthenticated rate limit.
-  useAuthedInterval(user?.id, fetchRequests, 30_000, { runOnMount: true });
+  //
+  // `pauseWhenHidden: true` additionally tears the interval down while
+  // `document.hidden` is true (so a user who leaves the app open in a
+  // background tab doesn't keep firing `GET /meetings` every 30s) and
+  // fires an immediate refetch on `visibilitychange` back to visible
+  // so the requests list is fresh on return.
+  useAuthedInterval(user?.id, fetchRequests, 30_000, {
+    runOnMount: true,
+    pauseWhenHidden: true,
+  });
 
   const handleAccept = async (requestId: string) => {
     const res = await acceptMeetingRequest(requestId);
