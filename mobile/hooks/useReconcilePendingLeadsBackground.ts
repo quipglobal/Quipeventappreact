@@ -3,8 +3,8 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { listLeads, reconcilePendingLead, resetLeadsListEndpointMissing } from '@/lib/api/leads';
 import type { ApiResponse, Lead } from '@/lib/api/types';
-import { useAuth } from '@/context/AuthContext';
 import { useEvent } from '@/context/EventContext';
+import { useAuthedEffect } from '@/hooks/useAuthedEffect';
 
 /**
  * Background reconciliation for locally-saved (`pendingSync: true`) leads.
@@ -33,7 +33,6 @@ import { useEvent } from '@/context/EventContext';
  */
 export function useReconcilePendingLeadsBackground() {
   const queryClient = useQueryClient();
-  const { token, user } = useAuth();
   const { currentEventId } = useEvent();
   // Keep refs so the closure captured by setTimeout always sees the
   // latest queryClient even though it never actually changes in
@@ -42,19 +41,15 @@ export function useReconcilePendingLeadsBackground() {
   useEffect(() => { queryClientRef.current = queryClient; }, [queryClient]);
 
   // Gate the loop on an authenticated session *and* a selected event.
-  // Without this gate the timer chain would keep ticking after sign-out
-  // (token cleared, user null) and fire `GET /events/:id/leads` every
-  // minute — every one of which 401s, polluting logs and counting against
-  // any unauthenticated rate limit. Keying the effect on these values
-  // tears down the timer in the cleanup as soon as either disappears
-  // (logout, expired session, event de-selected) and re-arms it cleanly
-  // on the next sign-in. When either is missing we bail before scheduling
-  // so no probe ever fires from the welcome / login screen.
-  const sessionUserId = user?.id ?? null;
-  const hasSession = !!token && !!sessionUserId;
-  const hasEvent = !!currentEventId;
-  useEffect(() => {
-    if (!hasSession || !hasEvent) return;
+  // The auth half is handled by the shared `useAuthedEffect` hook (same
+  // primitive every other authenticated background hook uses) — it
+  // skips the body and tears down the timer + AppState listener on
+  // sign-out, then re-arms cleanly on the next sign-in. The event half
+  // is checked inline below because it's specific to this loop. Without
+  // these gates the timer chain would keep ticking after sign-out and
+  // fire `GET /events/:id/leads` every minute, every one of which 401s.
+  useAuthedEffect(() => {
+    if (!currentEventId) return;
 
     const BASE_DELAY_MS = 60 * 1000;
     const MAX_DELAY_MS = 10 * 60 * 1000;
@@ -203,5 +198,10 @@ export function useReconcilePendingLeadsBackground() {
       if (timer) clearTimeout(timer);
       sub.remove();
     };
-  }, [hasSession, hasEvent]);
+    // `useAuthedEffect` already keys on the auth gate (token + user.id);
+    // we add `currentEventId` (not just a boolean `hasEvent`) so the
+    // timer rebuilds when the user switches between two truthy event
+    // ids — without this, an event swap would leave the loop running
+    // against the previous event's `['leads']` cache.
+  }, [currentEventId]);
 }

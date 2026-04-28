@@ -1,8 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import { QRCodeCanvas } from 'qrcode.react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
+import { useAuthedEffect } from '@/app/hooks/useAuthedEffect';
+import { useAuthedInterval } from '@/app/hooks/useAuthedInterval';
 import { getMyBadgeApi, type BadgeData } from '@/app/api/badgeClient';
 
 export const MyBadgePage: React.FC = () => {
@@ -13,7 +15,6 @@ export const MyBadgePage: React.FC = () => {
   const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError]           = useState<string | null>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchBadge = async (silent = false) => {
     if (silent) {
@@ -33,32 +34,26 @@ export const MyBadgePage: React.FC = () => {
     setRefreshing(false);
   };
 
-  // Gate the initial fetch + 30s refresh poll on having an authenticated
-  // user. Without this gate, navigating to (or being mounted on) the
-  // badge screen with no session would fire `GET /me/badge` every 30s and
-  // 401 each time. Re-keying the effect on `user?.id` also tears the
-  // interval down on sign-out (the auth handler nulls the user before
-  // the page reload completes) and re-arms it cleanly on re-login.
-  useEffect(() => {
-    if (!user?.id) {
-      // No authenticated user — drop the loading spinner and bail without
-      // firing any /me/badge calls. The page renders the "no user" empty
-      // state instead.
-      setLoading(false);
-      return;
-    }
+  // Gate the initial (loading-spinner) fetch on auth. The shared
+  // `useAuthedEffect` skips the body when there's no signed-in user and
+  // re-runs cleanly on the next sign-in / sign-out — same gate every
+  // other authenticated effect uses, so no chance of `GET /me/badge`
+  // 401-ing from a logged-out screen.
+  const userId = user?.id ?? null;
+  useAuthedEffect(userId, () => {
     fetchBadge(false);
-    intervalRef.current = setInterval(() => fetchBadge(true), 30_000);
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-    };
-    // fetchBadge is defined in component scope and intentionally excluded;
-    // it only reads stable React state setters.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
+  }, []);
+
+  // 30s silent refresh, also gated on auth via the shared hook so the
+  // poll tears down on sign-out and re-arms on the next sign-in.
+  useAuthedInterval(userId, () => fetchBadge(true), 30_000, { runOnMount: false });
+
+  // When there is no signed-in user the auth-gated effects above don't
+  // fire, so make sure the loading spinner clears and the "no user"
+  // empty state renders.
+  useEffect(() => {
+    if (!userId) setLoading(false);
+  }, [userId]);
 
   const displayName    = user?.name    ?? '';
   const displayTitle   = user?.title   ?? '';

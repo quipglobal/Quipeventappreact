@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
+import { useAuthedInterval } from '@/app/hooks/useAuthedInterval';
 import { motion, AnimatePresence } from 'motion/react';
 import type { ConnectionRequest, Conversation } from '@/app/context/AppContext';
 import {
@@ -296,7 +297,6 @@ export const MeetingsPage: React.FC = () => {
   const { user, connectionRequests, conversations, acceptConnection, declineConnection, markConversationRead, setConnectionRequests } = useApp();
   const [activeTab, setActiveTab] = useState<Tab>('requests');
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
-  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const handleOpenChat = (convId: string) => {
     setActiveChatId(convId);
@@ -314,23 +314,12 @@ export const MeetingsPage: React.FC = () => {
     }
   }, [setConnectionRequests]);
 
-  // Gate the initial fetch + 30s poll on having an authenticated user.
-  // Without this gate, the screen would fire `GET /meetings` every 30s
-  // even after sign-out (the auth handler nulls the user before the page
-  // reload completes), 401-ing each time and burning unauthenticated
-  // quota. Re-keying on `user?.id` tears the interval down on sign-out
-  // and re-arms it cleanly on re-login.
-  useEffect(() => {
-    if (!user?.id) return;
-    fetchRequests();
-    pollIntervalRef.current = setInterval(fetchRequests, 30000);
-    return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
-    };
-  }, [fetchRequests, user?.id]);
+  // Initial fetch + 30s poll, both gated on the user being signed in via
+  // the shared `useAuthedInterval` hook (`runOnMount: true` fires the
+  // first call immediately on mount / sign-in). Without the gate the
+  // screen would keep firing `GET /meetings` every 30s after sign-out,
+  // 401-ing each time and burning unauthenticated rate limit.
+  useAuthedInterval(user?.id, fetchRequests, 30_000, { runOnMount: true });
 
   const handleAccept = async (requestId: string) => {
     const res = await acceptMeetingRequest(requestId);

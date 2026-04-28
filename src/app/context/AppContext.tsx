@@ -8,6 +8,7 @@ import { fetchPointsFromBackend, scheduleSyncPoints, cancelPendingSyncPoints } f
 import { getMyEventRoleApi } from '@/app/api/audienceClient';
 import { loadLeadsFromStorage, saveLeadsToStorage, clearLeadsStorage } from '@/app/lib/leadsStorage';
 import { listLeads as listLeadsApi, scanBadgeLead, resetScanEndpointMissing } from '@/app/api/leadsClient';
+import { useAuthedEffect } from '@/app/hooks/useAuthedEffect';
 
 interface User {
   id: string;
@@ -460,19 +461,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   // Gate the background reconciler on an authenticated user *and* an active
-  // event. Without this gate the effect's setTimeout chain runs for the full
-  // lifetime of the provider, which means after logout (token cleared, no
-  // user) it would still wake every minute and fire a `GET /events/:id/leads`
-  // probe — every one of which 401s, polluting logs and counting against any
-  // unauthenticated rate limit. Keying the effect on `user?.id` +
-  // `activeEventConfig?.eventId` causes React to tear the timer down on
-  // logout (cleanup sets `cancelled = true` and clears the pending timeout)
-  // and re-arm it cleanly on the next sign-in. When either is missing we
-  // bail out before scheduling so no probe ever fires.
-  const authedUserId = user?.id ?? null;
+  // event. The auth half of the gate is handled by the shared
+  // `useAuthedEffect` hook (same primitive every other authenticated
+  // periodic effect uses) — it skips the body and tears down the timer on
+  // sign-out, then re-arms it cleanly on the next sign-in. The
+  // `activeEventId` half is checked inline below since it's specific to
+  // this effect. Without these gates the effect's setTimeout chain would
+  // wake every minute after logout and fire a `GET /events/:id/leads`
+  // probe, every one of which 401s.
   const activeEventId = activeEventConfig?.eventId ?? null;
-  useEffect(() => {
-    if (!authedUserId || !activeEventId) return;
+  useAuthedEffect(user?.id, () => {
+    if (!activeEventId) return;
 
     const BASE_DELAY_MS = 60 * 1000;
     const MAX_DELAY_MS = 10 * 60 * 1000;
@@ -570,9 +569,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     // `reconcilePendingLeadsNow` is stable for the provider's lifetime and
     // intentionally excluded so its inclusion can't accidentally retrigger
-    // the effect mid-session.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authedUserId, activeEventId]);
+    // the effect mid-session. `useAuthedEffect` already keys on `userId`;
+    // we add `activeEventId` as the only extra dep so the timer rebuilds
+    // when the active event changes.
+  }, [activeEventId]);
 
   const joinEvent = () => {
     setHasJoinedEvent(true);

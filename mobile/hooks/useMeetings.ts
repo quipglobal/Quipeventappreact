@@ -1,25 +1,21 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { listMeetings, sendMeetingRequest, respondToMeeting } from '@/lib/api/meetings';
 import type { SendMeetingRequest } from '@/lib/api/meetings';
-import { useAuth } from '@/context/AuthContext';
+import { useAuthedQuery } from '@/hooks/useAuthedQuery';
 
 export function useMeetings() {
-  // Gate both the initial fetch and the 30s `refetchInterval` on having an
-  // authenticated session. Without `enabled`, the polling would keep firing
-  // `GET /meetings` every 30s after sign-out (until the screen unmounted),
-  // every one of which 401s and counts against any unauthenticated rate
-  // limit. React Query also pauses the interval automatically when the
-  // query is disabled, so the timer is fully torn down — not just gated
-  // at the request layer.
-  const { token, user } = useAuth();
-  const enabled = !!token && !!user?.id;
-  return useQuery({
+  // Auth-gated by `useAuthedQuery` — the wrapper AND-merges its
+  // `enabled` flag with `!!token && !!user?.id`, and React Query pauses
+  // `refetchInterval` whenever the query is disabled. So both the
+  // initial fetch and the 30s poll automatically stop after sign-out
+  // and resume after sign-in, without each caller having to remember
+  // to wire the gate by hand.
+  return useAuthedQuery({
     queryKey: ['meetings'],
     queryFn: listMeetings,
     select: (res) => res.data ?? [],
     staleTime: 0,
-    refetchInterval: enabled ? 30_000 : false,
-    enabled,
+    refetchInterval: 30_000,
   });
 }
 
