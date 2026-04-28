@@ -4,9 +4,22 @@ import type { ScanPayload } from '@/lib/api/leads';
 import type { ApiResponse, Lead } from '@/lib/api/types';
 
 export function useLeads() {
+  const queryClient = useQueryClient();
   return useQuery({
     queryKey: ['leads'],
-    queryFn: listLeads,
+    // Wrap listLeads so we can preserve any locally-saved leads that
+    // are still flagged `pendingSync` — the server list won't include
+    // them yet, so naively replacing the cache would erase the offline
+    // indicator before the user retries the upload.
+    queryFn: async () => {
+      const prev = queryClient.getQueryData<ApiResponse<Lead[]>>(['leads']);
+      const prevPending = (prev?.data ?? []).filter((l) => l.pendingSync === true);
+      const res = await listLeads();
+      if (!res.success || !res.data) return res;
+      const serverIds = new Set(res.data.map((l) => l.id));
+      const preservedPending = prevPending.filter((l) => !serverIds.has(l.id));
+      return { success: true, data: [...preservedPending, ...res.data] };
+    },
     select: (res) => res?.data ?? [],
     staleTime: 1000 * 30,
     // Don't retry — if the server returns 4xx (e.g. the leads-list route
