@@ -2,6 +2,24 @@ import { useQuery, type UseQueryOptions, type QueryKey } from '@tanstack/react-q
 import { useAuth } from '@/context/AuthContext';
 
 /**
+ * Options accepted by `useAuthedQuery` — identical to React Query's
+ * `UseQueryOptions` except `enabled` is restricted to a plain boolean
+ * (or omitted). React Query also supports a function-form `enabled`,
+ * but allowing it here would silently bypass the auth gate (the
+ * wrapper would have no way to AND-merge it without re-implementing
+ * the function-form contract). Callers who need conditional gating
+ * should compute the boolean in their component and pass it through.
+ */
+export type UseAuthedQueryOptions<
+  TQueryFnData,
+  TError,
+  TData,
+  TQueryKey extends QueryKey,
+> = Omit<UseQueryOptions<TQueryFnData, TError, TData, TQueryKey>, 'enabled'> & {
+  enabled?: boolean;
+};
+
+/**
  * Thin wrapper around `useQuery` that automatically AND-gates `enabled`
  * on having an authenticated session (`token` and `user.id` both
  * present). React Query also pauses `refetchInterval` whenever a query
@@ -15,10 +33,6 @@ import { useAuth } from '@/context/AuthContext';
  * after sign-out, 401-ing every tick and burning unauthenticated rate
  * limit. Centralising the gate makes signed-in-only the default and
  * prevents new authenticated queries from regressing.
- *
- * The caller's own `enabled` (if provided) is AND-merged with the
- * auth gate. Function-form `enabled` is not supported here — pass a
- * boolean if you need conditional gating (compute it in the component).
  */
 export function useAuthedQuery<
   TQueryFnData = unknown,
@@ -26,14 +40,13 @@ export function useAuthedQuery<
   TData = TQueryFnData,
   TQueryKey extends QueryKey = QueryKey,
 >(
-  options: UseQueryOptions<TQueryFnData, TError, TData, TQueryKey>,
+  options: UseAuthedQueryOptions<TQueryFnData, TError, TData, TQueryKey>,
 ) {
   const { token, user } = useAuth();
   const authed = !!token && !!user?.id;
   const callerEnabled = options.enabled ?? true;
-  const enabled = typeof callerEnabled === 'boolean' ? callerEnabled && authed : authed;
-  return useQuery({
+  return useQuery<TQueryFnData, TError, TData, TQueryKey>({
     ...options,
-    enabled,
+    enabled: callerEnabled && authed,
   });
 }
