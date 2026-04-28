@@ -389,6 +389,14 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
   const handleRetrySync = async (lead: Lead, e?: React.MouseEvent) => {
     e?.stopPropagation();
     if (inFlightRetriesRef.current.has(lead.id)) return;
+    // Defensive guard: the badge code is what the backend uses to resolve
+    // the attendee. Historical or malformed local rows might be missing
+    // it; without a code the retry would always fail, so surface that to
+    // the user instead of silently no-op'ing.
+    if (!lead.code) {
+      showToast('Can\u2019t retry: missing badge code on this saved lead.');
+      return;
+    }
     inFlightRetriesRef.current.add(lead.id);
     setRetryingIds(prev => new Set(prev).add(lead.id));
     try {
