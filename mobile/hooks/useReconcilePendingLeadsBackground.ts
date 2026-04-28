@@ -3,6 +3,8 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { listLeads, reconcilePendingLead, resetLeadsListEndpointMissing } from '@/lib/api/leads';
 import type { ApiResponse, Lead } from '@/lib/api/types';
+import { useAuth } from '@/context/AuthContext';
+import { useEvent } from '@/context/EventContext';
 
 /**
  * Background reconciliation for locally-saved (`pendingSync: true`) leads.
@@ -31,13 +33,29 @@ import type { ApiResponse, Lead } from '@/lib/api/types';
  */
 export function useReconcilePendingLeadsBackground() {
   const queryClient = useQueryClient();
+  const { token, user } = useAuth();
+  const { currentEventId } = useEvent();
   // Keep refs so the closure captured by setTimeout always sees the
   // latest queryClient even though it never actually changes in
   // practice (defensive against future refactors).
   const queryClientRef = useRef(queryClient);
   useEffect(() => { queryClientRef.current = queryClient; }, [queryClient]);
 
+  // Gate the loop on an authenticated session *and* a selected event.
+  // Without this gate the timer chain would keep ticking after sign-out
+  // (token cleared, user null) and fire `GET /events/:id/leads` every
+  // minute — every one of which 401s, polluting logs and counting against
+  // any unauthenticated rate limit. Keying the effect on these values
+  // tears down the timer in the cleanup as soon as either disappears
+  // (logout, expired session, event de-selected) and re-arms it cleanly
+  // on the next sign-in. When either is missing we bail before scheduling
+  // so no probe ever fires from the welcome / login screen.
+  const sessionUserId = user?.id ?? null;
+  const hasSession = !!token && !!sessionUserId;
+  const hasEvent = !!currentEventId;
   useEffect(() => {
+    if (!hasSession || !hasEvent) return;
+
     const BASE_DELAY_MS = 60 * 1000;
     const MAX_DELAY_MS = 10 * 60 * 1000;
     const INITIAL_DELAY_MS = 5 * 1000;
@@ -185,5 +203,5 @@ export function useReconcilePendingLeadsBackground() {
       if (timer) clearTimeout(timer);
       sub.remove();
     };
-  }, []);
+  }, [hasSession, hasEvent]);
 }

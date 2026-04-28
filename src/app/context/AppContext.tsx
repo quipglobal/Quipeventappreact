@@ -446,7 +446,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Gate the background reconciler on an authenticated user *and* an active
+  // event. Without this gate the effect's setTimeout chain runs for the full
+  // lifetime of the provider, which means after logout (token cleared, no
+  // user) it would still wake every minute and fire a `GET /events/:id/leads`
+  // probe — every one of which 401s, polluting logs and counting against any
+  // unauthenticated rate limit. Keying the effect on `user?.id` +
+  // `activeEventConfig?.eventId` causes React to tear the timer down on
+  // logout (cleanup sets `cancelled = true` and clears the pending timeout)
+  // and re-arm it cleanly on the next sign-in. When either is missing we
+  // bail out before scheduling so no probe ever fires.
+  const authedUserId = user?.id ?? null;
+  const activeEventId = activeEventConfig?.eventId ?? null;
   useEffect(() => {
+    if (!authedUserId || !activeEventId) return;
+
     const BASE_DELAY_MS = 60 * 1000;
     const MAX_DELAY_MS = 10 * 60 * 1000;
     const INITIAL_DELAY_MS = 5 * 1000;
@@ -541,8 +555,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         document.removeEventListener('visibilitychange', onVisibilityChange);
       }
     };
+    // `reconcilePendingLeadsNow` is stable for the provider's lifetime and
+    // intentionally excluded so its inclusion can't accidentally retrigger
+    // the effect mid-session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [authedUserId, activeEventId]);
 
   const joinEvent = () => {
     setHasJoinedEvent(true);
