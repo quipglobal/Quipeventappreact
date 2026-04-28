@@ -12,6 +12,7 @@ import { EventProvider } from '@/context/EventContext';
 import { ThemeProvider } from '@/context/ThemeContext';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { AppSplashScreen } from '@/components/AppSplashScreen';
+import { useReconcilePendingLeadsBackground } from '@/hooks/useReconcilePendingLeadsBackground';
 import { colors } from '@/constants/theme';
 
 SplashScreen.preventAutoHideAsync();
@@ -48,6 +49,7 @@ export default function RootLayout() {
             <ThemeProvider>
               <AuthProvider>
                 <EventProvider>
+                <BackgroundLeadSync />
                 <StatusBar style="light" />
                 <Stack
                   screenOptions={{
@@ -79,6 +81,13 @@ export default function RootLayout() {
       </GestureHandlerRootView>
     </ErrorBoundary>
   );
+}
+
+// Mounted once inside the QueryClientProvider so the background reconciler
+// can read/write the shared `['leads']` cache. Renders nothing.
+function BackgroundLeadSync() {
+  useReconcilePendingLeadsBackground();
+  return null;
 }
 
 const styles = StyleSheet.create({

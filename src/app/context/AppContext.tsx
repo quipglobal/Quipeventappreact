@@ -1,5 +1,5 @@
 // @refresh reset
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { EventConfig, GamificationConfig } from '@/app/types/config';
 import { getMeApi } from '@/app/api/authClient';
 import { clearToken } from '@/app/api/client';
@@ -7,6 +7,7 @@ import { sendMeetingRequest as sendMeetingRequestApi } from '@/app/api/meetingsC
 import { fetchPointsFromBackend, scheduleSyncPoints } from '@/app/api/pointsClient';
 import { getMyEventRoleApi } from '@/app/api/audienceClient';
 import { loadLeadsFromStorage, saveLeadsToStorage, clearLeadsStorage } from '@/app/lib/leadsStorage';
+import { listLeads as listLeadsApi, scanBadgeLead, resetScanEndpointMissing } from '@/app/api/leadsClient';
 
 interface User {
   id: string;
@@ -136,6 +137,12 @@ interface AppContextType extends AppState {
    *  server-side lead now that the backend has accepted it. Clears
    *  `pendingSync` and substitutes the synthetic id with the server id. */
   replaceLead: (oldId: string, newLead: Lead) => void;
+  /** Reconcile any locally-saved (`pendingSync: true`) leads with the
+   *  backend right now. Shared between the LeadsPage on-mount flow and
+   *  the in-context background timer; an internal in-flight guard
+   *  prevents the two paths from double-pushing the same lead. Resolves
+   *  to the number of pending leads that successfully synced. */
+  reconcilePendingLeadsNow: () => Promise<number>;
   showToast: (message: string, points?: number) => void;
   updateTier: () => void;
   switchEvent: (config: EventConfig) => void;
@@ -346,6 +353,196 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.email, activeEventConfig?.eventId]);
+
+  // ── Background pendingSync reconciliation ──────────────────────────────
+  // Periodically retry pushing locally-saved (`pendingSync: true`) leads to
+  // the backend so sponsors who never open the My Leads page during an event
+  // still get their captures synced. Mirrors the on-mount reconciliation
+  // flow in LeadsPage but runs app-wide:
+  //
+  //   • Wakes up every 60s while the page is visible (skipped while
+  //     `document.hidden`; a `visibilitychange` listener triggers an
+  //     immediate retry when the user returns).
+  //   • Probes GET /events/:id/leads first — a successful response means
+  //     the backend's leads routes are live, and we reset the
+  //     session-scoped `/leads/scan` 404 short-circuit so retries actually
+  //     hit the network. If the probe fails, we back off and try later
+  //     instead of pushing scans the server can't accept.
+  //   • Backs off exponentially on consecutive failures (60s → 120s → … →
+  //     capped at 10 minutes) so a downed backend isn't hammered. Resets
+  //     to the base interval the moment any reconciliation succeeds.
+  //   • On success swaps the synthetic id for the canonical server id (via
+  //     `replaceLead`, which clears `pendingSync`) and shows a single
+  //     non-intrusive toast summarising the sync.
+  //
+  // Refs are used so the timer always sees the latest leads/eventId
+  // without re-running the effect (which would reset the backoff state).
+  const leadsRef = useRef<Lead[]>(leads);
+  useEffect(() => { leadsRef.current = leads; }, [leads]);
+  const activeEventIdRef = useRef<string>(activeEventConfig?.eventId ?? '0');
+  useEffect(() => { activeEventIdRef.current = activeEventConfig?.eventId ?? '0'; }, [activeEventConfig?.eventId]);
+
+  // Shared in-flight tracking so the page-mount reconciler in LeadsPage
+  // and the background timer below don't both push the same pending
+  // lead. A per-id Set lets independent leads still reconcile in parallel.
+  const reconcileInFlightRef = useRef<Set<string>>(new Set());
+
+  // Single shared implementation. Returns the number of leads that the
+  // server confirmed (so callers can decide whether to surface a toast).
+  // Skips any lead already in the per-id in-flight set, and probes the
+  // list endpoint first — same gate the on-mount flow used historically.
+  const reconcilePendingLeadsNow = React.useCallback(async (): Promise<number> => {
+    const eventId = activeEventIdRef.current;
+    const pending = leadsRef.current.filter(
+      l => l.pendingSync && !!l.code && !reconcileInFlightRef.current.has(l.id),
+    );
+    if (pending.length === 0) return 0;
+
+    // Probe — if the leads-list endpoint isn't reachable, skip the push
+    // entirely (the backend likely can't accept scans either) so we
+    // don't burn cycles or pollute logs with predictable failures.
+    const probe = await listLeadsApi(eventId);
+    if (!probe.success) return 0;
+    resetScanEndpointMissing();
+
+    pending.forEach(l => reconcileInFlightRef.current.add(l.id));
+    try {
+      const results = await Promise.all(
+        pending.map(async (lead) => {
+          const res = await scanBadgeLead(eventId, {
+            code: lead.code,
+            name: lead.name,
+            company: lead.company,
+            title: lead.title,
+            notes: lead.notes,
+            avatar: lead.avatar,
+            tags: lead.tags,
+            priority: lead.priority,
+          });
+          return { lead, res };
+        }),
+      );
+      let synced = 0;
+      for (const { lead, res } of results) {
+        if (res.success && res.data?.id) {
+          replaceLead(lead.id, {
+            ...res.data,
+            notes: lead.notes || res.data.notes || '',
+            tags: lead.tags?.length ? lead.tags : (res.data.tags ?? []),
+            priority: lead.priority ?? res.data.priority ?? 'warm',
+            timestamp: res.data.timestamp ?? lead.timestamp ?? new Date(),
+          });
+          synced++;
+        }
+      }
+      return synced;
+    } finally {
+      // Always release the in-flight slots so the next pass can retry
+      // any that didn't succeed this round.
+      pending.forEach(l => reconcileInFlightRef.current.delete(l.id));
+    }
+  // replaceLead is defined later in the same closure; it's stable across
+  // renders for this provider so we don't add it to deps.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const BASE_DELAY_MS = 60 * 1000;
+    const MAX_DELAY_MS = 10 * 60 * 1000;
+    const INITIAL_DELAY_MS = 5 * 1000;
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let consecutiveFailures = 0;
+    let inFlight = false;
+
+    const computeDelay = () => {
+      const exp = Math.min(consecutiveFailures, 4); // cap at 60s * 2^4 = 16min, then clamped
+      return Math.min(BASE_DELAY_MS * Math.pow(2, exp), MAX_DELAY_MS);
+    };
+
+    const schedule = (ms?: number) => {
+      if (cancelled) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => { void tick(); }, ms ?? computeDelay());
+    };
+
+    const tick = async () => {
+      if (cancelled) return;
+      // Don't burn cycles (or backend RPS) while the tab is hidden — the
+      // visibility listener below will wake us as soon as the user returns.
+      if (typeof document !== 'undefined' && document.hidden) {
+        schedule(BASE_DELAY_MS);
+        return;
+      }
+
+      const pending = leadsRef.current.filter(l => l.pendingSync && !!l.code);
+      if (pending.length === 0) {
+        // No work to do. Reset failure count so the next time pending leads
+        // appear we start at the base interval, not deep in backoff.
+        consecutiveFailures = 0;
+        schedule(BASE_DELAY_MS);
+        return;
+      }
+
+      if (inFlight) {
+        schedule();
+        return;
+      }
+      inFlight = true;
+
+      try {
+        // Delegate to the shared reconciler — it handles the list-endpoint
+        // probe, the per-lead in-flight guard (so we don't race the
+        // LeadsPage on-mount path), and the replaceLead swap.
+        const synced = await reconcilePendingLeadsNow();
+        if (cancelled) return;
+
+        if (synced > 0) {
+          consecutiveFailures = 0;
+          showToast(
+            synced === 1
+              ? 'Synced 1 pending lead'
+              : `Synced ${synced} pending leads`,
+          );
+        } else {
+          // Either the probe failed or every push failed — back off so
+          // we don't loop hot when the backend is down.
+          consecutiveFailures++;
+        }
+      } catch {
+        consecutiveFailures++;
+      } finally {
+        inFlight = false;
+        if (!cancelled) schedule();
+      }
+    };
+
+    // Kick off shortly after mount so a fresh pendingSync from a recent
+    // scan gets retried promptly without waiting a full minute.
+    schedule(INITIAL_DELAY_MS);
+
+    const onVisibilityChange = () => {
+      if (typeof document === 'undefined' || document.hidden) return;
+      // Returning to foreground — give the backend a fresh chance and
+      // attempt soon (small delay so we don't race a focus-driven
+      // re-render).
+      consecutiveFailures = 0;
+      schedule(2000);
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibilityChange);
+    }
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibilityChange);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const joinEvent = () => {
     setHasJoinedEvent(true);
@@ -629,6 +826,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         saveLead,
         updateLead,
         replaceLead,
+        reconcilePendingLeadsNow,
         showToast,
         updateTier,
         switchEvent,

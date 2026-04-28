@@ -325,7 +325,7 @@ interface LeadsPageProps {
 }
 
 export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, onNavigateToDraw }) => {
-  const { leads: contextLeads, updateLead, replaceLead, showToast, user, eventConfig } = useApp();
+  const { leads: contextLeads, updateLead, replaceLead, reconcilePendingLeadsNow, showToast, user, eventConfig } = useApp();
   const { t, isDark } = useTheme();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -334,41 +334,19 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
   const [apiLeads, setApiLeads] = useState<Lead[] | null>(null);
   const [reconciling, setReconciling] = useState(false);
 
-  // Reconcile any local-only (`pendingSync: true`) leads with the backend
-  // once the leads-list endpoint is reachable. The flow is:
-  //
-  //   1. Fetch GET /leads. A successful response is our signal that the
-  //      backend's leads routes are deployed for this session, so we also
-  //      reset the session-scoped `/leads/scan` 404 short-circuit (it may
-  //      have tripped earlier in the same session before the rollout).
-  //   2. Push each pending lead via /leads/scan. On success the server
-  //      returns the canonical lead row, and we swap our synthetic id for
-  //      the server id (clearing `pendingSync`).
-  //   3. Re-fetch GET /leads so the freshly-confirmed leads land in
-  //      `apiLeads` under their server ids. Any pending lead that was
-  //      already on the server is deduped via the secondary code/email key
-  //      in the merge below.
-  //
-  // We keep a guard ref so we only reconcile each pending lead once per
-  // page mount even if `contextLeads` changes (e.g. a fresh scan adds a
-  // new pending row mid-reconcile — that one will be picked up on the
-  // next mount or by a subsequent fetch). The ref is reset whenever the
-  // active event changes so leads from one event don't suppress
-  // reconciliation in another.
-  const reconciledIdsRef = React.useRef<Set<string>>(new Set());
-
+  // Page-mount flow:
+  //   1. Fetch GET /leads to populate the canonical view (`apiLeads`).
+  //   2. Delegate any pending-lead reconciliation to the shared
+  //      `reconcilePendingLeadsNow` helper on AppContext — it uses the
+  //      same scan-push logic as the in-context background timer, behind
+  //      a per-id in-flight guard so the two paths don't double-push.
+  //   3. Re-fetch GET /leads if anything synced so server-side fields
+  //      (timestamps, etc) replace the local snapshots.
   useEffect(() => {
     let cancelled = false;
     const eventId = eventConfig?.eventId ?? '0';
 
-    // Reset per-event reconciliation history when the event changes so a
-    // pending lead created under event A isn't accidentally treated as
-    // "already attempted" under event B.
-    reconciledIdsRef.current = new Set();
-
     const run = async () => {
-      // 1. Initial list fetch — proves the backend is reachable and gives us
-      //    the canonical view to merge against.
       const initial = await listLeads(eventId);
       if (cancelled) return;
       if (initial.success && initial.data) {
@@ -376,75 +354,33 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
         // The list endpoint is live; if `/leads/scan` was previously marked
         // as missing earlier in this session (e.g. backend rolled out the
         // routes after the user opened the app), allow reconciliation to
-        // actually hit the network on retry.
+        // actually hit the network on retry. The shared reconciler also
+        // does this, but we mirror it here so any callers that bypass the
+        // reconciler still benefit from the reset.
         resetScanEndpointMissing();
       }
-
-      // 2. Snapshot pending leads at this point — only attempt reconciliation
-      //    if the list fetch succeeded, so we don't push leads that the
-      //    server still can't accept (avoids hammering when offline).
       if (!initial.success) return;
 
-      const pending = contextLeads.filter(
-        l => l.pendingSync && !reconciledIdsRef.current.has(l.id),
-      );
-      if (pending.length === 0) return;
+      // Quick pre-check so we don't toggle the reconciling spinner when
+      // there's nothing to do.
+      const hasPending = contextLeads.some(l => l.pendingSync && !!l.code);
+      if (!hasPending) return;
 
       setReconciling(true);
-      // Mark them as in-flight immediately so a fast re-render doesn't
-      // re-queue the same lead.
-      pending.forEach(l => reconciledIdsRef.current.add(l.id));
-
-      const pushed = await Promise.all(
-        pending.map(async lead => {
-          const res = await scanBadgeLead(eventId, {
-            code: lead.code,
-            name: lead.name,
-            company: lead.company,
-            title: lead.title,
-            notes: lead.notes,
-            avatar: lead.avatar,
-            tags: lead.tags,
-            priority: lead.priority,
-          });
-          if (res.success && res.data?.id) {
-            return { lead, server: res.data };
-          }
-          return { lead, server: null as null };
-        }),
-      );
-      if (cancelled) return;
-
-      let anyPushed = false;
-      for (const { lead, server } of pushed) {
-        if (server) {
-          // Swap synthetic id → server id and clear pendingSync.
-          // Preserve any locally-edited notes/tags/priority over the
-          // (likely empty) server echo, since the user typed those.
-          replaceLead(lead.id, {
-            ...server,
-            notes: lead.notes || server.notes || '',
-            tags: lead.tags?.length ? lead.tags : (server.tags ?? []),
-            priority: lead.priority ?? server.priority ?? 'warm',
-            timestamp: server.timestamp ?? lead.timestamp ?? new Date(),
-          });
-          anyPushed = true;
-        } else {
-          // Leave it pending — un-mark so a future reconciliation pass
-          // (e.g. event switch, page remount) will retry.
-          reconciledIdsRef.current.delete(lead.id);
-        }
-      }
-      setReconciling(false);
-
-      // 3. Re-fetch the list so freshly-pushed leads come back with their
-      //    canonical server-side state (timestamps, etc).
-      if (anyPushed) {
-        const refreshed = await listLeads(eventId);
+      try {
+        const synced = await reconcilePendingLeadsNow();
         if (cancelled) return;
-        if (refreshed.success && refreshed.data) {
-          setApiLeads(refreshed.data);
+        if (synced > 0) {
+          // Re-fetch so freshly-pushed leads come back with their
+          // canonical server-side state (timestamps, etc).
+          const refreshed = await listLeads(eventId);
+          if (cancelled) return;
+          if (refreshed.success && refreshed.data) {
+            setApiLeads(refreshed.data);
+          }
         }
+      } finally {
+        if (!cancelled) setReconciling(false);
       }
     };
 

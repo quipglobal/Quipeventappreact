@@ -14,6 +14,17 @@ const ACCENT_COLORS = ['#7c3aed', '#06b6d4', '#10b981', '#f59e0b', '#ec4899', '#
 let leadsListEndpointMissing = false;
 let warnedListMissing = false;
 
+/**
+ * Clear the session-scoped "list endpoint is missing" short-circuit. Call
+ * this when there's reason to believe the backend may now have the route
+ * deployed (e.g. on foreground wake from the background reconciler) so
+ * the next `listLeads()` actually hits the network instead of throwing
+ * immediately.
+ */
+export function resetLeadsListEndpointMissing(): void {
+  leadsListEndpointMissing = false;
+}
+
 function normalizeLead(raw: any, index = 0): Lead {
   return {
     id: String(raw.id ?? raw.lead_id ?? raw.code ?? Date.now()),
