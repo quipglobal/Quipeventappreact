@@ -4,7 +4,7 @@ import { EventConfig, GamificationConfig } from '@/app/types/config';
 import { getMeApi } from '@/app/api/authClient';
 import { clearToken } from '@/app/api/client';
 import { sendMeetingRequest as sendMeetingRequestApi } from '@/app/api/meetingsClient';
-import { fetchPointsFromBackend, scheduleSyncPoints } from '@/app/api/pointsClient';
+import { fetchPointsFromBackend, scheduleSyncPoints, cancelPendingSyncPoints } from '@/app/api/pointsClient';
 import { getMyEventRoleApi } from '@/app/api/audienceClient';
 import { loadLeadsFromStorage, saveLeadsToStorage, clearLeadsStorage } from '@/app/lib/leadsStorage';
 import { listLeads as listLeadsApi, scanBadgeLead, resetScanEndpointMissing } from '@/app/api/leadsClient';
@@ -353,6 +353,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.email, activeEventConfig?.eventId]);
+
+  // ── Sign-out cleanup for outstanding background work ───────────────────
+  // Mirror the leads-reconciler gating for any other deferred / in-flight
+  // authenticated calls. The points sync in particular runs on a 300ms
+  // debounce, so an `addPoints` triggered just before sign-out would
+  // otherwise fire a PUT /me/profile *after* the token was cleared. Cancel
+  // it (and any future stale timer) the moment the user transitions to
+  // null. Re-runs only on user-id changes, so a refresh during an active
+  // session doesn't drop a legitimately scheduled sync.
+  useEffect(() => {
+    if (user?.id) return;
+    cancelPendingSyncPoints();
+  }, [user?.id]);
 
   // ── Background pendingSync reconciliation ──────────────────────────────
   // Periodically retry pushing locally-saved (`pendingSync: true`) leads to

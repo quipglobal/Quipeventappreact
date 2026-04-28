@@ -314,13 +314,23 @@ export const MeetingsPage: React.FC = () => {
     }
   }, [setConnectionRequests]);
 
+  // Gate the initial fetch + 30s poll on having an authenticated user.
+  // Without this gate, the screen would fire `GET /meetings` every 30s
+  // even after sign-out (the auth handler nulls the user before the page
+  // reload completes), 401-ing each time and burning unauthenticated
+  // quota. Re-keying on `user?.id` tears the interval down on sign-out
+  // and re-arms it cleanly on re-login.
   useEffect(() => {
+    if (!user?.id) return;
     fetchRequests();
     pollIntervalRef.current = setInterval(fetchRequests, 30000);
     return () => {
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
     };
-  }, [fetchRequests]);
+  }, [fetchRequests, user?.id]);
 
   const handleAccept = async (requestId: string) => {
     const res = await acceptMeetingRequest(requestId);

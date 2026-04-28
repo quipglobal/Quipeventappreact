@@ -10,7 +10,7 @@
  *   PUT  /api/v1/me/profile  → { name?, title?, bio?, social_links? }  → { success }
  */
 
-import { apiGet, apiPut } from './client';
+import { apiGet, apiPut, TOKEN_KEY } from './client';
 
 export interface PointsRecord {
   points: number;
@@ -39,14 +39,44 @@ let pendingPoints = 0;
 /**
  * Schedules a debounced points sync to the backend (300 ms window).
  * Multiple rapid calls coalesce into a single request.
+ *
+ * No-ops when there's no auth token in storage so a points update queued
+ * just before sign-out doesn't fire an unauthenticated PUT after the
+ * session ends. Callers that explicitly want to clear an in-flight
+ * timer (e.g. logout) should also use `cancelPendingSyncPoints()`.
  */
 export function scheduleSyncPoints(totalPoints: number): void {
+  if (typeof localStorage !== 'undefined' && !localStorage.getItem(TOKEN_KEY)) {
+    // Not authenticated — drop the request and any pending timer so we
+    // never PUT /me/profile from a signed-out state.
+    if (syncTimer) {
+      clearTimeout(syncTimer);
+      syncTimer = null;
+    }
+    return;
+  }
   pendingPoints = totalPoints;
   if (syncTimer) clearTimeout(syncTimer);
   syncTimer = setTimeout(() => {
     syncTimer = null;
+    // Re-check the token at fire time — the user may have signed out
+    // during the 300ms debounce window.
+    if (typeof localStorage !== 'undefined' && !localStorage.getItem(TOKEN_KEY)) return;
     pushPoints(pendingPoints).catch(() => {/* silent — don't block UI */});
   }, 300);
+}
+
+/**
+ * Cancels any pending debounced points sync. Called on sign-out so the
+ * trailing setTimeout doesn't fire a PUT against the (now invalid)
+ * token. Safe to call when no timer is pending.
+ */
+export function cancelPendingSyncPoints(): void {
+  if (syncTimer) {
+    clearTimeout(syncTimer);
+    syncTimer = null;
+  }
+  pendingPoints = 0;
 }
 
 async function pushPoints(points: number): Promise<void> {

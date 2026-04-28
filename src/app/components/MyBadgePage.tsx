@@ -33,11 +33,32 @@ export const MyBadgePage: React.FC = () => {
     setRefreshing(false);
   };
 
+  // Gate the initial fetch + 30s refresh poll on having an authenticated
+  // user. Without this gate, navigating to (or being mounted on) the
+  // badge screen with no session would fire `GET /me/badge` every 30s and
+  // 401 each time. Re-keying the effect on `user?.id` also tears the
+  // interval down on sign-out (the auth handler nulls the user before
+  // the page reload completes) and re-arms it cleanly on re-login.
   useEffect(() => {
+    if (!user?.id) {
+      // No authenticated user — drop the loading spinner and bail without
+      // firing any /me/badge calls. The page renders the "no user" empty
+      // state instead.
+      setLoading(false);
+      return;
+    }
     fetchBadge(false);
     intervalRef.current = setInterval(() => fetchBadge(true), 30_000);
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, []);
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+    // fetchBadge is defined in component scope and intentionally excluded;
+    // it only reads stable React state setters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   const displayName    = user?.name    ?? '';
   const displayTitle   = user?.title   ?? '';
