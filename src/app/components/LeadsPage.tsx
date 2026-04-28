@@ -577,16 +577,26 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
           const pc = priorityConfig[lead.priority];
           const PIcon = pc.icon;
           return (
-            <motion.button
+            // Outer container is a div (not a button) so the inner
+            // pending-sync Retry control can be a real <button> without
+            // nesting interactive elements (which is invalid HTML and
+            // breaks keyboard semantics). The visible "open lead" hit
+            // area is a child <button> covering the full row.
+            <motion.div
               key={lead.id}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: Math.min(index * 0.04, 0.3), duration: 0.3 }}
-              onClick={() => setSelectedLead(lead)}
-              className="w-full rounded-2xl p-4 text-left active:scale-[0.99] transition-all"
+              className="rounded-2xl p-4"
               style={{ background: t.surface, boxShadow: t.shadow, border: `1px solid ${t.border}` }}
             >
-              <div className="flex items-start gap-3.5">
+              <button
+                type="button"
+                onClick={() => setSelectedLead(lead)}
+                className="w-full text-left active:scale-[0.99] transition-all block"
+                aria-label={`Open ${lead.name}`}
+              >
+                <div className="flex items-start gap-3.5">
                 {/* Avatar with priority ring */}
                 <div className="relative flex-shrink-0">
                   <div className="w-12 h-12 rounded-xl overflow-hidden" style={{ border: `2px solid ${pc.color}40` }}>
@@ -623,12 +633,39 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
                 </div>
 
                 <ChevronRight style={{ width: 14, height: 14, color: t.textMuted, flexShrink: 0, marginTop: 4 }} />
-              </div>
+                </div>
+
+                {/* Notes preview */}
+                {lead.notes && (
+                  <div className="mt-3 px-3 py-2 rounded-lg" style={{ background: t.surface2 }}>
+                    <p className="line-clamp-2" style={{ color: t.textSec, fontSize: 12, lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                      {lead.notes}
+                    </p>
+                  </div>
+                )}
+
+                {/* Tags */}
+                {lead.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2.5">
+                    {lead.tags.slice(0, 3).map(tag => (
+                      <span key={tag} className="flex items-center gap-1 px-2 py-0.5 rounded-md"
+                        style={{ background: t.accentBg, color: t.accentSoft, fontSize: 10, fontWeight: 600 }}>
+                        <Tag style={{ width: 8, height: 8 }} /> {tag}
+                      </span>
+                    ))}
+                    {lead.tags.length > 3 && (
+                      <span style={{ color: t.textMuted, fontSize: 10, fontWeight: 600, alignSelf: 'center' }}>
+                        +{lead.tags.length - 3}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </button>
 
               {/* Pending-sync indicator: shown when the lead was saved
                   locally because the backend POST /leads/scan failed.
-                  Includes a Retry-sync button that re-attempts the
-                  upload and clears the flag on success. */}
+                  Sits OUTSIDE the card-open button so the Retry control
+                  can be a real <button> without nesting interactives. */}
               {lead.pendingSync && (
                 <div
                   className="mt-3 px-3 py-2 rounded-lg flex items-center gap-2"
@@ -641,22 +678,19 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
                   <span style={{ color: '#b45309', fontSize: 11, fontWeight: 600, flex: 1, textAlign: 'left' }}>
                     Saved on this device — not synced to server
                   </span>
-                  <span
-                    role="button"
-                    tabIndex={0}
+                  <button
+                    type="button"
                     onClick={(e) => { void handleRetrySync(lead, e); }}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void handleRetrySync(lead); } }}
                     aria-label={`Retry syncing ${lead.name}`}
                     aria-busy={retryingIds.has(lead.id)}
-                    aria-disabled={retryingIds.has(lead.id)}
-                    className="flex items-center gap-1 px-2 py-1 rounded-md cursor-pointer active:scale-95 transition-transform"
+                    disabled={retryingIds.has(lead.id)}
+                    className="flex items-center gap-1 px-2 py-1 rounded-md active:scale-95 transition-transform disabled:cursor-not-allowed"
                     style={{
                       background: 'rgba(245,158,11,0.18)',
                       color: '#b45309',
                       fontSize: 10,
                       fontWeight: 700,
                       opacity: retryingIds.has(lead.id) ? 0.6 : 1,
-                      pointerEvents: retryingIds.has(lead.id) ? 'none' : 'auto',
                     }}
                   >
                     <RefreshCw
@@ -667,36 +701,10 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
                       }}
                     />
                     {retryingIds.has(lead.id) ? 'Syncing…' : 'Retry'}
-                  </span>
+                  </button>
                 </div>
               )}
-
-              {/* Notes preview */}
-              {lead.notes && (
-                <div className="mt-3 px-3 py-2 rounded-lg" style={{ background: t.surface2 }}>
-                  <p className="line-clamp-2" style={{ color: t.textSec, fontSize: 12, lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                    {lead.notes}
-                  </p>
-                </div>
-              )}
-
-              {/* Tags */}
-              {lead.tags.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mt-2.5">
-                  {lead.tags.slice(0, 3).map(tag => (
-                    <span key={tag} className="flex items-center gap-1 px-2 py-0.5 rounded-md"
-                      style={{ background: t.accentBg, color: t.accentSoft, fontSize: 10, fontWeight: 600 }}>
-                      <Tag style={{ width: 8, height: 8 }} /> {tag}
-                    </span>
-                  ))}
-                  {lead.tags.length > 3 && (
-                    <span style={{ color: t.textMuted, fontSize: 10, fontWeight: 600, alignSelf: 'center' }}>
-                      +{lead.tags.length - 3}
-                    </span>
-                  )}
-                </div>
-              )}
-            </motion.button>
+            </motion.div>
           );
         })}
 
