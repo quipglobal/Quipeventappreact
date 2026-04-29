@@ -3,8 +3,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { AuthUser, getMe, setToken, clearToken, setUnauthorizedHandler, clearUnauthorizedHandler } from '@/lib/apiClient';
-import { clearCachedLeads } from '@/lib/leadsStorage';
-import { leadsQueryKey } from '@/lib/leadsCacheKey';
 
 interface AppContextValue {
   user: AuthUser | null;
@@ -57,16 +55,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Re-install on every user change so the handler captures the
-    // *current* user id and can scrub their leads cache + persisted slot
-    // when the backend invalidates the session (e.g. expired token).
-    // Without re-installing, the closure would forever reference the
-    // user who was signed in at mount time.
-    const priorUserId = user?.id ?? null;
+    // *current* user id when the backend invalidates the session (e.g.
+    // expired token). We deliberately do NOT wipe persisted leads
+    // here: storage is keyed by `(userId, eventId)` (see
+    // `leadsStorage.ts`), so a different user signing in cannot read
+    // the prior user's slot, and the same user signing back in
+    // expects their scanned leads to still be there. Wiping caused
+    // the "leads disappeared after I signed out" report.
     setUnauthorizedHandler(() => {
-      if (priorUserId) {
-        queryClient.removeQueries({ queryKey: leadsQueryKey(priorUserId) });
-        void clearCachedLeads(priorUserId);
-      }
       setTokenState(null);
       setUserState(null);
       setCompletedChallenges([]);
@@ -141,33 +137,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
-    // Snapshot the user being logged out *before* we wipe state so we
-    // can scrub their leads cache + persisted slot. Doing this here (in
-    // the auth layer) rather than inside `useLeads` means the cleanup
-    // runs regardless of which screen is mounted at sign-out time, so a
-    // user who logs out from, say, the schedule tab still has their
-    // local leads wiped before the next user signs in.
-    const priorUserId = user?.id ?? null;
+    // Sign out by clearing the auth token + cached user only. We
+    // intentionally **leave** the persisted leads in AsyncStorage:
+    // the storage key is `(userId, eventId)`-scoped, so a different
+    // user signing in next can't read the prior user's slot, and the
+    // **same** user signing back in expects their scanned leads to
+    // still be there for that event. Wiping on logout was the cause
+    // of the "all my leads disappeared after I signed out" report.
     await clearToken();
     await AsyncStorage.multiRemove([TOKEN_KEY, CACHED_USER_KEY]);
-    if (priorUserId) {
-      // Drop the user-scoped leads slot from the in-memory query cache so
-      // a subsequent reader (even on the same render pass) can never
-      // observe the prior account's leads.
-      queryClient.removeQueries({ queryKey: leadsQueryKey(priorUserId) });
-      // And wipe the persisted copy from AsyncStorage. Failures here are
-      // swallowed inside clearCachedLeads — at worst the persisted slot
-      // lingers, but the in-memory + key-scoping protections still keep
-      // it out of any other user's view.
-      void clearCachedLeads(priorUserId);
-    }
     setTokenState(null);
     setUserState(null);
     setCompletedChallenges([]);
     setBookmarkedSessions([]);
     setVotedPolls([]);
     setCompletedSurveys([]);
-  }, [user?.id, queryClient]);
+  }, []);
 
   const setUser = useCallback((u: AuthUser) => {
     setUserState(u);

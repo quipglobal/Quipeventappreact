@@ -3,7 +3,9 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { listLeads, reconcilePendingLead, resetLeadsListEndpointMissing } from '@/lib/api/leads';
 import type { ApiResponse, Lead } from '@/lib/api/types';
+import { useAuth } from '@/context/AuthContext';
 import { useEvent } from '@/context/EventContext';
+import { leadsQueryKey } from '@/lib/leadsCacheKey';
 import { useAuthedEffect } from '@/hooks/useAuthedEffect';
 
 /**
@@ -34,6 +36,8 @@ import { useAuthedEffect } from '@/hooks/useAuthedEffect';
 export function useReconcilePendingLeadsBackground() {
   const queryClient = useQueryClient();
   const { currentEventId } = useEvent();
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
   // Keep refs so the closure captured by setTimeout always sees the
   // latest queryClient even though it never actually changes in
   // practice (defensive against future refactors).
@@ -49,7 +53,13 @@ export function useReconcilePendingLeadsBackground() {
   // these gates the timer chain would keep ticking after sign-out and
   // fire `GET /events/:id/leads` every minute, every one of which 401s.
   useAuthedEffect(() => {
-    if (!currentEventId) return;
+    if (!currentEventId || !userId) return;
+    // Snapshot the (user, event) pair so the cache reads/writes below
+    // hit the same scoped key (`['leads', userId, eventId]`) that
+    // `useLeads` writes to. Without this the loop would scan the
+    // wrong slot (the legacy unscoped `['leads']` key) and miss
+    // every pending lead, silently never reconciling anything.
+    const scopedKey = leadsQueryKey(userId, currentEventId);
 
     const BASE_DELAY_MS = 60 * 1000;
     const MAX_DELAY_MS = 10 * 60 * 1000;
@@ -81,7 +91,7 @@ export function useReconcilePendingLeadsBackground() {
       }
 
       const qc = queryClientRef.current;
-      const cached = qc.getQueryData<ApiResponse<Lead[]>>(['leads']);
+      const cached = qc.getQueryData<ApiResponse<Lead[]>>(scopedKey);
       const cachedLeads = cached?.data ?? [];
       const pending = cachedLeads.filter((l) => l.pendingSync && !!l.code);
       if (pending.length === 0) {
@@ -144,7 +154,7 @@ export function useReconcilePendingLeadsBackground() {
         }
 
         consecutiveFailures = 0;
-        qc.setQueryData<ApiResponse<Lead[]>>(['leads'], (prev) => {
+        qc.setQueryData<ApiResponse<Lead[]>>(scopedKey, (prev) => {
           const existing = prev?.data ?? [];
           const map = new Map(successes.map((s) => [s.local.id, s.server]));
           // Replace each pending row in place with the canonical server
@@ -174,7 +184,7 @@ export function useReconcilePendingLeadsBackground() {
           return { success: true, data: deduped };
         });
         // Refetch so any server-side fields (timestamps, etc) come down.
-        qc.invalidateQueries({ queryKey: ['leads'] });
+        qc.invalidateQueries({ queryKey: scopedKey });
       } catch {
         consecutiveFailures++;
       } finally {
@@ -199,9 +209,11 @@ export function useReconcilePendingLeadsBackground() {
       sub.remove();
     };
     // `useAuthedEffect` already keys on the auth gate (token + user.id);
-    // we add `currentEventId` (not just a boolean `hasEvent`) so the
+    // we add `currentEventId` and `userId` (not just booleans) so the
     // timer rebuilds when the user switches between two truthy event
-    // ids — without this, an event swap would leave the loop running
-    // against the previous event's `['leads']` cache.
-  }, [currentEventId]);
+    // ids — or, in shared-device scenarios, when the *user* changes
+    // without an unmount in between. Without these deps the loop
+    // would keep running against a stale `(userId, eventId)` pair's
+    // cache slot.
+  }, [currentEventId, userId]);
 }

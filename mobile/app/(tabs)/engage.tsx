@@ -15,6 +15,7 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
+import { useEvent } from '@/context/EventContext';
 import { useChallenges, useCompleteChallenge, usePolls, useVotePoll, useSurveys, useSubmitSurvey, useGiveaways, useEnterGiveaway } from '@/hooks/useEngage';
 import { useLeaderboard } from '@/hooks/useAudience';
 import { useLeads, useLuckyDraw, useSubmitScan, leadsQueryKey } from '@/hooks/useLeads';
@@ -54,6 +55,7 @@ function LeadsView({ leads, onBack }: { leads: Lead[]; onBack: () => void }) {
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const { showToast, user } = useAuth();
+  const { currentEventId } = useEvent();
   // Track which leads are currently being retried so we can disable the
   // retry button and show a spinner without re-rendering the whole list.
   const [retryingIds, setRetryingIds] = useState<Set<string>>(new Set());
@@ -82,7 +84,7 @@ function LeadsView({ leads, onBack }: { leads: Lead[]; onBack: () => void }) {
         // both ids, since the server-assigned id likely differs) with the
         // canonical row, then trigger a refetch to reconcile.
         const newLead = res.data;
-        const leadsKey = leadsQueryKey(user?.id ?? null);
+        const leadsKey = leadsQueryKey(user?.id ?? null, currentEventId);
         queryClient.setQueryData<ApiResponse<Lead[]>>(leadsKey, (prev) => {
           const existing = prev?.data ?? [];
           const filtered = existing.filter(
