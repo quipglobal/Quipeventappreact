@@ -194,20 +194,41 @@ persistence. Backend contract changes are documented in
 ### Web App DataState Component
 `src/app/components/ui/DataState.tsx` — Reusable loading skeleton + error retry UI applied to: Feed, Events, Agenda, Sponsors pages.
 
-### Lucky Draw → Giveaways Winner Surface
-The Sponsor Lucky Draw screen (`SponsorDrawPage`) lets a sponsor rep select one
-of their own giveaways and pick a winner from their scanned leads via
-`POST /events/:id/leads/draw`. Once the backend resolves a winner, the rep's
-choice is persisted under a per-event localStorage overlay
-(`cxo:giveaway_winners:v1:<eventId>`) by `src/app/lib/giveawayWinnersStorage.ts`
-and mirrored into `AppContext.sponsorGiveaways[i].winners` via
-`recordGiveawayWinner(giveawayId, winner)`. The public `GiveawaysPage` reads
-that field and renders a "Winner(s)" pill block on each card so attendees
-immediately see who won the prize. The overlay is keyed by event id only
-(not user) since winner names are event-public, and is merged back into the
-server's giveaway list at every hydration tick — so a reload, a rep
-re-opening the page, or any attendee opening the screen all show the same
-winners until the backend route ships native `winners` support.
+### Sponsor Giveaways & Lucky Draw
+
+**Visibility & ownership.** Sponsor reps see every giveaway added by anyone at
+their company, not just their own personal entries — both
+`SponsorGiveawaysPage` (manage) and `SponsorDrawPage` (lucky draw) filter the
+list with `AppContext.isMyGiveaway`, which matches on `sponsorId === user.id`
+OR `sponsorName === user.company` (case-insensitive). This prevents two reps
+at the same booth from creating duplicate prize entries, and lets either rep
+edit / delete / draw against any of their company's giveaways. Co-worker-added
+items show an "Added by …" byline so the owner is still attributable.
+
+**CRUD endpoints.** Backed by `src/app/api/giveawaysClient.ts`:
+- `GET /api/v1/events/:eventId/giveaways` — list (hydrated on event change)
+- `POST /api/v1/events/:eventId/giveaways` — create
+- `PATCH /api/v1/events/:eventId/giveaways/:giveawayId` — edit (title, items, image)
+- `DELETE /api/v1/events/:eventId/giveaways/:giveawayId` — delete
+
+All mutations are optimistic, gracefully degrade on `NOT_IMPLEMENTED` (kept
+local-only), and roll back on real failures. A session-scoped flag short-
+circuits each verb after a 404 so we don't spam a downed route.
+
+**Lucky draw winner surface.** `SponsorDrawPage` calls
+`PATCH /api/v1/events/:eventId/leads/draw` (the Laravel route is exposed as
+PATCH — POST returns `MethodNotAllowedHttpException`). Once the backend
+resolves a winner, the rep's choice is persisted under a per-event
+localStorage overlay (`cxo:giveaway_winners:v1:<eventId>`) by
+`src/app/lib/giveawayWinnersStorage.ts` and mirrored into
+`AppContext.sponsorGiveaways[i].winners` via
+`recordGiveawayWinner(giveawayId, winner, eventIdAtDrawStart?)`. The public
+`GiveawaysPage` reads that field and renders a "Winner(s)" pill block on each
+card so attendees immediately see who won the prize. The overlay is keyed by
+event id only (not user) since winner names are event-public, and is merged
+back into the server's giveaway list at every hydration tick — so a reload,
+a rep re-opening the page, or any attendee opening the screen all show the
+same winners until the backend giveaway route ships native `winners` support.
 
 ---
 

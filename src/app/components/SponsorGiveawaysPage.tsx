@@ -1,6 +1,6 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  Gift, Plus, Upload, X, Package, Clock, Trash2, Sparkles,
+  Gift, Plus, Upload, X, Package, Clock, Trash2, Sparkles, Pencil, Check,
 } from 'lucide-react';
 import { useApp, SponsorGiveaway } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
@@ -120,12 +120,151 @@ const GiveawayForm: React.FC<{
   );
 };
 
+// ─── Edit Giveaway Modal ─────────────────────────────────────────────────────
+
+const EditGiveawayModal: React.FC<{
+  giveaway: SponsorGiveaway;
+  onSave: (updates: { title: string; numberOfItems: number; image: string }) => void;
+  onClose: () => void;
+}> = ({ giveaway, onSave, onClose }) => {
+  const { t } = useTheme();
+  const [title, setTitle] = useState(giveaway.title);
+  const [numberOfItems, setNumberOfItems] = useState(String(giveaway.numberOfItems));
+  const [imagePreview, setImagePreview] = useState(giveaway.image);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Lock body scroll while the modal is open so the underlying page
+  // can't be scrolled behind the overlay.
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { alert('Image must be under 5MB'); return; }
+    const reader = new FileReader();
+    reader.onloadend = () => setImagePreview(reader.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  const isValid = title.trim().length > 0 && parseInt(numberOfItems, 10) > 0;
+
+  const handleSave = () => {
+    if (!isValid) return;
+    onSave({
+      title: title.trim(),
+      numberOfItems: parseInt(numberOfItems, 10),
+      image: imagePreview,
+    });
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+      style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        className="rounded-2xl overflow-hidden w-full max-w-md max-h-[90vh] overflow-y-auto"
+        style={{ background: t.surface, border: `1px solid ${t.border}`, boxShadow: t.shadow }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-4 py-3 flex items-center justify-between" style={{ borderBottom: `1px solid ${t.border}` }}>
+          <div className="flex items-center gap-2">
+            <Pencil style={{ width: 16, height: 16, color: '#7c3aed' }} />
+            <span style={{ color: t.text, fontSize: 14, fontWeight: 700 }}>Edit Giveaway</span>
+          </div>
+          <button onClick={onClose}
+            className="p-1.5 rounded-lg active:scale-90 transition-transform"
+            style={{ background: t.surface2 }}>
+            <X style={{ width: 14, height: 14, color: t.textMuted }} />
+          </button>
+        </div>
+
+        <div className="p-4 space-y-4">
+          <div>
+            <label style={{ color: t.textSec, fontSize: 12, fontWeight: 600, marginBottom: 6, display: 'block' }}>
+              Giveaway Title
+            </label>
+            <input type="text" placeholder="e.g., Win a MacBook Pro"
+              value={title} onChange={e => setTitle(e.target.value)}
+              className="w-full px-3.5 py-2.5 rounded-xl outline-none transition-colors"
+              style={{ background: t.surface2, border: `1px solid ${t.border}`, color: t.text, fontSize: 14 }} />
+          </div>
+
+          <div>
+            <label style={{ color: t.textSec, fontSize: 12, fontWeight: 600, marginBottom: 6, display: 'block' }}>
+              Number of Items
+            </label>
+            <input type="number" placeholder="e.g., 50" min="1"
+              value={numberOfItems} onChange={e => setNumberOfItems(e.target.value)}
+              className="w-full px-3.5 py-2.5 rounded-xl outline-none transition-colors"
+              style={{ background: t.surface2, border: `1px solid ${t.border}`, color: t.text, fontSize: 14 }} />
+          </div>
+
+          <div>
+            <label style={{ color: t.textSec, fontSize: 12, fontWeight: 600, marginBottom: 6, display: 'block' }}>
+              Picture
+            </label>
+            <input ref={fileInputRef} type="file" accept="image/*"
+              onChange={handleImageUpload} className="hidden" />
+            {imagePreview ? (
+              <div className="relative rounded-xl overflow-hidden" style={{ border: `1px solid ${t.border}` }}>
+                <img src={imagePreview} alt="Preview" className="w-full h-40 object-cover" />
+                <button
+                  onClick={() => { setImagePreview(''); if (fileInputRef.current) fileInputRef.current.value = ''; }}
+                  className="absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+                  style={{ background: 'rgba(0,0,0,0.6)' }}>
+                  <X style={{ width: 14, height: 14, color: '#fff' }} />
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => fileInputRef.current?.click()}
+                className="w-full flex flex-col items-center justify-center gap-2 py-8 rounded-xl active:scale-[0.98] transition-transform"
+                style={{ background: t.surface2, border: `2px dashed ${t.border}` }}>
+                <Upload style={{ width: 24, height: 24, color: t.textMuted }} />
+                <span style={{ color: t.textSec, fontSize: 13, fontWeight: 600 }}>Tap to upload image</span>
+                <span style={{ color: t.textMuted, fontSize: 11 }}>JPG, PNG up to 5MB</span>
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 pt-2">
+            <button onClick={onClose}
+              className="flex-1 py-3 rounded-xl active:scale-[0.97] transition-transform"
+              style={{ background: t.surface2, color: t.textSec, fontWeight: 700, fontSize: 14 }}>
+              Cancel
+            </button>
+            <button onClick={handleSave} disabled={!isValid}
+              className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-white active:scale-[0.97] transition-all"
+              style={{
+                background: isValid ? 'linear-gradient(135deg,#7c3aed,#4f46e5)' : 'rgba(124,58,237,0.3)',
+                opacity: isValid ? 1 : 0.6, fontWeight: 700, fontSize: 14,
+              }}>
+              <Check style={{ width: 16, height: 16 }} />
+              Save
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
 // ─── Giveaway Card ───────────────────────────────────────────────────────────
 
 const GiveawayCard: React.FC<{
   giveaway: SponsorGiveaway;
+  isMine: boolean;
+  byline?: string;
+  onEdit: (giveaway: SponsorGiveaway) => void;
   onRemove: (id: string) => void;
-}> = ({ giveaway, onRemove }) => {
+}> = ({ giveaway, isMine, byline, onEdit, onRemove }) => {
   const { t } = useTheme();
   const [showConfirm, setShowConfirm] = useState(false);
 
@@ -150,22 +289,38 @@ const GiveawayCard: React.FC<{
                 {giveaway.numberOfItems} item{giveaway.numberOfItems !== 1 ? 's' : ''} available
               </span>
             </div>
+            {byline && (
+              <div className="mt-1.5">
+                <span style={{ color: t.textMuted, fontSize: 11 }}>{byline}</span>
+              </div>
+            )}
           </div>
-          {showConfirm ? (
-            <div className="flex items-center gap-1.5">
-              <button onClick={() => onRemove(giveaway.id)}
-                className="px-2.5 py-1 rounded-lg text-white active:scale-95 transition-transform"
-                style={{ background: '#ef4444', fontSize: 11, fontWeight: 700 }}>Delete</button>
-              <button onClick={() => setShowConfirm(false)}
-                className="px-2.5 py-1 rounded-lg active:scale-95 transition-transform"
-                style={{ background: t.surface2, color: t.textSec, fontSize: 11, fontWeight: 700 }}>Cancel</button>
-            </div>
-          ) : (
-            <button onClick={() => setShowConfirm(true)}
-              className="p-1.5 rounded-lg active:scale-90 transition-transform"
-              style={{ background: t.surface2 }}>
-              <Trash2 style={{ width: 14, height: 14, color: t.textMuted }} />
-            </button>
+          {isMine && (
+            showConfirm ? (
+              <div className="flex items-center gap-1.5">
+                <button onClick={() => { onRemove(giveaway.id); setShowConfirm(false); }}
+                  className="px-2.5 py-1 rounded-lg text-white active:scale-95 transition-transform"
+                  style={{ background: '#ef4444', fontSize: 11, fontWeight: 700 }}>Delete</button>
+                <button onClick={() => setShowConfirm(false)}
+                  className="px-2.5 py-1 rounded-lg active:scale-95 transition-transform"
+                  style={{ background: t.surface2, color: t.textSec, fontSize: 11, fontWeight: 700 }}>Cancel</button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <button onClick={() => onEdit(giveaway)}
+                  className="p-1.5 rounded-lg active:scale-90 transition-transform"
+                  style={{ background: t.surface2 }}
+                  aria-label="Edit giveaway">
+                  <Pencil style={{ width: 14, height: 14, color: t.textMuted }} />
+                </button>
+                <button onClick={() => setShowConfirm(true)}
+                  className="p-1.5 rounded-lg active:scale-90 transition-transform"
+                  style={{ background: t.surface2 }}
+                  aria-label="Delete giveaway">
+                  <Trash2 style={{ width: 14, height: 14, color: t.textMuted }} />
+                </button>
+              </div>
+            )
           )}
         </div>
         <div className="flex items-center gap-1.5 mt-2">
@@ -180,11 +335,23 @@ const GiveawayCard: React.FC<{
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export const SponsorGiveawaysPage: React.FC = () => {
-  const { sponsorGiveaways, addSponsorGiveaway, removeSponsorGiveaway, user, eventConfig } = useApp();
+  const {
+    sponsorGiveaways,
+    addSponsorGiveaway,
+    updateSponsorGiveaway,
+    removeSponsorGiveaway,
+    isMyGiveaway,
+    user,
+    eventConfig,
+  } = useApp();
   const { t, isDark } = useTheme();
+  const [editing, setEditing] = useState<SponsorGiveaway | null>(null);
 
   const isSponsor = user?.role === 'sponsor';
-  const myGiveaways = sponsorGiveaways.filter(g => g.sponsorId === (user?.id || 'sponsor'));
+  // Show prizes added by the current rep AND any co-worker from the
+  // same company. The matcher lives in AppContext so SponsorDrawPage
+  // applies the exact same rule.
+  const myGiveaways = sponsorGiveaways.filter(isMyGiveaway);
 
   const headerBg = eventConfig?.backgroundURL
     ? `linear-gradient(160deg,rgba(10,5,30,0.82) 0%,rgba(30,10,60,0.72) 100%),url(${eventConfig.backgroundURL}) center/cover no-repeat`
@@ -264,9 +431,30 @@ export const SponsorGiveawaysPage: React.FC = () => {
             </div>
             <div className="space-y-3">
               <AnimatePresence>
-                {myGiveaways.map(g => (
-                  <GiveawayCard key={g.id} giveaway={g} onRemove={removeSponsorGiveaway} />
-                ))}
+                {myGiveaways.map(g => {
+                  // "Mine" here just controls whether edit/delete
+                  // buttons are visible. Per product: any same-company
+                  // rep can manage the booth's prizes, so isMyGiveaway
+                  // already includes them.
+                  const mine = isMyGiveaway(g);
+                  // Show a "Added by Co-worker" hint for prizes the
+                  // current rep didn't personally create — helps the
+                  // team avoid accidentally duplicating an item.
+                  const byline =
+                    mine && g.sponsorId !== user?.id && g.sponsorName
+                      ? `Added by ${g.sponsorName}`
+                      : undefined;
+                  return (
+                    <GiveawayCard
+                      key={g.id}
+                      giveaway={g}
+                      isMine={mine}
+                      byline={byline}
+                      onEdit={setEditing}
+                      onRemove={removeSponsorGiveaway}
+                    />
+                  );
+                })}
               </AnimatePresence>
             </div>
           </div>
@@ -285,6 +473,20 @@ export const SponsorGiveawaysPage: React.FC = () => {
           </div>
         )}
       </div>
+
+      <AnimatePresence>
+        {editing && (
+          <EditGiveawayModal
+            giveaway={editing}
+            onClose={() => setEditing(null)}
+            onSave={async (updates) => {
+              const id = editing.id;
+              setEditing(null);
+              await updateSponsorGiveaway(id, updates);
+            }}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 };

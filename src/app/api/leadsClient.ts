@@ -42,7 +42,7 @@
  * Set VITE_USE_MOCK_API=true in .env to run without a live backend.
  */
 
-import { apiGet, apiPost, apiPut } from './client';
+import { apiGet, apiPost, apiPut, apiPatch } from './client';
 import type { Lead } from '@/app/context/AppContext';
 
 const USE_MOCK = false;
@@ -482,8 +482,16 @@ export async function updateLeadApi(
 // ─── Lucky Draw ─────────────────────────────────────────────────────────────
 
 /**
- * POST /api/v1/events/:eventId/leads/draw
- * Selects a winner server-side from the user's lead pool.
+ * PATCH /api/v1/events/:eventId/leads/draw
+ *
+ * Selects a winner server-side from the user's lead pool. The backend
+ * exposes this route as PATCH (not POST) — the operation is idempotent
+ * from the client's perspective (each call yields *a* winner; the
+ * client never asserts which one) and the route also flips a server
+ * "drawn_at" flag on the chosen lead, hence the verb choice on the
+ * Laravel side. Sending POST here returns
+ * `MethodNotAllowedHttpException` ("The POST method is not supported
+ * for route api/v1/events/:id/leads/draw").
  */
 export async function triggerLuckyDraw(
   eventId: string | number,
@@ -508,10 +516,9 @@ export async function triggerLuckyDraw(
     };
   }
 
-  const res = await apiPost<DrawWinner>(
+  const res = await apiPatch<DrawWinner>(
     `/api/v1/events/${eventId}/leads/draw`,
     params,
-    HEADERS,
   );
   if (!res.success || !res.data) {
     return { success: false, error: res.error ?? { code: 'DRAW_FAILED', message: 'Failed to select a winner.' } };

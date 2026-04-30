@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiDelete, ApiEnvelope } from './client';
+import { apiGet, apiPost, apiPatch, apiDelete, ApiEnvelope } from './client';
 import { SponsorGiveaway } from '@/app/context/AppContext';
 
 const HEADERS = { 'Accept': 'application/json' };
@@ -22,12 +22,14 @@ export interface RemoveGiveawayResponse {
 
 let listEndpointMissing = false;
 let createEndpointMissing = false;
+let updateEndpointMissing = false;
 let deleteEndpointMissing = false;
 let warnedListMissing = false;
 
 export function resetGiveawaysEndpointMissing(): void {
   listEndpointMissing = false;
   createEndpointMissing = false;
+  updateEndpointMissing = false;
   deleteEndpointMissing = false;
 }
 
@@ -165,6 +167,60 @@ export async function createGiveaway(
   }
   // Some Laravel resources return the row at the top level, others wrap
   // it under `{ data: {...} }`. Normalize either shape.
+  const raw = (res.data as any)?.data ?? res.data;
+  return { success: true, data: normalizeGiveaway(raw) };
+}
+
+export interface UpdateGiveawayPayload {
+  title?: string;
+  numberOfItems?: number;
+  image?: string;
+}
+
+/**
+ * PATCH /api/v1/events/:eventId/giveaways/:giveawayId
+ *
+ * Used by the sponsor "edit giveaway" flow. Mirrors `createGiveaway`
+ * in sending both camelCase and snake_case so either backend
+ * convention works without a contract change here. Only sends the
+ * fields the caller actually wants to change — the backend is
+ * expected to leave the rest untouched.
+ */
+export async function updateGiveaway(
+  eventId: string | number,
+  giveawayId: string,
+  payload: UpdateGiveawayPayload,
+): Promise<SaveGiveawayResponse> {
+  if (updateEndpointMissing) {
+    return { success: false, error: { code: 'NOT_IMPLEMENTED', message: 'Giveaway update endpoint not deployed.' } };
+  }
+  // Treat synthetic ids (rows that never round-tripped through the
+  // backend) as "no canonical row to update". The caller will fall
+  // back to a local-only state mutation.
+  if (giveawayId.startsWith('giveaway-')) {
+    return { success: false, error: { code: 'NOT_IMPLEMENTED', message: 'Giveaway is local-only — backend create did not complete.' } };
+  }
+  const body: Record<string, unknown> = {};
+  if (payload.title !== undefined) {
+    body.title = payload.title;
+  }
+  if (payload.numberOfItems !== undefined) {
+    body.number_of_items = payload.numberOfItems;
+    body.numberOfItems = payload.numberOfItems;
+    body.quantity = payload.numberOfItems;
+  }
+  if (payload.image !== undefined) {
+    body.image = payload.image;
+    body.image_url = payload.image;
+  }
+  const res = await apiPatch<unknown>(`/api/v1/events/${eventId}/giveaways/${giveawayId}`, body);
+  if (!res.success || !res.data) {
+    if (res.error?.code === '404') {
+      updateEndpointMissing = true;
+      return { success: false, error: { code: 'NOT_IMPLEMENTED', message: 'Giveaway update endpoint not deployed.' } };
+    }
+    return { success: false, error: res.error ?? { code: 'UPDATE_FAILED', message: 'Failed to update giveaway.' } };
+  }
   const raw = (res.data as any)?.data ?? res.data;
   return { success: true, data: normalizeGiveaway(raw) };
 }

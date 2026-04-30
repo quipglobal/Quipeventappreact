@@ -18,6 +18,7 @@ import { listLeads as listLeadsApi, scanBadgeLead, resetScanEndpointMissing } fr
 import {
   listGiveaways as listGiveawaysApi,
   createGiveaway as createGiveawayApi,
+  updateGiveaway as updateGiveawayApi,
   removeGiveaway as removeGiveawayApi,
   resetGiveawaysEndpointMissing,
 } from '@/app/api/giveawaysClient';
@@ -170,7 +171,26 @@ interface AppContextType extends AppState {
   updateTier: () => void;
   switchEvent: (config: EventConfig) => void;
   addSponsorGiveaway: (giveaway: Omit<SponsorGiveaway, 'id' | 'createdAt'>) => Promise<void>;
+  /**
+   * Edit an existing giveaway — only the supplied fields are
+   * modified. Optimistic: the in-memory row updates immediately and
+   * is reverted if the backend rejects the change. Local-only rows
+   * (synthetic ids) are mutated in place without a network call.
+   */
+  updateSponsorGiveaway: (
+    id: string,
+    updates: { title?: string; numberOfItems?: number; image?: string },
+  ) => Promise<void>;
   removeSponsorGiveaway: (id: string) => Promise<void>;
+  /**
+   * Returns true when `giveaway` was created by the current user
+   * OR by another rep from the same company (same `company` value,
+   * case-insensitive). Used by the sponsor-only "manage giveaways"
+   * and "lucky draw" surfaces so co-workers can see and (per
+   * product request) manage each other's prizes to prevent
+   * duplicate entries at the booth.
+   */
+  isMyGiveaway: (giveaway: SponsorGiveaway) => boolean;
   /**
    * Append a lucky-draw winner to a giveaway and persist it to the
    * per-event overlay so it survives reloads and is visible on the
@@ -1033,6 +1053,71 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast(res.error?.message ?? 'Failed to save giveaway. Please try again.');
   };
 
+  const updateSponsorGiveaway = async (
+    id: string,
+    updates: { title?: string; numberOfItems?: number; image?: string },
+  ) => {
+    const eventIdAtCall = activeEventConfig?.eventId;
+    const userIdAtCall = user?.id ?? null;
+    const before = sponsorGiveaways.find(g => g.id === id);
+    if (!before) return;
+
+    // Optimistic in-memory mutation: the rep sees the change
+    // immediately. We snapshot `before` so we can roll back without
+    // clobbering any other concurrent edits to the list.
+    setSponsorGiveaways(prev =>
+      prev.map(g => (g.id === id ? { ...g, ...updates } : g)),
+    );
+
+    if (!eventIdAtCall) return;
+    // Synthetic ids never round-tripped through the backend (offline
+    // or NOT_IMPLEMENTED), so a PATCH would 404. The optimistic
+    // local mutation above is the only state change we need.
+    if (id.startsWith('giveaway-')) {
+      showToast('Giveaway updated');
+      return;
+    }
+
+    const res = await updateGiveawayApi(eventIdAtCall, id, updates);
+
+    // Mid-flight event/user switch: don't apply server response to
+    // a list that no longer represents this event. Keep the
+    // optimistic mutation in memory; the next hydration tick will
+    // overwrite it with the canonical state for whichever event the
+    // user is now viewing.
+    if (
+      activeEventIdRef.current !== eventIdAtCall ||
+      userIdRef.current !== userIdAtCall
+    ) {
+      return;
+    }
+
+    if (res.success && res.data) {
+      const saved = res.data;
+      setSponsorGiveaways(prev =>
+        prev.map(g => {
+          if (g.id !== id) return g;
+          // Preserve any in-memory winners — the update endpoint
+          // doesn't (yet) know about them.
+          const carried = g.winners ?? saved.winners ?? [];
+          return carried.length > 0 ? { ...saved, winners: carried } : saved;
+        }),
+      );
+      showToast('Giveaway updated');
+      return;
+    }
+    if (res.error?.code === 'NOT_IMPLEMENTED') {
+      // Backend route missing — keep the optimistic local mutation
+      // so the rep isn't told their edit failed, same posture as
+      // create/delete.
+      showToast('Giveaway updated');
+      return;
+    }
+    // Real failure — roll back.
+    setSponsorGiveaways(prev => prev.map(g => (g.id === id ? before : g)));
+    showToast(res.error?.message ?? 'Failed to update giveaway. Please try again.');
+  };
+
   const removeSponsorGiveaway = async (id: string) => {
     const eventIdAtCall = activeEventConfig?.eventId;
     const userIdAtCall = user?.id ?? null;
@@ -1105,6 +1190,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  // Same-company / same-user matcher used by every sponsor surface
+  // that lists "the giveaways I can manage". Prevents duplicate
+  // entries by surfacing co-workers' prizes too.
+  //
+  // Matching strategy (any one wins):
+  //   1. sponsorId equals user.id (the obvious case).
+  //   2. sponsorName matches user.company (case-insensitive trim) —
+  //      catches the common case where the backend stamps the
+  //      sponsor company on the giveaway but the rep's user.id
+  //      doesn't equal the row's sponsor_id (e.g. multiple reps
+  //      under one sponsor account).
+  //
+  // We deliberately do NOT match on email domain — the giveaway
+  // payload doesn't carry the rep's email and the company-name
+  // match already covers the "co-worker visibility" requirement.
+  const isMyGiveaway = (g: SponsorGiveaway): boolean => {
+    if (!user) return false;
+    if (g.sponsorId && g.sponsorId === user.id) return true;
+    const a = (g.sponsorName ?? '').trim().toLowerCase();
+    const b = (user.company ?? '').trim().toLowerCase();
+    return a !== '' && b !== '' && a === b;
+  };
+
   const switchEvent = (config: EventConfig) => {
     setActiveEventConfig(config);
     setCompletedSurveys([]);
@@ -1158,7 +1266,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateTier,
         switchEvent,
         addSponsorGiveaway,
+        updateSponsorGiveaway,
         removeSponsorGiveaway,
+        isMyGiveaway,
         recordGiveawayWinner,
         sendConnectionRequest,
         acceptConnection,

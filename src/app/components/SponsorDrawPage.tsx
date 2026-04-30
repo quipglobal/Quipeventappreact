@@ -36,7 +36,7 @@ interface SponsorDrawPageProps {
 }
 
 export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
-  const { sponsorGiveaways, user, showToast, eventConfig, recordGiveawayWinner } = useApp();
+  const { sponsorGiveaways, user, showToast, eventConfig, recordGiveawayWinner, isMyGiveaway } = useApp();
   const { t, isDark } = useTheme();
   const [poolLeads, setPoolLeads] = useState<Lead[]>([]);
 
@@ -48,10 +48,14 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
     });
   }, [eventConfig?.eventId]);
 
-  // Sponsor's own giveaways
+  // Sponsor's giveaways — includes prizes added by other reps from
+  // the same company so co-workers can run draws against each other's
+  // prize pool. The matcher lives in AppContext (`isMyGiveaway`) so
+  // SponsorGiveawaysPage uses the exact same rule.
   const myGiveaways = useMemo(() => {
-    return sponsorGiveaways.filter(g => g.sponsorId === (user?.id || 'sponsor'));
-  }, [sponsorGiveaways, user]);
+    return sponsorGiveaways.filter(isMyGiveaway);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sponsorGiveaways, user?.id, user?.company]);
 
   const [phase, setPhase] = useState<DrawPhase>('setup');
   const [selectedGiveaway, setSelectedGiveaway] = useState<SponsorGiveaway | null>(null);
