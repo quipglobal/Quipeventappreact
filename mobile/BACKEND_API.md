@@ -833,14 +833,14 @@ or
 
 ---
 
-## 9. Sponsor Tools (role: sponsor only)
+## 9. Leads (any event member can scan + manage their own leads)
 
-### 9.1 List Leads
+### 9.1 My Leads (per-scanner list)
 ```
-GET /api/sponsor/leads
+GET /api/v1/events/:eventId/my-leads
 ```
 
-**Auth required:** Yes (sponsor role)
+**Auth required:** Yes (any event member). Server-side filter: `scanner_user_id = me`.
 
 **Response (200):**
 ```json
@@ -849,6 +849,7 @@ GET /api/sponsor/leads
   "data": [
     {
       "id": "l1",
+      "code": "ATT-4419",
       "name": "Alex Thompson",
       "title": "CTO",
       "company": "StartupXYZ",
@@ -857,33 +858,42 @@ GET /api/sponsor/leads
       "scannedAt": "9:32 AM",
       "color": "#7c3aed",
       "status": "warm",
-      "notes": "Interested in enterprise plan"
+      "priority": "warm",
+      "notes": "Interested in enterprise plan",
+      "tags": ["Decision Maker", "Budget Holder"]
     }
   ]
 }
 ```
 
+**Critical fields (DO NOT OMIT):** `notes`, `tags`, `priority`. Without these the
+client's lead-detail screen visibly "flicks" between the user's edits and the empty
+server response on every refetch — the bug this contract was written to fix.
+
 **Notes:**
 - `color` is an arbitrary hex for avatar theming — backend can generate it deterministically from attendee ID.
+- `tags` MUST be an array (use `[]` not `null` when empty).
+- `priority` mirrors `status`; both fields MUST always be present and equal.
 
 ---
 
 ### 9.2 Scan Badge (Capture Lead)
 ```
-POST /api/sponsor/scan
+POST /api/v1/events/:eventId/leads/scan
 ```
 
-**Auth required:** Yes (sponsor role)
+**Auth required:** Yes (any event member; the caller becomes the lead owner).
 
-**Request body (QR code decoded JSON):**
+**Request body:**
 ```json
 {
-  "badgeData": "{\"id\":\"user-123\",\"name\":\"Alex Thompson\",\"event\":\"cxo-summit-2026\",\"role\":\"attendee\"}",
-  "attendeeId": "123",
+  "code": "ATT-4419",
   "name": "Alex Thompson",
   "company": "StartupXYZ",
   "title": "CTO",
-  "eventId": "evt1"
+  "notes": "Met at booth A-12",
+  "tags": ["Decision Maker"],
+  "priority": "hot"
 }
 ```
 
@@ -893,39 +903,76 @@ POST /api/sponsor/scan
   "success": true,
   "data": {
     "id": "l1",
+    "code": "ATT-4419",
     "name": "Alex Thompson",
     "title": "CTO",
     "company": "StartupXYZ",
     "scannedAt": "9:32 AM",
     "color": "#7c3aed",
-    "status": "warm"
+    "status": "hot",
+    "priority": "hot",
+    "notes": "Met at booth A-12",
+    "tags": ["Decision Maker"],
+    "pointsAwarded": 10,
+    "checkedIn": true,
+    "isCheckedIn": true,
+    "memberId": 42
   }
 }
 ```
 
-**Notes:**
-- Idempotent: if this attendee was already scanned by this sponsor, return existing lead.
-- Set default `status: "warm"`.
+**Critical persistence rules:**
+- `notes`, `tags`, and `priority` MUST be persisted on the leads row.
+- The response MUST echo back the persisted values (not the request defaults).
+- Idempotent: if this scanner already scanned this attendee at this event, return the
+  existing lead row and set `pointsAwarded: 0` (no double-credit).
+- `code` and legacy `badgeData` are accepted as aliases. Prefer `code`.
+- Default `status = priority = "warm"`, `tags = []`, `notes = null`.
 
 ---
 
-### 9.3 Update Lead Status
+### 9.3 Update Lead (notes / tags / priority)
+```
+PUT /api/v1/events/:eventId/leads/:id
+```
+
+**Auth required:** Yes (lead owner only — the scanner who created the row).
+
+**Request body (any subset of fields is allowed; missing fields are left unchanged):**
+```json
+{
+  "notes": "Wants pricing before Q3",
+  "tags": ["Decision Maker", "Budget Holder"],
+  "priority": "hot"
+}
+```
+
+**Response (200):** the full updated lead — same shape as the GET above — including the
+persisted `notes`, `tags`, and `priority` so the client can reconcile.
+```json
+{ "success": true, "data": { /* updated lead object */ } }
+```
+
+**Critical persistence rules:**
+- `notes` accepts string or `null` (clear).
+- `tags` accepts an array of strings; replace the column wholesale on every PUT
+  (do not merge). Use `[]` to clear.
+- `priority` accepts `"hot" | "warm" | "cold"`. When set, mirror to legacy `status`.
+- A PUT with only `notes` MUST NOT clobber the existing `tags` or `priority` (and
+  vice-versa) — the controller MUST treat each field as independently optional.
+
+---
+
+### 9.4 Update Lead Status (legacy)
 ```
 PATCH /api/sponsor/leads/:id
 ```
 
-**Auth required:** Yes (sponsor role)
+Sponsor-role legacy endpoint kept for older clients. New clients use the v1 PUT above.
 
-**Request body:**
-```json
-{ "status": "hot" }
-```
-Possible values: `hot`, `warm`, `cold`
+**Request body:** `{ "status": "hot" }`  (`hot` | `warm` | `cold`)
 
-**Response (200):**
-```json
-{ "success": true, "data": { /* updated lead object */ } }
-```
+**Response (200):** `{ "success": true, "data": { /* updated lead object */ } }`
 
 ---
 
@@ -1081,7 +1128,7 @@ All responses follow this envelope format:
 - `giveaways` — id, sponsor_id, event_id, title, ends_at, color
 - `giveaway_entries` — user_id, giveaway_id
 - `sponsors` — id, name, tier, tagline, category, booth_number, tier_color, accent_color, giveaway, website, description, logo_url
-- `leads` — id, sponsor_id, attendee_id, status (enum), notes, scanned_at
+- `leads` — id, scanner_user_id, sponsor_id (nullable), attendee_id, event_id, status (enum: hot/warm/cold), priority (enum: hot/warm/cold — mirror of status), notes (text, nullable), tags (JSON, default `[]`), scanned_at — UNIQUE (scanner_user_id, attendee_id, event_id)
 - `connections` — id, user_id, target_user_id, status, timestamps
 - `meetings` — id, requester_id, requestee_id, status (enum), proposed_time, message, timestamps
 

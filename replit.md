@@ -154,10 +154,21 @@ When running the Expo app as a web preview (port 8080), API calls go through the
 ### Backend Endpoints Needed
 See `BACKEND_SCAN_ENDPOINTS.md` for the full spec. Required:
 - `GET /api/v1/events/:eventId/members?badge_code=:code` — resolve badge to profile
-- `POST /api/v1/events/:eventId/leads/scan` — save a scanned lead
-- `GET /api/v1/events/:eventId/leads` — list user's leads
-- `PUT /api/v1/events/:eventId/leads/:id` — update a lead
+- `POST /api/v1/events/:eventId/leads/scan` — save a scanned lead (carries notes/tags/priority; backend MUST persist + echo)
+- `GET /api/v1/events/:eventId/leads` (and `/my-leads`) — list user's leads (response MUST include notes/tags/priority)
+- `PUT /api/v1/events/:eventId/leads/:id` — update notes/tags/priority on a lead (each field independently optional)
 - `POST /api/v1/events/:eventId/leads/draw` — lucky draw winner
+
+### Lead Detail Persistence (notes / tags / priority)
+Edits to a lead's notes, tags, or priority on the web Leads page are PUT to the
+backend AND optimistically held in client state. To stop the lead-detail card
+"flicking" back to defaults whenever the backend echo omits these fields, the
+web `LeadsPage` defensively merges server leads with locally-edited values on
+every refetch (server wins when it returns a non-empty value; local wins when
+the server returned empty/default). Mobile `Lead` type and normalizer both
+surface `tags` (array) and `priority` (mirror of `status`) so the data
+round-trips end-to-end. Backend contract changes are documented in
+`mobile/BACKEND_AGENT_INSTRUCTIONS.md` and `mobile/BACKEND_API.md` §9.
 
 ### Web App DataState Component
 `src/app/components/ui/DataState.tsx` — Reusable loading skeleton + error retry UI applied to: Feed, Events, Agenda, Sponsors pages.

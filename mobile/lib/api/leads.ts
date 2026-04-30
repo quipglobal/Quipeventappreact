@@ -104,6 +104,21 @@ function normalizeLead(raw: any, index = 0): Lead {
   const id = idCandidate != null && String(idCandidate).trim() !== ''
     ? String(idCandidate)
     : `lead-fallback-${Date.now()}-${++leadIdFallbackCounter}`;
+  // priority and status are mirrors of each other on the v1 leads
+  // endpoints — accept either field name from the backend, validate
+  // against the allowed enum, and write both back so consumers can
+  // pick whichever they prefer without an extra coalesce.
+  const priorityRaw = String(raw?.priority ?? raw?.status ?? '').toLowerCase();
+  const priority: Lead['status'] =
+    priorityRaw === 'hot' || priorityRaw === 'warm' || priorityRaw === 'cold'
+      ? priorityRaw
+      : 'warm';
+  // tags must be an array of strings; defensively coalesce malformed
+  // backend responses (null, missing, mixed-type) to `[]` so callers
+  // can iterate without guarding on every render.
+  const tags: string[] = Array.isArray(raw?.tags)
+    ? raw.tags.filter((t: unknown): t is string => typeof t === 'string')
+    : [];
   return {
     id,
     name,
@@ -115,7 +130,10 @@ function normalizeLead(raw: any, index = 0): Lead {
       minute: '2-digit',
     }),
     color: raw?.color ?? ACCENT_COLORS[index % ACCENT_COLORS.length],
-    status: raw?.status ?? raw?.priority ?? 'warm',
+    status: priority,
+    priority,
+    notes: typeof raw?.notes === 'string' ? raw.notes : undefined,
+    tags,
     // Preserve the original badge code on the Lead so the reconciliation
     // flow can dedupe local-only leads against the server's view by code.
     code: raw?.code ?? raw?.badge_code ?? profile?.badge_code ?? undefined,

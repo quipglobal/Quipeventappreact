@@ -139,6 +139,20 @@ function LeadsView({ leads, onBack }: { leads: Lead[]; onBack: () => void }) {
                 backgroundColor: l.status === 'hot' ? '#ef4444' : l.status === 'warm' ? '#f59e0b' : '#6b7280'
               }]} />
             </View>
+            {!!l.notes && (
+              <Text style={styles.leadNotes} numberOfLines={2}>
+                {l.notes}
+              </Text>
+            )}
+            {!!l.tags?.length && (
+              <View style={styles.leadTagsRow}>
+                {l.tags.slice(0, 4).map((tag) => (
+                  <View key={tag} style={styles.leadTagPill}>
+                    <Text style={styles.leadTagText}>{tag}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
             {l.pendingSync && (
               <View style={styles.pendingSyncBar}>
                 <Ionicons name="cloud-offline-outline" size={14} color="#d97706" />
@@ -807,6 +821,29 @@ const styles = StyleSheet.create({
   },
   pendingSyncBtnDisabled: { opacity: 0.6 },
   pendingSyncBtnText: { color: '#b45309', fontSize: 10, fontWeight: '700' },
+
+  leadNotes: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: spacing.sm,
+    fontStyle: 'italic',
+  },
+  leadTagsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  leadTagPill: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: radius.md,
+    backgroundColor: colors.bgElevated,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  leadTagText: { color: colors.textSecondary, fontSize: 10, fontWeight: '600' },
 
   drawPage: { flex: 1, alignItems: 'center', padding: spacing.xl },
   drawTitle: { color: colors.textPrimary, fontSize: 28, fontWeight: '800', marginBottom: 4 },

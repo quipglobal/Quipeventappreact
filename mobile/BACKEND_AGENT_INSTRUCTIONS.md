@@ -780,11 +780,11 @@ Auth required.
 
 ---
 
-#### `GET /api/sponsor/leads`
+#### `GET /api/v1/events/:eventId/my-leads`
 
-Auth required. **Sponsor role only.**
+Auth required. **Any event member** (filtered server-side by `scanner_user_id = auth()->id()`).
 
-Returns all leads captured by this sponsor at this event.
+Returns all leads the authenticated user personally scanned at this event.
 
 **Response (200):**
 ```json
@@ -793,6 +793,7 @@ Returns all leads captured by this sponsor at this event.
   "data": [
     {
       "id": "l1",
+      "code": "ATT-4419",
       "name": "Alex Thompson",
       "title": "CTO",
       "company": "StartupXYZ",
@@ -801,33 +802,46 @@ Returns all leads captured by this sponsor at this event.
       "scannedAt": "9:32 AM",
       "color": "#7c3aed",
       "status": "hot",
-      "notes": null
+      "priority": "hot",
+      "notes": "Interested in enterprise plan",
+      "tags": ["Decision Maker", "Budget Holder"]
     }
   ]
 }
 ```
 
+**Critical fields (DO NOT OMIT):**
+- `notes` — string or null. The free-text note the scanner left on the lead.
+- `tags` — JSON array of strings. Labels the scanner attached (e.g. `["Decision Maker"]`).
+- `priority` — one of `"hot" | "warm" | "cold"`. Defaults to `"warm"`. Mirrors `status`
+  for legacy clients; both fields MUST be present and equal in every response.
+
 **Notes:**
 - `color` **is required** on the Lead type — used for avatar theming. Generate it
   deterministically from the attendee's user ID, e.g. `$colors[$userId % count($colors)]`.
-- `status` must be one of: `"hot"`, `"warm"`, `"cold"`.
+- `status` and `priority` must be one of: `"hot"`, `"warm"`, `"cold"`. Always emit BOTH.
+- `tags` MUST be an array (use `[]` not `null` when empty) so the client doesn't have
+  to defensively coalesce on every render.
 - `scannedAt` is a pre-formatted time string (`"9:32 AM"`), not a timestamp.
 
 ---
 
-#### `POST /api/sponsor/scan`
+#### `POST /api/v1/events/:eventId/leads/scan`
 
-Auth required. **Sponsor role only.** Called after QR code is decoded.
+Auth required. **Any event member** (the scanner becomes the lead owner).
+
+Resolve the badge code, auto check-in the attendee, and persist the lead row.
 
 **Request:**
 ```json
 {
-  "badgeData": "{\"id\":\"123\",\"name\":\"Alex Thompson\",\"event\":\"cxo-summit-2026\",\"role\":\"attendee\"}",
-  "attendeeId": "123",
+  "code": "ATT-4419",
   "name": "Alex Thompson",
   "company": "StartupXYZ",
   "title": "CTO",
-  "eventId": "evt-1"
+  "notes": "Met at booth A-12",
+  "tags": ["Decision Maker"],
+  "priority": "hot"
 }
 ```
 
@@ -837,30 +851,77 @@ Auth required. **Sponsor role only.** Called after QR code is decoded.
   "success": true,
   "data": {
     "id": "l1",
+    "code": "ATT-4419",
     "name": "Alex Thompson",
     "title": "CTO",
     "company": "StartupXYZ",
     "scannedAt": "9:32 AM",
     "color": "#7c3aed",
-    "status": "warm",
+    "status": "hot",
+    "priority": "hot",
+    "notes": "Met at booth A-12",
+    "tags": ["Decision Maker"],
     "email": null,
     "phone": null,
-    "notes": null
+    "pointsAwarded": 10,
+    "checkedIn": true,
+    "isCheckedIn": true,
+    "memberId": 42
   }
 }
 ```
 
-**Notes:**
-- `badgeData` is the raw QR string — parse it to get structured fields if possible.
-- `attendeeId` is the parsed user ID from the badge.
-- Idempotent: if this sponsor already scanned this attendee, return the existing lead record.
-- Default `status = "warm"`.
+**Critical persistence rules:**
+- `notes`, `tags`, and `priority` from the request body MUST be persisted on the `leads`
+  row. If the request omits any of them, default to `null` / `[]` / `"warm"` respectively.
+- The response MUST echo back the persisted `notes`, `tags`, and `priority` so the client
+  can reconcile its optimistic local state against the canonical row.
+- `badgeData` (legacy) and `code` are accepted as aliases. Prefer `code`.
+- Idempotent: if this scanner already scanned this attendee at this event, return the
+  existing lead record (do not double-credit points; set `pointsAwarded: 0`).
+- Default `status = priority = "warm"` when the request does not specify.
 
 ---
 
-#### `PATCH /api/sponsor/leads/:id`
+#### `PUT /api/v1/events/:eventId/leads/:id`
 
-Auth required. **Sponsor role only.** Updates a lead's status.
+Auth required. **Lead owner only** (the scanner who created the row).
+
+Updates the captured lead's notes, tags, and priority. This is the endpoint the web
+client (`updateLeadApi` in `src/app/api/leadsClient.ts`) and the mobile lead detail
+screen call when the user edits a lead.
+
+**Request (any subset of fields is allowed; missing fields are left unchanged):**
+```json
+{
+  "notes": "Wants pricing before Q3",
+  "tags": ["Decision Maker", "Budget Holder"],
+  "priority": "hot"
+}
+```
+
+**Response (200):** the full updated lead object — same shape as the GET above —
+including the persisted `notes`, `tags`, and `priority` so the client can reconcile.
+```json
+{ "success": true, "data": { /* full updated lead object */ } }
+```
+
+**Critical persistence rules:**
+- `notes` accepts string (max ~2000 chars) or `null` to clear.
+- `tags` accepts an array of strings. Replace the column wholesale on every PUT
+  (do not merge). Use `[]` to clear.
+- `priority` accepts `"hot" | "warm" | "cold"`. When set, also write the same value
+  to the legacy `status` column so older clients keep working.
+- All three fields persist independently — a PUT that contains only `notes` MUST NOT
+  clobber the existing `tags` or `priority`.
+
+---
+
+#### `PATCH /api/sponsor/leads/:id` (legacy alias)
+
+Auth required. **Sponsor role only.** Legacy status-only update kept for older clients.
+New clients use `PUT /api/v1/events/:eventId/leads/:id` (above) which accepts the full
+`{ notes, tags, priority }` payload.
 
 **Request:**
 ```json
@@ -1179,11 +1240,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/api/meetings/{id}/accept',  [MeetingController::class, 'accept']);
     Route::post('/api/meetings/{id}/decline', [MeetingController::class, 'decline']);
 
-    // Sponsor-only
+    // Leads — open to any event member; controller filters by scanner_user_id
+    Route::get('/api/v1/events/{eventId}/my-leads',     [LeadController::class, 'myLeads']);
+    Route::post('/api/v1/events/{eventId}/leads/scan',  [LeadController::class, 'scan']);
+    Route::put('/api/v1/events/{eventId}/leads/{id}',   [LeadController::class, 'update']);
+
+    // Sponsor-only (legacy + lucky draw)
     Route::middleware('role:sponsor')->group(function () {
         Route::get('/api/sponsor/leads',         [LeadController::class, 'index']);
         Route::post('/api/sponsor/scan',         [LeadController::class, 'scan']);
-        Route::patch('/api/sponsor/leads/{id}',  [LeadController::class, 'update']);
+        Route::patch('/api/sponsor/leads/{id}',  [LeadController::class, 'updateLegacy']);
         Route::post('/api/sponsor/lucky-draw',   [LeadController::class, 'luckyDraw']);
     });
 });
@@ -1210,7 +1276,7 @@ Route::middleware('auth:sanctum')->group(function () {
 | `giveaways` | id, sponsor_id, event_id, title, ends_at, color |
 | `giveaway_entries` | user_id, giveaway_id — unique constraint |
 | `sponsors` | id, name, tier, tagline, category, booth_number, tier_color, accent_color, giveaway_prize, website, description, logo_url |
-| `leads` | id, sponsor_id, attendee_id, event_id, status, notes, scanned_at |
+| `leads` | id, scanner_user_id, sponsor_id (nullable), attendee_id, event_id, status (enum: hot/warm/cold), priority (enum: hot/warm/cold — mirror of status, kept for API symmetry), notes (text, nullable), tags (JSON, default `[]`), scanned_at — UNIQUE (scanner_user_id, attendee_id, event_id) for idempotent scans |
 | `meetings` | id, requester_id, requestee_id, proposed_time, message, status, created_at |
 
 ### Sanctum Setup

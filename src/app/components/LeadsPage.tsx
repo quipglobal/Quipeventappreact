@@ -342,6 +342,52 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
   //      a per-id in-flight guard so the two paths don't double-push.
   //   3. Re-fetch GET /leads if anything synced so server-side fields
   //      (timestamps, etc) replace the local snapshots.
+  // Defensive merge: when a server-side lead is fetched, preserve the
+  // user's locally-edited notes / tags / priority if the backend echo is
+  // empty. This stops the "flick" the user sees when the backend hasn't
+  // shipped notes/tags/priority persistence yet — without it, every
+  // refetch wipes the optimistic edit and the lead detail card snaps
+  // back to defaults.
+  //
+  // Source of truth precedence (when both have a value):
+  //   1. server  — for fields it actually persisted
+  //   2. local   — for fields the server returned empty / default
+  //
+  // We use the merged context lead as the local source so we capture
+  // both the optimistic edit just made and any prior session edits
+  // that survived in the AppContext leads list.
+  const mergeServerLeadsWithLocalEdits = (
+    serverLeads: Lead[],
+    localLeads: Lead[],
+  ): Lead[] => {
+    const localById = new Map(localLeads.map(l => [l.id, l]));
+    const localByCode = new Map(
+      localLeads
+        .filter(l => !!l.code)
+        .map(l => [l.code!.toLowerCase(), l]),
+    );
+    return serverLeads.map(server => {
+      const local =
+        localById.get(server.id) ??
+        (server.code ? localByCode.get(server.code.toLowerCase()) : undefined);
+      if (!local) return server;
+      return {
+        ...server,
+        notes: server.notes && server.notes.trim() !== ''
+          ? server.notes
+          : (local.notes ?? server.notes),
+        tags: server.tags && server.tags.length > 0
+          ? server.tags
+          : (local.tags ?? server.tags),
+        priority: server.priority && server.priority !== 'warm'
+          ? server.priority
+          : (local.priority && local.priority !== 'warm'
+              ? local.priority
+              : server.priority),
+      };
+    });
+  };
+
   useEffect(() => {
     let cancelled = false;
     const eventId = eventConfig?.eventId ?? '0';
@@ -350,7 +396,7 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
       const initial = await listLeads(eventId);
       if (cancelled) return;
       if (initial.success && initial.data) {
-        setApiLeads(initial.data);
+        setApiLeads(mergeServerLeadsWithLocalEdits(initial.data, contextLeads));
         // The list endpoint is live; if `/leads/scan` was previously marked
         // as missing earlier in this session (e.g. backend rolled out the
         // routes after the user opened the app), allow reconciliation to
@@ -376,7 +422,7 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
           const refreshed = await listLeads(eventId);
           if (cancelled) return;
           if (refreshed.success && refreshed.data) {
-            setApiLeads(refreshed.data);
+            setApiLeads(mergeServerLeadsWithLocalEdits(refreshed.data, contextLeads));
           }
         }
       } finally {

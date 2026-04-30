@@ -152,7 +152,15 @@ export interface Lead {
   scannedAt: string;
   color: string;
   status: 'hot' | 'warm' | 'cold';
+  /** Mirror of `status` on the v1 leads endpoints (the web client sends and
+   *  reads `priority`; the mobile client mirrors it here so cross-client
+   *  edits round-trip without dropping the field). */
+  priority?: 'hot' | 'warm' | 'cold';
   notes?: string;
+  /** Free-form labels the scanner attached to the lead (e.g. "Decision
+   *  Maker", "Budget Holder"). Always an array — the backend defaults to
+   *  `[]` when no tags are set. */
+  tags?: string[];
   /** Original badge code captured at scan time. Used as a secondary dedupe
    *  key when reconciling locally-saved (`pendingSync: true`) leads with the
    *  backend so a server-confirmed lead replaces its local twin instead of
