@@ -162,3 +162,15 @@ export async function apiPatch<T>(path: string, body: unknown): Promise<ApiEnvel
     return { success: false, error: { code: 'NETWORK_ERROR', message: 'Network error. Please check your connection.' } };
   }
 }
+
+export async function apiDelete<T>(path: string, extraHeaders?: Record<string, string>): Promise<ApiEnvelope<T>> {
+  try {
+    const res = await fetchWithRetry(`${API_BASE_URL}${path}`, {
+      method: 'DELETE',
+      headers: buildHeaders(extraHeaders),
+    });
+    return parseResponse<T>(res);
+  } catch {
+    return { success: false, error: { code: 'NETWORK_ERROR', message: 'Network error. Please check your connection.' } };
+  }
+}

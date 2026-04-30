@@ -8,6 +8,12 @@ import { fetchPointsFromBackend, scheduleSyncPoints, cancelPendingSyncPoints } f
 import { getMyEventRoleApi } from '@/app/api/audienceClient';
 import { loadLeadsFromStorage, saveLeadsToStorage, clearLeadsStorage } from '@/app/lib/leadsStorage';
 import { listLeads as listLeadsApi, scanBadgeLead, resetScanEndpointMissing } from '@/app/api/leadsClient';
+import {
+  listGiveaways as listGiveawaysApi,
+  createGiveaway as createGiveawayApi,
+  removeGiveaway as removeGiveawayApi,
+  resetGiveawaysEndpointMissing,
+} from '@/app/api/giveawaysClient';
 import { useAuthedEffect } from '@/app/hooks/useAuthedEffect';
 
 interface User {
@@ -147,8 +153,8 @@ interface AppContextType extends AppState {
   showToast: (message: string, points?: number) => void;
   updateTier: () => void;
   switchEvent: (config: EventConfig) => void;
-  addSponsorGiveaway: (giveaway: Omit<SponsorGiveaway, 'id' | 'createdAt'>) => void;
-  removeSponsorGiveaway: (id: string) => void;
+  addSponsorGiveaway: (giveaway: Omit<SponsorGiveaway, 'id' | 'createdAt'>) => Promise<void>;
+  removeSponsorGiveaway: (id: string) => Promise<void>;
   sendConnectionRequest: (toUser: ConnectionRequest['fromUser'], message?: string) => Promise<void>;
   acceptConnection: (requestId: string) => void;
   declineConnection: (requestId: string) => void;
@@ -355,6 +361,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.email, activeEventConfig?.eventId]);
 
+  // ── Sponsor giveaways: hydrate from backend on event change ────────────
+  // The giveaways feature is event-scoped and shared between the web
+  // sponsor UI (where reps add prizes) and the attendee surfaces on web
+  // and mobile (where attendees see and enter them). Loading from the
+  // backend whenever the active event changes keeps every device's view
+  // consistent. If the backend hasn't deployed the route yet the client
+  // returns NOT_IMPLEMENTED and we keep whatever local-only state the
+  // sponsor has already added — same graceful degradation we use for
+  // the leads list.
+  useAuthedEffect(
+    user?.id,
+    () => {
+      const eventId = activeEventConfig?.eventId;
+      if (!eventId) return;
+      let cancelled = false;
+      // Allow reconciliation to actually try the network on this event
+      // change in case earlier in the session the route was missing.
+      resetGiveawaysEndpointMissing();
+      listGiveawaysApi(eventId).then(res => {
+        if (cancelled) return;
+        if (res.success && res.data) {
+          setSponsorGiveaways(res.data);
+        }
+        // On NOT_IMPLEMENTED / network error: silently keep current state.
+        // The sponsor UI still works locally; reconciliation picks up
+        // whenever the backend comes online and the user re-enters.
+      });
+      return () => { cancelled = true; };
+    },
+    [activeEventConfig?.eventId],
+  );
+
   // ── Sign-out cleanup for outstanding background work ───────────────────
   // Mirror the leads-reconciler gating for any other deferred / in-flight
   // authenticated calls. The points sync in particular runs on a 300ms
@@ -366,6 +404,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     if (user?.id) return;
     cancelPendingSyncPoints();
+    // Drop any cached giveaways too — they're event-scoped backend
+    // data, and a different user signing in on this device should
+    // never see the previous user's view of the prize list (the next
+    // hydration tick will refill from the backend under the new
+    // session).
+    setSponsorGiveaways([]);
   }, [user?.id]);
 
   // ── Background pendingSync reconciliation ──────────────────────────────
@@ -395,6 +439,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => { leadsRef.current = leads; }, [leads]);
   const activeEventIdRef = useRef<string>(activeEventConfig?.eventId ?? '0');
   useEffect(() => { activeEventIdRef.current = activeEventConfig?.eventId ?? '0'; }, [activeEventConfig?.eventId]);
+  // Mirror the active user id so async giveaway mutations (whose
+  // completion may straddle a sign-out or account switch) can detect
+  // session changes without closing over a stale `user` snapshot.
+  const userIdRef = useRef<string | null>(user?.id ?? null);
+  useEffect(() => { userIdRef.current = user?.id ?? null; }, [user?.id]);
 
   // Shared in-flight tracking so the page-mount reconciler in LeadsPage
   // and the background timer below don't both push the same pending
@@ -799,19 +848,98 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
   };
 
-  const addSponsorGiveaway = (giveaway: Omit<SponsorGiveaway, 'id' | 'createdAt'>) => {
-    const newGiveaway: SponsorGiveaway = {
+  const addSponsorGiveaway = async (giveaway: Omit<SponsorGiveaway, 'id' | 'createdAt'>) => {
+    // Optimistic insert with a synthetic id so the sponsor sees their
+    // prize immediately even if the network round-trip is slow. On
+    // success we swap in the canonical server id; on failure we either
+    // roll back (real error) or keep the local row (NOT_IMPLEMENTED —
+    // backend route not deployed yet, same posture as offline leads).
+    //
+    // The event id and user id are *snapshotted* before the network
+    // call so a mid-flight `switchEvent` or sign-out can't cause us
+    // to merge a row from event A into event B's list (or into a
+    // freshly signed-in user's list).
+    const eventIdAtCall = activeEventConfig?.eventId;
+    const userIdAtCall = user?.id ?? null;
+    if (!eventIdAtCall) return;
+
+    const tempId = `giveaway-${Date.now()}`;
+    const tempRow: SponsorGiveaway = {
       ...giveaway,
-      id: `giveaway-${Date.now()}`,
+      id: tempId,
       createdAt: new Date(),
     };
-    setSponsorGiveaways(prev => [newGiveaway, ...prev]);
+    setSponsorGiveaways(prev => [tempRow, ...prev]);
     showToast('Giveaway added successfully');
+
+    const res = await createGiveawayApi(eventIdAtCall, {
+      title: giveaway.title,
+      numberOfItems: giveaway.numberOfItems,
+      image: giveaway.image,
+      sponsorName: giveaway.sponsorName,
+      sponsorId: giveaway.sponsorId,
+    });
+
+    // If the active event or user changed while the POST was in
+    // flight, drop the result on the floor — the post-switch
+    // hydration owns the visible list now and applying our temp swap
+    // would leak a giveaway from the previous context.
+    if (
+      activeEventIdRef.current !== eventIdAtCall ||
+      userIdRef.current !== userIdAtCall
+    ) {
+      return;
+    }
+
+    if (res.success && res.data) {
+      const saved = res.data;
+      setSponsorGiveaways(prev => prev.map(g => (g.id === tempId ? saved : g)));
+      return;
+    }
+    if (res.error?.code === 'NOT_IMPLEMENTED') {
+      // Backend not ready — keep the local row so the sponsor isn't
+      // staring at an empty list. They'll be the only one who sees
+      // it until the route ships, but the UI stays usable.
+      return;
+    }
+    // Real failure — roll back the temp row and surface the error.
+    setSponsorGiveaways(prev => prev.filter(g => g.id !== tempId));
+    showToast(res.error?.message ?? 'Failed to save giveaway. Please try again.');
   };
 
-  const removeSponsorGiveaway = (id: string) => {
+  const removeSponsorGiveaway = async (id: string) => {
+    const eventIdAtCall = activeEventConfig?.eventId;
+    const userIdAtCall = user?.id ?? null;
+    const removed = sponsorGiveaways.find(g => g.id === id);
+    if (!removed) return;
+
     setSponsorGiveaways(prev => prev.filter(g => g.id !== id));
     showToast('Giveaway removed');
+
+    if (!eventIdAtCall) return;
+    // Synthetic ids (giveaway-<ts>) belong to rows that never made it
+    // to the backend (offline-only, or NOT_IMPLEMENTED), so don't
+    // try to delete a row the server has never heard of.
+    if (id.startsWith('giveaway-')) return;
+
+    const res = await removeGiveawayApi(eventIdAtCall, id);
+
+    // If the active event or user changed while DELETE was in flight,
+    // a stale rollback would resurrect a row inside the wrong
+    // event's list — bail before touching state.
+    if (
+      activeEventIdRef.current !== eventIdAtCall ||
+      userIdRef.current !== userIdAtCall
+    ) {
+      return;
+    }
+
+    if (res.success) return;
+    if (res.error?.code === 'NOT_IMPLEMENTED') return;
+    // Real failure — restore the single removed row functionally so
+    // we don't clobber any other concurrent edits to the list.
+    setSponsorGiveaways(prev => (prev.some(g => g.id === id) ? prev : [removed, ...prev]));
+    showToast(res.error?.message ?? 'Failed to remove giveaway. Please try again.');
   };
 
   const switchEvent = (config: EventConfig) => {
@@ -822,6 +950,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setMetSponsors([]);
     setBookmarkedSessions([]);
     setCompletedChallenges([]);
+    // Drop the prior event's giveaways immediately so the attendee
+    // surfaces don't briefly render the wrong event's prizes (or keep
+    // showing them if the new event's hydration fails). The
+    // useAuthedEffect on `activeEventConfig.eventId` will refill from
+    // the backend.
+    setSponsorGiveaways([]);
     showToast(`Switched to ${config.name}`);
   };
 

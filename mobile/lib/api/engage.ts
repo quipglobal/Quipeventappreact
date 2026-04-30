@@ -95,12 +95,24 @@ export async function listGiveaways(): Promise<ApiResponse<Giveaway[]>> {
   if (!eventId) return { success: true, data: [] };
   const res = await request<any>(`/api/v1/events/${eventId}/giveaways`);
   if (!res.success) return { success: true, data: [] };
-  const raw: any[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
+  // Probe the same response shapes the web client supports (bare
+  // array, { data: [...] }, or { giveaways: [...] }) so a Laravel
+  // resource collection wrapped under a named key still parses.
+  let raw: any[] = [];
+  if (Array.isArray(res.data)) raw = res.data;
+  else if (Array.isArray(res.data?.data)) raw = res.data.data;
+  else if (Array.isArray(res.data?.giveaways)) raw = res.data.giveaways;
   const COLORS = ['#7c3aed', '#06b6d4', '#10b981', '#f59e0b', '#ec4899'];
   const giveaways: Giveaway[] = raw.map((g: any, i: number) => ({
-    id: String(g.id),
-    title: g.title ?? g.name ?? g.prize ?? '',
-    sponsor: g.sponsor ?? g.sponsor_name ?? '',
+    id: String(g.id ?? g.giveaway_id ?? g.uuid ?? `g-${i}`),
+    title: g.title ?? g.name ?? g.prize ?? g.label ?? '',
+    sponsor:
+      g.sponsor ??
+      g.sponsor_name ??
+      g.sponsorName ??
+      g.sponsor?.name ??
+      g.sponsor?.company_name ??
+      '',
     entries: Number(g.entries ?? g.entry_count ?? 0),
     ends: g.ends_at ? new Date(g.ends_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : g.ends ?? '',
     color: g.color ?? COLORS[i % COLORS.length],
@@ -117,4 +129,56 @@ export async function enterGiveaway(giveawayId: string): Promise<ApiResponse<{ e
   });
   if (!res.success) return res as ApiResponse<{ entries: number }>;
   return { success: true, data: { entries: Number(res.data?.entries ?? res.data?.entry_count ?? 1) } };
+}
+
+export interface CreateGiveawayPayload {
+  title: string;
+  numberOfItems: number;
+  image: string;
+  sponsorName: string;
+  sponsorId: string;
+}
+
+export async function createGiveaway(payload: CreateGiveawayPayload): Promise<ApiResponse<Giveaway>> {
+  const eventId = getEventId();
+  if (!eventId) return { success: false, error: { code: 'NO_EVENT', message: 'No active event' } };
+  const body = {
+    title: payload.title,
+    number_of_items: payload.numberOfItems,
+    numberOfItems: payload.numberOfItems,
+    quantity: payload.numberOfItems,
+    image: payload.image,
+    image_url: payload.image,
+    sponsor_name: payload.sponsorName,
+    sponsorName: payload.sponsorName,
+    sponsor_id: payload.sponsorId,
+    sponsorId: payload.sponsorId,
+  };
+  const res = await request<any>(`/api/v1/events/${eventId}/giveaways`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+  if (!res.success) return res as ApiResponse<Giveaway>;
+  const raw = res.data?.data ?? res.data;
+  const COLORS = ['#7c3aed', '#06b6d4', '#10b981', '#f59e0b', '#ec4899'];
+  const giveaway: Giveaway = {
+    id: String(raw?.id ?? ''),
+    title: raw?.title ?? raw?.name ?? raw?.prize ?? payload.title,
+    sponsor: raw?.sponsor ?? raw?.sponsor_name ?? payload.sponsorName,
+    entries: Number(raw?.entries ?? raw?.entry_count ?? 0),
+    ends: raw?.ends_at ? new Date(raw.ends_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : raw?.ends ?? '',
+    color: raw?.color ?? COLORS[0],
+    entered: Boolean(raw?.entered ?? raw?.has_entered ?? false),
+  };
+  return { success: true, data: giveaway };
+}
+
+export async function removeGiveaway(giveawayId: string): Promise<ApiResponse<true>> {
+  const eventId = getEventId();
+  if (!eventId) return { success: false, error: { code: 'NO_EVENT', message: 'No active event' } };
+  const res = await request<any>(`/api/v1/events/${eventId}/giveaways/${giveawayId}`, {
+    method: 'DELETE',
+  });
+  if (!res.success) return res as ApiResponse<true>;
+  return { success: true, data: true };
 }

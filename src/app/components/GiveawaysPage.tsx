@@ -39,24 +39,64 @@ export const GiveawaysPage: React.FC<GiveawaysPageProps> = ({ onBack }) => {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>('all');
 
+  // Adapt the lean backend `SponsorGiveaway` shape (id/title/image/
+  // numberOfItems/sponsorName) into the richer `GiveawayItem` the
+  // attendee UI was designed around. Fields the backend doesn't carry
+  // (booth, tier, type, etc.) get pragmatic defaults so the UI keeps
+  // its layout and filtering. This is a known cross-platform shape
+  // discrepancy: mobile renders a different reduced shape entirely.
+  const sponsorAdded: GiveawayItem[] = sponsorGiveaways.map(g => ({
+    id: g.id,
+    sponsorName: g.sponsorName || 'Sponsor',
+    sponsorLogo: `https://ui-avatars.com/api/?name=${encodeURIComponent(g.sponsorName || 'Sponsor')}&background=7c3aed&color=fff&size=128`,
+    sponsorTier: 'Gold',
+    booth: '',
+    title: g.title,
+    description: '',
+    image: g.image || '',
+    type: 'raffle',
+    requirement: 'Visit booth to enter',
+    pointsBonus: 25,
+    claimCount: 0,
+    totalAvailable: g.numberOfItems || null,
+    endsAt: '',
+    featured: false,
+  }));
+
   useEffect(() => {
     listGiveaways().then(async res => {
-      if (res.success && res.data) {
-        setGiveaways(res.data);
+      const mockList = res.success && res.data ? res.data : [];
+      const merged = [...sponsorAdded, ...mockList];
+      setGiveaways(merged);
+      if (mockList.length > 0) {
         const statusResults = await Promise.all(
-          res.data.map(g => fetchGiveawayStatus(g.id))
+          mockList.map(g => fetchGiveawayStatus(g.id))
         );
         const claimed: string[] = [];
         statusResults.forEach((sr, i) => {
           if (sr.success && sr.data?.entered) {
-            claimed.push(res.data![i].id);
+            claimed.push(mockList[i].id);
           }
         });
         setClaimedIds(claimed);
       }
       setLoading(false);
     });
+    // sponsorGiveaways changes are reflected by the second effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Keep sponsor-added rows in sync as the context list updates (e.g.
+  // the backend hydration completes after this page already mounted,
+  // or the sponsor adds a giveaway in another tab and the user
+  // switches back).
+  useEffect(() => {
+    setGiveaways(prev => {
+      const mockOnly = prev.filter(g => !sponsorAdded.some(s => s.id === g.id));
+      return [...sponsorAdded, ...mockOnly];
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sponsorGiveaways]);
 
   const handleClaim = async (giveaway: GiveawayItem) => {
     if (claimedIds.includes(giveaway.id) || claimingId) return;
