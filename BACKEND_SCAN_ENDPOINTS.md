@@ -281,6 +281,63 @@ POST /api/v1/events/:eventId/leads/draw
 
 ---
 
+### 6. Save Giveaway Winner
+
+```
+POST /api/v1/events/:eventId/giveaways/:giveawayId/winners
+```
+
+**Headers:** `Authorization: Bearer <token>`, `X-Tenant-ID: 3`,
+`Accept: application/json`, `Content-Type: application/json`
+
+Notifies the backend that a winner has been picked for a giveaway —
+either server-arbitrated (via `/leads/draw` once it ships) or, in the
+meantime, by the in-app client-side fallback. The frontend POSTs this
+fire-and-forget after every successful Lucky Draw resolve so the win
+gets persisted in the DB and surfaces on subsequent
+`GET /events/:id/giveaways` responses under each giveaway's `winners`
+array (where the frontend already merges them with its local overlay).
+
+**Request body** (the frontend sends camelCase + snake_case
+duplicates of every field, so either backend convention works without
+a contract change here — pick whichever pair you read on the server):
+```json
+{
+  "id": "lead-uuid",
+  "winner_id": "lead-uuid",
+  "winnerId": "lead-uuid",
+  "lead_id": "lead-uuid",
+  "leadId": "lead-uuid",
+  "name": "Winner Name",
+  "company": "Winner Co",
+  "title": "CEO",
+  "avatar": "https://...",
+  "avatar_url": "https://...",
+  "drawn_at": "2026-04-30T19:42:11.000Z",
+  "drawnAt": "2026-04-30T19:42:11.000Z"
+}
+```
+
+**Success response (200 / 201):**
+```json
+{ "success": true }
+```
+
+**Notes:**
+- The `id` / `lead_id` is the attendee/lead row that was selected.
+- Idempotency: if the same `(giveaway_id, winner_id)` pair already
+  exists, treat as a no-op and return success — the frontend may
+  retry on poor connectivity.
+- `GET /events/:id/giveaways` SHOULD include each saved winner under
+  the giveaway's `winners` array so other devices and the back-office
+  see the same list. The frontend keys on winner `id` for dedupe
+  against its local overlay.
+- Until this route is deployed the frontend short-circuits on
+  404/405 and only persists locally — no UI degradation, but
+  cross-device sync stays per-device.
+
+---
+
 ## Database Schema (suggested)
 
 ```sql

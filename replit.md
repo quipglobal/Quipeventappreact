@@ -250,7 +250,21 @@ with the backend row taking precedence. `SponsorDrawPage` re-seeds its in-
 memory `drawHistory` from `selectedGiveaway.winners` whenever the rep picks
 a giveaway, so any winner already drawn elsewhere appears in the on-screen
 history (and is honored by the `excludeWon` filter) instead of being
-silently re-pickable.
+silently re-pickable. The setup phase also renders an inline "Already
+picked for this prize" panel directly under the giveaway selector — it
+reads off the same merged `sponsorGiveaways[*].winners` so the rep sees
+prior winners the moment they pick the giveaway, without having to open
+the history sheet.
+
+**Backend persistence.** Every locally-resolved winner is also POSTed to
+`POST /api/v1/events/:eventId/giveaways/:giveawayId/winners` via
+`giveawaysClient.saveGiveawayWinner`, fired-and-forgotten from
+`recordGiveawayWinner` after the localStorage mirror. The endpoint sends
+both camelCase and snake_case copies of every field. If the route hasn't
+been deployed yet the call short-circuits to NOT_IMPLEMENTED on 404/405
+(remembered for the rest of the session) — the on-screen UX is unaffected
+because the local overlay already drives the display. See
+`BACKEND_SCAN_ENDPOINTS.md` §6 for the full request/response contract.
 
 ---
 

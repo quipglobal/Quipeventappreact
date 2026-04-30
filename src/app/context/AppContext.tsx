@@ -20,6 +20,7 @@ import {
   createGiveaway as createGiveawayApi,
   updateGiveaway as updateGiveawayApi,
   removeGiveaway as removeGiveawayApi,
+  saveGiveawayWinner as saveGiveawayWinnerApi,
   resetGiveawaysEndpointMissing,
 } from '@/app/api/giveawaysClient';
 import { useAuthedEffect } from '@/app/hooks/useAuthedEffect';
@@ -1206,6 +1207,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             : g,
         ),
       );
+    }
+    // Best-effort push to the backend so the win is persisted to the
+    // DB and other devices / the back-office can see it on the next
+    // giveaway-list hydration. Fire-and-forget on purpose:
+    //   • the localStorage overlay above is already the source of
+    //     truth for THIS device, so the UX never depends on this
+    //     succeeding;
+    //   • the endpoint may not be deployed yet — `saveGiveawayWinner`
+    //     short-circuits to NOT_IMPLEMENTED in that case;
+    //   • we don't want a slow / failed request to block the winner
+    //     reveal animation that's already running on screen.
+    // Real failures are logged at warn level so a regression is still
+    // visible in the dev console without surfacing as a UI toast.
+    if (targetEventId) {
+      void saveGiveawayWinnerApi(targetEventId, resolvedId, {
+        id: winner.id,
+        name: winner.name,
+        company: winner.company,
+        title: winner.title,
+        avatar: winner.avatar,
+        drawnAt: winner.drawnAt,
+      })
+        .then(res => {
+          if (!res.success && res.error?.code !== 'NOT_IMPLEMENTED' && typeof console !== 'undefined') {
+            console.warn('[recordGiveawayWinner] backend save failed:', res.error);
+          }
+        })
+        .catch(err => {
+          if (typeof console !== 'undefined') {
+            console.warn('[recordGiveawayWinner] backend save threw:', err);
+          }
+        });
     }
   };
 

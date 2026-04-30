@@ -24,6 +24,7 @@ let listEndpointMissing = false;
 let createEndpointMissing = false;
 let updateEndpointMissing = false;
 let deleteEndpointMissing = false;
+let saveWinnerEndpointMissing = false;
 let warnedListMissing = false;
 
 export function resetGiveawaysEndpointMissing(): void {
@@ -31,6 +32,7 @@ export function resetGiveawaysEndpointMissing(): void {
   createEndpointMissing = false;
   updateEndpointMissing = false;
   deleteEndpointMissing = false;
+  saveWinnerEndpointMissing = false;
 }
 
 function pickString(...candidates: unknown[]): string {
@@ -48,9 +50,51 @@ function pickNumber(...candidates: unknown[]): number {
   return 0;
 }
 
+/**
+ * Map a raw winner row from the backend into the local
+ * `GiveawayWinner` shape. Tolerates a wide variety of field names
+ * (camelCase, snake_case, nested `lead`/`attendee` payloads) so the
+ * exact backend response shape doesn't have to be locked in before
+ * the route ships. Returns `null` when we can't extract at least an
+ * id+name — silently dropping malformed rows is safer than spraying
+ * unnamed cards into the UI.
+ */
+function normalizeWinner(raw: any): { id: string; name: string; company?: string; title?: string; avatar?: string; drawnAt: string } | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const lead = raw.lead ?? raw.attendee ?? raw.user ?? null;
+  const id = String(
+    raw.id ?? raw.winner_id ?? raw.winnerId ?? raw.lead_id ?? raw.leadId ??
+      lead?.id ?? lead?.uuid ?? '',
+  );
+  const name = pickString(
+    raw.name, raw.winner_name, raw.winnerName, raw.full_name, raw.fullName,
+    lead?.name, lead?.full_name, lead?.fullName,
+  );
+  if (!id || !name) return null;
+  const drawnSource =
+    raw.drawn_at ?? raw.drawnAt ?? raw.created_at ?? raw.createdAt ?? raw.timestamp;
+  const drawnAt = drawnSource ? new Date(drawnSource) : new Date();
+  return {
+    id,
+    name,
+    company: pickString(raw.company, raw.company_name, raw.companyName, lead?.company, lead?.company_name) || undefined,
+    title: pickString(raw.title, raw.job_title, raw.jobTitle, lead?.title, lead?.job_title) || undefined,
+    avatar: pickString(raw.avatar, raw.avatar_url, raw.avatarUrl, raw.photo, raw.photo_url, lead?.avatar, lead?.avatar_url) || undefined,
+    drawnAt: (isNaN(drawnAt.getTime()) ? new Date() : drawnAt).toISOString(),
+  };
+}
+
 function normalizeGiveaway(raw: any): SponsorGiveaway {
   const tsSource = raw?.created_at ?? raw?.createdAt ?? raw?.created ?? raw?.timestamp;
   const createdAt = tsSource ? new Date(tsSource) : new Date();
+  // Backend may return winners under any of these keys depending on
+  // how the API resource is shaped. We map them once here so the
+  // AppContext merge can rely on `g.winners` being a real array.
+  const rawWinners: unknown =
+    raw?.winners ?? raw?.winner_list ?? raw?.winnersList ?? raw?.draws ?? raw?.draw_history;
+  const winners = Array.isArray(rawWinners)
+    ? (rawWinners.map(normalizeWinner).filter(Boolean) as Array<{ id: string; name: string; company?: string; title?: string; avatar?: string; drawnAt: string }>)
+    : [];
   return {
     id: String(raw?.id ?? raw?.giveaway_id ?? raw?.uuid ?? `giveaway-${Date.now()}`),
     title: pickString(raw?.title, raw?.name, raw?.prize, raw?.label),
@@ -74,6 +118,10 @@ function normalizeGiveaway(raw: any): SponsorGiveaway {
     sponsorId: String(
       raw?.sponsorId ?? raw?.sponsor_id ?? raw?.sponsor?.id ?? raw?.user_id ?? raw?.created_by ?? '',
     ),
+    // Only attach `winners` when we actually have backend rows so we
+    // don't override the localStorage overlay merge with an empty
+    // array on giveaways the backend hasn't tracked yet.
+    ...(winners.length > 0 ? { winners } : {}),
   };
 }
 
@@ -223,6 +271,91 @@ export async function updateGiveaway(
   }
   const raw = (res.data as any)?.data ?? res.data;
   return { success: true, data: normalizeGiveaway(raw) };
+}
+
+// ─── Winners ────────────────────────────────────────────────────────────────
+
+export interface SaveWinnerPayload {
+  /** Lead/attendee id of the chosen winner. */
+  id: string;
+  name: string;
+  company?: string;
+  title?: string;
+  avatar?: string;
+  /** ISO 8601 timestamp of when the draw resolved. */
+  drawnAt: string;
+}
+
+export interface SaveWinnerResponse {
+  success: boolean;
+  error?: { code: string; message: string };
+}
+
+/**
+ * POST /api/v1/events/:eventId/giveaways/:giveawayId/winners
+ *
+ * Notifies the backend that a winner has been picked for this giveaway
+ * (typically by `SponsorDrawPage` after a Lucky Draw resolves — either
+ * server-arbitrated or, while `/leads/draw` is missing, the client-side
+ * fallback). The backend is expected to:
+ *   • persist the winner row (so back-office reports include it);
+ *   • surface it on subsequent `GET /events/:id/giveaways` responses
+ *     under each giveaway's `winners` array — the frontend already
+ *     unions that field with its local overlay so admin- and rep-side
+ *     picks converge on every device.
+ *
+ * This endpoint isn't documented in `BACKEND_SCAN_ENDPOINTS.md` yet;
+ * it's a forward-looking call. If the backend hasn't shipped it (404
+ * or 405), we set a session-scoped flag and surface NOT_IMPLEMENTED so
+ * the caller can degrade silently — winners still live in the per-event
+ * localStorage overlay, the on-screen UX is unaffected.
+ *
+ * Synthetic giveaway ids (created locally, never round-tripped through
+ * the backend) skip the call entirely, the same way `updateGiveaway`
+ * does — there's no canonical row to attach a winner to yet.
+ */
+export async function saveGiveawayWinner(
+  eventId: string | number,
+  giveawayId: string,
+  winner: SaveWinnerPayload,
+): Promise<SaveWinnerResponse> {
+  if (saveWinnerEndpointMissing) {
+    return { success: false, error: { code: 'NOT_IMPLEMENTED', message: 'Save-winner endpoint not deployed.' } };
+  }
+  if (giveawayId.startsWith('giveaway-')) {
+    return { success: false, error: { code: 'NOT_IMPLEMENTED', message: 'Giveaway is local-only — backend create did not complete.' } };
+  }
+  // Send both camelCase and snake_case so either backend convention
+  // works without a contract change here. Mirrors `createGiveaway` /
+  // `updateGiveaway`.
+  const body: Record<string, unknown> = {
+    id: winner.id,
+    winner_id: winner.id,
+    winnerId: winner.id,
+    lead_id: winner.id,
+    leadId: winner.id,
+    name: winner.name,
+    company: winner.company ?? '',
+    title: winner.title ?? '',
+    avatar: winner.avatar ?? '',
+    avatar_url: winner.avatar ?? '',
+    drawn_at: winner.drawnAt,
+    drawnAt: winner.drawnAt,
+  };
+  const res = await apiPost<unknown>(
+    `/api/v1/events/${eventId}/giveaways/${giveawayId}/winners`,
+    body,
+    HEADERS,
+  );
+  if (!res.success) {
+    const code = String(res.error?.code ?? '');
+    if (code === '404' || code === '405') {
+      saveWinnerEndpointMissing = true;
+      return { success: false, error: { code: 'NOT_IMPLEMENTED', message: 'Save-winner endpoint not deployed.' } };
+    }
+    return { success: false, error: res.error ?? { code: 'SAVE_WINNER_FAILED', message: 'Failed to save winner.' } };
+  }
+  return { success: true };
 }
 
 /**

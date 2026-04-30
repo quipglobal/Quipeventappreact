@@ -81,6 +81,32 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
   // re-renders.
   const drawInFlightRef = useRef(false);
 
+  // Reset draw setup state whenever the active event changes. Without
+  // this, switching events mid-session would leave the previously-
+  // selected giveaway (which belongs to a different event) stuck in
+  // the selector and its winners still influencing `excludeWon`
+  // filtering on the new event's lead pool. We also clear when the
+  // currently-selected giveaway disappears from `sponsorGiveaways`
+  // (e.g. another rep deleted it, or the list re-hydrated after an
+  // event switch and no longer contains it) — keeping a stale object
+  // in `selectedGiveaway` would let the rep click "Pick a Winner!"
+  // against a giveaway that no longer exists.
+  const activeEventId = eventConfig?.eventId ?? null;
+  useEffect(() => {
+    setSelectedGiveaway(null);
+    setDrawHistory([]);
+    setWinner(null);
+    setPhase('setup');
+  }, [activeEventId]);
+  useEffect(() => {
+    if (!selectedGiveaway) return;
+    const stillExists = sponsorGiveaways.some(g => g.id === selectedGiveaway.id);
+    if (!stillExists) {
+      setSelectedGiveaway(null);
+      setDrawHistory([]);
+    }
+  }, [selectedGiveaway, sponsorGiveaways]);
+
   // Whenever the rep picks a giveaway, surface every winner the merged
   // giveaway list already carries — backend-arbitrated picks (admin in
   // the back-office or another rep on a different device, once the
@@ -478,6 +504,77 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
                   </div>
                 )}
               </div>
+
+              {/* Previous winners for the selected giveaway. We read
+                  off the live `sponsorGiveaways[*].winners` (which the
+                  AppContext hydration unions backend + local overlay
+                  picks into) instead of `drawHistory` so this surface
+                  shows up immediately on selection — `drawHistory` is
+                  populated by the seed effect on the next tick, and
+                  the rep should see who already won the prize the
+                  moment they pick it from the dropdown. */}
+              {(() => {
+                const liveSelected = selectedGiveaway
+                  ? sponsorGiveaways.find(g => g.id === selectedGiveaway.id)
+                  : null;
+                const priorWinners = liveSelected?.winners ?? [];
+                if (!selectedGiveaway || priorWinners.length === 0) return null;
+                return (
+                  <div className="mb-5 rounded-xl px-4 py-3"
+                    style={{
+                      background: 'rgba(251,191,36,0.08)',
+                      border: '1px solid rgba(251,191,36,0.25)',
+                    }}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Trophy style={{ width: 14, height: 14, color: '#fbbf24', flexShrink: 0 }} />
+                      <p style={{ color: t.text, fontSize: 12, fontWeight: 700 }}>
+                        Already picked for this prize
+                      </p>
+                      <span style={{
+                        color: '#fbbf24', fontSize: 11, fontWeight: 700,
+                        background: 'rgba(251,191,36,0.15)',
+                        padding: '1px 7px', borderRadius: 999,
+                      }}>
+                        {priorWinners.length}
+                      </span>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      {priorWinners.map((w, i) => (
+                        <div key={`prior-${w.id}-${i}`} className="flex items-center gap-2">
+                          {w.avatar ? (
+                            <img
+                              src={w.avatar}
+                              alt=""
+                              className="w-7 h-7 rounded-full object-cover flex-shrink-0"
+                              style={{ border: '1px solid rgba(251,191,36,0.3)' }}
+                            />
+                          ) : (
+                            <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
+                              style={{ background: 'rgba(251,191,36,0.2)' }}>
+                              <Crown style={{ width: 12, height: 12, color: '#fbbf24' }} />
+                            </div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate" style={{ color: t.text, fontSize: 12, fontWeight: 600 }}>
+                              {w.name}
+                            </p>
+                            {(w.company || w.title) && (
+                              <p className="truncate" style={{ color: t.textMuted, fontSize: 10 }}>
+                                {[w.title, w.company].filter(Boolean).join(' · ')}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <p style={{ color: t.textMuted, fontSize: 10, marginTop: 8 }}>
+                      {excludeWon
+                        ? 'Excluded from the next draw to avoid duplicates.'
+                        : 'Toggle "Exclude previous winners" below to skip them.'}
+                    </p>
+                  </div>
+                );
+              })()}
 
               {/* Pool source indicator */}
               <div className="mb-5 rounded-xl px-4 py-3 flex items-center gap-3"
