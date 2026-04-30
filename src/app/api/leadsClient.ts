@@ -255,8 +255,15 @@ export async function scanBadgeLead(
 }
 
 /**
- * GET /api/v1/events/:eventId/leads
- * Fetches all leads captured by the authenticated user.
+ * GET /api/v1/events/:eventId/my-leads
+ * Fetches the leads the authenticated user personally scanned at this event.
+ *
+ * Backend contract (Task #(backend my-leads)): the route is open to any
+ * event member (not just sponsor reps), and the controller filters on
+ * `scanner_user_id = auth()->id()` so a member can only ever see their
+ * own scans. The previous `/leads` route was sponsor-rep-gated and
+ * returned the org's pooled leads — wrong shape for this UI, and 403
+ * for non-sponsor members.
  */
 export async function listLeads(eventId: string | number): Promise<ListLeadsResponse> {
   if (USE_MOCK) {
@@ -264,15 +271,30 @@ export async function listLeads(eventId: string | number): Promise<ListLeadsResp
     return { success: true, data: [...mockLeads] };
   }
 
-  const res = await apiGet<{ leads: Lead[] } | Lead[]>(
-    `/api/v1/events/${eventId}/leads`,
+  const res = await apiGet<{ leads: Lead[] } | { data: Lead[] } | Lead[]>(
+    `/api/v1/events/${eventId}/my-leads`,
     HEADERS,
   );
   if (!res.success || !res.data) {
     return { success: false, error: res.error ?? { code: 'LIST_FAILED', message: 'Failed to fetch leads.' } };
   }
-  const data = res.data;
-  const raw = Array.isArray(data) ? data : (data as { leads: Lead[] }).leads ?? [];
+  // Pick the first array-shaped slot in the response. Backend may return
+  // a bare array, `{ data: [...] }` (Laravel resource collection), or
+  // `{ leads: [...] }`. We validate each candidate with Array.isArray
+  // so a malformed object envelope can't slip through and crash the map
+  // below — and so an unrecognized shape returns a typed error rather
+  // than rendering as "no leads yet" and hiding a backend regression.
+  const data = res.data as Lead[] | { data?: Lead[] } | { leads?: Lead[] };
+  let raw: Lead[] | null = null;
+  if (Array.isArray(data)) raw = data;
+  else if (Array.isArray((data as { data?: Lead[] }).data)) raw = (data as { data: Lead[] }).data;
+  else if (Array.isArray((data as { leads?: Lead[] }).leads)) raw = (data as { leads: Lead[] }).leads;
+  if (raw === null) {
+    if (typeof console !== 'undefined') {
+      console.warn('[leadsClient] unrecognized list response shape:', data);
+    }
+    return { success: false, error: { code: 'LIST_FAILED', message: 'Unexpected leads response.' } };
+  }
   return { success: true, data: raw.map(l => normalizeLead(l as Lead & { timestamp: Date | string })) };
 }
 

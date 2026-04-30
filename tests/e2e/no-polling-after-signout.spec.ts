@@ -204,7 +204,7 @@ test('no authenticated requests fire after sign-out (polling regression guard)',
     if (/^\/api\/v1\/events\/[^/]+\/access$/.test(path)) {
       return json({ success: true, data: { has_access: true } });
     }
-    if (/^\/api\/v1\/events\/[^/]+\/leads(\/.*)?$/.test(path) && method === 'GET') {
+    if (/^\/api\/v1\/events\/[^/]+\/(my-leads|leads)(\/.*)?$/.test(path) && method === 'GET') {
       return json({ success: true, data: [] });
     }
     if (/^\/api\/v1\/events\/[^/]+\/sponsors$/.test(path)) {

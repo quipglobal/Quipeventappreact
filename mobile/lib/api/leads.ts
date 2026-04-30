@@ -6,11 +6,11 @@ import type { ApiResponse, Lead } from '@/lib/api/types';
 const ACCENT_COLORS = ['#7c3aed', '#06b6d4', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6'];
 
 // Session-scoped flag mirroring the web `scanEndpointMissing` pattern.
-// If the backend hasn't shipped the GET /events/:id/leads route yet, we set
-// this on the first 404 and stop pestering the server. We also throw from
-// listLeads() so React Query preserves whatever's already in cache (e.g. a
-// lead the user just scanned and we optimistically inserted) instead of
-// overwriting it with a `{success:false}` response.
+// If the backend hasn't shipped the GET /events/:id/my-leads route yet, we
+// set this on the first 404 and stop pestering the server. We also throw
+// from listLeads() so React Query preserves whatever's already in cache
+// (e.g. a lead the user just scanned and we optimistically inserted)
+// instead of overwriting it with a `{success:false}` response.
 let leadsListEndpointMissing = false;
 let warnedListMissing = false;
 
@@ -63,13 +63,19 @@ export async function listLeads(): Promise<ApiResponse<Lead[]>> {
   if (__DEV__) console.log(`[Leads] listLeads eventId=${eventId}`);
   if (!eventId) return { success: true, data: [] };
 
-  // Backend hasn't shipped GET /events/:id/leads yet — short-circuit and
-  // throw so React Query's existing (optimistic) cache survives.
+  // Backend hasn't shipped GET /events/:id/my-leads yet — short-circuit
+  // and throw so React Query's existing (optimistic) cache survives.
   if (leadsListEndpointMissing) {
     throw new Error('LEADS_LIST_NOT_IMPLEMENTED');
   }
 
-  const res = await request<any>(`/api/v1/events/${eventId}/leads`);
+  // `/my-leads` is the per-scanner endpoint: open to any event member,
+  // filtered server-side to leads where `scanner_user_id = me`. This is
+  // the right shape for the mobile leads tab — every member sees only
+  // their own scans for the current event. The previous `/leads` route
+  // was sponsor-rep-gated and returned org-pooled leads, which is wrong
+  // here (and 403'd for non-sponsor members).
+  const res = await request<any>(`/api/v1/events/${eventId}/my-leads`);
   if (!res.success) {
     const msg = res.error?.message ?? '';
     // Laravel returns "The route ... could not be found." on a missing route.
@@ -78,8 +84,8 @@ export async function listLeads(): Promise<ApiResponse<Lead[]>> {
       if (!warnedListMissing && __DEV__) {
         warnedListMissing = true;
         console.warn(
-          '[Leads] GET /events/:id/leads returned 404. Falling back to local-only ' +
-            'leads cache. Backend needs to register the leads index route to enable ' +
+          '[Leads] GET /events/:id/my-leads returned 404. Falling back to local-only ' +
+            'leads cache. Backend needs to register the my-leads index route to enable ' +
             'cross-device sync.',
         );
       }
@@ -87,7 +93,27 @@ export async function listLeads(): Promise<ApiResponse<Lead[]>> {
     }
     return res as ApiResponse<Lead[]>;
   }
-  const raw: any[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
+  // Backend may return either a bare array, `{ data: [...] }`, or
+  // `{ leads: [...] }` (Laravel API resources commonly wrap collections
+  // under a named key). Pick the first array-shaped slot we find.
+  // Validate with Array.isArray on each candidate so a `{ leads: {...} }`
+  // object can't slip through and crash on `.map` below — and so an
+  // unrecognized envelope returns a typed error instead of silently
+  // rendering as empty (which would look identical to "no leads yet"
+  // and hide a real backend regression).
+  let raw: any[] | null = null;
+  if (Array.isArray(res.data)) raw = res.data;
+  else if (Array.isArray(res.data?.data)) raw = res.data.data;
+  else if (Array.isArray(res.data?.leads)) raw = res.data.leads;
+  if (raw === null) {
+    if (__DEV__) {
+      console.warn('[Leads] unrecognized list response shape:', res.data);
+    }
+    return {
+      success: false,
+      error: { code: 'LEADS_LIST_UNEXPECTED_SHAPE', message: 'Unexpected leads response.' },
+    };
+  }
   return { success: true, data: raw.map((r, i) => normalizeLead(r, i)) };
 }
 
