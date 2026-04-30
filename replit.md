@@ -161,13 +161,27 @@ See `BACKEND_SCAN_ENDPOINTS.md` for the full spec. Required:
 
 ### Lead Detail Persistence (notes / tags / priority)
 Edits to a lead's notes, tags, or priority on the web Leads page are PUT to the
-backend AND optimistically held in client state. To stop the lead-detail card
-"flicking" back to defaults whenever the backend echo omits these fields, the
-web `LeadsPage` defensively merges server leads with locally-edited values on
-every refetch (server wins when it returns a non-empty value; local wins when
-the server returned empty/default). Mobile `Lead` type and normalizer both
-surface `tags` (array) and `priority` (mirror of `status`) so the data
-round-trips end-to-end. Backend contract changes are documented in
+backend AND optimistically held in client state. Three layers protect the user's
+edits from disappearing while the backend hasn't yet shipped persistence on its
+v1 leads endpoints:
+
+1. **Optimistic in-memory state** in `AppContext.updateLead` — the UI reflects
+   the edit instantly.
+2. **Per-user lead-edits overlay** at `src/app/lib/leadEditsStorage.ts` — every
+   `updateLead` writes a tiny `{notes, tags, priority}` overlay to localStorage
+   keyed by `cxo:lead_edits:v1:<userId>:<leadId>`. This survives logout → login
+   (the main leads cache is wiped on user change for cross-account isolation;
+   this overlay is intentionally kept so the same user's edits are restored).
+3. **Defensive merge in `LeadsPage`** — `mergeServerLeadsWithLocalEdits`
+   overlays the server response with (a) the in-memory contextLeads value and
+   (b) the localStorage overlay, in that order, whenever the server returns
+   empty / default for a field. Each field is merged independently. This is
+   what stops the lead-detail card from "flicking" back to defaults on refetch
+   AND restores the user's edits after logout → login.
+
+Mobile `Lead` type and normalizer both surface `tags` (array) and `priority`
+(mirror of `status`) so the data round-trips end-to-end once the backend ships
+persistence. Backend contract changes are documented in
 `mobile/BACKEND_AGENT_INSTRUCTIONS.md` and `mobile/BACKEND_API.md` §9.
 
 ### Web App DataState Component

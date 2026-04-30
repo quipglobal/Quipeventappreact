@@ -15,6 +15,7 @@ import {
   scanBadgeLead,
   resetScanEndpointMissing,
 } from '@/app/api/leadsClient';
+import { loadLeadEdits, type LeadEditsMap } from '@/app/lib/leadEditsStorage';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -350,15 +351,20 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
   // back to defaults.
   //
   // Source of truth precedence (when both have a value):
-  //   1. server  — for fields it actually persisted
-  //   2. local   — for fields the server returned empty / default
+  //   1. server   — for fields it actually persisted
+  //   2. local    — for fields the server returned empty / default
+  //   3. overlay  — same precedence as local; sourced from the per-user
+  //                 lead-edits storage so the user's edits survive logout
+  //                 → login even after the in-memory leads cache is wiped
   //
   // We use the merged context lead as the local source so we capture
   // both the optimistic edit just made and any prior session edits
-  // that survived in the AppContext leads list.
+  // that survived in the AppContext leads list, then fall back to the
+  // overlay for anything contextLeads no longer remembers.
   const mergeServerLeadsWithLocalEdits = (
     serverLeads: Lead[],
     localLeads: Lead[],
+    overlay: LeadEditsMap,
   ): Lead[] => {
     const localById = new Map(localLeads.map(l => [l.id, l]));
     const localByCode = new Map(
@@ -370,20 +376,29 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
       const local =
         localById.get(server.id) ??
         (server.code ? localByCode.get(server.code.toLowerCase()) : undefined);
-      if (!local) return server;
+      const overlayEntry = overlay[server.id];
+      // Each field independently: server's non-default value wins; else
+      // contextLeads' value; else the overlay's value; else the server
+      // default itself. The "isn't 'warm'" check on priority is the
+      // poor-man's "did the server actually persist a non-default?" —
+      // safe because a user who explicitly set warm will also have it in
+      // the overlay/local, so we still end up at warm either way.
+      const serverNotesIsSet = !!(server.notes && server.notes.trim() !== '');
+      const serverTagsIsSet = !!(server.tags && server.tags.length > 0);
+      const serverPriorityIsSet = !!(server.priority && server.priority !== 'warm');
       return {
         ...server,
-        notes: server.notes && server.notes.trim() !== ''
+        notes: serverNotesIsSet
           ? server.notes
-          : (local.notes ?? server.notes),
-        tags: server.tags && server.tags.length > 0
+          : (local?.notes ?? overlayEntry?.notes ?? server.notes),
+        tags: serverTagsIsSet
           ? server.tags
-          : (local.tags ?? server.tags),
-        priority: server.priority && server.priority !== 'warm'
+          : (local?.tags ?? overlayEntry?.tags ?? server.tags),
+        priority: serverPriorityIsSet
           ? server.priority
-          : (local.priority && local.priority !== 'warm'
+          : (local?.priority && local.priority !== 'warm'
               ? local.priority
-              : server.priority),
+              : (overlayEntry?.priority ?? server.priority)),
       };
     });
   };
@@ -393,10 +408,14 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
     const eventId = eventConfig?.eventId ?? '0';
 
     const run = async () => {
+      // Load the edits overlay once per refresh — both setApiLeads calls
+      // below need it. It's a tiny localStorage read but no point doing
+      // it twice in the same effect run.
+      const overlay = loadLeadEdits(user?.id ?? null);
       const initial = await listLeads(eventId);
       if (cancelled) return;
       if (initial.success && initial.data) {
-        setApiLeads(mergeServerLeadsWithLocalEdits(initial.data, contextLeads));
+        setApiLeads(mergeServerLeadsWithLocalEdits(initial.data, contextLeads, overlay));
         // The list endpoint is live; if `/leads/scan` was previously marked
         // as missing earlier in this session (e.g. backend rolled out the
         // routes after the user opened the app), allow reconciliation to
@@ -422,7 +441,7 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
           const refreshed = await listLeads(eventId);
           if (cancelled) return;
           if (refreshed.success && refreshed.data) {
-            setApiLeads(mergeServerLeadsWithLocalEdits(refreshed.data, contextLeads));
+            setApiLeads(mergeServerLeadsWithLocalEdits(refreshed.data, contextLeads, overlay));
           }
         }
       } finally {
@@ -433,7 +452,7 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
     void run();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventConfig?.eventId]);
+  }, [eventConfig?.eventId, user?.id]);
 
   // Merge API leads with context leads. Dedup primarily by id, secondarily
   // by badge code (case-insensitive) or email — so a server-side lead that

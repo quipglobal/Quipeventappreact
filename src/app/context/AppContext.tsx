@@ -7,6 +7,7 @@ import { sendMeetingRequest as sendMeetingRequestApi } from '@/app/api/meetingsC
 import { fetchPointsFromBackend, scheduleSyncPoints, cancelPendingSyncPoints } from '@/app/api/pointsClient';
 import { getMyEventRoleApi } from '@/app/api/audienceClient';
 import { loadLeadsFromStorage, saveLeadsToStorage, clearLeadsStorage } from '@/app/lib/leadsStorage';
+import { saveLeadEdit } from '@/app/lib/leadEditsStorage';
 import { listLeads as listLeadsApi, scanBadgeLead, resetScanEndpointMissing } from '@/app/api/leadsClient';
 import {
   listGiveaways as listGiveawaysApi,
@@ -748,6 +749,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const updateLead = (id: string, updates: Partial<Pick<Lead, 'notes' | 'tags' | 'priority'>>) => {
     setLeads(prev => prev.map(lead => lead.id === id ? { ...lead, ...updates } : lead));
+    // Also write to the per-user, per-lead edits overlay so notes / tags /
+    // priority survive logout → login (the main leads cache is wiped on
+    // user change for cross-account isolation; this overlay is the one
+    // place the user's edits are kept until the backend ships persistence
+    // on the v1 leads endpoints).
+    if (user?.id) {
+      saveLeadEdit(user.id, id, updates);
+    }
     showToast('Lead updated successfully');
   };
 
