@@ -437,16 +437,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       listGiveawaysApi(eventId).then(res => {
         if (cancelled) return;
         if (res.success && res.data) {
-          // Backend doesn't (yet) return per-giveaway winners; merge
-          // them in from the per-event overlay so the public
-          // Giveaways screen still shows who won what after a reload.
+          // The backend giveaway list MAY return server-arbitrated
+          // winners (e.g. picks made by an admin in the back-office, or
+          // by another rep on a different device once a draw endpoint
+          // ships). It also may not — until then, the only source of
+          // truth is the per-event localStorage overlay this device
+          // wrote when the rep ran a Lucky Draw locally.
+          //
+          // Union both sources by winner `id`, with the backend row
+          // taking precedence on duplicates (it's authoritative). This
+          // guarantees:
+          //   • backend-only winners appear (admin-picked sync);
+          //   • local-only winners appear (offline / endpoint-missing);
+          //   • a winner present in both isn't double-counted.
           const winnersByGiveaway = loadGiveawayWinners(eventId);
           setSponsorGiveaways(
-            res.data.map(g =>
-              winnersByGiveaway[g.id]?.length
-                ? { ...g, winners: winnersByGiveaway[g.id] }
-                : g,
-            ),
+            res.data.map(g => {
+              const local = winnersByGiveaway[g.id] ?? [];
+              const fromServer = Array.isArray(g.winners) ? g.winners : [];
+              if (local.length === 0 && fromServer.length === 0) return g;
+              const seen = new Set<string>();
+              const merged: GiveawayWinner[] = [];
+              for (const w of fromServer) {
+                if (w?.id && !seen.has(w.id)) { seen.add(w.id); merged.push(w); }
+              }
+              for (const w of local) {
+                if (w?.id && !seen.has(w.id)) { seen.add(w.id); merged.push(w); }
+              }
+              return { ...g, winners: merged };
+            }),
           );
         }
         // On NOT_IMPLEMENTED / network error: silently keep current state.

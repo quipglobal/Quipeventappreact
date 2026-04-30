@@ -482,16 +482,43 @@ export async function updateLeadApi(
 // ─── Lucky Draw ─────────────────────────────────────────────────────────────
 
 /**
- * PATCH /api/v1/events/:eventId/leads/draw
+ * Session-scoped short-circuit: the live Laravel backend doesn't have a
+ * dedicated `/leads/draw` route. POST returns 405 (the only registered
+ * verb for `/leads/{scanId}` is PATCH), and PATCH crashes inside
+ * `MobileEventController::leadsUpdate` because Laravel matches the
+ * literal string "draw" against the typed `int $scanId` route param
+ * ("Argument #3 ($scanId) must be of type int, string given").
  *
- * Selects a winner server-side from the user's lead pool. The backend
- * exposes this route as PATCH (not POST) — the operation is idempotent
- * from the client's perspective (each call yields *a* winner; the
- * client never asserts which one) and the route also flips a server
- * "drawn_at" flag on the chosen lead, hence the verb choice on the
- * Laravel side. Sending POST here returns
- * `MethodNotAllowedHttpException` ("The POST method is not supported
- * for route api/v1/events/:id/leads/draw").
+ * Until the backend ships an actual draw endpoint, we detect any of
+ * those signatures on the first call and remember it for the rest of
+ * the session, so subsequent draws skip the round-trip and go straight
+ * to the client-side fallback in `SponsorDrawPage`.
+ */
+let drawEndpointMissing = false;
+
+/** A heuristic check: does this error look like "the draw route doesn't exist"? */
+function isMissingDrawRouteError(error: { code?: string; message?: string } | undefined): boolean {
+  if (!error) return false;
+  const code = String(error.code ?? '');
+  // 404 = no such route. 405 = wrong verb (Laravel reports allowed methods).
+  // 500 with the int-cast TypeError = "draw" matched `/leads/{scanId int}`.
+  if (code === '404' || code === '405') return true;
+  const msg = (error.message ?? '').toLowerCase();
+  if (msg.includes('leadsupdate') && msg.includes('int')) return true;
+  if (msg.includes('method is not supported') && msg.includes('leads/draw')) return true;
+  if (msg.includes('route') && msg.includes('leads/draw') && msg.includes('not')) return true;
+  return false;
+}
+
+/**
+ * POST /api/v1/events/:eventId/leads/draw
+ *
+ * Server-side draw is OPTIONAL per BACKEND_SCAN_ENDPOINTS.md, and the
+ * live backend hasn't shipped it yet. We still attempt the call so the
+ * draw is server-arbitrated the moment the backend gains the route, but
+ * we degrade gracefully on the well-known "missing route" signatures
+ * (see `isMissingDrawRouteError`) by returning a typed `NOT_IMPLEMENTED`
+ * response — `SponsorDrawPage` interprets that as "do the draw locally".
  */
 export async function triggerLuckyDraw(
   eventId: string | number,
@@ -516,11 +543,26 @@ export async function triggerLuckyDraw(
     };
   }
 
-  const res = await apiPatch<DrawWinner>(
+  if (drawEndpointMissing) {
+    return {
+      success: false,
+      error: { code: 'NOT_IMPLEMENTED', message: 'Draw endpoint not deployed.' },
+    };
+  }
+
+  const res = await apiPost<DrawWinner>(
     `/api/v1/events/${eventId}/leads/draw`,
     params,
+    HEADERS,
   );
   if (!res.success || !res.data) {
+    if (isMissingDrawRouteError(res.error)) {
+      drawEndpointMissing = true;
+      return {
+        success: false,
+        error: { code: 'NOT_IMPLEMENTED', message: 'Draw endpoint not deployed.' },
+      };
+    }
     return { success: false, error: res.error ?? { code: 'DRAW_FAILED', message: 'Failed to select a winner.' } };
   }
   return { success: true, data: res.data };

@@ -48,6 +48,58 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
     });
   }, [eventConfig?.eventId]);
 
+  // Whenever the rep picks a giveaway, surface every winner the merged
+  // giveaway list already carries — backend-arbitrated picks (admin in
+  // the back-office or another rep on a different device, once the
+  // backend list endpoint serves native `winners`) are unioned with
+  // this device's local overlay in AppContext, so we just need to keep
+  // `drawHistory` in sync with that source of truth.
+  //
+  // Crucially we MERGE (union by winner id) instead of replacing,
+  // because:
+  //   • the giveaway list can refetch mid-draw (event change, focus
+  //     refresh, optimistic update settling) and a hard replace would
+  //     wipe an in-progress local draw entry that hasn't propagated
+  //     back to `sponsorGiveaways[i].winners` yet;
+  //   • freshly added local entries (`setDrawHistory(prev => [...])`
+  //     in the success path below) MUST survive the next refetch tick
+  //     even before the overlay round-trip completes;
+  //   • dedupe keeps `excludeWon` honest if the same id appears in
+  //     both the seed and a recent local pick.
+  useEffect(() => {
+    if (!selectedGiveaway?.id) {
+      setDrawHistory([]);
+      return;
+    }
+    const live = sponsorGiveaways.find(g => g.id === selectedGiveaway.id);
+    const winners = live?.winners ?? [];
+    if (winners.length === 0) return; // nothing new to merge in
+    setDrawHistory(prev => {
+      const known = new Set(prev.map(e => e.winner.id));
+      const seedEntries: DrawEntry[] = winners
+        .filter(w => w?.id && !known.has(w.id))
+        .map((w, idx) => ({
+          // Stable id derived from the winner so a re-seed doesn't
+          // change React keys (avoids pointless list re-mounts).
+          id: `seed-${selectedGiveaway.id}-${w.id}-${idx}`,
+          prizeName: live?.title ?? selectedGiveaway.title ?? 'Lucky Draw Prize',
+          giveawayId: selectedGiveaway.id,
+          winner: {
+            id: w.id,
+            name: w.name,
+            company: w.company ?? '',
+            title: w.title ?? '',
+            avatar: w.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(w.name)}&background=7c3aed&color=fff`,
+          },
+          timestamp: w.drawnAt ? new Date(w.drawnAt) : new Date(),
+        }));
+      if (seedEntries.length === 0) return prev;
+      // Newest seeds first, then existing local entries — matches the
+      // append-to-front convention used by the live draw success path.
+      return [...seedEntries, ...prev];
+    });
+  }, [selectedGiveaway?.id, sponsorGiveaways]);
+
   // Show every giveaway returned by the event-scoped backend list,
   // not just the ones whose `sponsorId`/`sponsorName` happen to match
   // the current rep's identifiers. Backends frequently re-stamp
@@ -116,9 +168,41 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
     const giveawayIdAtDrawStart = selectedGiveaway?.id;
 
     const excludeIds = drawHistory.map(d => d.winner.id);
+    // Snapshot the eligible pool BEFORE we kick off the network call —
+    // we need it as the source for the local-fallback random pick when
+    // the backend has no `/leads/draw` endpoint deployed (the resolver
+    // returns NOT_IMPLEMENTED). Picking later from the live `eligiblePool`
+    // ref would race the shuffle animation's `setShuffleIndex` updates.
+    const localPool = eligiblePool;
     const drawPromise = triggerLuckyDraw(eventIdAtDrawStart, {
       giveawayId: giveawayIdAtDrawStart,
       excludeIds: excludeWon ? excludeIds : undefined,
+    }).then(res => {
+      // Backend doesn't ship a draw endpoint yet (see leadsClient.ts
+      // for the full Laravel route-collision write-up). Substitute a
+      // client-side random pick so the UX still completes — the result
+      // is persisted to the per-event winners overlay below, exactly
+      // the same way a server-arbitrated winner would have been.
+      if (!res.success && res.error?.code === 'NOT_IMPLEMENTED') {
+        if (localPool.length === 0) {
+          return {
+            success: false as const,
+            error: { code: 'EMPTY_POOL', message: 'No eligible participants in the draw pool.' },
+          };
+        }
+        const w = localPool[Math.floor(Math.random() * localPool.length)];
+        return {
+          success: true as const,
+          data: {
+            id: w.id,
+            name: w.name,
+            company: w.company,
+            title: w.title,
+            avatar: w.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(w.name)}&background=7c3aed&color=fff`,
+          },
+        };
+      }
+      return res;
     });
 
     let count = 0;
@@ -139,7 +223,28 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
               drawPromise.then(res => {
                 if (!res.success || !res.data) {
                   setPhase('setup');
-                  showToast(res.error?.message ?? 'Draw failed. Please try again.');
+                  // Surface a friendly, actionable message ONLY for codes
+                  // we explicitly recognize (e.g. EMPTY_POOL after the
+                  // local-fallback substitution found nothing). Anything
+                  // else gets the generic copy so a raw Laravel
+                  // exception (like the original
+                  // `MobileEventController::leadsUpdate(): Argument #3
+                  // ($scanId) must be of type int, string given`) can
+                  // never bubble through `apiClient.parseResponse`'s
+                  // pass-through `message` into a user-facing toast.
+                  // The original error is still visible to engineers
+                  // via the dev console below.
+                  const code = res.error?.code;
+                  let toastMsg = 'Draw failed. Please try again.';
+                  if (code === 'EMPTY_POOL') {
+                    toastMsg = 'No eligible participants in the draw pool.';
+                  } else if (code === 'NETWORK_ERROR') {
+                    toastMsg = 'Network error. Please check your connection.';
+                  }
+                  if (typeof console !== 'undefined' && res.error) {
+                    console.warn('[SponsorDrawPage] draw failed:', res.error);
+                  }
+                  showToast(toastMsg);
                   drawInFlightRef.current = false;
                   return;
                 }

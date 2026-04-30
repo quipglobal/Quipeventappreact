@@ -220,20 +220,37 @@ All mutations are optimistic, gracefully degrade on `NOT_IMPLEMENTED` (kept
 local-only), and roll back on real failures. A session-scoped flag short-
 circuits each verb after a 404 so we don't spam a downed route.
 
-**Lucky draw winner surface.** `SponsorDrawPage` calls
-`PATCH /api/v1/events/:eventId/leads/draw` (the Laravel route is exposed as
-PATCH — POST returns `MethodNotAllowedHttpException`). Once the backend
-resolves a winner, the rep's choice is persisted under a per-event
-localStorage overlay (`cxo:giveaway_winners:v1:<eventId>`) by
+**Lucky draw winner surface.** `SponsorDrawPage` attempts
+`POST /api/v1/events/:eventId/leads/draw` (per `BACKEND_SCAN_ENDPOINTS.md`).
+The live Laravel backend has not shipped that route yet — POST returns 405
+("the only verb registered for `/leads/{scanId}` is PATCH"), and PATCH
+crashes inside `MobileEventController::leadsUpdate` with
+`Argument #3 ($scanId) must be of type int, string given` because Laravel
+matches the literal string `draw` against the typed `int $scanId` route
+param. `triggerLuckyDraw` detects any of those signatures
+(`isMissingDrawRouteError`), short-circuits the rest of the session via a
+`drawEndpointMissing` flag, and returns `NOT_IMPLEMENTED`. `SponsorDrawPage`
+then runs a client-side random pick over the snapshotted eligible pool so
+the UX still completes.
+
+Resolved winners — server-arbitrated OR locally picked — are persisted under
+a per-event localStorage overlay (`cxo:giveaway_winners:v1:<eventId>`) by
 `src/app/lib/giveawayWinnersStorage.ts` and mirrored into
 `AppContext.sponsorGiveaways[i].winners` via
 `recordGiveawayWinner(giveawayId, winner, eventIdAtDrawStart?)`. The public
 `GiveawaysPage` reads that field and renders a "Winner(s)" pill block on each
 card so attendees immediately see who won the prize. The overlay is keyed by
-event id only (not user) since winner names are event-public, and is merged
-back into the server's giveaway list at every hydration tick — so a reload,
-a rep re-opening the page, or any attendee opening the screen all show the
-same winners until the backend giveaway route ships native `winners` support.
+event id only (not user) since winner names are event-public.
+
+**Cross-actor sync.** AppContext's giveaway-list hydration unions backend-
+arbitrated winners (e.g. picks made by an admin in the back-office once the
+backend list endpoint returns native `winners`, or by another rep on a
+different device) with this device's local overlay, deduped by winner `id`
+with the backend row taking precedence. `SponsorDrawPage` re-seeds its in-
+memory `drawHistory` from `selectedGiveaway.winners` whenever the rep picks
+a giveaway, so any winner already drawn elsewhere appears in the on-screen
+history (and is honored by the `excludeWon` filter) instead of being
+silently re-pickable.
 
 ---
 
