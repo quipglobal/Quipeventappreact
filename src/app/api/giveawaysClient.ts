@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPatch, apiDelete, ApiEnvelope } from './client';
+import { apiGet, apiPost, apiPut, apiDelete, ApiEnvelope } from './client';
 import { SponsorGiveaway } from '@/app/context/AppContext';
 
 const HEADERS = { 'Accept': 'application/json' };
@@ -226,13 +226,22 @@ export interface UpdateGiveawayPayload {
 }
 
 /**
- * PATCH /api/v1/events/:eventId/giveaways/:giveawayId
+ * PUT /api/v1/events/:eventId/giveaways/:giveawayId
  *
- * Used by the sponsor "edit giveaway" flow. Mirrors `createGiveaway`
- * in sending both camelCase and snake_case so either backend
- * convention works without a contract change here. Only sends the
- * fields the caller actually wants to change — the backend is
- * expected to leave the rest untouched.
+ * Used by the sponsor "edit giveaway" flow. The Laravel backend
+ * registers this route with PUT (not PATCH) — sending PATCH gets
+ * back a 405 "The PATCH method is not supported for route ...
+ * Supported methods: GET, HEAD, PUT, DELETE." Mirrors
+ * `createGiveaway` in sending both camelCase and snake_case so
+ * either backend convention works without a contract change here.
+ * Because we send a full PUT, we still only include the fields the
+ * caller actually wants to change — anything omitted is implicitly
+ * left untouched on the server (Laravel's `validated()` ignores
+ * absent keys when they're marked `sometimes`).
+ *
+ * On 405 we also tag the endpoint as missing so a single legacy
+ * deployment that only supports a different verb degrades to local-
+ * only updates instead of erroring on every save.
  */
 export async function updateGiveaway(
   eventId: string | number,
@@ -261,9 +270,9 @@ export async function updateGiveaway(
     body.image = payload.image;
     body.image_url = payload.image;
   }
-  const res = await apiPatch<unknown>(`/api/v1/events/${eventId}/giveaways/${giveawayId}`, body);
+  const res = await apiPut<unknown>(`/api/v1/events/${eventId}/giveaways/${giveawayId}`, body);
   if (!res.success || !res.data) {
-    if (res.error?.code === '404') {
+    if (res.error?.code === '404' || res.error?.code === '405') {
       updateEndpointMissing = true;
       return { success: false, error: { code: 'NOT_IMPLEMENTED', message: 'Giveaway update endpoint not deployed.' } };
     }
