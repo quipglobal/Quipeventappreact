@@ -348,10 +348,16 @@ export const SponsorGiveawaysPage: React.FC = () => {
   const [editing, setEditing] = useState<SponsorGiveaway | null>(null);
 
   const isSponsor = user?.role === 'sponsor';
-  // Show prizes added by the current rep AND any co-worker from the
-  // same company. The matcher lives in AppContext so SponsorDrawPage
-  // applies the exact same rule.
-  const myGiveaways = sponsorGiveaways.filter(isMyGiveaway);
+  // Show every giveaway the event-scoped backend list returned.
+  // Filtering by `isMyGiveaway` here was hiding the rep's own
+  // freshly-added prize whenever the backend re-stamped sponsor_id
+  // with a foreign-key value that didn't equal `user.id` (the bug
+  // that surfaced as "added giveaway not appearing"). The list is
+  // already authorized + event-scoped server-side. Edit/delete
+  // affordances on each card are still gated by `isMyGiveaway`
+  // below, so a rep from a different company can see a card but
+  // can't mutate it.
+  const visibleGiveaways = sponsorGiveaways;
 
   const headerBg = eventConfig?.backgroundURL
     ? `linear-gradient(160deg,rgba(10,5,30,0.82) 0%,rgba(30,10,60,0.72) 100%),url(${eventConfig.backgroundURL}) center/cover no-repeat`
@@ -403,7 +409,7 @@ export const SponsorGiveawaysPage: React.FC = () => {
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg"
               style={{ background: 'rgba(255,255,255,0.12)' }}>
               <Sparkles style={{ width: 12, height: 12, color: '#fff' }} />
-              <span style={{ color: '#fff', fontSize: 13, fontWeight: 700 }}>{myGiveaways.length}</span>
+              <span style={{ color: '#fff', fontSize: 13, fontWeight: 700 }}>{visibleGiveaways.length}</span>
               <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11 }}>active</span>
             </div>
           </div>
@@ -421,17 +427,17 @@ export const SponsorGiveawaysPage: React.FC = () => {
           }}
         />
 
-        {myGiveaways.length > 0 ? (
+        {visibleGiveaways.length > 0 ? (
           <div>
             <div className="flex items-center gap-2 mb-3">
               <Gift style={{ width: 14, height: 14, color: '#7c3aed' }} />
               <span style={{ color: t.text, fontSize: 13, fontWeight: 700 }}>
-                Your Giveaways ({myGiveaways.length})
+                Your Giveaways ({visibleGiveaways.length})
               </span>
             </div>
             <div className="space-y-3">
               <AnimatePresence>
-                {myGiveaways.map(g => {
+                {visibleGiveaways.map(g => {
                   // "Mine" here just controls whether edit/delete
                   // buttons are visible. Per product: any same-company
                   // rep can manage the booth's prizes, so isMyGiveaway

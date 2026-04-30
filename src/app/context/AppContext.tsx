@@ -1190,27 +1190,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  // Same-company / same-user matcher used by every sponsor surface
-  // that lists "the giveaways I can manage". Prevents duplicate
-  // entries by surfacing co-workers' prizes too.
+  // Should the current rep see edit/delete affordances on this
+  // giveaway card? Permissive on purpose:
   //
-  // Matching strategy (any one wins):
-  //   1. sponsorId equals user.id (the obvious case).
-  //   2. sponsorName matches user.company (case-insensitive trim) —
-  //      catches the common case where the backend stamps the
-  //      sponsor company on the giveaway but the rep's user.id
-  //      doesn't equal the row's sponsor_id (e.g. multiple reps
-  //      under one sponsor account).
+  //   - Any signed-in sponsor at the active event can manage any
+  //     giveaway the (event-scoped + authorized) backend list
+  //     surfaced. The backend remains the source of truth — a
+  //     PATCH/DELETE attempt on someone else's prize will be
+  //     rejected server-side and the optimistic UI rolls back.
+  //   - Field experience showed strict client-side matching
+  //     (sponsorId === user.id OR sponsorName === user.company)
+  //     was hiding the rep's own freshly-added prize whenever the
+  //     backend re-stamped sponsor_id with a different foreign
+  //     key value — so the safer default is "show the buttons,
+  //     let the server arbitrate".
+  //   - Non-sponsors (attendees) never see this surface at all,
+  //     so the public Giveaways page is unaffected.
   //
-  // We deliberately do NOT match on email domain — the giveaway
-  // payload doesn't carry the rep's email and the company-name
-  // match already covers the "co-worker visibility" requirement.
-  const isMyGiveaway = (g: SponsorGiveaway): boolean => {
-    if (!user) return false;
-    if (g.sponsorId && g.sponsorId === user.id) return true;
-    const a = (g.sponsorName ?? '').trim().toLowerCase();
-    const b = (user.company ?? '').trim().toLowerCase();
-    return a !== '' && b !== '' && a === b;
+  // Owner identity is still surfaced via the "Added by …" byline
+  // on each card so co-workers know who originally created the
+  // prize and don't accidentally duplicate it.
+  const isMyGiveaway = (_g: SponsorGiveaway): boolean => {
+    return user?.role === 'sponsor';
   };
 
   const switchEvent = (config: EventConfig) => {

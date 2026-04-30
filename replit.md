@@ -196,14 +196,19 @@ persistence. Backend contract changes are documented in
 
 ### Sponsor Giveaways & Lucky Draw
 
-**Visibility & ownership.** Sponsor reps see every giveaway added by anyone at
-their company, not just their own personal entries — both
-`SponsorGiveawaysPage` (manage) and `SponsorDrawPage` (lucky draw) filter the
-list with `AppContext.isMyGiveaway`, which matches on `sponsorId === user.id`
-OR `sponsorName === user.company` (case-insensitive). This prevents two reps
-at the same booth from creating duplicate prize entries, and lets either rep
-edit / delete / draw against any of their company's giveaways. Co-worker-added
-items show an "Added by …" byline so the owner is still attributable.
+**Visibility & ownership.** Both `SponsorGiveawaysPage` (manage) and
+`SponsorDrawPage` (lucky draw) render the full event-scoped list returned by
+the backend — no client-side ownership filter. We tried strict matching on
+`sponsorId === user.id OR sponsorName === user.company` first, but it hid the
+rep's own freshly-added prize whenever the Laravel backend re-stamped
+`sponsor_id` with its own foreign-key value. The list is already authorized +
+event-scoped server-side, so showing everything is the safe default and gives
+co-workers at the same booth shared visibility (preventing duplicate prize
+entries). Edit/delete affordances on each card are still gated by
+`AppContext.isMyGiveaway`, which is permissive (`user?.role === 'sponsor'`):
+the backend remains the source of truth and rejects unauthorized PATCH/DELETE
+attempts, at which point the optimistic UI rolls back. Co-worker-added items
+show an "Added by …" byline so ownership stays attributable.
 
 **CRUD endpoints.** Backed by `src/app/api/giveawaysClient.ts`:
 - `GET /api/v1/events/:eventId/giveaways` — list (hydrated on event change)

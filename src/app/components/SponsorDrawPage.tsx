@@ -48,14 +48,22 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
     });
   }, [eventConfig?.eventId]);
 
-  // Sponsor's giveaways — includes prizes added by other reps from
-  // the same company so co-workers can run draws against each other's
-  // prize pool. The matcher lives in AppContext (`isMyGiveaway`) so
-  // SponsorGiveawaysPage uses the exact same rule.
-  const myGiveaways = useMemo(() => {
-    return sponsorGiveaways.filter(isMyGiveaway);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sponsorGiveaways, user?.id, user?.company]);
+  // Show every giveaway returned by the event-scoped backend list,
+  // not just the ones whose `sponsorId`/`sponsorName` happen to match
+  // the current rep's identifiers. Backends frequently re-stamp
+  // sponsor_id with their own foreign key on write (so what comes
+  // back doesn't equal `user.id`), and the previous strict filter
+  // hid the rep's own freshly-added prize whenever that happened —
+  // which was the root cause of "added giveaway not appearing on
+  // Lucky Draw" in the field. The list is already authorized + event-
+  // scoped server-side, and SponsorGiveawaysPage now uses the same
+  // unfiltered list so the two screens stay in sync. `isMyGiveaway`
+  // is still used below to decide whether to render edit/delete
+  // affordances on individual cards.
+  const drawableGiveaways = sponsorGiveaways;
+  // Surfaced for parity with the manage screen — kept around for
+  // any future "owned by me" pill we might add.
+  void isMyGiveaway;
 
   const [phase, setPhase] = useState<DrawPhase>('setup');
   const [selectedGiveaway, setSelectedGiveaway] = useState<SponsorGiveaway | null>(null);
@@ -276,7 +284,7 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
                 <label style={{ color: t.textSec, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 8 }}>
                   Select Giveaway
                 </label>
-                {myGiveaways.length > 0 ? (
+                {drawableGiveaways.length > 0 ? (
                   <div className="relative">
                     <button
                       onClick={() => setShowGiveawayPicker(!showGiveawayPicker)}
@@ -315,7 +323,7 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
                           className="absolute z-20 w-full mt-2 rounded-xl overflow-hidden"
                           style={{ background: t.surface, border: `1px solid ${t.border}`, boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}
                         >
-                          {myGiveaways.map((g, i) => (
+                          {drawableGiveaways.map((g, i) => (
                             <button
                               key={g.id}
                               onClick={() => {
@@ -325,7 +333,7 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
                               className="w-full px-4 py-3 flex items-center gap-3 text-left active:opacity-70 transition-opacity"
                               style={{
                                 background: selectedGiveaway?.id === g.id ? t.accentBg : 'transparent',
-                                borderBottom: i < myGiveaways.length - 1 ? `1px solid ${t.divider}` : 'none',
+                                borderBottom: i < drawableGiveaways.length - 1 ? `1px solid ${t.divider}` : 'none',
                               }}
                             >
                               {g.image ? (
@@ -449,7 +457,7 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
               {/* Draw button */}
               <button
                 onClick={startDraw}
-                disabled={eligiblePool.length === 0 || (myGiveaways.length > 0 && !selectedGiveaway)}
+                disabled={eligiblePool.length === 0 || (drawableGiveaways.length > 0 && !selectedGiveaway)}
                 className="w-full py-4 rounded-2xl text-white flex items-center justify-center gap-2.5 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden"
                 style={{
                   background: 'linear-gradient(135deg,#f59e0b,#d97706)',
@@ -458,7 +466,7 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
               >
                 <Gift style={{ width: 20, height: 20 }} />
                 <span style={{ fontSize: 16, fontWeight: 800 }}>
-                  {myGiveaways.length > 0 && !selectedGiveaway ? 'Select a Giveaway First' : 'Pick a Winner!'}
+                  {drawableGiveaways.length > 0 && !selectedGiveaway ? 'Select a Giveaway First' : 'Pick a Winner!'}
                 </span>
               </button>
             </motion.div>
