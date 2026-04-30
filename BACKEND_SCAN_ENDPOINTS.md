@@ -338,6 +338,65 @@ a contract change here — pick whichever pair you read on the server):
 
 ---
 
+### 7. Event Leaderboard
+
+#### `GET /api/v1/events/{eventId}/leaderboard?period=overall|today|week&limit=50`
+
+Returns the points ranking for the given event. Powers both the
+home-screen Top-3 preview and the full Leaderboard page. The
+frontend caches the result in `AppContext` and refreshes on event
+change + period-pill clicks.
+
+**Query parameters**
+
+| Param   | Type    | Default   | Notes                                               |
+| ------- | ------- | --------- | --------------------------------------------------- |
+| period  | string  | `overall` | One of `overall`, `today`, `week`. Backend may ignore — UI treats as a hint. |
+| limit   | integer | `50`      | Max rows to return. Frontend asks for 50.            |
+
+**Success response**
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "rank": 1,
+      "userId": "137",
+      "name": "Sarah Martinez",
+      "company": "TechFlow Inc.",
+      "title": "Head of Growth",
+      "avatar": "https://…/avatars/137.jpg",
+      "points": 485,
+      "tier": "Gold",
+      "change": 0
+    }
+  ]
+}
+```
+
+**Field tolerance** — the frontend normalizer accepts both
+camelCase and snake_case (`user_id`, `full_name`, `total_points`,
+`avatar_url`, `rank_change`, etc.) and unwraps `{ data: [] }`,
+`{ leaderboard: [] }`, or `{ entries: [] }` envelopes, so the
+existing v1 collection convention works without changes.
+
+**Tier values** — must be one of `Bronze`, `Silver`, `Gold`,
+`Platinum`. Anything else is coerced to `Bronze` client-side.
+
+**Notes**
+
+- `change` is the rank delta vs. the previous tick (positive = moved
+  up). Optional — omit and the UI hides the indicator.
+- `userId` MUST match the id returned by `/api/v1/auth/me` so the
+  current user's row is highlighted and the home-page "Your Rank"
+  pill picks up their real position.
+- 404 / 405 from this endpoint flips a session flag and the UI
+  renders the empty-state ("No rankings yet, earn points by …")
+  until the user re-enters the event.
+
+---
+
 ## Database Schema (suggested)
 
 ```sql

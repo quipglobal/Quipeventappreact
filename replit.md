@@ -143,6 +143,7 @@ When running the Expo app as a web preview (port 8080), API calls go through the
 - `feedClient.ts` — Paginated feed (video+poll), mark video watched
 - `agendaClient.ts` — List sessions with day/track filters, bookmark
 - `sponsorsClient.ts` — List sponsors by tier, get sponsor detail
+- `leaderboardClient.ts` — Event-scoped points ranking (`GET /api/v1/events/:eventId/leaderboard?period=overall|today|week`); used by HomePage top-3 preview and full LeaderboardPage; tolerates camelCase/snake_case + envelope shapes; 404/405 short-circuits to NOT_IMPLEMENTED with empty-state UI
 
 ### Universal Badge System (Web App)
 - **BottomNav**: Single universal 5-tab nav for ALL roles — Feed | Audience | My Badge | Scan | Leads (role split removed)

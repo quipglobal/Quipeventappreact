@@ -52,7 +52,7 @@ function formatRelativeStart(iso: string | undefined): string {
 }
 
 export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
-  const { user, eventConfig, gamificationConfig, sponsorGiveaways } = useApp();
+  const { user, eventConfig, gamificationConfig, sponsorGiveaways, leaderboard } = useApp();
   const { t, isDark } = useTheme();
 
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -124,16 +124,29 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   const ptsToNextTier = nextTier ? nextTier.minPoints - user.points : 0;
   const tierColor = TIER_COLORS[user.tier] ?? '#7c3aed';
 
-  // Mock leaderboard top 3 (mirrors LeaderboardPage data)
-  const leaderboardTop3 = [
-    { rank: 1, name: 'Sarah Martinez', company: 'TechFlow Inc.', points: 485,
-      avatar: 'https://ui-avatars.com/api/?name=Sarah+Martinez&background=6366f1&color=fff' },
-    { rank: 2, name: 'James Chen',     company: 'InnovateLab',   points: 450,
-      avatar: 'https://ui-avatars.com/api/?name=James+Chen&background=8b5cf6&color=fff' },
-    { rank: 3, name: 'Emma Wilson',    company: 'DataCorp',      points: 420,
-      avatar: 'https://ui-avatars.com/api/?name=Emma+Wilson&background=ec4899&color=fff' },
-  ];
-  const youRank = leaderboardTop3.findIndex(p => p.points <= user.points) + 1 || (leaderboardTop3.length + 1);
+  // Top-3 preview is derived from the same context-backed leaderboard
+  // the full Leaderboard page consumes — single source of truth, so a
+  // refresh on either screen propagates everywhere. Each row falls back
+  // to a generated avatar when the backend hasn't supplied one.
+  const leaderboardTop3 = leaderboard.slice(0, 3).map(entry => ({
+    rank: entry.rank,
+    name: entry.name,
+    company: entry.company,
+    points: entry.points,
+    avatar:
+      entry.avatar && entry.avatar.trim() !== ''
+        ? entry.avatar
+        : `https://ui-avatars.com/api/?name=${encodeURIComponent(entry.name || 'Attendee')}&background=6366f1&color=fff`,
+  }));
+  // Prefer the backend-supplied rank for the current user when they
+  // appear in the rankings; otherwise fall back to a points-based
+  // estimate against whoever's in the top-3 cache. This keeps the
+  // "Your Rank" pill meaningful even when the user's outside the
+  // top-3 returned for the home preview.
+  const meFromLeaderboard = leaderboard.find(e => e.userId === user.id);
+  const youRank = meFromLeaderboard
+    ? meFromLeaderboard.rank
+    : (leaderboardTop3.findIndex(p => p.points <= user.points) + 1 || (leaderboardTop3.length + 1));
 
   const bannerBg = eventConfig?.backgroundURL
     ? `linear-gradient(160deg,rgba(10,5,30,0.55) 0%,rgba(30,10,60,0.7) 100%),url(${eventConfig.backgroundURL}) center/cover no-repeat`
@@ -468,7 +481,13 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
             </div>
             <ArrowRight size={16} style={{ color: t.textMuted }} />
           </div>
-          {/* Top 3 */}
+          {/* Top 3 — empty placeholder shown until the backend hydrates
+              the leaderboard so the card never looks "cut off". */}
+          {leaderboardTop3.length === 0 && (
+            <div className="px-4 py-3" style={{ color: t.textMuted, fontSize: 11 }}>
+              Rankings will appear once attendees start earning points.
+            </div>
+          )}
           {leaderboardTop3.map((p, i) => (
             <div key={p.rank}
               className="px-4 py-2.5 flex items-center gap-3"

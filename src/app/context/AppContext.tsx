@@ -1,5 +1,5 @@
 // @refresh reset
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { EventConfig, GamificationConfig } from '@/app/types/config';
 import { getMeApi } from '@/app/api/authClient';
 import { clearToken } from '@/app/api/client';
@@ -23,6 +23,12 @@ import {
   saveGiveawayWinner as saveGiveawayWinnerApi,
   resetGiveawaysEndpointMissing,
 } from '@/app/api/giveawaysClient';
+import {
+  listLeaderboard as listLeaderboardApi,
+  resetLeaderboardEndpointMissing,
+  type LeaderboardEntry,
+  type LeaderboardPeriod,
+} from '@/app/api/leaderboardClient';
 import { useAuthedEffect } from '@/app/hooks/useAuthedEffect';
 
 interface User {
@@ -143,6 +149,18 @@ interface AppState {
   sponsorGiveaways: SponsorGiveaway[];
   connectionRequests: ConnectionRequest[];
   conversations: Conversation[];
+  /** Event-scoped leaderboard rows hydrated from the backend on event
+   *  change and on demand via `refreshLeaderboard`. Empty until the
+   *  first hydration completes (or the backend returns NOT_IMPLEMENTED,
+   *  in which case it stays empty and the UI shows an empty state). */
+  leaderboard: LeaderboardEntry[];
+  /** True while a `listLeaderboard` request is in flight. UI uses this
+   *  to render skeletons / spinners without flickering. */
+  leaderboardLoading: boolean;
+  /** Last period the leaderboard was hydrated for. Mirrors the filter
+   *  pill on the Leaderboard page so a hard refresh after switching
+   *  pills keeps the right data. */
+  leaderboardPeriod: LeaderboardPeriod;
 }
 
 interface AppContextType extends AppState {
@@ -206,6 +224,12 @@ interface AppContextType extends AppState {
    * skipped (the overlay still gets the write under the correct
    * event so it'll surface on the next return to that event).
    */
+  /** Force a fresh fetch of the event-scoped leaderboard. Optional
+   *  `period` switches the active filter (defaults to whatever
+   *  `leaderboardPeriod` already is). Resolves once the request
+   *  completes — used by the Leaderboard page's pull-to-refresh and
+   *  by the period pill onClick. */
+  refreshLeaderboard: (period?: LeaderboardPeriod) => Promise<void>;
   recordGiveawayWinner: (
     giveawayId: string,
     winner: GiveawayWinner,
@@ -306,6 +330,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // user's leads.
   const [leads, setLeads] = useState<Lead[]>([]);
   const [sponsorGiveaways, setSponsorGiveaways] = useState<SponsorGiveaway[]>([]);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+  const [leaderboardPeriod, setLeaderboardPeriod] = useState<LeaderboardPeriod>('overall');
   const [hasJoinedEvent, setHasJoinedEvent] = useState(false);
   const [toast, setToast] = useState<{ message: string; points?: number } | null>(null);
 
@@ -478,6 +505,82 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [activeEventConfig?.eventId],
   );
 
+  // ── Leaderboard: hydrate from backend on event change ──────────────────
+  // Event-scoped, multi-tenant. Refreshing on `activeEventConfig.eventId`
+  // change keeps the home-screen preview and the full Leaderboard page in
+  // sync with whichever event the user is currently inside. We use a
+  // single-flight ref so the period-pill clicks (which call
+  // `refreshLeaderboard('today')` etc.) don't race with the on-mount
+  // hydration. NOT_IMPLEMENTED is treated as a no-op: the UI just shows
+  // an empty state and the next event change will retry.
+  const leaderboardInFlightRef = useRef<{ key: string; cancelled: boolean } | null>(null);
+  const refreshLeaderboard = useCallback(
+    async (period?: LeaderboardPeriod) => {
+      const eventId = activeEventConfig?.eventId;
+      if (!eventId) {
+        setLeaderboard([]);
+        return;
+      }
+      const targetPeriod = period ?? leaderboardPeriod;
+      if (period && period !== leaderboardPeriod) {
+        setLeaderboardPeriod(period);
+      }
+      // Cancel any earlier in-flight call so its (possibly stale)
+      // result can't overwrite this one's. We key by event+period so a
+      // user mashing the period pills always ends up showing the last
+      // pill they clicked.
+      const key = `${eventId}::${targetPeriod}::${Date.now()}`;
+      if (leaderboardInFlightRef.current) {
+        leaderboardInFlightRef.current.cancelled = true;
+      }
+      const ticket = { key, cancelled: false };
+      leaderboardInFlightRef.current = ticket;
+      setLeaderboardLoading(true);
+      try {
+        const res = await listLeaderboardApi(eventId, targetPeriod);
+        if (ticket.cancelled) return;
+        if (res.success && res.data) {
+          setLeaderboard(res.data);
+        } else if (res.error?.code === 'NOT_IMPLEMENTED') {
+          // Backend route not deployed yet — clear so we don't keep
+          // stale rows from a prior event. UI renders the empty
+          // state which already mentions points.
+          setLeaderboard([]);
+        }
+        // Other errors: keep the existing array so a transient
+        // network blip doesn't blank the UI.
+      } finally {
+        if (!ticket.cancelled) {
+          setLeaderboardLoading(false);
+        }
+      }
+    },
+    [activeEventConfig?.eventId, leaderboardPeriod],
+  );
+
+  useAuthedEffect(
+    user?.id,
+    () => {
+      const eventId = activeEventConfig?.eventId;
+      if (!eventId) return;
+      // Allow the first call on this event to actually hit the
+      // network even if a prior event in the same session had a
+      // missing route — backend may have been deployed since.
+      resetLeaderboardEndpointMissing();
+      // Reset to the default period on event switch so the pill
+      // state matches what's actually loaded. Cheaper than
+      // remembering per-event period selections.
+      setLeaderboardPeriod('overall');
+      // Clear immediately on event switch so the previous event's
+      // rankings don't flash on screen while the new event's data
+      // is in flight. The Leaderboard page falls back to its
+      // skeleton/empty state during this gap.
+      setLeaderboard([]);
+      void refreshLeaderboard('overall');
+    },
+    [activeEventConfig?.eventId],
+  );
+
   // ── Sign-out cleanup for outstanding background work ───────────────────
   // Mirror the leads-reconciler gating for any other deferred / in-flight
   // authenticated calls. The points sync in particular runs on a 300ms
@@ -495,6 +598,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // hydration tick will refill from the backend under the new
     // session).
     setSponsorGiveaways([]);
+    // Same reasoning for the leaderboard — and crucially, cancel any
+    // in-flight fetch so its response can't land after sign-out and
+    // re-populate state under a different user.
+    if (leaderboardInFlightRef.current) {
+      leaderboardInFlightRef.current.cancelled = true;
+      leaderboardInFlightRef.current = null;
+    }
+    setLeaderboard([]);
+    setLeaderboardLoading(false);
   }, [user?.id]);
 
   // ── Background pendingSync reconciliation ──────────────────────────────
@@ -1300,6 +1412,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         hasJoinedEvent,
         leads,
         sponsorGiveaways,
+        leaderboard,
+        leaderboardLoading,
+        leaderboardPeriod,
         connectionRequests,
         conversations,
         setUser,
@@ -1323,6 +1438,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         removeSponsorGiveaway,
         isMyGiveaway,
         recordGiveawayWinner,
+        refreshLeaderboard,
         sendConnectionRequest,
         acceptConnection,
         declineConnection,
