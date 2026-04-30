@@ -48,6 +48,39 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
     });
   }, [eventConfig?.eventId]);
 
+  // Show every giveaway returned by the event-scoped backend list,
+  // not just the ones whose `sponsorId`/`sponsorName` happen to match
+  // the current rep's identifiers. Backends frequently re-stamp
+  // sponsor_id with their own foreign key on write (so what comes
+  // back doesn't equal `user.id`), and the previous strict filter
+  // hid the rep's own freshly-added prize whenever that happened —
+  // which was the root cause of "added giveaway not appearing on
+  // Lucky Draw" in the field. The list is already authorized + event-
+  // scoped server-side, and SponsorGiveawaysPage now uses the same
+  // unfiltered list so the two screens stay in sync. `isMyGiveaway`
+  // is still used below to decide whether to render edit/delete
+  // affordances on individual cards.
+  const drawableGiveaways = sponsorGiveaways;
+  // Surfaced for parity with the manage screen — kept around for
+  // any future "owned by me" pill we might add.
+  void isMyGiveaway;
+
+  const [phase, setPhase] = useState<DrawPhase>('setup');
+  const [selectedGiveaway, setSelectedGiveaway] = useState<SponsorGiveaway | null>(null);
+  const [showGiveawayPicker, setShowGiveawayPicker] = useState(false);
+  const [drawHistory, setDrawHistory] = useState<DrawEntry[]>([]);
+  const [winner, setWinner] = useState<DrawParticipant | null>(null);
+  const [shuffleIndex, setShuffleIndex] = useState(0);
+  const [excludeWon, setExcludeWon] = useState(true);
+  const shuffleRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Single-flight guard so a rapid double-click on "Pick a Winner!"
+  // can't kick off two overlapping draws (each with its own shuffle
+  // interval and its own `recordGiveawayWinner` write). The button
+  // is also gated by `phase !== 'setup'` rendering, but the phase
+  // flip is async and a fast user can fire two clicks before React
+  // re-renders.
+  const drawInFlightRef = useRef(false);
+
   // Whenever the rep picks a giveaway, surface every winner the merged
   // giveaway list already carries — backend-arbitrated picks (admin in
   // the back-office or another rep on a different device, once the
@@ -66,6 +99,12 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
   //     even before the overlay round-trip completes;
   //   • dedupe keeps `excludeWon` honest if the same id appears in
   //     both the seed and a recent local pick.
+  //
+  // This effect MUST live below the `selectedGiveaway`/`drawHistory`
+  // useState declarations above — referencing them earlier in the
+  // function body trips the temporal dead zone and crashes
+  // SponsorDrawPage on mount with "Cannot access 'selectedGiveaway'
+  // before initialization".
   useEffect(() => {
     if (!selectedGiveaway?.id) {
       setDrawHistory([]);
@@ -99,39 +138,6 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
       return [...seedEntries, ...prev];
     });
   }, [selectedGiveaway?.id, sponsorGiveaways]);
-
-  // Show every giveaway returned by the event-scoped backend list,
-  // not just the ones whose `sponsorId`/`sponsorName` happen to match
-  // the current rep's identifiers. Backends frequently re-stamp
-  // sponsor_id with their own foreign key on write (so what comes
-  // back doesn't equal `user.id`), and the previous strict filter
-  // hid the rep's own freshly-added prize whenever that happened —
-  // which was the root cause of "added giveaway not appearing on
-  // Lucky Draw" in the field. The list is already authorized + event-
-  // scoped server-side, and SponsorGiveawaysPage now uses the same
-  // unfiltered list so the two screens stay in sync. `isMyGiveaway`
-  // is still used below to decide whether to render edit/delete
-  // affordances on individual cards.
-  const drawableGiveaways = sponsorGiveaways;
-  // Surfaced for parity with the manage screen — kept around for
-  // any future "owned by me" pill we might add.
-  void isMyGiveaway;
-
-  const [phase, setPhase] = useState<DrawPhase>('setup');
-  const [selectedGiveaway, setSelectedGiveaway] = useState<SponsorGiveaway | null>(null);
-  const [showGiveawayPicker, setShowGiveawayPicker] = useState(false);
-  const [drawHistory, setDrawHistory] = useState<DrawEntry[]>([]);
-  const [winner, setWinner] = useState<DrawParticipant | null>(null);
-  const [shuffleIndex, setShuffleIndex] = useState(0);
-  const [excludeWon, setExcludeWon] = useState(true);
-  const shuffleRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // Single-flight guard so a rapid double-click on "Pick a Winner!"
-  // can't kick off two overlapping draws (each with its own shuffle
-  // interval and its own `recordGiveawayWinner` write). The button
-  // is also gated by `phase !== 'setup'` rendering, but the phase
-  // flip is async and a fast user can fire two clicks before React
-  // re-renders.
-  const drawInFlightRef = useRef(false);
 
   // Convert backend leads to common DrawParticipant format
   const basePool: DrawParticipant[] = useMemo(() => {
