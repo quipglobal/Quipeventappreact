@@ -144,6 +144,9 @@ When running the Expo app as a web preview (port 8080), API calls go through the
 - `agendaClient.ts` — List sessions with day/track filters, bookmark
 - `sponsorsClient.ts` — List sponsors by tier, get sponsor detail
 - `leaderboardClient.ts` — Event-scoped points ranking (`GET /api/v1/events/:eventId/leaderboard?period=overall|today|week`); used by HomePage top-3 preview and full LeaderboardPage; tolerates camelCase/snake_case + envelope shapes; 404/405 short-circuits to NOT_IMPLEMENTED with empty-state UI
+- `meetingsClient.ts` — Event-scoped connection requests (`GET/POST /api/v1/events/:eventId/connections`, `POST /:id/accept|decline`); session-flag NOT_IMPLEMENTED short-circuit on 404/405; envelope/casing tolerant; numeric ids coerced to strings
+- `messagesClient.ts` — Encrypted chat under each accepted connection (`/api/v1/events/:eventId/conversations[/:cid/messages[/:mid]]`); ciphertext-only wire format `{ciphertext, iv, scheme}`; supports list/send/edit/delete with the same NOT_IMPLEMENTED fallback
+- `lib/messageCrypto.ts` — Per-conversation AES-GCM 256 + HKDF-SHA256 key derivation (`connectionId + sorted user ids` → key); `encryptMessage`/`decryptMessage` return base64 payloads; `clearMessageCryptoCache` called on sign-out. Pragmatic at-rest defense — NOT full forward-secrecy E2E (server knows participants → could re-derive). Hardening path: ECDH key exchange when backend stores per-user public keys
 
 ### Universal Badge System (Web App)
 - **BottomNav**: Single universal 5-tab nav for ALL roles — Feed | Audience | My Badge | Scan | Leads (role split removed)

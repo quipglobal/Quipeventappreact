@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   ArrowLeft, Check, X, Clock, Send, MessageCircle,
   UserPlus, UserCheck, UserX, ChevronRight, Circle,
+  MoreVertical, Pencil, Trash2,
 } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
@@ -185,14 +186,28 @@ const ChatDetailView: React.FC<{
   onBack: () => void;
 }> = ({ conversation, onBack }) => {
   const { t, isDark } = useTheme();
-  const { sendMessage, user } = useApp();
+  const { sendMessage, undoSendMessage, editMessage, deleteMessage, user } = useApp();
   const [inputText, setInputText] = useState('');
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState('');
+  // Tick once a second so the per-bubble "Sending… Undo" countdown
+  // re-renders without us tracking a per-message timer in React state
+  // (which would also re-render on every keystroke in the input).
+  const [, setNowTick] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const currentUserId = user?.id || 'current-user';
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [conversation.messages.length]);
+
+  useEffect(() => {
+    const hasPending = conversation.messages.some(m => m.pendingSendUntil && m.pendingSendUntil > Date.now());
+    if (!hasPending) return;
+    const id = window.setInterval(() => setNowTick(n => n + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [conversation.messages]);
 
   const handleSend = () => {
     const trimmed = inputText.trim();
@@ -206,6 +221,26 @@ const ChatDetailView: React.FC<{
       e.preventDefault();
       handleSend();
     }
+  };
+
+  const handleStartEdit = (msgId: string, text: string) => {
+    setOpenMenuId(null);
+    setEditingId(msgId);
+    setEditingText(text);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingId) return;
+    const id = editingId;
+    const text = editingText;
+    setEditingId(null);
+    setEditingText('');
+    await editMessage(conversation.id, id, text);
+  };
+
+  const handleDelete = async (msgId: string) => {
+    setOpenMenuId(null);
+    await deleteMessage(conversation.id, msgId);
   };
 
   return (
@@ -233,25 +268,150 @@ const ChatDetailView: React.FC<{
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+        {conversation.messages.length === 0 && (
+          <div className="flex flex-col items-center justify-center text-center py-16 opacity-70">
+            <MessageCircle style={{ width: 28, height: 28, color: t.textMuted, marginBottom: 8 }} />
+            <p style={{ color: t.textSec, fontSize: 13 }}>No messages yet — say hello!</p>
+            <p style={{ color: t.textMuted, fontSize: 11, marginTop: 4 }}>
+              Messages are encrypted on this device before they leave.
+            </p>
+          </div>
+        )}
         {conversation.messages.map((msg) => {
           const isMine = msg.senderId === currentUserId;
+          const isDeleted = !!msg.deletedAt;
+          const isEdited = !!msg.editedAt && !isDeleted;
+          const undoSecondsLeft = msg.pendingSendUntil
+            ? Math.max(0, Math.ceil((msg.pendingSendUntil - Date.now()) / 1000))
+            : 0;
+          const isPendingSend = undoSecondsLeft > 0;
+          const isEditing = editingId === msg.id;
+          const showMenu = openMenuId === msg.id;
           return (
-            <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
-              <div
-                className="max-w-[80%] px-3.5 py-2.5 rounded-2xl"
-                style={{
-                  background: isMine
-                    ? 'linear-gradient(135deg,#7c3aed,#4f46e5)'
-                    : t.surface,
-                  border: isMine ? 'none' : `1px solid ${t.border}`,
-                  borderBottomRightRadius: isMine ? 6 : 16,
-                  borderBottomLeftRadius: isMine ? 16 : 6,
-                }}
-              >
-                <p style={{ color: isMine ? '#fff' : t.text, fontSize: 13, lineHeight: 1.5 }}>{msg.text}</p>
-                <p className="mt-1" style={{ color: isMine ? 'rgba(255,255,255,0.5)' : t.textMuted, fontSize: 10, textAlign: isMine ? 'right' : 'left' }}>
-                  {formatTime(msg.timestamp)}
-                </p>
+            <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'} group`}>
+              <div className="relative max-w-[80%]">
+                <div
+                  className="px-3.5 py-2.5 rounded-2xl"
+                  style={{
+                    background: isDeleted
+                      ? t.surface2
+                      : isMine
+                        ? 'linear-gradient(135deg,#7c3aed,#4f46e5)'
+                        : t.surface,
+                    border: isMine && !isDeleted ? 'none' : `1px solid ${t.border}`,
+                    borderBottomRightRadius: isMine ? 6 : 16,
+                    borderBottomLeftRadius: isMine ? 16 : 6,
+                    opacity: msg.pendingSync || isPendingSend ? 0.7 : 1,
+                  }}
+                >
+                  {isDeleted ? (
+                    <p style={{ color: t.textMuted, fontSize: 13, fontStyle: 'italic' }}>
+                      Message deleted
+                    </p>
+                  ) : isEditing ? (
+                    <div className="flex flex-col gap-2 min-w-[180px]">
+                      <textarea
+                        autoFocus
+                        value={editingText}
+                        onChange={(e) => setEditingText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            handleSaveEdit();
+                          } else if (e.key === 'Escape') {
+                            setEditingId(null);
+                            setEditingText('');
+                          }
+                        }}
+                        className="w-full px-2 py-1.5 rounded-lg outline-none resize-none"
+                        rows={2}
+                        style={{
+                          background: 'rgba(255,255,255,0.15)',
+                          color: '#fff',
+                          fontSize: 13,
+                          border: '1px solid rgba(255,255,255,0.3)',
+                        }}
+                      />
+                      <div className="flex gap-2 justify-end">
+                        <button
+                          onClick={() => { setEditingId(null); setEditingText(''); }}
+                          className="px-2 py-1 rounded-md"
+                          style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', fontSize: 11 }}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={handleSaveEdit}
+                          disabled={!editingText.trim()}
+                          className="px-2 py-1 rounded-md"
+                          style={{ background: '#fff', color: '#4f46e5', fontSize: 11, fontWeight: 600, opacity: editingText.trim() ? 1 : 0.5 }}
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p style={{ color: isMine ? '#fff' : t.text, fontSize: 13, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                      {msg.text}
+                    </p>
+                  )}
+                  {!isEditing && (
+                    <p className="mt-1 flex items-center gap-1.5" style={{ color: isMine && !isDeleted ? 'rgba(255,255,255,0.5)' : t.textMuted, fontSize: 10, justifyContent: isMine ? 'flex-end' : 'flex-start' }}>
+                      <span>{formatTime(msg.timestamp)}</span>
+                      {isEdited && <span style={{ fontStyle: 'italic' }}>· edited</span>}
+                      {isPendingSend && (
+                        <>
+                          <span>· Sending… {undoSecondsLeft}s</span>
+                          <button
+                            onClick={() => undoSendMessage(conversation.id, msg.id)}
+                            style={{
+                              color: isMine ? '#fff' : t.accent,
+                              fontSize: 10,
+                              fontWeight: 700,
+                              textDecoration: 'underline',
+                            }}
+                          >
+                            Undo
+                          </button>
+                        </>
+                      )}
+                      {msg.pendingSync && !isPendingSend && <span>· Syncing…</span>}
+                    </p>
+                  )}
+                </div>
+                {isMine && !isDeleted && !isEditing && !isPendingSend && (
+                  <div className="absolute top-1 -left-7">
+                    <button
+                      onClick={() => setOpenMenuId(showMenu ? null : msg.id)}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-md"
+                      style={{ background: t.surface, border: `1px solid ${t.border}` }}
+                      aria-label="Message actions"
+                    >
+                      <MoreVertical style={{ width: 12, height: 12, color: t.textSec }} />
+                    </button>
+                    {showMenu && (
+                      <div
+                        className="absolute top-7 left-0 z-10 rounded-lg overflow-hidden min-w-[120px]"
+                        style={{ background: t.surface, border: `1px solid ${t.border}`, boxShadow: '0 8px 24px rgba(0,0,0,0.15)' }}
+                      >
+                        <button
+                          onClick={() => handleStartEdit(msg.id, msg.text)}
+                          className="w-full px-3 py-2 flex items-center gap-2 hover:bg-black/5"
+                          style={{ color: t.text, fontSize: 12 }}
+                        >
+                          <Pencil style={{ width: 12, height: 12 }} /> Edit
+                        </button>
+                        <button
+                          onClick={() => handleDelete(msg.id)}
+                          className="w-full px-3 py-2 flex items-center gap-2 hover:bg-black/5"
+                          style={{ color: '#dc2626', fontSize: 12 }}
+                        >
+                          <Trash2 style={{ width: 12, height: 12 }} /> Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -294,17 +454,31 @@ const ChatDetailView: React.FC<{
 
 export const MeetingsPage: React.FC = () => {
   const { t, isDark } = useTheme();
-  const { user, connectionRequests, conversations, acceptConnection, declineConnection, markConversationRead, setConnectionRequests } = useApp();
+  const { user, connectionRequests, conversations, eventConfig, acceptConnection, declineConnection, markConversationRead, setConnectionRequests } = useApp();
   const [activeTab, setActiveTab] = useState<Tab>('requests');
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const eventId = eventConfig?.eventId;
 
   const handleOpenChat = (convId: string) => {
+    // Belt-and-suspenders gate: only open the chat when its
+    // connection has been mutually accepted. The conversations array
+    // is already created at accept time, so this should be true by
+    // construction — but if the list ever drifts (e.g. a connection
+    // is later declined or the backend revokes it), don't expose a
+    // dead chat.
+    const conv = conversations.find(c => c.id === convId);
+    if (!conv) return;
+    const isAccepted = connectionRequests.some(
+      r => r.id === conv.connectionId && r.status === 'accepted',
+    );
+    if (!isAccepted) return;
     setActiveChatId(convId);
     markConversationRead(convId);
   };
 
   const fetchRequests = useCallback(async () => {
-    const res = await listMeetingRequests();
+    if (!eventId) return;
+    const res = await listMeetingRequests(eventId);
     if (res.success && res.data) {
       setConnectionRequests(prev => {
         const serverIds = new Set(res.data!.map(r => r.id));
@@ -312,7 +486,7 @@ export const MeetingsPage: React.FC = () => {
         return [...localOnly, ...res.data!];
       });
     }
-  }, [setConnectionRequests]);
+  }, [setConnectionRequests, eventId]);
 
   // Initial fetch + 30s poll, both gated on the user being signed in via
   // the shared `useAuthedInterval` hook (`runOnMount: true` fires the
@@ -331,15 +505,20 @@ export const MeetingsPage: React.FC = () => {
   });
 
   const handleAccept = async (requestId: string) => {
-    const res = await acceptMeetingRequest(requestId);
-    if (res.success) {
+    if (!eventId) return;
+    const res = await acceptMeetingRequest(eventId, requestId);
+    // Mirror the leads/giveaways pattern: a NOT_IMPLEMENTED response
+    // means "the backend route isn't deployed yet" — let the local
+    // accept proceed so the user still gets a working conversation.
+    if (res.success || res.error?.code === 'NOT_IMPLEMENTED') {
       acceptConnection(requestId);
     }
   };
 
   const handleDecline = async (requestId: string) => {
-    const res = await declineMeetingRequest(requestId);
-    if (res.success) {
+    if (!eventId) return;
+    const res = await declineMeetingRequest(eventId, requestId);
+    if (res.success || res.error?.code === 'NOT_IMPLEMENTED') {
       declineConnection(requestId);
     }
   };

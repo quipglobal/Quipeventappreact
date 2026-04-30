@@ -397,6 +397,133 @@ existing v1 collection convention works without changes.
 
 ---
 
+### 8. Connections (a.k.a. Meeting Requests)
+
+The Connect/Message tab issues a connection request from one
+attendee to another. After both sides accept, a chat conversation
+opens. Until then chat is disabled — the UI explicitly gates on
+`status === 'accepted'` before showing the chat panel.
+
+**Routes** (all event-scoped, multi-tenant via `X-Tenant-ID` header):
+
+```
+GET    /api/v1/events/:eventId/connections
+POST   /api/v1/events/:eventId/connections                    body: { to_user_id, message? }
+POST   /api/v1/events/:eventId/connections/:id/accept
+POST   /api/v1/events/:eventId/connections/:id/decline
+```
+
+**Response shape — list / send**:
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "42",
+      "from_user_id": "17",
+      "to_user_id": "23",
+      "status": "pending",          // pending | accepted | declined
+      "direction": "incoming",      // incoming | outgoing — relative to the caller
+      "message": "Hey, let's connect about the AI panel",
+      "created_at": "2026-04-30T12:34:56Z",
+      "from_user": {
+        "id": "17",
+        "name": "Jane Doe",
+        "title": "VP Engineering",
+        "company": "Acme",
+        "avatar": "https://…"
+      }
+    }
+  ]
+}
+```
+
+**Notes**:
+- The client tolerates either `data: [...]` or `{ requests: [...] }`
+  / `{ connections: [...] }` envelopes, and accepts numeric ids
+  (it coerces them to strings).
+- Until these routes are deployed the client short-circuits on the
+  first 404/405 to `NOT_IMPLEMENTED` and keeps a local-only view of
+  pending requests so the feature is usable today.
+
+---
+
+### 9. Messages (encrypted)
+
+Each accepted connection becomes a *conversation*. Message bodies
+are **encrypted on the client** (AES-GCM 256, key derived per
+conversation via HKDF-SHA256 from `connectionId + sorted user ids`).
+The server only ever sees `{ ciphertext, iv, scheme }` — a database
+scrape leaks no plaintext.
+
+**Threat model**:
+
+- ✓ Defends against passive at-rest leaks (DB backups, logs).
+- ✗ NOT full forward-secrecy E2E. The server knows the participant
+  ids and the connection id, so a fully malicious server could
+  re-derive the key. Treat this as a meaningful upgrade over
+  plaintext-on-server, not as a Signal-grade guarantee.
+- **Hardening path**: when the backend can store per-user public
+  keys, swap the deterministic derivation for an ECDH key exchange.
+  The wire format and client API stay the same — only the key
+  resolution step changes.
+
+**Routes**:
+
+```
+GET    /api/v1/events/:eventId/conversations
+GET    /api/v1/events/:eventId/conversations/:cid/messages?since=<unix_ms>
+POST   /api/v1/events/:eventId/conversations/:cid/messages
+PUT    /api/v1/events/:eventId/conversations/:cid/messages/:mid
+DELETE /api/v1/events/:eventId/conversations/:cid/messages/:mid
+```
+
+**Wire format** (request body for POST / PUT, persisted as-is):
+```json
+{
+  "ciphertext": "<base64>",
+  "iv":         "<base64, 12 bytes>",
+  "scheme":     "aes-gcm-hkdf-v1"
+}
+```
+
+The server **must not** attempt to decode `ciphertext`. Treat it as
+opaque bytes. The `scheme` field is reserved for future format
+revisions.
+
+**Response shape — message resource**:
+```json
+{
+  "id":          "msg_99",
+  "sender_id":   "17",
+  "ciphertext":  "<base64>",      // null when soft-deleted
+  "iv":          "<base64>",
+  "scheme":      "aes-gcm-hkdf-v1",
+  "created_at":  "2026-04-30T12:35:01Z",
+  "edited_at":   "2026-04-30T12:36:10Z",   // present iff edited
+  "deleted_at":  null                       // populated on soft delete
+}
+```
+
+**Edit / delete semantics**:
+- `PUT` replaces the ciphertext + IV (a fresh nonce per edit) and
+  bumps `edited_at`. The client renders "(edited)" beside the bubble.
+- `DELETE` is a *soft* delete: the row remains but `ciphertext`
+  becomes `null` and `deleted_at` is populated, so both participants
+  see a "Message deleted" placeholder rather than a hole in history.
+
+**Undo window**: the client buffers each just-sent message for 5
+seconds before firing the POST. If the user hits Undo within that
+window, the encrypted POST never happens. Backend doesn't need to
+care — by the time it sees the request, the user has committed.
+
+**NOT_IMPLEMENTED fallback**: same posture as Connections — the
+client short-circuits on the first 404/405 and keeps the
+conversation in-memory only, so the UX still demos cleanly without
+the routes deployed.
+
+---
+
 ## Database Schema (suggested)
 
 ```sql

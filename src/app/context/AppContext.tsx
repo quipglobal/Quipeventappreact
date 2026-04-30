@@ -3,7 +3,23 @@ import React, { createContext, useContext, useState, useEffect, useRef, useCallb
 import { EventConfig, GamificationConfig } from '@/app/types/config';
 import { getMeApi } from '@/app/api/authClient';
 import { clearToken } from '@/app/api/client';
-import { sendMeetingRequest as sendMeetingRequestApi } from '@/app/api/meetingsClient';
+import {
+  sendMeetingRequest as sendMeetingRequestApi,
+  resetMeetingsEndpointMissing,
+} from '@/app/api/meetingsClient';
+import {
+  sendMessageApi,
+  editMessageApi,
+  deleteMessageApi,
+  resetMessagesEndpointMissing,
+} from '@/app/api/messagesClient';
+import {
+  encryptMessage,
+  decryptMessage,
+  getOrDeriveConversationKey,
+  clearMessageCryptoCache,
+  type EncryptedPayload,
+} from '@/app/lib/messageCrypto';
 import { fetchPointsFromBackend, scheduleSyncPoints, cancelPendingSyncPoints } from '@/app/api/pointsClient';
 import { getMyEventRoleApi } from '@/app/api/audienceClient';
 import { loadLeadsFromStorage, saveLeadsToStorage, clearLeadsStorage } from '@/app/lib/leadsStorage';
@@ -101,9 +117,24 @@ export interface ConnectionRequest {
 export interface ChatMessage {
   id: string;
   senderId: string;
+  /** Plaintext (decrypted in-memory only — never sent to the server). */
   text: string;
   timestamp: Date;
   read: boolean;
+  /** Set to a future epoch ms while the message is in its 5-second
+   *  "Undo" window. The actual POST hasn't fired yet — the bubble
+   *  shows a Sending indicator and an Undo affordance. Cleared once
+   *  the POST is committed (or removed if the user undid). */
+  pendingSendUntil?: number;
+  /** Set on optimistic edit/delete operations until the backend
+   *  acknowledges. UI greys the bubble. */
+  pendingSync?: boolean;
+  /** Populated by an `editMessage` round-trip; UI shows "(edited)". */
+  editedAt?: Date;
+  /** Populated when the user (or the peer) deletes the message; the
+   *  bubble renders as an italic "Message deleted" placeholder so the
+   *  conversation stays coherent. */
+  deletedAt?: Date;
 }
 
 export interface Conversation {
@@ -238,7 +269,25 @@ interface AppContextType extends AppState {
   sendConnectionRequest: (toUser: ConnectionRequest['fromUser'], message?: string) => Promise<void>;
   acceptConnection: (requestId: string) => void;
   declineConnection: (requestId: string) => void;
+  /** Optimistically append a message to the given conversation and
+   *  schedule its encrypted POST to fire after a 5-second undo
+   *  window. Resolves immediately — UI never blocks on the network
+   *  round-trip. The conversation MUST belong to an accepted
+   *  connection or this is a no-op (silent guard against the UI
+   *  somehow reaching here for an unaccepted request). */
   sendMessage: (conversationId: string, text: string) => void;
+  /** Cancel a `sendMessage` while it's still in its 5-second undo
+   *  window — the encrypted POST never fires and the optimistic row
+   *  is removed from the conversation. After the window closes, this
+   *  is a no-op (use `deleteMessage` instead). */
+  undoSendMessage: (conversationId: string, messageId: string) => void;
+  /** Re-encrypt and PUT the message body. Optimistic — bubble
+   *  updates immediately and rolls back on hard failure. Allowed
+   *  only on the user's own non-deleted messages. */
+  editMessage: (conversationId: string, messageId: string, newText: string) => Promise<void>;
+  /** Soft-delete (own message). Bubble immediately renders as
+   *  "Message deleted" italic placeholder; backend gets DELETE. */
+  deleteMessage: (conversationId: string, messageId: string) => Promise<void>;
   markConversationRead: (conversationId: string) => void;
   setConnectionRequests: React.Dispatch<React.SetStateAction<ConnectionRequest[]>>;
 }
@@ -514,6 +563,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // hydration. NOT_IMPLEMENTED is treated as a no-op: the UI just shows
   // an empty state and the next event change will retry.
   const leaderboardInFlightRef = useRef<{ key: string; cancelled: boolean } | null>(null);
+  /**
+   * In-flight pending-send timers, one per optimistic message that's
+   * still inside its 5-second Undo window. Map: messageId →
+   * `{ timer, conversationId }`. We store the conversationId so the
+   * sign-out cleanup can clear all of them without touching state
+   * each time.
+   */
+  const pendingSendTimersRef = useRef<Map<string, { timer: ReturnType<typeof setTimeout>; conversationId: string }>>(new Map());
   const refreshLeaderboard = useCallback(
     async (period?: LeaderboardPeriod) => {
       const eventId = activeEventConfig?.eventId;
@@ -607,6 +664,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     setLeaderboard([]);
     setLeaderboardLoading(false);
+    // Cancel every still-buffered "Sending… (Undo)" message so its
+    // delayed encrypted POST can't fire after the auth token is
+    // gone. Drop the conversation cache + the cached AES-GCM keys
+    // for the same reason as the leaderboard: a new user signing in
+    // on the same device must never inherit the previous user's
+    // decrypted message bodies.
+    for (const { timer } of pendingSendTimersRef.current.values()) clearTimeout(timer);
+    pendingSendTimersRef.current.clear();
+    setConversations([]);
+    setConnectionRequests([]);
+    clearMessageCryptoCache();
+    resetMeetingsEndpointMissing();
+    resetMessagesEndpointMissing();
   }, [user?.id]);
 
   // ── Background pendingSync reconciliation ──────────────────────────────
@@ -1023,6 +1093,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const sendConnectionRequest = async (toUser: ConnectionRequest['fromUser'], message?: string): Promise<void> => {
+    const eventId = activeEventConfig?.eventId;
+    if (!eventId) {
+      showToast('Join an event to send connection requests.');
+      return;
+    }
     const tempId = `cr-${Date.now()}`;
     const newReq: ConnectionRequest = {
       id: tempId,
@@ -1034,12 +1109,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       direction: 'outgoing',
     };
     setConnectionRequests(prev => [newReq, ...prev]);
-    const res = await sendMeetingRequestApi({ toUserId: toUser.id, message, toUser });
+    const res = await sendMeetingRequestApi(eventId, { toUserId: toUser.id, message, toUser });
     if (res.success) {
       if (res.data && res.data.id !== tempId) {
         setConnectionRequests(prev => prev.map(r => r.id === tempId ? { ...r, id: res.data!.id } : r));
       }
       showToast('Connection request sent!');
+    } else if (res.error?.code === 'NOT_IMPLEMENTED') {
+      // Backend route missing — keep the optimistic row so the user
+      // still sees their pending request locally. Same posture as
+      // offline leads.
+      showToast('Connection request sent (will sync once backend deploys).');
     } else {
       setConnectionRequests(prev => prev.filter(r => r.id !== tempId));
       showToast(res.error?.message ?? 'Failed to send connection request.');
@@ -1083,21 +1163,292 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
   };
 
+  /**
+   * Window during which a just-sent message can still be undone.
+   * Five seconds is the same affordance Gmail / Slack use — long
+   * enough to catch a typo, short enough that the message *feels*
+   * sent. The encrypted POST is deferred until the window closes.
+   */
+  const MESSAGE_UNDO_WINDOW_MS = 5_000;
+
+  /** Resolve the participants for a conversation. Returns null if
+   *  the conversation isn't backed by an *accepted* connection — the
+   *  UI should never let us reach here in that case, but the guard
+   *  keeps a buggy caller from quietly leaking encrypted-but-orphan
+   *  rows to the server. */
+  const resolveConversationContext = (
+    conversationId: string,
+  ): { conversation: Conversation; connection: ConnectionRequest; eventId: string } | null => {
+    const eventId = activeEventConfig?.eventId;
+    if (!eventId) return null;
+    const conversation = conversations.find(c => c.id === conversationId);
+    if (!conversation) return null;
+    const connection = connectionRequests.find(
+      r => r.id === conversation.connectionId && r.status === 'accepted',
+    );
+    if (!connection) return null;
+    return { conversation, connection, eventId };
+  };
+
+  /** Helper: encrypt + POST a message body. Used by both the
+   *  deferred send (after the undo window) and `editMessage`. */
+  const encryptForConversation = async (
+    conversationId: string,
+    plaintext: string,
+  ): Promise<{ payload: EncryptedPayload; eventId: string } | null> => {
+    const ctx = resolveConversationContext(conversationId);
+    if (!ctx) return null;
+    const me = user?.id || 'current-user';
+    const peer = ctx.conversation.participantId;
+    const key = await getOrDeriveConversationKey(ctx.connection.id, me, peer);
+    const payload = await encryptMessage(plaintext, key);
+    return { payload, eventId: ctx.eventId };
+  };
+
   const sendMessage = (conversationId: string, text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const ctx = resolveConversationContext(conversationId);
+    if (!ctx) {
+      // Connection isn't accepted (or no active event). Surface a
+      // toast so the user understands why their message didn't send
+      // instead of silently swallowing it.
+      showToast('You can only message accepted connections.');
+      return;
+    }
+    const tempId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const sentAt = new Date();
     const newMsg: ChatMessage = {
-      id: `msg-${Date.now()}`,
+      id: tempId,
       senderId: user?.id || 'current-user',
-      text,
-      timestamp: new Date(),
+      text: trimmed,
+      timestamp: sentAt,
       read: true,
+      pendingSendUntil: Date.now() + MESSAGE_UNDO_WINDOW_MS,
     };
     setConversations(prev =>
       prev.map(c =>
         c.id === conversationId
-          ? { ...c, messages: [...c.messages, newMsg], lastActivity: new Date() }
+          ? { ...c, messages: [...c.messages, newMsg], lastActivity: sentAt }
           : c
       )
     );
+
+    // Defer the actual encrypted POST so the user has a real
+    // window to hit Undo. Once the timer fires, encrypt → POST →
+    // swap the temp id for the server-issued canonical id.
+    const timer = setTimeout(async () => {
+      pendingSendTimersRef.current.delete(tempId);
+      const enc = await encryptForConversation(conversationId, trimmed).catch(() => null);
+      if (!enc) {
+        // Encryption failed — refuse to fall back to plaintext.
+        // Mark the bubble as failed-to-send instead of dropping it.
+        setConversations(prev =>
+          prev.map(c =>
+            c.id !== conversationId
+              ? c
+              : {
+                  ...c,
+                  messages: c.messages.map(m =>
+                    m.id === tempId ? { ...m, pendingSendUntil: undefined, pendingSync: true } : m,
+                  ),
+                },
+          ),
+        );
+        showToast('Could not encrypt your message. Try again.');
+        return;
+      }
+      const res = await sendMessageApi(enc.eventId, ctx.conversation.id, enc.payload);
+      if (res.success && res.data) {
+        const serverId = res.data.id;
+        setConversations(prev =>
+          prev.map(c =>
+            c.id !== conversationId
+              ? c
+              : {
+                  ...c,
+                  messages: c.messages.map(m =>
+                    m.id === tempId
+                      ? { ...m, id: serverId, pendingSendUntil: undefined, timestamp: res.data!.timestamp }
+                      : m,
+                  ),
+                },
+          ),
+        );
+      } else if (res.error?.code === 'NOT_IMPLEMENTED') {
+        // Backend not deployed yet — keep the local message; just
+        // drop the pending flag so the UI stops showing "Sending".
+        setConversations(prev =>
+          prev.map(c =>
+            c.id !== conversationId
+              ? c
+              : {
+                  ...c,
+                  messages: c.messages.map(m =>
+                    m.id === tempId ? { ...m, pendingSendUntil: undefined } : m,
+                  ),
+                },
+          ),
+        );
+      } else {
+        // Hard failure — keep the bubble but mark it pending so the
+        // UI can offer a retry.
+        setConversations(prev =>
+          prev.map(c =>
+            c.id !== conversationId
+              ? c
+              : {
+                  ...c,
+                  messages: c.messages.map(m =>
+                    m.id === tempId ? { ...m, pendingSendUntil: undefined, pendingSync: true } : m,
+                  ),
+                },
+          ),
+        );
+        showToast(res.error?.message ?? 'Could not deliver your message.');
+      }
+    }, MESSAGE_UNDO_WINDOW_MS);
+    pendingSendTimersRef.current.set(tempId, { timer, conversationId });
+  };
+
+  const undoSendMessage = (conversationId: string, messageId: string) => {
+    const entry = pendingSendTimersRef.current.get(messageId);
+    if (!entry) return; // window closed or already fired
+    clearTimeout(entry.timer);
+    pendingSendTimersRef.current.delete(messageId);
+    setConversations(prev =>
+      prev.map(c =>
+        c.id !== conversationId
+          ? c
+          : { ...c, messages: c.messages.filter(m => m.id !== messageId) },
+      ),
+    );
+  };
+
+  const editMessage = async (conversationId: string, messageId: string, newText: string): Promise<void> => {
+    const trimmed = newText.trim();
+    if (!trimmed) return;
+    const ctx = resolveConversationContext(conversationId);
+    if (!ctx) {
+      showToast('You can only edit messages on accepted connections.');
+      return;
+    }
+    const original = ctx.conversation.messages.find(m => m.id === messageId);
+    if (!original || original.senderId !== (user?.id || 'current-user') || original.deletedAt) return;
+    if (original.text === trimmed) return;
+    // Optimistic edit — flip pendingSync until the server ack lands.
+    const editedAt = new Date();
+    setConversations(prev =>
+      prev.map(c =>
+        c.id !== conversationId
+          ? c
+          : {
+              ...c,
+              messages: c.messages.map(m =>
+                m.id === messageId ? { ...m, text: trimmed, editedAt, pendingSync: true } : m,
+              ),
+            },
+      ),
+    );
+    const enc = await encryptForConversation(conversationId, trimmed).catch(() => null);
+    if (!enc) {
+      // Roll back
+      setConversations(prev =>
+        prev.map(c =>
+          c.id !== conversationId
+            ? c
+            : {
+                ...c,
+                messages: c.messages.map(m =>
+                  m.id === messageId ? { ...m, text: original.text, editedAt: original.editedAt, pendingSync: false } : m,
+                ),
+              },
+        ),
+      );
+      showToast('Could not re-encrypt your edit. Try again.');
+      return;
+    }
+    const res = await editMessageApi(enc.eventId, ctx.conversation.id, messageId, enc.payload);
+    if (res.success || res.error?.code === 'NOT_IMPLEMENTED') {
+      setConversations(prev =>
+        prev.map(c =>
+          c.id !== conversationId
+            ? c
+            : {
+                ...c,
+                messages: c.messages.map(m => (m.id === messageId ? { ...m, pendingSync: false } : m)),
+              },
+        ),
+      );
+    } else {
+      setConversations(prev =>
+        prev.map(c =>
+          c.id !== conversationId
+            ? c
+            : {
+                ...c,
+                messages: c.messages.map(m =>
+                  m.id === messageId ? { ...m, text: original.text, editedAt: original.editedAt, pendingSync: false } : m,
+                ),
+              },
+        ),
+      );
+      showToast(res.error?.message ?? 'Could not save your edit.');
+    }
+  };
+
+  const deleteMessage = async (conversationId: string, messageId: string): Promise<void> => {
+    const ctx = resolveConversationContext(conversationId);
+    if (!ctx) return;
+    const original = ctx.conversation.messages.find(m => m.id === messageId);
+    if (!original || original.senderId !== (user?.id || 'current-user') || original.deletedAt) return;
+    // If the message is still in its undo window, treat delete as
+    // an immediate undo — never persisted, never sent.
+    const pending = pendingSendTimersRef.current.get(messageId);
+    if (pending) {
+      undoSendMessage(conversationId, messageId);
+      return;
+    }
+    const deletedAt = new Date();
+    setConversations(prev =>
+      prev.map(c =>
+        c.id !== conversationId
+          ? c
+          : {
+              ...c,
+              messages: c.messages.map(m =>
+                m.id === messageId ? { ...m, deletedAt, pendingSync: true } : m,
+              ),
+            },
+      ),
+    );
+    const res = await deleteMessageApi(ctx.eventId, ctx.conversation.id, messageId);
+    if (res.success || res.error?.code === 'NOT_IMPLEMENTED') {
+      setConversations(prev =>
+        prev.map(c =>
+          c.id !== conversationId
+            ? c
+            : {
+                ...c,
+                messages: c.messages.map(m => (m.id === messageId ? { ...m, pendingSync: false } : m)),
+              },
+        ),
+      );
+    } else {
+      setConversations(prev =>
+        prev.map(c =>
+          c.id !== conversationId
+            ? c
+            : {
+                ...c,
+                messages: c.messages.map(m =>
+                  m.id === messageId ? { ...m, deletedAt: undefined, pendingSync: false } : m,
+                ),
+              },
+        ),
+      );
+      showToast(res.error?.message ?? 'Could not delete the message.');
+    }
   };
 
   const addSponsorGiveaway = async (giveaway: Omit<SponsorGiveaway, 'id' | 'createdAt'>) => {
@@ -1443,6 +1794,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         acceptConnection,
         declineConnection,
         sendMessage,
+        undoSendMessage,
+        editMessage,
+        deleteMessage,
         markConversationRead,
         setConnectionRequests,
       }}
