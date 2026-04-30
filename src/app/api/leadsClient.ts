@@ -118,14 +118,48 @@ export interface LuckyDrawResponse {
  * priorityConfig lookup throws) or renders blank cards.
  */
 function normalizeLead(raw: any): Lead {
-  // Pick the first non-null nested profile object the backend may
-  // attach the contact's name/title/company under. Falling back to
-  // the raw row covers the legacy flat shape.
-  const profile: any =
-    (raw && typeof raw === 'object' &&
-      (raw.attendee ?? raw.member ?? raw.user ?? raw.scanned_user ?? raw.contact ?? raw.lead)) ||
-    raw ||
-    {};
+  // Walk the raw row and find ANY nested object that looks like a
+  // contact profile (has at least one of name/full_name/first_name/
+  // email). This covers every Laravel naming convention the backend
+  // might use without us having to guess: `attendee`, `member`,
+  // `user`, `scanned_user`, `contact`, `lead`, `member_profile`,
+  // `attendee_profile`, `scannedAttendee`, etc. Falls back to the
+  // raw row itself for the legacy flat scan response.
+  const isContactish = (o: any): boolean =>
+    o && typeof o === 'object' && !Array.isArray(o) &&
+    (typeof o.name === 'string' || typeof o.full_name === 'string' ||
+     typeof o.first_name === 'string' || typeof o.email === 'string');
+  // Recursive search up to a small depth so shapes like
+  // `attendee.user.name`, `member.profile.name`, or `lead.contact.email`
+  // still resolve. Cycle-guarded with a `seen` set; capped at depth 3
+  // so we don't accidentally walk an entire JSON graph.
+  const findContactProfile = (obj: any, depth: number, seen: Set<any>): any => {
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj) || seen.has(obj) || depth < 0) return null;
+    if (isContactish(obj)) return obj;
+    seen.add(obj);
+    for (const v of Object.values(obj)) {
+      const found = findContactProfile(v, depth - 1, seen);
+      if (found) return found;
+    }
+    return null;
+  };
+  let profile: any = raw;
+  if (raw && typeof raw === 'object') {
+    // Prefer well-known keys in order (each searched recursively), then
+    // fall back to any nested object that smells like a contact profile.
+    const preferredRoots = [
+      raw.attendee, raw.member, raw.user, raw.scanned_user,
+      raw.scannedUser, raw.scannedAttendee, raw.contact, raw.lead,
+      raw.attendee_profile, raw.member_profile,
+    ];
+    let picked: any = null;
+    for (const root of preferredRoots) {
+      picked = findContactProfile(root, 3, new Set());
+      if (picked) break;
+    }
+    if (!picked) picked = findContactProfile(raw, 3, new Set());
+    if (picked) profile = picked;
+  }
 
   const pickString = (...candidates: unknown[]): string => {
     for (const v of candidates) {
@@ -138,6 +172,7 @@ function normalizeLead(raw: any): Lead {
     raw?.name, profile?.name,
     raw?.full_name, profile?.full_name,
     [profile?.first_name, profile?.last_name].filter(Boolean).join(' '),
+    [raw?.first_name, raw?.last_name].filter(Boolean).join(' '),
   );
   const title = pickString(
     raw?.title, profile?.title,
@@ -163,8 +198,25 @@ function normalizeLead(raw: any): Lead {
     : tsSource
       ? new Date(tsSource)
       : new Date();
+  // Prefer real backend ids in order of specificity, but also accept
+  // ids carried under the nested profile (`attendee.id`, etc) and the
+  // backend's `attendee_id` foreign key. We deliberately exclude
+  // `scanner_user_id` — that identifies the *scanning user* (i.e. me),
+  // so it would be identical for every row in `/my-leads` and would
+  // collapse all cards under one React key. As a last resort, generate
+  // a deterministic-but-unique fallback so React's reconciler doesn't
+  // collapse multiple rows under the same key (which would also break
+  // dedupe by id and make the list look like one row repeated).
+  const idCandidate =
+    raw?.id ?? raw?.lead_id ??
+    raw?.attendee_id ?? raw?.member_id ?? raw?.user_id ??
+    profile?.id ?? raw?.code ?? raw?.badge_code ?? profile?.badge_code;
+  const id = idCandidate != null && String(idCandidate).trim() !== ''
+    ? String(idCandidate)
+    : `lead-fallback-${Date.now()}-${++leadIdFallbackCounter}`;
+
   return {
-    id: String(raw?.id ?? raw?.lead_id ?? raw?.code ?? Date.now()),
+    id,
     code: String(raw?.code ?? raw?.badge_code ?? profile?.badge_code ?? ''),
     name,
     company,
@@ -222,6 +274,7 @@ const mockLeads: Lead[] = [
  */
 let scanEndpointMissing = false;
 let loggedFirstRawLead = false;
+let leadIdFallbackCounter = 0;
 
 /**
  * Clear the session-scoped "scan endpoint is missing" short-circuit. Call
@@ -368,13 +421,27 @@ export async function listLeads(eventId: string | number): Promise<ListLeadsResp
     }
     return { success: false, error: { code: 'LIST_FAILED', message: 'Unexpected leads response.' } };
   }
-  // One-time raw-row log so any remaining shape mismatch (e.g. the
+  // One-time raw-row dump so any remaining shape mismatch (e.g. the
   // contact profile lives under a key we don't probe yet) is
   // discoverable from the browser console without having to attach
-  // a debugger.
-  if (!loggedFirstRawLead && raw.length > 0 && typeof console !== 'undefined') {
+  // a debugger. Gated to Vite's `import.meta.env.DEV` because lead
+  // rows contain PII (name/email/notes) and we do NOT want this
+  // landing in production error-tracking. Uses console.error because
+  // our dev log capture only retains error-level entries; this is
+  // explicitly *not* an error, just a diagnostic dump.
+  const isDev = (() => {
+    try { return Boolean((import.meta as any)?.env?.DEV); } catch { return false; }
+  })();
+  if (isDev && !loggedFirstRawLead && raw.length > 0 && typeof console !== 'undefined') {
     loggedFirstRawLead = true;
-    console.log('[leadsClient] first raw lead row from backend:', raw[0]);
+    try {
+      console.error(
+        '[leadsClient] first raw lead row from backend (DIAG, not an error):',
+        JSON.stringify(raw[0]),
+      );
+    } catch {
+      console.error('[leadsClient] first raw lead row from backend (unstringifiable):', raw[0]);
+    }
   }
   return { success: true, data: raw.map(l => normalizeLead(l as Lead & { timestamp: Date | string })) };
 }

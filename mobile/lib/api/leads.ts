@@ -14,6 +14,7 @@ const ACCENT_COLORS = ['#7c3aed', '#06b6d4', '#10b981', '#f59e0b', '#ec4899', '#
 let leadsListEndpointMissing = false;
 let warnedListMissing = false;
 let loggedFirstRaw = false;
+let leadIdFallbackCounter = 0;
 
 /**
  * Clear the session-scoped "list endpoint is missing" short-circuit. Call
@@ -27,18 +28,44 @@ export function resetLeadsListEndpointMissing(): void {
 }
 
 function normalizeLead(raw: any, index = 0): Lead {
-  // Laravel typically nests the contact's profile under a related
-  // object (`attendee` for the lead row, `member` / `user` for the
-  // scan response). The top-level row has the lead-only fields
-  // (id, code, scanned_at, notes, priority, tags) but NOT
-  // name/title/company — those live on the related object. We probe
-  // a few aliases and fall back to the top-level row so the legacy
-  // flat scan response also normalizes correctly.
-  const profile: any =
-    (raw && typeof raw === 'object' &&
-      (raw.attendee ?? raw.member ?? raw.user ?? raw.scanned_user ?? raw.contact ?? raw.lead)) ||
-    raw ||
-    {};
+  // Walk the raw row and find ANY nested object that looks like a
+  // contact profile (has at least one of name/full_name/first_name/
+  // email). This covers every Laravel naming convention the backend
+  // might use without us having to guess: `attendee`, `member`,
+  // `user`, `scanned_user`, `contact`, `lead`, `member_profile`,
+  // `attendee_profile`, `scannedAttendee`, etc. Falls back to the
+  // raw row itself for the legacy flat scan response.
+  const isContactish = (o: any): boolean =>
+    o && typeof o === 'object' && !Array.isArray(o) &&
+    (typeof o.name === 'string' || typeof o.full_name === 'string' ||
+     typeof o.first_name === 'string' || typeof o.email === 'string');
+  // Recursive, depth-limited, cycle-guarded search so shapes like
+  // `attendee.user.name` or `lead.contact.email` still resolve.
+  const findContactProfile = (obj: any, depth: number, seen: Set<any>): any => {
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj) || seen.has(obj) || depth < 0) return null;
+    if (isContactish(obj)) return obj;
+    seen.add(obj);
+    for (const v of Object.values(obj)) {
+      const found = findContactProfile(v, depth - 1, seen);
+      if (found) return found;
+    }
+    return null;
+  };
+  let profile: any = raw;
+  if (raw && typeof raw === 'object') {
+    const preferredRoots = [
+      raw.attendee, raw.member, raw.user, raw.scanned_user,
+      raw.scannedUser, raw.scannedAttendee, raw.contact, raw.lead,
+      raw.attendee_profile, raw.member_profile,
+    ];
+    let picked: any = null;
+    for (const root of preferredRoots) {
+      picked = findContactProfile(root, 3, new Set());
+      if (picked) break;
+    }
+    if (!picked) picked = findContactProfile(raw, 3, new Set());
+    if (picked) profile = picked;
+  }
   const pickString = (...candidates: unknown[]): string => {
     for (const v of candidates) {
       if (typeof v === 'string' && v.trim() !== '') return v;
@@ -49,6 +76,7 @@ function normalizeLead(raw: any, index = 0): Lead {
     raw?.name, profile?.name,
     raw?.full_name, profile?.full_name,
     [profile?.first_name, profile?.last_name].filter(Boolean).join(' '),
+    [raw?.first_name, raw?.last_name].filter(Boolean).join(' '),
   );
   const title = pickString(
     raw?.title, profile?.title,
@@ -63,8 +91,21 @@ function normalizeLead(raw: any, index = 0): Lead {
   const email = pickString(raw?.email, profile?.email);
   const tsSource = raw?.scanned_at ?? raw?.created_at ?? raw?.timestamp;
   const ts = tsSource ? new Date(tsSource) : new Date();
+  // Same id-fallback strategy as the web normalizer: probe nested
+  // ids first, then generate a unique placeholder so multiple
+  // id-less rows don't collapse to the same React key.
+  // Excludes `scanner_user_id` on purpose — it's the *scanning* user
+  // (always identical for every row in `/my-leads`) so using it would
+  // collapse every card under the same React key.
+  const idCandidate =
+    raw?.id ?? raw?.lead_id ??
+    raw?.attendee_id ?? raw?.member_id ?? raw?.user_id ??
+    profile?.id ?? raw?.code ?? raw?.badge_code ?? profile?.badge_code;
+  const id = idCandidate != null && String(idCandidate).trim() !== ''
+    ? String(idCandidate)
+    : `lead-fallback-${Date.now()}-${++leadIdFallbackCounter}`;
   return {
-    id: String(raw?.id ?? raw?.lead_id ?? raw?.code ?? Date.now()),
+    id,
     name,
     title,
     company,
