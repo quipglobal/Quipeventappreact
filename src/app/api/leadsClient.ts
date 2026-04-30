@@ -100,10 +100,45 @@ export interface LuckyDrawResponse {
 
 // ─── Normalizers ──────────────────────────────────────────────────────────────
 
-function normalizeLead(raw: Lead & { timestamp: Date | string }): Lead {
+/**
+ * Coerce a raw backend lead row into the strict `Lead` shape the UI
+ * relies on. The backend has historically returned a few different
+ * envelopes and field-naming conventions (snake_case timestamps,
+ * `status` vs `priority`, etc.), and missing-but-required fields
+ * (`priority`, `tags`, `timestamp`) caused hard crashes downstream
+ * (e.g. `priorityConfig[lead.priority].icon` throws when priority
+ * is undefined). Defaulting every required field here keeps the
+ * leads list resilient regardless of which fields the server omits.
+ */
+function normalizeLead(raw: any): Lead {
+  const priorityRaw = (raw?.priority ?? raw?.status ?? '').toString().toLowerCase();
+  const priority: Lead['priority'] =
+    priorityRaw === 'hot' || priorityRaw === 'warm' || priorityRaw === 'cold'
+      ? priorityRaw
+      : 'warm';
+  const tsSource = raw?.timestamp ?? raw?.scanned_at ?? raw?.created_at;
+  const timestamp = tsSource instanceof Date
+    ? tsSource
+    : tsSource
+      ? new Date(tsSource)
+      : new Date();
   return {
-    ...raw,
-    timestamp: raw.timestamp instanceof Date ? raw.timestamp : new Date(raw.timestamp),
+    id: String(raw?.id ?? raw?.lead_id ?? raw?.code ?? Date.now()),
+    code: String(raw?.code ?? raw?.badge_code ?? ''),
+    name: String(raw?.name ?? raw?.full_name ?? ''),
+    company: String(raw?.company ?? raw?.organization ?? ''),
+    title: String(raw?.title ?? raw?.job_title ?? raw?.position ?? ''),
+    notes: typeof raw?.notes === 'string' ? raw.notes : '',
+    timestamp: isNaN(timestamp.getTime()) ? new Date() : timestamp,
+    avatar: typeof raw?.avatar === 'string'
+      ? raw.avatar
+      : typeof raw?.avatar_url === 'string'
+        ? raw.avatar_url
+        : undefined,
+    tags: Array.isArray(raw?.tags) ? raw.tags.filter((t: unknown): t is string => typeof t === 'string') : [],
+    priority,
+    pendingSync: raw?.pendingSync === true ? true : undefined,
+    email: typeof raw?.email === 'string' ? raw.email : undefined,
   };
 }
 
