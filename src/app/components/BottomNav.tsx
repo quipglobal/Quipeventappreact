@@ -18,11 +18,11 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabChange, on
 
   const tabs = isSponsor
     ? [
-        { id: 'home',             label: 'Home',       icon: PlaySquare, highlight: false },
-        { id: 'engage-audience',  label: 'Audience',   icon: Users,      highlight: false },
-        { id: 'scan',             label: 'Scan Badge', icon: ScanLine,   highlight: true  },
-        { id: 'attendees',        label: 'Leads',      icon: UserCheck,  highlight: false },
-        { id: '__more',           label: 'More',       icon: MoreHorizontal, highlight: false, isMore: true },
+        { id: 'home',             label: 'Home',     icon: PlaySquare,    highlight: false },
+        { id: 'engage-audience',  label: 'Audience', icon: Users,         highlight: false },
+        { id: 'engage',           label: 'Engage',   icon: Sparkles,      highlight: true  },
+        { id: 'attendees',        label: 'Leads',    icon: UserCheck,     highlight: false },
+        { id: '__more',           label: 'More',     icon: MoreHorizontal, highlight: false, isMore: true },
       ]
     : [
         { id: 'home',             label: 'Home',     icon: PlaySquare,    highlight: false },
