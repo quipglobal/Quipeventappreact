@@ -16,7 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
 import { useEvent } from '@/context/EventContext';
-import { useChallenges, useCompleteChallenge, usePolls, useVotePoll, useSurveys, useSubmitSurvey, useGiveaways, useEnterGiveaway } from '@/hooks/useEngage';
+import { useChallenges, useCompleteChallenge, usePolls, useVotePoll, useSurveys, useSubmitSurvey, useGiveaways } from '@/hooks/useEngage';
 import { useLeaderboard } from '@/hooks/useAudience';
 import { useLeads, useLuckyDraw, useSubmitScan, leadsQueryKey } from '@/hooks/useLeads';
 import { DataState } from '@/components/DataState';
@@ -234,7 +234,6 @@ function AttendeeEngage() {
   const [activeTab, setActiveTab] = useState<'challenges' | 'polls' | 'leaderboard' | 'giveaways'>('challenges');
   const [scanMode, setScanMode] = useState<'none' | 'scanner' | 'leads'>('none');
   const [pollVotes, setPollVotes] = useState<Record<string, string>>({});
-  const [giveawayEntries, setGiveawayEntries] = useState<string[]>([]);
 
   const { data: challengesData = [], isLoading: loadingChallenges, isError: errorChallenges, refetch: refetchChallenges } = useChallenges();
   const { data: pollsData = [], isLoading: loadingPolls, isError: errorPolls, refetch: refetchPolls } = usePolls();
@@ -246,7 +245,6 @@ function AttendeeEngage() {
   const { mutate: completeChallengeMutation } = useCompleteChallenge();
   const { mutate: votePollMutation } = useVotePoll();
   const { mutate: submitSurveyMutation } = useSubmitSurvey();
-  const { mutate: enterGiveawayMutation } = useEnterGiveaway();
 
   const isLoading = loadingChallenges || loadingPolls;
   const isError = errorChallenges || errorPolls;
@@ -259,13 +257,6 @@ function AttendeeEngage() {
   const leaderboard = leaderboardData;
 
   const myRank = leaderboard.findIndex((l: { name: string }) => l.name === user?.name) + 1;
-
-  const enterGiveaway = (id: string) => {
-    if (giveawayEntries.includes(id)) return;
-    setGiveawayEntries((prev) => [...prev, id]);
-    enterGiveawayMutation(id);
-    showToast('Entered giveaway! Good luck!', 10);
-  };
 
   if (scanMode === 'scanner') {
     return (
@@ -473,33 +464,25 @@ function AttendeeEngage() {
         </>
       )}
 
-      {activeTab === 'giveaways' && giveaways.map((g) => {
-        const entered = giveawayEntries.includes(g.id);
-        return (
-          <View key={g.id} style={styles.giveawayCard}>
-            <LinearGradient
-              colors={[g.color + '22', colors.bgCard]}
-              style={styles.giveawayGrad}
-            >
-              <View style={styles.giveawayHeader}>
-                <Text style={styles.giveawayTitle}>{g.title}</Text>
-                <Text style={styles.giveawayEnds}>Ends {g.ends}</Text>
-              </View>
-              <Text style={styles.giveawaySponsor}>by {g.sponsor}</Text>
-              <View style={styles.giveawayFooter}>
-                <Text style={styles.giveawayEntries}>{g.entries + (entered ? 1 : 0)} entries</Text>
-                <TouchableOpacity
-                  style={[styles.enterBtn, entered && styles.enterBtnDone, { backgroundColor: entered ? colors.success : g.color }]}
-                  onPress={() => enterGiveaway(g.id)}
-                  disabled={entered}
-                >
-                  <Text style={styles.enterBtnText}>{entered ? 'Entered ✓' : 'Enter Draw'}</Text>
-                </TouchableOpacity>
-              </View>
-            </LinearGradient>
-          </View>
-        );
-      })}
+      {activeTab === 'giveaways' && giveaways.map((g) => (
+        <View key={g.id} style={styles.giveawayCard}>
+          <LinearGradient
+            colors={[g.color + '22', colors.bgCard]}
+            style={styles.giveawayGrad}
+          >
+            <View style={styles.giveawayHeader}>
+              <Text style={styles.giveawayTitle}>{g.title}</Text>
+              {!!g.ends && <Text style={styles.giveawayEnds}>Ends {g.ends}</Text>}
+            </View>
+            <Text style={styles.giveawaySponsor}>by {g.sponsor}</Text>
+            <View style={styles.giveawayHowToRow}>
+              <Text style={styles.giveawayHowToText}>
+                Visit the booth and have your badge scanned to enter the draw.
+              </Text>
+            </View>
+          </LinearGradient>
+        </View>
+      ))}
     </ScrollView>
   );
 }
@@ -747,11 +730,16 @@ const styles = StyleSheet.create({
   giveawayTitle: { color: colors.textPrimary, fontSize: 16, fontWeight: '800', flex: 1 },
   giveawayEnds: { color: colors.textMuted, fontSize: 11 },
   giveawaySponsor: { color: colors.textMuted, fontSize: 12, marginBottom: spacing.lg },
-  giveawayFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  giveawayEntries: { color: colors.textSecondary, fontSize: 12 },
-  enterBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: radius.full },
-  enterBtnDone: {},
-  enterBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  giveawayHowToRow: {
+    marginTop: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  giveawayHowToText: { color: colors.textSecondary, fontSize: 12, lineHeight: 16 },
 
   statsRow: { flexDirection: 'row', padding: spacing.xl, borderRadius: radius.xl, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.xl },
   statBox: { flex: 1, alignItems: 'center' },

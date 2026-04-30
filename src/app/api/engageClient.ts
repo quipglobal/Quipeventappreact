@@ -190,66 +190,8 @@ export async function completeEventChallengeApi(
   return { success: true, data: res.data };
 }
 
-// ─── Giveaways (legacy mock — no backend; in-memory only) ──────────────────
-
-export interface GiveawayItem {
-  id: string;
-  sponsorName: string;
-  sponsorLogo: string;
-  sponsorTier: 'Platinum' | 'Gold' | 'Silver';
-  booth: string;
-  title: string;
-  description: string;
-  image: string;
-  type: 'raffle' | 'swag' | 'offer' | 'demo';
-  requirement: string;
-  pointsBonus: number;
-  claimCount: number;
-  totalAvailable: number | null;
-  endsAt: string;
-  featured?: boolean;
-}
-
-export interface GiveawayEntry {
-  giveawayId: string;
-  entered: boolean;
-  entryCount: number;
-}
-
-const mockGiveawayEntries = new Set<string>();
-
-const mockGiveawayList: GiveawayItem[] = [
-  {
-    id: 'g1', sponsorName: 'TechCorp Solutions',
-    sponsorLogo: 'https://ui-avatars.com/api/?name=TechCorp&background=6366f1&color=fff&size=128',
-    sponsorTier: 'Platinum', booth: 'A-12', title: 'Win a MacBook Pro M4',
-    description: 'Visit our booth for a product demo and enter the raffle for a brand new MacBook Pro with M4 chip.',
-    image: '', type: 'raffle', requirement: 'Complete a booth demo', pointsBonus: 50,
-    claimCount: 342, totalAvailable: null, endsAt: 'Jan 18, 5:00 PM', featured: true,
-  },
-  {
-    id: 'g2', sponsorName: 'InnovateLab',
-    sponsorLogo: 'https://ui-avatars.com/api/?name=InnovateLab&background=8b5cf6&color=fff&size=128',
-    sponsorTier: 'Gold', booth: 'B-05', title: 'Free Cloud Credits — $500',
-    description: 'Get $500 in free cloud credits when you sign up for a trial at our booth.',
-    image: '', type: 'offer', requirement: 'Sign up for trial', pointsBonus: 30,
-    claimCount: 147, totalAvailable: 200, endsAt: 'Jan 18, 5:00 PM', featured: true,
-  },
-];
-
-export async function listGiveaways(): Promise<{ success: boolean; data?: GiveawayItem[]; error?: { message: string } }> {
-  return { success: true, data: [...mockGiveawayList] };
-}
-
-export async function enterGiveaway(giveawayId: string): Promise<{ success: boolean; data?: GiveawayEntry; error?: { code?: string; message: string } }> {
-  if (mockGiveawayEntries.has(giveawayId)) {
-    return { success: false, error: { code: 'ALREADY_ENTERED', message: 'You have already entered this giveaway.' } };
-  }
-  mockGiveawayEntries.add(giveawayId);
-  return { success: true, data: { giveawayId, entered: true, entryCount: 1 } };
-}
-
-export async function fetchGiveawayStatus(giveawayId: string): Promise<{ success: boolean; data?: GiveawayEntry; error?: { message: string } }> {
-  const entered = mockGiveawayEntries.has(giveawayId);
-  return { success: true, data: { giveawayId, entered, entryCount: entered ? 1 : 0 } };
-}
+// Giveaways live in `giveawaysClient.ts` and are sourced exclusively
+// from the backend (event-scoped). Attendees can no longer self-claim
+// — entry happens server-side when a sponsor rep scans their badge —
+// so the in-memory mock list / enter / status helpers that used to
+// live here have been removed.

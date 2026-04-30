@@ -68,7 +68,7 @@ mobile/
 
 **Audience**: Full attendee list with search, connection requests, connection counter
 
-**Engage (Attendee)**: Points + tier progress card, challenges with progress bars and claim, leaderboard top-5 with medals, giveaway draw entry
+**Engage (Attendee)**: Points + tier progress card, challenges with progress bars and claim, leaderboard top-5 with medals, view-only sponsor giveaways (entry happens server-side when a sponsor rep scans the attendee's badge — no in-app self-claim, no points credited from the giveaway card)
 
 **Engage (Sponsor)**: Stats dashboard (leads/visits/engagement), QR scanner with simulated scan, leads list with hot/warm/cold status, lucky draw with random winner picker, analytics placeholder
 
