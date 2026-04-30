@@ -102,15 +102,56 @@ export interface LuckyDrawResponse {
 
 /**
  * Coerce a raw backend lead row into the strict `Lead` shape the UI
- * relies on. The backend has historically returned a few different
- * envelopes and field-naming conventions (snake_case timestamps,
- * `status` vs `priority`, etc.), and missing-but-required fields
- * (`priority`, `tags`, `timestamp`) caused hard crashes downstream
- * (e.g. `priorityConfig[lead.priority].icon` throws when priority
- * is undefined). Defaulting every required field here keeps the
- * leads list resilient regardless of which fields the server omits.
+ * relies on.
+ *
+ * The Laravel backend serializes leads as a top-level lead row plus a
+ * nested attendee/member object that holds the contact's profile
+ * fields (mirrors how `meetings.ts` normalizes its rows). So the
+ * raw shape is roughly:
+ *   { id, code, scanned_at, notes, tags, priority,
+ *     attendee: { name, title, company, email, avatar } }
+ * Older mock and scan responses were flat (no nesting), and the
+ * scan endpoint sometimes returns the contact under `member` or
+ * `user`, so we probe several aliases for each visible field. The
+ * UI also requires every defaulted field present (priority, tags,
+ * timestamp) — without that, the leads list either crashes (the
+ * priorityConfig lookup throws) or renders blank cards.
  */
 function normalizeLead(raw: any): Lead {
+  // Pick the first non-null nested profile object the backend may
+  // attach the contact's name/title/company under. Falling back to
+  // the raw row covers the legacy flat shape.
+  const profile: any =
+    (raw && typeof raw === 'object' &&
+      (raw.attendee ?? raw.member ?? raw.user ?? raw.scanned_user ?? raw.contact ?? raw.lead)) ||
+    raw ||
+    {};
+
+  const pickString = (...candidates: unknown[]): string => {
+    for (const v of candidates) {
+      if (typeof v === 'string' && v.trim() !== '') return v;
+    }
+    return '';
+  };
+
+  const name = pickString(
+    raw?.name, profile?.name,
+    raw?.full_name, profile?.full_name,
+    [profile?.first_name, profile?.last_name].filter(Boolean).join(' '),
+  );
+  const title = pickString(
+    raw?.title, profile?.title,
+    raw?.job_title, profile?.job_title,
+    raw?.position, profile?.position,
+  );
+  const company = pickString(
+    raw?.company, profile?.company,
+    raw?.organization, profile?.organization,
+    raw?.company_name, profile?.company_name,
+  );
+  const email = pickString(raw?.email, profile?.email) || undefined;
+  const avatar = pickString(raw?.avatar, profile?.avatar, raw?.avatar_url, profile?.avatar_url) || undefined;
+
   const priorityRaw = (raw?.priority ?? raw?.status ?? '').toString().toLowerCase();
   const priority: Lead['priority'] =
     priorityRaw === 'hot' || priorityRaw === 'warm' || priorityRaw === 'cold'
@@ -124,21 +165,17 @@ function normalizeLead(raw: any): Lead {
       : new Date();
   return {
     id: String(raw?.id ?? raw?.lead_id ?? raw?.code ?? Date.now()),
-    code: String(raw?.code ?? raw?.badge_code ?? ''),
-    name: String(raw?.name ?? raw?.full_name ?? ''),
-    company: String(raw?.company ?? raw?.organization ?? ''),
-    title: String(raw?.title ?? raw?.job_title ?? raw?.position ?? ''),
+    code: String(raw?.code ?? raw?.badge_code ?? profile?.badge_code ?? ''),
+    name,
+    company,
+    title,
     notes: typeof raw?.notes === 'string' ? raw.notes : '',
     timestamp: isNaN(timestamp.getTime()) ? new Date() : timestamp,
-    avatar: typeof raw?.avatar === 'string'
-      ? raw.avatar
-      : typeof raw?.avatar_url === 'string'
-        ? raw.avatar_url
-        : undefined,
+    avatar,
     tags: Array.isArray(raw?.tags) ? raw.tags.filter((t: unknown): t is string => typeof t === 'string') : [],
     priority,
     pendingSync: raw?.pendingSync === true ? true : undefined,
-    email: typeof raw?.email === 'string' ? raw.email : undefined,
+    email,
   };
 }
 
@@ -184,6 +221,7 @@ const mockLeads: Lead[] = [
  * SponsorScannerPage already has a graceful audience-list fallback path.
  */
 let scanEndpointMissing = false;
+let loggedFirstRawLead = false;
 
 /**
  * Clear the session-scoped "scan endpoint is missing" short-circuit. Call
@@ -329,6 +367,14 @@ export async function listLeads(eventId: string | number): Promise<ListLeadsResp
       console.warn('[leadsClient] unrecognized list response shape:', data);
     }
     return { success: false, error: { code: 'LIST_FAILED', message: 'Unexpected leads response.' } };
+  }
+  // One-time raw-row log so any remaining shape mismatch (e.g. the
+  // contact profile lives under a key we don't probe yet) is
+  // discoverable from the browser console without having to attach
+  // a debugger.
+  if (!loggedFirstRawLead && raw.length > 0 && typeof console !== 'undefined') {
+    loggedFirstRawLead = true;
+    console.log('[leadsClient] first raw lead row from backend:', raw[0]);
   }
   return { success: true, data: raw.map(l => normalizeLead(l as Lead & { timestamp: Date | string })) };
 }

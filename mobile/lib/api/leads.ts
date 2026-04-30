@@ -13,6 +13,7 @@ const ACCENT_COLORS = ['#7c3aed', '#06b6d4', '#10b981', '#f59e0b', '#ec4899', '#
 // instead of overwriting it with a `{success:false}` response.
 let leadsListEndpointMissing = false;
 let warnedListMissing = false;
+let loggedFirstRaw = false;
 
 /**
  * Clear the session-scoped "list endpoint is missing" short-circuit. Call
@@ -26,21 +27,58 @@ export function resetLeadsListEndpointMissing(): void {
 }
 
 function normalizeLead(raw: any, index = 0): Lead {
+  // Laravel typically nests the contact's profile under a related
+  // object (`attendee` for the lead row, `member` / `user` for the
+  // scan response). The top-level row has the lead-only fields
+  // (id, code, scanned_at, notes, priority, tags) but NOT
+  // name/title/company — those live on the related object. We probe
+  // a few aliases and fall back to the top-level row so the legacy
+  // flat scan response also normalizes correctly.
+  const profile: any =
+    (raw && typeof raw === 'object' &&
+      (raw.attendee ?? raw.member ?? raw.user ?? raw.scanned_user ?? raw.contact ?? raw.lead)) ||
+    raw ||
+    {};
+  const pickString = (...candidates: unknown[]): string => {
+    for (const v of candidates) {
+      if (typeof v === 'string' && v.trim() !== '') return v;
+    }
+    return '';
+  };
+  const name = pickString(
+    raw?.name, profile?.name,
+    raw?.full_name, profile?.full_name,
+    [profile?.first_name, profile?.last_name].filter(Boolean).join(' '),
+  );
+  const title = pickString(
+    raw?.title, profile?.title,
+    raw?.job_title, profile?.job_title,
+    raw?.position, profile?.position,
+  );
+  const company = pickString(
+    raw?.company, profile?.company,
+    raw?.organization, profile?.organization,
+    raw?.company_name, profile?.company_name,
+  );
+  const email = pickString(raw?.email, profile?.email);
+  const tsSource = raw?.scanned_at ?? raw?.created_at ?? raw?.timestamp;
+  const ts = tsSource ? new Date(tsSource) : new Date();
   return {
-    id: String(raw.id ?? raw.lead_id ?? raw.code ?? Date.now()),
-    name: raw.name ?? raw.full_name ?? '',
-    title: raw.title ?? raw.job_title ?? raw.position ?? '',
-    company: raw.company ?? raw.organization ?? '',
-    email: raw.email ?? '',
-    scannedAt: raw.scanned_at ?? raw.created_at ?? raw.timestamp
-      ? new Date(raw.scanned_at ?? raw.created_at ?? raw.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-      : new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
-    color: raw.color ?? ACCENT_COLORS[index % ACCENT_COLORS.length],
-    status: raw.status ?? raw.priority ?? 'warm',
+    id: String(raw?.id ?? raw?.lead_id ?? raw?.code ?? Date.now()),
+    name,
+    title,
+    company,
+    email,
+    scannedAt: (isNaN(ts.getTime()) ? new Date() : ts).toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+    }),
+    color: raw?.color ?? ACCENT_COLORS[index % ACCENT_COLORS.length],
+    status: raw?.status ?? raw?.priority ?? 'warm',
     // Preserve the original badge code on the Lead so the reconciliation
     // flow can dedupe local-only leads against the server's view by code.
-    code: raw.code ?? raw.badge_code ?? undefined,
-    pendingSync: raw.pendingSync === true ? true : undefined,
+    code: raw?.code ?? raw?.badge_code ?? profile?.badge_code ?? undefined,
+    pendingSync: raw?.pendingSync === true ? true : undefined,
   };
 }
 
@@ -113,6 +151,14 @@ export async function listLeads(): Promise<ApiResponse<Lead[]>> {
       success: false,
       error: { code: 'LEADS_LIST_UNEXPECTED_SHAPE', message: 'Unexpected leads response.' },
     };
+  }
+  // Log the first raw row once per session so we can see what fields
+  // the backend actually returns. If the list re-renders blank again
+  // (no name/title/company), this log tells us which key the contact
+  // profile lives under so we can extend the alias list above.
+  if (__DEV__ && !loggedFirstRaw && raw.length > 0) {
+    loggedFirstRaw = true;
+    console.log('[Leads] first raw lead row from backend:', raw[0]);
   }
   return { success: true, data: raw.map((r, i) => normalizeLead(r, i)) };
 }
