@@ -36,7 +36,7 @@ interface SponsorDrawPageProps {
 }
 
 export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
-  const { sponsorGiveaways, user, showToast, eventConfig } = useApp();
+  const { sponsorGiveaways, user, showToast, eventConfig, recordGiveawayWinner } = useApp();
   const { t, isDark } = useTheme();
   const [poolLeads, setPoolLeads] = useState<Lead[]>([]);
 
@@ -61,6 +61,13 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
   const [shuffleIndex, setShuffleIndex] = useState(0);
   const [excludeWon, setExcludeWon] = useState(true);
   const shuffleRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Single-flight guard so a rapid double-click on "Pick a Winner!"
+  // can't kick off two overlapping draws (each with its own shuffle
+  // interval and its own `recordGiveawayWinner` write). The button
+  // is also gated by `phase !== 'setup'` rendering, but the phase
+  // flip is async and a fast user can fire two clicks before React
+  // re-renders.
+  const drawInFlightRef = useRef(false);
 
   // Convert backend leads to common DrawParticipant format
   const basePool: DrawParticipant[] = useMemo(() => {
@@ -84,12 +91,21 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
 
   const startDraw = async () => {
     if (eligiblePool.length === 0) return;
+    if (drawInFlightRef.current) return;
+    drawInFlightRef.current = true;
     setPhase('spinning');
     setWinner(null);
 
+    // Snapshot the event id BEFORE we kick off the async draw so a
+    // mid-flight `switchEvent` can't cause this winner to be filed
+    // under a different event's overlay key. AppContext also gates
+    // its in-memory state mutation on this snapshot.
+    const eventIdAtDrawStart = eventConfig?.eventId ?? '0';
+    const giveawayIdAtDrawStart = selectedGiveaway?.id;
+
     const excludeIds = drawHistory.map(d => d.winner.id);
-    const drawPromise = triggerLuckyDraw(eventConfig?.eventId ?? '0', {
-      giveawayId: selectedGiveaway?.id,
+    const drawPromise = triggerLuckyDraw(eventIdAtDrawStart, {
+      giveawayId: giveawayIdAtDrawStart,
       excludeIds: excludeWon ? excludeIds : undefined,
     });
 
@@ -112,6 +128,7 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
                 if (!res.success || !res.data) {
                   setPhase('setup');
                   showToast(res.error?.message ?? 'Draw failed. Please try again.');
+                  drawInFlightRef.current = false;
                   return;
                 }
                 const selectedWinner: DrawParticipant = {
@@ -135,7 +152,29 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
                   },
                   ...prev,
                 ]);
+                // Persist the winner against the selected giveaway so
+                // the public Giveaways screen can show their name.
+                // Only record when the rep actually picked a giveaway
+                // (we still allow ad-hoc draws when no giveaway exists).
+                // We pass `giveawayIdAtDrawStart` and the snapshotted
+                // event id so a mid-draw selection change or event
+                // switch can't reroute the win.
+                if (giveawayIdAtDrawStart) {
+                  recordGiveawayWinner(
+                    giveawayIdAtDrawStart,
+                    {
+                      id: selectedWinner.id,
+                      name: selectedWinner.name,
+                      company: selectedWinner.company,
+                      title: selectedWinner.title,
+                      avatar: selectedWinner.avatar,
+                      drawnAt: new Date().toISOString(),
+                    },
+                    eventIdAtDrawStart,
+                  );
+                }
                 setTimeout(() => setPhase('winner'), 300);
+                drawInFlightRef.current = false;
               });
             }
           }, 200);
@@ -156,11 +195,16 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
     setPhase('setup');
     setSelectedGiveaway(null);
     setWinner(null);
+    // Defensive: in any unexpected exit from the draw flow, free the
+    // single-flight gate so the rep isn't stuck unable to start a
+    // new draw without reloading the page.
+    drawInFlightRef.current = false;
   };
 
   const drawAgain = () => {
     setPhase('setup');
     setWinner(null);
+    drawInFlightRef.current = false;
   };
 
   const currentShuffled = eligiblePool[shuffleIndex] ?? null;

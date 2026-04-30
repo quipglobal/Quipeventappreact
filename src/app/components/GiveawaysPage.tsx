@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, Gift, Sparkles, Tag, Ticket } from 'lucide-react';
+import { ArrowLeft, Gift, Sparkles, Tag, Ticket, Trophy } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 
@@ -226,6 +226,79 @@ export const GiveawaysPage: React.FC<GiveawaysPageProps> = ({ onBack }) => {
                   Visit the sponsor's booth and have your badge scanned.
                 </span>
               </div>
+
+              {g.winners && g.winners.length > 0 && (
+                <div
+                  className="mt-3 rounded-xl overflow-hidden"
+                  style={{
+                    background:
+                      'linear-gradient(135deg, rgba(245,158,11,0.10), rgba(217,119,6,0.06))',
+                    border: '1px solid rgba(245,158,11,0.35)',
+                  }}
+                >
+                  <div
+                    className="flex items-center gap-2 px-3 py-2"
+                    style={{ borderBottom: '1px solid rgba(245,158,11,0.20)' }}
+                  >
+                    <Trophy style={{ width: 14, height: 14, color: '#d97706' }} />
+                    <span
+                      style={{
+                        color: t.text,
+                        fontSize: 12,
+                        fontWeight: 800,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.06em',
+                      }}
+                    >
+                      {g.winners.length === 1 ? 'Winner' : `Winners (${g.winners.length})`}
+                    </span>
+                  </div>
+                  <ul className="px-3 py-2 space-y-1.5">
+                    {g.winners.map((w, i) => (
+                      <li
+                        key={`${w.id}-${i}`}
+                        className="flex items-center gap-2"
+                      >
+                        <div
+                          className="w-6 h-6 rounded-full overflow-hidden flex-shrink-0 flex items-center justify-center"
+                          style={{
+                            background: 'linear-gradient(135deg,#7c3aed,#ec4899)',
+                            color: '#fff',
+                            fontSize: 10,
+                            fontWeight: 800,
+                          }}
+                        >
+                          {w.avatar ? (
+                            <img
+                              src={w.avatar}
+                              alt=""
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <span>{w.name.charAt(0).toUpperCase()}</span>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p
+                            className="truncate"
+                            style={{ color: t.text, fontSize: 13, fontWeight: 700 }}
+                          >
+                            {w.name}
+                          </p>
+                          {w.company ? (
+                            <p
+                              className="truncate"
+                              style={{ color: t.textMuted, fontSize: 11 }}
+                            >
+                              {w.company}
+                            </p>
+                          ) : null}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           </div>
         ))}

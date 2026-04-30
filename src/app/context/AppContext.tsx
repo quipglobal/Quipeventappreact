@@ -8,6 +8,12 @@ import { fetchPointsFromBackend, scheduleSyncPoints, cancelPendingSyncPoints } f
 import { getMyEventRoleApi } from '@/app/api/audienceClient';
 import { loadLeadsFromStorage, saveLeadsToStorage, clearLeadsStorage } from '@/app/lib/leadsStorage';
 import { saveLeadEdit } from '@/app/lib/leadEditsStorage';
+import {
+  GiveawayWinner,
+  loadGiveawayWinners,
+  appendGiveawayWinner,
+  migrateGiveawayWinnersKey,
+} from '@/app/lib/giveawayWinnersStorage';
 import { listLeads as listLeadsApi, scanBadgeLead, resetScanEndpointMissing } from '@/app/api/leadsClient';
 import {
   listGiveaways as listGiveawaysApi,
@@ -108,7 +114,16 @@ export interface SponsorGiveaway {
   createdAt: Date;
   sponsorName: string;
   sponsorId: string;
+  /**
+   * Lucky-draw winners associated with this giveaway. Hydrated from the
+   * `cxo:giveaway_winners:v1:<eventId>` localStorage overlay since the
+   * backend giveaway list endpoint does not (yet) return winners.
+   * Oldest first.
+   */
+  winners?: GiveawayWinner[];
 }
+
+export type { GiveawayWinner } from '@/app/lib/giveawayWinnersStorage';
 
 interface AppState {
   user: User | null;
@@ -156,6 +171,25 @@ interface AppContextType extends AppState {
   switchEvent: (config: EventConfig) => void;
   addSponsorGiveaway: (giveaway: Omit<SponsorGiveaway, 'id' | 'createdAt'>) => Promise<void>;
   removeSponsorGiveaway: (id: string) => Promise<void>;
+  /**
+   * Append a lucky-draw winner to a giveaway and persist it to the
+   * per-event overlay so it survives reloads and is visible on the
+   * public Giveaways screen. Safe to call repeatedly; each call adds
+   * one entry (use cases like multi-quantity prizes draw N times).
+   *
+   * Callers should pass `eventIdAtDrawStart` — the event id captured
+   * BEFORE the async draw was kicked off — so a mid-flight
+   * `switchEvent` can't cause a winner from event A to be persisted
+   * under event B's overlay key. When the snapshot disagrees with
+   * the current active event the in-memory state mutation is also
+   * skipped (the overlay still gets the write under the correct
+   * event so it'll surface on the next return to that event).
+   */
+  recordGiveawayWinner: (
+    giveawayId: string,
+    winner: GiveawayWinner,
+    eventIdAtDrawStart?: string,
+  ) => void;
   sendConnectionRequest: (toUser: ConnectionRequest['fromUser'], message?: string) => Promise<void>;
   acceptConnection: (requestId: string) => void;
   declineConnection: (requestId: string) => void;
@@ -383,7 +417,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       listGiveawaysApi(eventId).then(res => {
         if (cancelled) return;
         if (res.success && res.data) {
-          setSponsorGiveaways(res.data);
+          // Backend doesn't (yet) return per-giveaway winners; merge
+          // them in from the per-event overlay so the public
+          // Giveaways screen still shows who won what after a reload.
+          const winnersByGiveaway = loadGiveawayWinners(eventId);
+          setSponsorGiveaways(
+            res.data.map(g =>
+              winnersByGiveaway[g.id]?.length
+                ? { ...g, winners: winnersByGiveaway[g.id] }
+                : g,
+            ),
+          );
         }
         // On NOT_IMPLEMENTED / network error: silently keep current state.
         // The sponsor UI still works locally; reconciliation picks up
@@ -445,6 +489,46 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // session changes without closing over a stale `user` snapshot.
   const userIdRef = useRef<string | null>(user?.id ?? null);
   useEffect(() => { userIdRef.current = user?.id ?? null; }, [user?.id]);
+
+  // ── Temp -> canonical giveaway id resolution ──────────────────────────
+  // When `addSponsorGiveaway` succeeds, the optimistic temp id
+  // (`giveaway-<ts>`) is swapped for the server's canonical id. A
+  // lucky-draw started against the temp id may finish AFTER that swap
+  // — by then the merged giveaway list looks for winners under the
+  // canonical id, so we need a way for `recordGiveawayWinner` to
+  // translate a stale temp id into the live canonical id. The map is
+  // keyed `eventId -> Map<tempId, canonicalId>` so cross-event temp
+  // collisions can't bleed into each other.
+  const giveawayIdRemapRef = useRef<Map<string, Map<string, string>>>(new Map());
+
+  const resolveGiveawayId = (eventId: string | undefined, id: string): string => {
+    if (!eventId) return id;
+    const perEvent = giveawayIdRemapRef.current.get(eventId);
+    if (!perEvent) return id;
+    let current = id;
+    // Follow the chain in case a temp id was remapped multiple times
+    // (defensive — in practice the chain is at most 1 hop).
+    const seen = new Set<string>();
+    while (perEvent.has(current) && !seen.has(current)) {
+      seen.add(current);
+      current = perEvent.get(current)!;
+    }
+    return current;
+  };
+
+  const rememberGiveawayIdSwap = (
+    eventId: string | undefined,
+    tempId: string,
+    canonicalId: string,
+  ): void => {
+    if (!eventId || !tempId || !canonicalId || tempId === canonicalId) return;
+    let perEvent = giveawayIdRemapRef.current.get(eventId);
+    if (!perEvent) {
+      perEvent = new Map();
+      giveawayIdRemapRef.current.set(eventId, perEvent);
+    }
+    perEvent.set(tempId, canonicalId);
+  };
 
   // Shared in-flight tracking so the page-mount reconciler in LeadsPage
   // and the background timer below don't both push the same pending
@@ -896,10 +980,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       sponsorId: giveaway.sponsorId,
     });
 
+    // Side-effects that MUST run regardless of whether the active
+    // event/user changed mid-flight: persist the temp -> canonical
+    // remap and migrate any overlay entries that were keyed under
+    // the temp id while we were waiting on the network. If we don't
+    // do this for an event the user has navigated away from, a
+    // returning visit to that event would still see orphan winners
+    // under the temp id — the merge in `listGiveaways` would miss.
+    if (res.success && res.data) {
+      const saved = res.data;
+      rememberGiveawayIdSwap(eventIdAtCall, tempId, saved.id);
+      migrateGiveawayWinnersKey(eventIdAtCall, tempId, saved.id);
+    }
+
     // If the active event or user changed while the POST was in
-    // flight, drop the result on the floor — the post-switch
+    // flight, drop the visible-state mutation — the post-switch
     // hydration owns the visible list now and applying our temp swap
-    // would leak a giveaway from the previous context.
+    // would leak a giveaway from the previous context. (The remap +
+    // overlay migration above are still needed so a future return
+    // to this event surfaces the right ids.)
     if (
       activeEventIdRef.current !== eventIdAtCall ||
       userIdRef.current !== userIdAtCall
@@ -909,7 +1008,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     if (res.success && res.data) {
       const saved = res.data;
-      setSponsorGiveaways(prev => prev.map(g => (g.id === tempId ? saved : g)));
+      setSponsorGiveaways(prev =>
+        prev.map(g => {
+          if (g.id !== tempId) return g;
+          // Carry forward any in-memory winners as well, so the UI
+          // doesn't briefly drop them between the swap and the
+          // post-merge re-hydration.
+          const carried = g.winners ?? [];
+          return carried.length > 0
+            ? { ...saved, winners: [...(saved.winners ?? []), ...carried] }
+            : saved;
+        }),
+      );
       return;
     }
     if (res.error?.code === 'NOT_IMPLEMENTED') {
@@ -956,6 +1066,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // we don't clobber any other concurrent edits to the list.
     setSponsorGiveaways(prev => (prev.some(g => g.id === id) ? prev : [removed, ...prev]));
     showToast(res.error?.message ?? 'Failed to remove giveaway. Please try again.');
+  };
+
+  const recordGiveawayWinner = (
+    giveawayId: string,
+    winner: GiveawayWinner,
+    eventIdAtDrawStart?: string,
+  ) => {
+    // Persist to the event the draw was *started* under, falling
+    // back to the currently-active event if the caller didn't
+    // snapshot one. This prevents a mid-draw `switchEvent` from
+    // routing the winner into the wrong event's overlay.
+    const targetEventId =
+      eventIdAtDrawStart ?? activeEventConfig?.eventId ?? undefined;
+    // If the draw was started against an optimistic temp id but
+    // the create response has since landed, write under the
+    // canonical id so the merge in `listGiveaways` finds it.
+    const resolvedId = resolveGiveawayId(targetEventId, giveawayId);
+    // Mirror to localStorage first so a quick reload still surfaces
+    // the win even if the React state update gets blown away by a
+    // mid-flight giveaways re-hydration.
+    appendGiveawayWinner(targetEventId, resolvedId, winner);
+    // Only mutate the visible giveaway list if we're STILL in the
+    // event the draw started in. After a switch, the list belongs
+    // to a different event and patching it would briefly leak the
+    // winner across events until the next hydration tick.
+    if (
+      targetEventId &&
+      activeEventIdRef.current === targetEventId
+    ) {
+      setSponsorGiveaways(prev =>
+        prev.map(g =>
+          g.id === resolvedId
+            ? { ...g, winners: [...(g.winners ?? []), winner] }
+            : g,
+        ),
+      );
+    }
   };
 
   const switchEvent = (config: EventConfig) => {
@@ -1012,6 +1159,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         switchEvent,
         addSponsorGiveaway,
         removeSponsorGiveaway,
+        recordGiveawayWinner,
         sendConnectionRequest,
         acceptConnection,
         declineConnection,

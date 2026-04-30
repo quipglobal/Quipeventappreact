@@ -194,6 +194,21 @@ persistence. Backend contract changes are documented in
 ### Web App DataState Component
 `src/app/components/ui/DataState.tsx` — Reusable loading skeleton + error retry UI applied to: Feed, Events, Agenda, Sponsors pages.
 
+### Lucky Draw → Giveaways Winner Surface
+The Sponsor Lucky Draw screen (`SponsorDrawPage`) lets a sponsor rep select one
+of their own giveaways and pick a winner from their scanned leads via
+`POST /events/:id/leads/draw`. Once the backend resolves a winner, the rep's
+choice is persisted under a per-event localStorage overlay
+(`cxo:giveaway_winners:v1:<eventId>`) by `src/app/lib/giveawayWinnersStorage.ts`
+and mirrored into `AppContext.sponsorGiveaways[i].winners` via
+`recordGiveawayWinner(giveawayId, winner)`. The public `GiveawaysPage` reads
+that field and renders a "Winner(s)" pill block on each card so attendees
+immediately see who won the prize. The overlay is keyed by event id only
+(not user) since winner names are event-public, and is merged back into the
+server's giveaway list at every hydration tick — so a reload, a rep
+re-opening the page, or any attendee opening the screen all show the same
+winners until the backend route ships native `winners` support.
+
 ---
 
 ## Backend
