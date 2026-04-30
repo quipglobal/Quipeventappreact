@@ -748,6 +748,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateLead = (id: string, updates: Partial<Pick<Lead, 'notes' | 'tags' | 'priority'>>) => {
+    // Look up the badge code BEFORE mutating state so we can mirror the
+    // overlay under both `id` and `code:<code>` — handles the case where
+    // the lead's id changes between scan-time (POST /leads/scan) and the
+    // next list fetch (GET /my-leads), which has been observed in the
+    // wild. The merge falls back to the code key when id misses.
+    const existing = leads.find(l => l.id === id);
+    const code = existing?.code ?? null;
     setLeads(prev => prev.map(lead => lead.id === id ? { ...lead, ...updates } : lead));
     // Also write to the per-user, per-lead edits overlay so notes / tags /
     // priority survive logout → login (the main leads cache is wiped on
@@ -755,7 +762,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // place the user's edits are kept until the backend ships persistence
     // on the v1 leads endpoints).
     if (user?.id) {
-      saveLeadEdit(user.id, id, updates);
+      saveLeadEdit(user.id, id, updates, code);
     }
     showToast('Lead updated successfully');
   };

@@ -7,6 +7,7 @@ import { useTheme } from '@/app/context/ThemeContext';
 import { useApp } from '@/app/context/AppContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { scanBadgeLead, updateLeadApi } from '@/app/api/leadsClient';
+import { saveLeadEdit } from '@/app/lib/leadEditsStorage';
 import { findMemberByBadgeCodeApi, checkInMemberApi, type EventMember } from '@/app/api/audienceClient';
 import { CameraScanner } from './CameraScanner';
 
@@ -57,7 +58,7 @@ function attendeeFromMember(m: EventMember): ScannedAttendee {
 
 export const SponsorScannerPage: React.FC = () => {
   const { t, isDark } = useTheme();
-  const { saveLead, updateLead, leads, eventConfig, addPoints, gamificationConfig, showToast } = useApp();
+  const { saveLead, updateLead, leads, eventConfig, addPoints, gamificationConfig, showToast, user } = useApp();
 
   const [mode, setMode] = useState<'scan' | 'manual'>('scan');
   const [manualCode, setManualCode] = useState('');
@@ -225,6 +226,19 @@ export const SponsorScannerPage: React.FC = () => {
     if (scannedData.leadId) {
       // Apply locally first — source of truth for "My Leads".
       updateLead(scannedData.leadId, { notes, tags: selectedTags, priority });
+      // Mirror to the per-user edits overlay under the badge code too,
+      // since `updateLead`'s code lookup misses on first-ever scans
+      // (the lead row hasn't been saved to context yet). The merge
+      // falls back to the code key when the server returns this lead
+      // under a different id.
+      if (user?.id) {
+        saveLeadEdit(
+          user.id,
+          scannedData.leadId,
+          { notes, tags: selectedTags, priority },
+          scannedData.code,
+        );
+      }
 
       const upd = await updateLeadApi(eventId, scannedData.leadId, {
         notes,
@@ -277,6 +291,18 @@ export const SponsorScannerPage: React.FC = () => {
         tags: selectedTags,
         priority,
       });
+      // Mirror notes/tags/priority into the per-user overlay (keyed by
+      // both id and badge code) so a later GET /my-leads — which often
+      // echoes back null/empty for these fields — still surfaces what
+      // the user just typed.
+      if (user?.id) {
+        saveLeadEdit(
+          user.id,
+          res.data.id,
+          { notes, tags: selectedTags, priority },
+          res.data.code || scannedData.code,
+        );
+      }
 
       // Auto check-in reconciliation for the fallback path
       if (!autoCheckedIn) {

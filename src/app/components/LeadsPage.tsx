@@ -15,7 +15,7 @@ import {
   scanBadgeLead,
   resetScanEndpointMissing,
 } from '@/app/api/leadsClient';
-import { loadLeadEdits, type LeadEditsMap } from '@/app/lib/leadEditsStorage';
+import { loadLeadEdits, lookupLeadEdit, type LeadEditsMap } from '@/app/lib/leadEditsStorage';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -376,7 +376,7 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
       const local =
         localById.get(server.id) ??
         (server.code ? localByCode.get(server.code.toLowerCase()) : undefined);
-      const overlayEntry = overlay[server.id];
+      const overlayEntry = lookupLeadEdit(overlay, server.id, server.code);
       // Each field independently: server's non-default value wins; else
       // contextLeads' value; else the overlay's value; else the server
       // default itself. The "isn't 'warm'" check on priority is the

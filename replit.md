@@ -168,16 +168,23 @@ v1 leads endpoints:
 1. **Optimistic in-memory state** in `AppContext.updateLead` — the UI reflects
    the edit instantly.
 2. **Per-user lead-edits overlay** at `src/app/lib/leadEditsStorage.ts` — every
-   `updateLead` writes a tiny `{notes, tags, priority}` overlay to localStorage
-   keyed by `cxo:lead_edits:v1:<userId>:<leadId>`. This survives logout → login
-   (the main leads cache is wiped on user change for cross-account isolation;
-   this overlay is intentionally kept so the same user's edits are restored).
+   `updateLead` (and the scanner save flows) writes a tiny
+   `{notes, tags, priority}` overlay to localStorage under
+   `cxo:lead_edits:v1:<userId>` as a JSON map. Each edit is mirrored to TWO
+   keys: the lead `id` and `code:<lower(badge_code)>`. The dual indexing
+   handles the observed-in-the-wild case where the backend returns the same
+   lead under different ids between scan-time (POST /leads/scan) and a later
+   list fetch (GET /my-leads). This overlay survives logout → login (the main
+   leads cache is wiped on user change for cross-account isolation; the
+   overlay is intentionally kept so the same user's edits are restored).
 3. **Defensive merge in `LeadsPage`** — `mergeServerLeadsWithLocalEdits`
    overlays the server response with (a) the in-memory contextLeads value and
-   (b) the localStorage overlay, in that order, whenever the server returns
-   empty / default for a field. Each field is merged independently. This is
-   what stops the lead-detail card from "flicking" back to defaults on refetch
-   AND restores the user's edits after logout → login.
+   (b) the localStorage overlay (looked up by id THEN by badge code via
+   `lookupLeadEdit`), in that order, whenever the server returns empty /
+   default for a field. Each field is merged independently. This is what
+   stops the lead-detail card from "flicking" back to defaults on refetch
+   AND restores the user's edits after logout → login or after a backend
+   id change.
 
 Mobile `Lead` type and normalizer both surface `tags` (array) and `priority`
 (mirror of `status`) so the data round-trips end-to-end once the backend ships

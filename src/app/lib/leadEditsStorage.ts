@@ -62,30 +62,68 @@ export function loadLeadEdits(userId: string | null | undefined): LeadEditsMap {
 }
 
 /**
+ * Build the secondary lookup key used when the lead `id` differs between
+ * scan-time and a later list-fetch (the backend sometimes returns a
+ * different identifier for the same lead — e.g. `profile.id` on GET vs
+ * a `scan_id` on POST). Indexing by badge code as well lets the merge
+ * still find the user's edits.
+ */
+function codeKey(code: string): string {
+  return `code:${code.toLowerCase()}`;
+}
+
+/**
  * Persist a single lead's edits. Pass `undefined` for any field you
  * don't want to change — only the fields explicitly provided are
  * written. Pass `null` for `notes` to clear it; pass `[]` for `tags`
  * to clear them. Silently no-ops without a userId so anonymous edits
  * never land in a user-scoped slot.
+ *
+ * When `code` is provided, the edits are mirrored to a secondary key
+ * `code:<lower(code)>` so the merge can still find them if the lead's
+ * id changes between scan-time and the next list fetch.
  */
 export function saveLeadEdit(
   userId: string | null | undefined,
   leadId: string,
   edits: Partial<LeadEditOverlay>,
+  code?: string | null,
 ): void {
   if (!isBrowser() || !userId || !leadId) return;
   try {
     const current = loadLeadEdits(userId);
-    const merged: LeadEditOverlay = { ...(current[leadId] ?? {}) };
-    if ('notes' in edits) merged.notes = edits.notes;
-    if ('tags' in edits) merged.tags = edits.tags;
-    if ('priority' in edits) merged.priority = edits.priority;
-    current[leadId] = merged;
+    const apply = (slotKey: string) => {
+      const merged: LeadEditOverlay = { ...(current[slotKey] ?? {}) };
+      if ('notes' in edits) merged.notes = edits.notes;
+      if ('tags' in edits) merged.tags = edits.tags;
+      if ('priority' in edits) merged.priority = edits.priority;
+      current[slotKey] = merged;
+    };
+    apply(leadId);
+    if (code && code.trim() !== '') apply(codeKey(code.trim()));
     window.localStorage.setItem(keyFor(userId), JSON.stringify(current));
   } catch {
     // Storage quota / disabled — the in-memory state still has the edit
     // for this session, only the cross-session persistence is lost.
   }
+}
+
+/**
+ * Look up an overlay entry for a server lead, trying the `id` first and
+ * falling back to the `code:<code>` mirror key. Returns `undefined`
+ * when neither key is present.
+ */
+export function lookupLeadEdit(
+  overlay: LeadEditsMap,
+  leadId: string,
+  code?: string | null,
+): LeadEditOverlay | undefined {
+  if (overlay[leadId]) return overlay[leadId];
+  if (code && code.trim() !== '') {
+    const k = codeKey(code.trim());
+    if (overlay[k]) return overlay[k];
+  }
+  return undefined;
 }
 
 /**
