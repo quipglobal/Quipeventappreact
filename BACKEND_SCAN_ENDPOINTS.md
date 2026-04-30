@@ -397,54 +397,64 @@ existing v1 collection convention works without changes.
 
 ---
 
-### 8. Connections (a.k.a. Meeting Requests)
+### 8. Meeting Requests (Connect tab)
 
-The Connect/Message tab issues a connection request from one
-attendee to another. After both sides accept, a chat conversation
-opens. Until then chat is disabled — the UI explicitly gates on
+The Connect/Message tab issues a meeting request from one attendee
+to another. After the recipient accepts, a chat conversation opens.
+Until then chat is disabled — the UI explicitly gates on
 `status === 'accepted'` before showing the chat panel.
 
-**Routes** (all event-scoped, multi-tenant via `X-Tenant-ID` header):
+**Routes** (all event-scoped, multi-tenant via `X-Tenant-ID` header).
+These match what the deployed Laravel backend already exposes —
+verified live with method probes on April 30, 2026:
 
 ```
-GET    /api/v1/events/:eventId/connections
-POST   /api/v1/events/:eventId/connections                    body: { to_user_id, message? }
-POST   /api/v1/events/:eventId/connections/:id/accept
-POST   /api/v1/events/:eventId/connections/:id/decline
+GET   /api/v1/events/:eventId/my-meetings                                  → list inbox
+POST  /api/v1/events/:eventId/meeting-requests              body: { to_user_id, message? }
+PATCH /api/v1/events/:eventId/meeting-requests/:id/respond  body: { status: 'accepted' | 'declined' }
 ```
 
-**Response shape — list / send**:
+**Response shape — list (`GET /my-meetings`)**:
 ```json
 {
   "success": true,
   "data": [
     {
-      "id": "42",
-      "from_user_id": "17",
-      "to_user_id": "23",
-      "status": "pending",          // pending | accepted | declined
-      "direction": "incoming",      // incoming | outgoing — relative to the caller
+      "id": 42,
+      "from_user_id": 17,
+      "to_user_id": 23,
+      "status": "pending",                   // pending | accepted | declined
       "message": "Hey, let's connect about the AI panel",
       "created_at": "2026-04-30T12:34:56Z",
       "from_user": {
-        "id": "17",
+        "id": 17,
         "name": "Jane Doe",
         "title": "VP Engineering",
-        "company": "Acme",
-        "avatar": "https://…"
-      }
+        "company": { "name": "Acme" },
+        "avatar_url": "https://…"
+      },
+      "to_user":   { "id": 23, "name": "John Smith", "company": { "name": "BetaCo" }, "avatar_url": "…" }
     }
   ]
 }
 ```
 
+The backend does **not** ship a per-row `direction` flag — the
+client computes incoming-vs-outgoing by comparing
+`from_user.id === currentUserId`. The `currentUserId` is plumbed
+through `listMeetingRequests` so this is deterministic.
+
+**Response shape — send (`POST /meeting-requests`)**:
+Same row shape as above, returned either bare or wrapped in
+`{ data: {...} }`. The client tolerates both.
+
 **Notes**:
-- The client tolerates either `data: [...]` or `{ requests: [...] }`
-  / `{ connections: [...] }` envelopes, and accepts numeric ids
-  (it coerces them to strings).
-- Until these routes are deployed the client short-circuits on the
-  first 404/405 to `NOT_IMPLEMENTED` and keeps a local-only view of
-  pending requests so the feature is usable today.
+- The client coerces numeric ids to strings everywhere and accepts
+  envelope shapes `data` / `requests` / `meeting_requests` /
+  `meetings` / `items`.
+- For a tenant where these routes ever 404/405, the client falls
+  back to a `NOT_IMPLEMENTED` mode that keeps the optimistic row
+  locally and is up-front about the degraded state in the toast.
 
 ---
 

@@ -1109,7 +1109,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       direction: 'outgoing',
     };
     setConnectionRequests(prev => [newReq, ...prev]);
-    const res = await sendMeetingRequestApi(eventId, { toUserId: toUser.id, message, toUser });
+    const res = await sendMeetingRequestApi(
+      eventId,
+      { toUserId: toUser.id, message, toUser },
+      user?.id,
+    );
     if (res.success) {
       if (res.data && res.data.id !== tempId) {
         setConnectionRequests(prev => prev.map(r => r.id === tempId ? { ...r, id: res.data!.id } : r));
@@ -1118,8 +1122,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } else if (res.error?.code === 'NOT_IMPLEMENTED') {
       // Backend route missing — keep the optimistic row so the user
       // still sees their pending request locally. Same posture as
-      // offline leads.
-      showToast('Connection request sent (will sync once backend deploys).');
+      // offline leads. Be honest in the toast: this is a degraded
+      // mode and the recipient won't actually see it yet.
+      showToast('Saved locally — recipient will see it once the backend route is live.');
     } else {
       setConnectionRequests(prev => prev.filter(r => r.id !== tempId));
       showToast(res.error?.message ?? 'Failed to send connection request.');
@@ -1743,6 +1748,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // useAuthedEffect on `activeEventConfig.eventId` will refill from
     // the backend.
     setSponsorGiveaways([]);
+    // Same posture for connections/conversations: meeting requests
+    // and chats are event-scoped, so the prior event's rows must not
+    // bleed into the new event's MeetingsPage. Cancel any pending
+    // delayed sends for the same reason. Reset the session-scoped
+    // NOT_IMPLEMENTED flags so that an event whose tenant has the
+    // routes deployed isn't penalized for an earlier event that
+    // didn't.
+    for (const { timer } of pendingSendTimersRef.current.values()) clearTimeout(timer);
+    pendingSendTimersRef.current.clear();
+    setConnectionRequests([]);
+    setConversations([]);
+    clearMessageCryptoCache();
+    resetMeetingsEndpointMissing();
+    resetMessagesEndpointMissing();
     showToast(`Switched to ${config.name}`);
   };
 

@@ -478,7 +478,9 @@ export const MeetingsPage: React.FC = () => {
 
   const fetchRequests = useCallback(async () => {
     if (!eventId) return;
-    const res = await listMeetingRequests(eventId);
+    // Pass `user.id` so the client can compute incoming-vs-outgoing
+    // direction — the backend doesn't pre-tag rows with that.
+    const res = await listMeetingRequests(eventId, user?.id);
     if (res.success && res.data) {
       setConnectionRequests(prev => {
         const serverIds = new Set(res.data!.map(r => r.id));
@@ -486,7 +488,7 @@ export const MeetingsPage: React.FC = () => {
         return [...localOnly, ...res.data!];
       });
     }
-  }, [setConnectionRequests, eventId]);
+  }, [setConnectionRequests, eventId, user?.id]);
 
   // Initial fetch + 30s poll, both gated on the user being signed in via
   // the shared `useAuthedInterval` hook (`runOnMount: true` fires the
