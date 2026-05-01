@@ -63,7 +63,19 @@ export interface PointsResponse {
   error?: { message: string };
 }
 
-/** Fields accepted by POST /api/v1/me/profile (snake_case keys for backend). */
+/**
+ * Fields accepted by POST /api/v1/me/profile (snake_case for backend).
+ *
+ * Both `company_id` (from the lookup typeahead) and `company` /
+ * `company_name` (free-text the user typed without picking a
+ * suggestion) are sent so the backend can either use the chosen id
+ * or fall back to its existing register-style "find or create by
+ * name" path. Same pattern was already used by `auth.register`.
+ *
+ * `interests` (string names) is sent for backward compat, plus
+ * `interested_topic_ids` (numeric ids) which is the canonical pivot
+ * shape the model expects on save.
+ */
 export interface ProfileUpdatePayload {
   first_name?: string;
   last_name?: string;
@@ -74,11 +86,14 @@ export interface ProfileUpdatePayload {
   bio?: string;
   linkedin_url?: string;
   company_id?: number | null;
+  company?: string;
+  company_name?: string;
   industry_id?: number | null;
   social_links?: SocialLinks;
   avatar_url?: string;
   profile_image?: string;
   interests?: string[];
+  interested_topic_ids?: number[];
 }
 
 // ─── Normalizer ───────────────────────────────────────────────────────────────
@@ -164,9 +179,25 @@ function normalizeProfile(raw: Record<string, unknown>): UserProfile {
 /**
  * GET /api/v1/me
  * Returns the current user's full profile.
+ *
+ * One-shot diag log of the raw server shape — paired with the
+ * matching log in `updateUserProfileApi`, this lets us see whether
+ * (a) GET hydrates the form correctly and (b) whether a subsequent
+ * SAVE round-trips the same fields back. Removable once the
+ * EditProfile save flow is verified end-to-end.
  */
+let getProfileDiagLogged = false;
 export async function getUserProfileApi(): Promise<ProfileResponse> {
   const res = await apiGet<unknown>('/api/v1/me');
+  if (!getProfileDiagLogged && typeof console !== 'undefined') {
+    getProfileDiagLogged = true;
+    try {
+      console.error(
+        '[userClient] GET /api/v1/me DIAG (not an error):',
+        JSON.stringify(res, null, 2),
+      );
+    } catch { /* ignore */ }
+  }
   if (!res.success || !res.data) {
     return { success: false, error: res.error ?? { message: 'Failed to fetch profile.' } };
   }
@@ -179,9 +210,25 @@ export async function getUserProfileApi(): Promise<ProfileResponse> {
 /**
  * POST /api/v1/me/profile
  * Updates editable profile fields. Returns the updated profile on success.
+ *
+ * One-shot console log of the request payload and the raw server
+ * response is emitted to help debug "save didn't stick" reports.
+ * Once the bug is fixed for good this can be removed; until then
+ * it's the cheapest way to capture the actual server shape from a
+ * real authenticated session.
  */
+let updateProfileDiagLogged = false;
 export async function updateUserProfileApi(payload: ProfileUpdatePayload): Promise<ProfileResponse> {
   const res = await apiPost<unknown>('/api/v1/me/profile', payload);
+  if (!updateProfileDiagLogged && typeof console !== 'undefined') {
+    updateProfileDiagLogged = true;
+    try {
+      console.error(
+        '[userClient] POST /api/v1/me/profile DIAG (not an error):',
+        JSON.stringify({ payload, response: res }, null, 2),
+      );
+    } catch { /* ignore */ }
+  }
   if (!res.success || !res.data) {
     return { success: false, error: res.error ?? { message: 'Failed to update profile.' } };
   }

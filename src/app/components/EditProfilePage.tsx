@@ -185,6 +185,16 @@ export const EditProfilePage: React.FC<EditProfilePageProps> = ({ onBack }) => {
       .map(id => topics.find(t => t.id === id)?.name)
       .filter((n): n is string => Boolean(n));
 
+    // Company: prefer the chosen typeahead id, but always send the
+    // typed text too. The typeahead requires a click on a suggestion
+    // to set `companyId`; without this fallback, free-text company
+    // names entered by the user would silently never reach the
+    // backend (the original bug behind "company isn't saving").
+    const companyText = (companyId != null
+      ? (companies.find(c => c.id === companyId)?.name ?? companyQuery)
+      : companyQuery
+    ).trim();
+
     const payload: ProfileUpdatePayload = {
       first_name: firstName.trim() || undefined,
       last_name: lastName.trim() || undefined,
@@ -195,9 +205,18 @@ export const EditProfilePage: React.FC<EditProfilePageProps> = ({ onBack }) => {
       bio: bio.trim() || undefined,
       linkedin_url: linkedinUrl.trim() || undefined,
       company_id: companyId,
+      // Send the visible name on both keys so whichever the backend
+      // looks at (controllers in this codebase have used `company`
+      // in /auth/register and `company_name` on the leads API) wins.
+      company: companyText || undefined,
+      company_name: companyText || undefined,
       industry_id: industryId,
       social_links: Object.keys(cleanedSocial).length ? cleanedSocial : undefined,
       avatar_url: avatarUrl || undefined,
+      // Send IDs (canonical pivot shape) AND names (legacy shape)
+      // so the backend can accept either. This was the suspected
+      // reason interests weren't being persisted.
+      interested_topic_ids: topicIds.length ? topicIds : undefined,
       interests: selectedTopicNames.length ? selectedTopicNames : undefined,
     };
 
@@ -211,25 +230,47 @@ export const EditProfilePage: React.FC<EditProfilePageProps> = ({ onBack }) => {
 
     const p = res.data;
     if (user) {
+      // The form state is the source of truth at save time — the
+      // user just submitted exactly these values. We use those for
+      // the local AppContext snapshot (so cleared fields stay
+      // cleared instead of silently bouncing back to the old
+      // value), and only adopt server-side updates that the form
+      // doesn't carry (canonical id mappings, server-normalized
+      // URLs, etc.). Avoids the "I cleared my company but it
+      // re-appeared" trap that `||` fallbacks would create.
+      const submittedFullName = `${firstName.trim()} ${lastName.trim()}`.trim();
+      const submittedFirst = firstName.trim();
+      const submittedLast = lastName.trim();
+      const submittedIndustry = industries.find(i => i.id === industryId)?.name ?? '';
+      const submittedTopics = topicIds
+        .map(id => topics.find(x => x.id === id))
+        .filter((x): x is Lookup => x !== undefined)
+        .map(x => ({ id: x.id, name: x.name, slug: x.slug }));
+
       setUser({
         ...user,
-        name: p.name || user.name,
-        email: p.email || user.email,
-        title: p.title || user.title,
-        company: p.company || user.company,
-        avatar: p.avatar || p.profileImage || user.avatar,
-        interests: p.interests,
-        firstName: p.firstName,
-        lastName: p.lastName,
-        phone: p.phone,
-        bio: p.bio,
-        linkedinUrl: p.linkedinUrl,
-        socialLinks: p.socialLinks,
-        companyId: p.companyId,
-        industry: p.industry,
-        industryId: p.industryId,
-        profileImage: p.profileImage,
-        interestedTopics: p.interestedTopics,
+        name: submittedFullName || p.name || user.name,
+        email: email.trim(),
+        title: title.trim(),
+        company: companyText,
+        // Avatar is special: the user may not have changed it, so
+        // we still want a server-fresh URL when available.
+        avatar: p.avatar ?? p.profileImage ?? avatarUrl ?? user.avatar,
+        interests: selectedTopicNames,
+        firstName: submittedFirst,
+        lastName: submittedLast,
+        phone: phone.trim(),
+        bio: bio.trim(),
+        linkedinUrl: linkedinUrl.trim(),
+        socialLinks: cleanedSocial,
+        // Server-issued ids take precedence (they may have been
+        // newly created from a free-text company name); otherwise
+        // keep the id we already had.
+        companyId: p.companyId ?? companyId,
+        industry: submittedIndustry,
+        industryId,
+        profileImage: p.profileImage ?? avatarUrl ?? user.profileImage,
+        interestedTopics: submittedTopics,
       });
     }
     showToast('Profile updated');
