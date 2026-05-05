@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Calendar, IdCard, ScanLine, Settings, Repeat, MessageCircle, X, Trophy, Gift, UserCheck, Sparkles, Mic } from 'lucide-react';
+import { Calendar, IdCard, ScanLine, Settings, Repeat, X, Trophy, Gift, UserCheck, Sparkles, Mic } from 'lucide-react';
 import { useTheme } from '@/app/context/ThemeContext';
 import { useApp } from '@/app/context/AppContext';
 
@@ -48,7 +48,6 @@ export const SideMenu: React.FC<SideMenuProps> = ({ open, onClose, onNavigate, o
       icon: Sparkles,
       action: () => go('sponsor-giveaways'),
     }] : []),
-    { id: 'messages',    label: 'Messages',         icon: MessageCircle, action: () => go('meetings'), badge: unreadCount },
     { id: 'settings',    label: 'Settings',         icon: Settings,      action: () => go('profile') },
     { id: 'switch',      label: 'Switch Events',    icon: Repeat,        action: () => { onSwitchEvents(); onClose(); } },
   ];

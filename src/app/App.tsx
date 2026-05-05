@@ -29,7 +29,7 @@ import { MyBadgePage } from '@/app/components/MyBadgePage';
 import { MeetingsPage } from '@/app/components/MeetingsPage';
 import { SpeakersPage } from '@/app/components/SpeakersPage';
 import { BadgeActionButtons } from '@/app/components/BadgeActionButtons';
-import { Bell, Search, MessageCircle, LayoutGrid } from 'lucide-react';
+import { Bell, Search, LayoutGrid } from 'lucide-react';
 
 type Screen = 'splash' | 'welcome' | 'event-join' | 'main';
 type Page =
@@ -215,23 +215,6 @@ function AppContent() {
                     title="Back to events"
                     style={{ background: t.surface, border: `1px solid ${t.border}` }}>
                     <LayoutGrid size={16} color={t.text} />
-                  </button>
-                  <button
-                    onClick={() => handleNavigate('meetings')}
-                    className="w-9 h-9 rounded-full flex items-center justify-center transition-colors relative"
-                    style={{
-                      background: activePage === 'meetings'
-                        ? 'linear-gradient(135deg, #7c3aed, #4f46e5)'
-                        : t.surface,
-                      border: activePage === 'meetings' ? 'none' : `1px solid ${t.border}`,
-                    }}>
-                    <MessageCircle size={16} color={activePage === 'meetings' ? '#fff' : t.text} />
-                    {unreadCount > 0 && (
-                      <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 bg-red-500 rounded-full border-2 flex items-center justify-center"
-                        style={{ borderColor: isDark ? '#111120' : '#fff', fontSize: 9, fontWeight: 700, color: '#fff' }}>
-                        {unreadCount}
-                      </span>
-                    )}
                   </button>
                   <button className="w-9 h-9 rounded-full flex items-center justify-center transition-colors relative"
                     style={{ background: t.surface, border: `1px solid ${t.border}` }}>
