@@ -8,6 +8,8 @@ import {
   resetMeetingsEndpointMissing,
 } from '@/app/api/meetingsClient';
 import {
+  listConversations as listConversationsApi,
+  listMessages as listMessagesApi,
   sendMessageApi,
   editMessageApi,
   deleteMessageApi,
@@ -18,6 +20,7 @@ import {
   decryptMessage,
   getOrDeriveConversationKey,
   clearMessageCryptoCache,
+  MESSAGE_CRYPTO_SCHEME,
   type EncryptedPayload,
 } from '@/app/lib/messageCrypto';
 import { fetchPointsFromBackend, scheduleSyncPoints, cancelPendingSyncPoints } from '@/app/api/pointsClient';
@@ -638,6 +641,108 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [activeEventConfig?.eventId],
   );
 
+  // ── Conversations: hydrate from backend on event change ─────────────────
+  // Fetches the conversation index then decrypts each message with the
+  // per-conversation HKDF key. When the backend hasn't deployed the route
+  // yet (404/405) `listConversations` short-circuits to NOT_IMPLEMENTED and
+  // this effect is a no-op — in-memory state from `acceptConnection` is
+  // preserved unchanged.
+  useAuthedEffect(
+    user?.id,
+    (userId) => {
+      const eventId = activeEventConfig?.eventId;
+      if (!eventId) return;
+      let cancelled = false;
+
+      // Reset the session flag so a backend deployment between event-switches
+      // gets a fresh chance (same pattern as giveaways / leaderboard).
+      resetMessagesEndpointMissing();
+
+      (async () => {
+        const convRes = await listConversationsApi(eventId);
+        if (cancelled || !convRes.success || !convRes.data || convRes.data.length === 0) return;
+
+        const hydratedConvs: Conversation[] = [];
+        for (const summary of convRes.data) {
+          if (cancelled) return;
+
+          const msgRes = await listMessagesApi(eventId, summary.id);
+          if (cancelled) return;
+
+          const encMessages = msgRes.success && msgRes.data ? msgRes.data : [];
+
+          // Derive the per-conversation AES-GCM key — same seed as
+          // `encryptForConversation` (connectionId + sorted user ids).
+          let convKey: CryptoKey | null = null;
+          try {
+            convKey = await getOrDeriveConversationKey(
+              summary.connectionId,
+              userId,
+              summary.participantId,
+            );
+          } catch {
+            convKey = null;
+          }
+
+          const messages: ChatMessage[] = await Promise.all(
+            encMessages.map(async (m): Promise<ChatMessage> => {
+              const isDeleted = !!m.deletedAt || m.ciphertext === null;
+              let text = '';
+              if (!isDeleted && m.ciphertext && convKey) {
+                try {
+                  text = await decryptMessage(
+                    { ciphertext: m.ciphertext, iv: m.iv, scheme: m.scheme as typeof MESSAGE_CRYPTO_SCHEME },
+                    convKey,
+                  );
+                } catch {
+                  text = '[unable to decrypt]';
+                }
+              }
+              return {
+                id: m.id,
+                senderId: m.senderId,
+                text,
+                timestamp: m.timestamp,
+                read: m.senderId !== userId,
+                editedAt: m.editedAt,
+                ...(m.deletedAt ? { deletedAt: m.deletedAt } : {}),
+              };
+            }),
+          );
+
+          hydratedConvs.push({
+            id: summary.id,
+            connectionId: summary.connectionId,
+            participant: {
+              id: summary.participantId,
+              name: summary.participantName,
+              title: summary.participantTitle,
+              company: summary.participantCompany,
+              avatar: summary.participantAvatar,
+            },
+            messages,
+            lastActivity: summary.lastActivityAt,
+          });
+        }
+
+        if (cancelled || hydratedConvs.length === 0) return;
+
+        // Merge: prefer server rows for known conversations; keep purely
+        // local ones (e.g. just-accepted, synthetic id `conv-<ts>`) that
+        // the backend hasn't indexed yet — they'll converge on the next
+        // hydration tick once the backend picks them up.
+        setConversations(prev => {
+          const serverIds = new Set(hydratedConvs.map(c => c.id));
+          const localOnly = prev.filter(c => !serverIds.has(c.id));
+          return [...localOnly, ...hydratedConvs];
+        });
+      })();
+
+      return () => { cancelled = true; };
+    },
+    [activeEventConfig?.eventId],
+  );
+
   // ── Sign-out cleanup for outstanding background work ───────────────────
   // Mirror the leads-reconciler gating for any other deferred / in-flight
   // authenticated calls. The points sync in particular runs on a 300ms
@@ -1204,7 +1309,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const ctx = resolveConversationContext(conversationId);
     if (!ctx) return null;
     const me = user?.id || 'current-user';
-    const peer = ctx.conversation.participantId;
+    const peer = ctx.conversation.participant.id;
     const key = await getOrDeriveConversationKey(ctx.connection.id, me, peer);
     const payload = await encryptMessage(plaintext, key);
     return { payload, eventId: ctx.eventId };
