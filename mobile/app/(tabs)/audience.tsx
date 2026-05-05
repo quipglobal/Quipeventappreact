@@ -34,10 +34,9 @@ function getAvatarColor(id: string): string {
 
 export default function AudienceScreen() {
   const insets = useSafeAreaInsets();
-  const { user, showToast } = useAuth();
+  const { user } = useAuth();
   const [search, setSearch] = useState('');
   const [filterTier, setFilterTier] = useState('All');
-  const [connections, setConnections] = useState<string[]>([]);
   const [selected, setSelected] = useState<Attendee | null>(null);
   const [sheetVisible, setSheetVisible] = useState(false);
 
@@ -65,16 +64,7 @@ export default function AudienceScreen() {
     setTimeout(() => setSelected(null), 300);
   }, []);
 
-  const toggleConnect = useCallback((id: string) => {
-    setConnections((prev) => {
-      if (prev.includes(id)) return prev.filter((c) => c !== id);
-      showToast('Connection request sent!', 15);
-      return [...prev, id];
-    });
-  }, [showToast]);
-
   const renderItem = useCallback(({ item }: { item: Attendee }) => {
-    const isConnected = connections.includes(item.id);
     return (
       <TouchableOpacity style={styles.card} onPress={() => openProfile(item)} activeOpacity={0.75}>
         <View style={[styles.avatar, { backgroundColor: getAvatarColor(item.id) + '25', borderColor: getAvatarColor(item.id) + '55' }]}>
@@ -88,20 +78,9 @@ export default function AudienceScreen() {
           <Text style={styles.role}>{item.title}</Text>
           <Text style={styles.company}>{item.company}</Text>
         </View>
-        <TouchableOpacity
-          style={[styles.connectBtn, isConnected && styles.connectBtnActive]}
-          onPress={() => toggleConnect(item.id)}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Ionicons
-            name={isConnected ? 'checkmark' : 'person-add-outline'}
-            size={16}
-            color={isConnected ? '#fff' : colors.primary}
-          />
-        </TouchableOpacity>
       </TouchableOpacity>
     );
-  }, [connections, openProfile, toggleConnect]);
+  }, [openProfile]);
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -143,13 +122,6 @@ export default function AudienceScreen() {
           </TouchableOpacity>
         ))}
       </ScrollView>
-
-      {connections.length > 0 && (
-        <View style={styles.connBar}>
-          <Ionicons name="people" size={14} color={colors.primary} />
-          <Text style={styles.connBarText}>{connections.length} pending connection{connections.length > 1 ? 's' : ''}</Text>
-        </View>
-      )}
 
       <DataState
         loading={isLoading}
@@ -207,15 +179,6 @@ export default function AudienceScreen() {
               </View>
 
               <View style={styles.sheetActions}>
-                <TouchableOpacity
-                  style={[styles.sheetBtn, connections.includes(selected.id) && styles.sheetBtnActive]}
-                  onPress={() => { toggleConnect(selected.id); closeSheet(); }}
-                >
-                  <Ionicons name={connections.includes(selected.id) ? 'checkmark' : 'person-add'} size={16} color={connections.includes(selected.id) ? '#fff' : colors.primary} />
-                  <Text style={[styles.sheetBtnText, connections.includes(selected.id) && { color: '#fff' }]}>
-                    {connections.includes(selected.id) ? 'Connected' : 'Connect'}
-                  </Text>
-                </TouchableOpacity>
                 <TouchableOpacity style={styles.sheetIconBtn}>
                   <Ionicons name="mail-outline" size={18} color={colors.textSecondary} />
                 </TouchableOpacity>
@@ -247,9 +210,6 @@ const styles = StyleSheet.create({
   filterChipTextActive: { color: colors.primary },
   chipDot: { width: 6, height: 6, borderRadius: 3 },
 
-  connBar: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginHorizontal: spacing.xl, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.lg, backgroundColor: 'rgba(124,58,237,0.08)', borderWidth: 1, borderColor: 'rgba(124,58,237,0.2)', marginBottom: spacing.md },
-  connBarText: { color: colors.primary, fontSize: 12, fontWeight: '600' },
-
   list: { paddingHorizontal: spacing.xl, paddingBottom: 100, gap: spacing.sm },
   card: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.lg, borderRadius: radius.xl, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border },
   avatar: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
@@ -260,8 +220,6 @@ const styles = StyleSheet.create({
   tierDot: { width: 7, height: 7, borderRadius: 3.5 },
   role: { color: colors.textSecondary, fontSize: 12, marginTop: 2 },
   company: { color: colors.textMuted, fontSize: 11, marginTop: 1 },
-  connectBtn: { width: 40, height: 40, borderRadius: 20, borderWidth: 1.5, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  connectBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   empty: { alignItems: 'center', paddingVertical: 64, gap: spacing.md },
   emptyText: { color: colors.textMuted, fontSize: 14 },
 
@@ -282,8 +240,5 @@ const styles = StyleSheet.create({
   interest: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: radius.full, backgroundColor: 'rgba(124,58,237,0.12)', borderWidth: 1, borderColor: 'rgba(124,58,237,0.25)' },
   interestText: { color: colors.primary, fontSize: 12, fontWeight: '600' },
   sheetActions: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
-  sheetBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingVertical: 12, borderRadius: radius.xl, borderWidth: 1.5, borderColor: colors.primary },
-  sheetBtnActive: { backgroundColor: colors.primary },
-  sheetBtnText: { color: colors.primary, fontSize: 14, fontWeight: '700' },
   sheetIconBtn: { width: 48, height: 48, borderRadius: radius.xl, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
 });

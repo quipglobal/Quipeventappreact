@@ -128,14 +128,6 @@ export default function ProfileScreen() {
 
       <Text style={styles.sectionTitle}>Quick Links</Text>
       <View style={styles.section}>
-        <TouchableOpacity style={styles.menuRow} onPress={() => router.push('/meetings')}>
-          <View style={[styles.settingIcon, { backgroundColor: 'rgba(124,58,237,0.15)' }]}>
-            <Ionicons name="calendar-outline" size={16} color={colors.primary} />
-          </View>
-          <Text style={styles.menuText}>My Meetings</Text>
-          <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
-        </TouchableOpacity>
-        <View style={styles.divider} />
         <TouchableOpacity style={styles.menuRow} onPress={() => router.push('/event-dashboard')}>
           <View style={[styles.settingIcon, { backgroundColor: 'rgba(6,182,212,0.15)' }]}>
             <Ionicons name="stats-chart-outline" size={16} color={colors.accent} />

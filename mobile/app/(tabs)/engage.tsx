@@ -626,13 +626,6 @@ function SponsorEngage() {
           <Text style={styles.toolSub}>Booth stats</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.toolCard} onPress={() => Alert.alert('Messages', 'Coming soon.')}>
-          <View style={[styles.toolIcon, { backgroundColor: 'rgba(124,58,237,0.15)' }]}>
-            <Ionicons name="chatbubbles" size={22} color={colors.primary} />
-          </View>
-          <Text style={styles.toolTitle}>Messages</Text>
-          <Text style={styles.toolSub}>Chat with leads</Text>
-        </TouchableOpacity>
       </View>
     </ScrollView>
   );
