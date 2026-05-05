@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   ArrowLeft, Search, Users, Sparkles,
-  Building2, ChevronRight, UserPlus, UserCheck,
-  MessageCircle, Globe, X, Wifi, WifiOff,
+  Building2, ChevronRight, UserCheck,
+  Globe, X, Wifi, WifiOff,
   Loader2, BadgeCheck,
   RefreshCw, Filter, User,
 } from 'lucide-react';
@@ -115,10 +115,8 @@ const MemberDetailPage: React.FC<{
   member: EventMember;
   eventId: string | number;
   onBack: () => void;
-  onConnect: (id: number) => void;
-  isConnected: boolean;
   isCheckedIn: boolean;
-}> = ({ member, eventId, onBack, onConnect, isConnected, isCheckedIn }) => {
+}> = ({ member, eventId, onBack, isCheckedIn }) => {
   const { t, isDark } = useTheme();
   const { user } = useApp();
   const [detail, setDetail] = useState<MemberDetail | null>(null);
@@ -272,32 +270,6 @@ const MemberDetailPage: React.FC<{
               <Sparkles style={{ width: 12, height: 12, color: '#34d399' }} />
             </div>
           )}
-        </div>
-      </div>
-
-      {/* Actions */}
-      <div className="px-5 -mt-4 mb-5 relative z-10">
-        <div className="rounded-2xl p-4 flex items-center gap-3"
-          style={{ background: t.surface, boxShadow: t.shadowHov, border: `1px solid ${t.border}` }}>
-          <button
-            onClick={() => onConnect(member.userId)}
-            disabled={isConnected}
-            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl transition-all active:scale-[0.97]"
-            style={{
-              background: isConnected ? t.successBg : 'linear-gradient(135deg,#7c3aed,#4f46e5)',
-              border: isConnected ? `1px solid ${t.successText}30` : 'none',
-              color: isConnected ? t.successText : '#fff',
-            }}>
-            {isConnected
-              ? <><UserCheck style={{ width: 16, height: 16 }} /><span style={{ fontSize: 13, fontWeight: 700 }}>Connected</span></>
-              : <><UserPlus style={{ width: 16, height: 16 }} /><span style={{ fontSize: 13, fontWeight: 700 }}>Connect</span></>
-            }
-          </button>
-          <button className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl transition-all active:scale-[0.97]"
-            style={{ background: t.surface2, border: `1px solid ${t.border}` }}>
-            <MessageCircle style={{ width: 16, height: 16, color: t.accentSoft }} />
-            <span style={{ color: t.text, fontSize: 13, fontWeight: 600 }}>Message</span>
-          </button>
         </div>
       </div>
 
@@ -469,7 +441,7 @@ const MemberDetailPage: React.FC<{
           <div className="flex items-start gap-2.5">
             <Globe style={{ width: 14, height: 14, color: t.textMuted, flexShrink: 0, marginTop: 1 }} />
             <p style={{ color: t.textMuted, fontSize: 11, lineHeight: 1.5 }}>
-              Some personal details are partially masked for privacy. Use Connect or Message to reach out directly.
+              Some personal details are partially masked for privacy.
             </p>
           </div>
         </div>
@@ -904,8 +876,6 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
             member={selectedMember}
             eventId={eventId ?? ''}
             onBack={() => setSelectedMember(null)}
-            onConnect={handleConnect}
-            isConnected={connectedIds.has(selectedMember.userId)}
             isCheckedIn={checkedInIds.has(selectedMember.userId)}
           />
         )}
