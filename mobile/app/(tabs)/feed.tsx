@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   Dimensions,
   RefreshControl,
-  ActivityIndicator,
 } from 'react-native';
 import { Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
@@ -102,8 +101,18 @@ function VideoCard({ item, isVisible }: { item: FeedVideo; isVisible: boolean })
   );
 }
 
-function PollCard({ item, votedOptionId, onVote }: { item: Poll; votedOptionId: string | null; onVote: (id: string) => void }) {
-  const total = item.options.reduce((s, o) => s + o.votes, 0);
+interface PollCardProps {
+  item: Poll;
+  votedOptionId: string | null;
+  onVote: (optionId: string) => void;
+  currentIndex: number;
+  total: number;
+  hasMore: boolean;
+  onNext: () => void;
+}
+
+function PollCard({ item, votedOptionId, onVote, currentIndex, total, hasMore, onNext }: PollCardProps) {
+  const voteTotal = item.options.reduce((s, o) => s + o.votes, 0);
   const hasVoted = !!votedOptionId;
 
   return (
@@ -113,12 +122,19 @@ function PollCard({ item, votedOptionId, onVote }: { item: Poll; votedOptionId: 
           <Ionicons name="bar-chart" size={11} color={colors.accent} />
           <Text style={styles.pollBadgeText}>LIVE POLL</Text>
         </View>
-        <Text style={styles.pollSession}>{item.session}</Text>
+        <View style={styles.pollMeta}>
+          {item.session ? <Text style={styles.pollSession}>{item.session}</Text> : null}
+          {total > 1 && (
+            <Text style={styles.pollCounter}>{currentIndex + 1}/{total}</Text>
+          )}
+        </View>
       </View>
+
       <Text style={styles.pollQuestion}>{item.question}</Text>
+
       <View style={styles.pollOptions}>
         {item.options.map((opt) => {
-          const pct = total > 0 ? Math.round((opt.votes / total) * 100) : 0;
+          const pct = voteTotal > 0 ? Math.round((opt.votes / voteTotal) * 100) : 0;
           const selected = votedOptionId === opt.id;
           return (
             <TouchableOpacity
@@ -128,19 +144,39 @@ function PollCard({ item, votedOptionId, onVote }: { item: Poll; votedOptionId: 
               activeOpacity={hasVoted ? 1 : 0.7}
             >
               <View style={styles.pollOptRow}>
-                <Text style={[styles.pollOptText, selected && { color: colors.accent }]}>{opt.text}</Text>
+                <Text style={[styles.pollOptText, selected && { color: colors.accent }]}>
+                  {opt.text}
+                </Text>
                 {hasVoted && <Text style={styles.pollPct}>{pct}%</Text>}
               </View>
               {hasVoted && (
                 <View style={styles.pollBar}>
-                  <View style={[styles.pollBarFill, { width: `${pct}%` as `${number}%`, backgroundColor: selected ? colors.accent : 'rgba(255,255,255,0.12)' }]} />
+                  <View
+                    style={[
+                      styles.pollBarFill,
+                      {
+                        width: `${pct}%` as `${number}%`,
+                        backgroundColor: selected ? colors.accent : 'rgba(255,255,255,0.12)',
+                      },
+                    ]}
+                  />
                 </View>
               )}
             </TouchableOpacity>
           );
         })}
       </View>
-      {!hasVoted && <Text style={styles.pollHint}>Tap to vote · {total} total votes</Text>}
+
+      {!hasVoted && (
+        <Text style={styles.pollHint}>Tap to vote · {voteTotal} total votes</Text>
+      )}
+
+      {hasVoted && hasMore && (
+        <TouchableOpacity style={styles.nextPollBtn} onPress={onNext} activeOpacity={0.8}>
+          <Text style={styles.nextPollText}>Next Poll</Text>
+          <Ionicons name="arrow-forward" size={14} color={colors.accent} />
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -149,6 +185,7 @@ export default function FeedScreen() {
   const insets = useSafeAreaInsets();
   const { markPollVoted } = useAuth();
   const [pollVotes, setPollVotes] = useState<Record<string, string>>({});
+  const [currentPollIdx, setCurrentPollIdx] = useState(0);
   const [visibleIds, setVisibleIds] = useState<string[]>([]);
   const watchedVideoIds = useRef<Set<string>>(new Set());
 
@@ -161,7 +198,7 @@ export default function FeedScreen() {
   } = useVideoFeeds();
 
   const {
-    data: polls = [],
+    data: allPolls = [],
     isLoading: pollsLoading,
     isRefetching: pollsRefetching,
     refetch: refetchPolls,
@@ -173,7 +210,14 @@ export default function FeedScreen() {
   const isLoading = videosLoading || pollsLoading;
   const isRefetching = (videosRefetching || pollsRefetching) && !isLoading;
 
-  const activePoll = polls.length > 0 ? polls[0] : null;
+  const livePolls = allPolls.filter((p) => p.isLive);
+
+  useEffect(() => {
+    setCurrentPollIdx(0);
+  }, [livePolls.length]);
+
+  const activePoll = livePolls[currentPollIdx] ?? null;
+  const hasMorePolls = currentPollIdx < livePolls.length - 1;
 
   const onRefresh = useCallback(async () => {
     await Promise.all([refetchVideos(), refetchPolls()]);
@@ -181,10 +225,14 @@ export default function FeedScreen() {
 
   const handleVote = useCallback((pollId: string, optId: string) => {
     if (pollVotes[pollId]) return;
-    setPollVotes((p) => ({ ...p, [pollId]: optId }));
+    setPollVotes((prev) => ({ ...prev, [pollId]: optId }));
     markPollVoted(pollId);
     votePoll({ pollId, optionId: optId });
   }, [pollVotes, markPollVoted, votePoll]);
+
+  const handleNextPoll = useCallback(() => {
+    setCurrentPollIdx((i) => Math.min(i + 1, livePolls.length - 1));
+  }, [livePolls.length]);
 
   const onViewableItemsChanged = useCallback(({ viewableItems }: any) => {
     const ids = viewableItems.map((i: any) => i.item.id) as string[];
@@ -204,9 +252,14 @@ export default function FeedScreen() {
   const listHeader = activePoll ? (
     <View style={styles.pollSection}>
       <PollCard
+        key={activePoll.id}
         item={activePoll}
         votedOptionId={pollVotes[activePoll.id] ?? null}
         onVote={(oid) => handleVote(activePoll.id, oid)}
+        currentIndex={currentPollIdx}
+        total={livePolls.length}
+        hasMore={hasMorePolls}
+        onNext={handleNextPoll}
       />
       <View style={styles.sectionDivider}>
         <View style={styles.dividerLine} />
@@ -331,16 +384,37 @@ const styles = StyleSheet.create({
   liveDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: '#fff' },
   liveText: { color: '#fff', fontSize: 9, fontWeight: '800', letterSpacing: 1 },
   videoOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 60 },
-  videoMetaRow: { position: 'absolute', bottom: 10, left: 12, right: 12, flexDirection: 'row', justifyContent: 'space-between' },
+  videoMetaRow: {
+    position: 'absolute',
+    bottom: 10,
+    left: 12,
+    right: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
   videoDuration: { color: '#fff', fontSize: 11, fontWeight: '600' },
   videoViews: { color: 'rgba(255,255,255,0.7)', fontSize: 11 },
   videoBody: { padding: spacing.lg },
   videoTitle: { color: colors.textPrimary, fontSize: 15, fontWeight: '700', lineHeight: 22, marginBottom: spacing.sm },
   videoSpeaker: { color: colors.textSecondary, fontSize: 12, marginBottom: spacing.md },
   videoActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  playBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 14, paddingVertical: 8, borderRadius: radius.full },
+  playBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: radius.full,
+  },
   playBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
-  iconBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center' },
+  iconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
   pollCard: {
     borderRadius: radius.xl,
@@ -349,7 +423,12 @@ const styles = StyleSheet.create({
     borderColor: colors.accent + '40',
     padding: spacing.lg,
   },
-  pollHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md },
+  pollHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
   pollBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -362,19 +441,66 @@ const styles = StyleSheet.create({
     borderColor: colors.accent + '40',
   },
   pollBadgeText: { color: colors.accent, fontSize: 9, fontWeight: '800', letterSpacing: 1 },
+  pollMeta: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   pollSession: { color: colors.textMuted, fontSize: 11 },
-  pollQuestion: { color: colors.textPrimary, fontSize: 15, fontWeight: '700', lineHeight: 22, marginBottom: spacing.lg },
+  pollCounter: {
+    color: colors.accent,
+    fontSize: 11,
+    fontWeight: '700',
+    backgroundColor: colors.accent + '15',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: radius.full,
+  },
+  pollQuestion: {
+    color: colors.textPrimary,
+    fontSize: 15,
+    fontWeight: '700',
+    lineHeight: 22,
+    marginBottom: spacing.lg,
+  },
   pollOptions: { gap: spacing.sm },
-  pollOpt: { borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.md, overflow: 'hidden' },
+  pollOpt: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    overflow: 'hidden',
+  },
   pollOptSelected: { borderColor: colors.accent + '80', backgroundColor: colors.accent + '10' },
   pollOptRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   pollOptText: { color: colors.textPrimary, fontSize: 13, fontWeight: '500', flex: 1 },
   pollPct: { color: colors.textSecondary, fontSize: 13, fontWeight: '700' },
-  pollBar: { height: 3, backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 2, marginTop: spacing.sm, overflow: 'hidden' },
+  pollBar: {
+    height: 3,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 2,
+    marginTop: spacing.sm,
+    overflow: 'hidden',
+  },
   pollBarFill: { height: 3, borderRadius: 2 },
   pollHint: { color: colors.textMuted, fontSize: 11, textAlign: 'center', marginTop: spacing.md },
+  nextPollBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: spacing.lg,
+    paddingVertical: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.accent + '50',
+    backgroundColor: colors.accent + '10',
+  },
+  nextPollText: { color: colors.accent, fontSize: 13, fontWeight: '700' },
 
-  emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.xxl, paddingVertical: 80 },
+  emptyState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.xxl,
+    paddingVertical: 80,
+  },
   emptyEmoji: { fontSize: 48, marginBottom: spacing.lg },
   emptyTitle: { color: colors.textPrimary, fontSize: 18, fontWeight: '700', textAlign: 'center', marginBottom: spacing.sm },
   emptySub: { color: colors.textMuted, fontSize: 14, textAlign: 'center', lineHeight: 21 },

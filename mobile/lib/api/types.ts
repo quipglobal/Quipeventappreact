@@ -122,6 +122,7 @@ export interface Poll {
   options: PollOption[];
   points: number;
   totalVotes: number;
+  isLive: boolean;
 }
 
 export interface Survey {

@@ -39,18 +39,29 @@ export async function listPolls(): Promise<ApiResponse<Poll[]>> {
   const res = await request<any>(`/api/v1/events/${eventId}/mobile-polls`);
   if (!res.success) return res as ApiResponse<Poll[]>;
   const raw: any[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
-  const polls: Poll[] = raw.map((p: any) => ({
-    id: String(p.id),
-    question: p.question ?? p.title ?? '',
-    session: p.session ?? p.session_title ?? '',
-    points: Number(p.points ?? p.gamification_points ?? 10),
-    totalVotes: Number(p.total_votes ?? p.totalVotes ?? 0),
-    options: (p.options ?? p.answers ?? []).map((o: any) => ({
-      id: String(o.id),
-      text: o.text ?? o.answer ?? o.label ?? '',
-      votes: Number(o.votes ?? o.vote_count ?? 0),
-    })),
-  }));
+  const CLOSED = ['ended', 'closed', 'inactive', 'draft', 'completed', 'expired'];
+  const polls: Poll[] = raw.map((p: any) => {
+    const rawStatus = String(p.status ?? p.poll_status ?? '').toLowerCase();
+    const isLive: boolean =
+      p.is_live !== undefined ? Boolean(p.is_live)
+      : p.is_active !== undefined ? Boolean(p.is_active)
+      : p.active !== undefined ? Boolean(p.active)
+      : CLOSED.includes(rawStatus) ? false
+      : true;
+    return {
+      id: String(p.id),
+      question: p.question ?? p.title ?? '',
+      session: p.session ?? p.session_title ?? '',
+      points: Number(p.points ?? p.gamification_points ?? 10),
+      totalVotes: Number(p.total_votes ?? p.totalVotes ?? 0),
+      isLive,
+      options: (p.options ?? p.answers ?? []).map((o: any) => ({
+        id: String(o.id),
+        text: o.text ?? o.answer ?? o.label ?? '',
+        votes: Number(o.votes ?? o.vote_count ?? 0),
+      })),
+    };
+  });
   return { success: true, data: polls };
 }
 
