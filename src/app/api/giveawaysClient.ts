@@ -24,7 +24,6 @@ let listEndpointMissing = false;
 let createEndpointMissing = false;
 let updateEndpointMissing = false;
 let deleteEndpointMissing = false;
-let saveWinnerEndpointMissing = false;
 let warnedListMissing = false;
 
 export function resetGiveawaysEndpointMissing(): void {
@@ -32,7 +31,6 @@ export function resetGiveawaysEndpointMissing(): void {
   createEndpointMissing = false;
   updateEndpointMissing = false;
   deleteEndpointMissing = false;
-  saveWinnerEndpointMissing = false;
 }
 
 function pickString(...candidates: unknown[]): string {
@@ -328,9 +326,12 @@ export async function saveGiveawayWinner(
   giveawayId: string,
   winner: SaveWinnerPayload,
 ): Promise<SaveWinnerResponse> {
-  if (saveWinnerEndpointMissing) {
-    return { success: false, error: { code: 'NOT_IMPLEMENTED', message: 'Save-winner endpoint not deployed.' } };
-  }
+  // No session-scoped blocking flag here: lucky draws are infrequent (one per
+  // draw, not a polling loop), so the cost of always hitting the network is
+  // negligible. A session-flag would silently drop a second giveaway's winner
+  // POST if the first one 404'd — which is exactly the "winner not posted to
+  // backend" bug. Each draw independently retries so a newly-deployed endpoint
+  // is picked up immediately without requiring a page reload.
   if (giveawayId.startsWith('giveaway-')) {
     return { success: false, error: { code: 'NOT_IMPLEMENTED', message: 'Giveaway is local-only — backend create did not complete.' } };
   }
@@ -359,7 +360,6 @@ export async function saveGiveawayWinner(
   if (!res.success) {
     const code = String(res.error?.code ?? '');
     if (code === '404' || code === '405') {
-      saveWinnerEndpointMissing = true;
       return { success: false, error: { code: 'NOT_IMPLEMENTED', message: 'Save-winner endpoint not deployed.' } };
     }
     return { success: false, error: res.error ?? { code: 'SAVE_WINNER_FAILED', message: 'Failed to save winner.' } };

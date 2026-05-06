@@ -1,6 +1,6 @@
 import { request } from '@/lib/apiClient';
 import { getEventId } from '@/lib/eventStore';
-import type { ApiResponse, Challenge, Poll, Survey, Giveaway } from '@/lib/api/types';
+import type { ApiResponse, Challenge, Poll, Survey, Giveaway, GiveawayWinner } from '@/lib/api/types';
 
 export async function listChallenges(): Promise<ApiResponse<Challenge[]>> {
   const eventId = getEventId();
@@ -103,22 +103,102 @@ export async function listGiveaways(): Promise<ApiResponse<Giveaway[]>> {
   else if (Array.isArray(res.data?.data)) raw = res.data.data;
   else if (Array.isArray(res.data?.giveaways)) raw = res.data.giveaways;
   const COLORS = ['#7c3aed', '#06b6d4', '#10b981', '#f59e0b', '#ec4899'];
-  const giveaways: Giveaway[] = raw.map((g: any, i: number) => ({
-    id: String(g.id ?? g.giveaway_id ?? g.uuid ?? `g-${i}`),
-    title: g.title ?? g.name ?? g.prize ?? g.label ?? '',
-    sponsor:
-      g.sponsor ??
-      g.sponsor_name ??
-      g.sponsorName ??
-      g.sponsor?.name ??
-      g.sponsor?.company_name ??
-      '',
-    entries: Number(g.entries ?? g.entry_count ?? 0),
-    ends: g.ends_at ? new Date(g.ends_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : g.ends ?? '',
-    color: g.color ?? COLORS[i % COLORS.length],
-    entered: Boolean(g.entered ?? g.has_entered ?? false),
-  }));
+  const giveaways: Giveaway[] = raw.map((g: any, i: number) => {
+    // Normalize winners from the same response — this is the single source
+    // of truth for who won which giveaway (avoids separate fetches and keeps
+    // web + mobile in sync through the same backend endpoint).
+    const rawWinners: any[] = Array.isArray(g.winners)
+      ? g.winners
+      : Array.isArray(g.winner_list)
+      ? g.winner_list
+      : Array.isArray(g.draws)
+      ? g.draws
+      : [];
+    const winners: GiveawayWinner[] = rawWinners
+      .map((w: any): GiveawayWinner | null => {
+        if (!w || typeof w !== 'object') return null;
+        const lead = w.lead ?? w.attendee ?? w.user ?? null;
+        const id = String(w.id ?? w.winner_id ?? w.winnerId ?? lead?.id ?? '');
+        const name =
+          w.name ?? w.winner_name ?? w.full_name ?? lead?.name ?? lead?.full_name ?? '';
+        if (!id || !name) return null;
+        const drawnSrc = w.drawn_at ?? w.drawnAt ?? w.created_at ?? w.createdAt;
+        const drawnAt = drawnSrc ? new Date(drawnSrc) : new Date();
+        return {
+          id,
+          name,
+          company: w.company ?? w.company_name ?? lead?.company ?? lead?.company_name ?? undefined,
+          title: w.title ?? w.job_title ?? lead?.title ?? undefined,
+          avatar: w.avatar ?? w.avatar_url ?? lead?.avatar ?? undefined,
+          drawnAt: (isNaN(drawnAt.getTime()) ? new Date() : drawnAt).toISOString(),
+        };
+      })
+      .filter((w): w is GiveawayWinner => w !== null);
+    return {
+      id: String(g.id ?? g.giveaway_id ?? g.uuid ?? `g-${i}`),
+      title: g.title ?? g.name ?? g.prize ?? g.label ?? '',
+      sponsor:
+        g.sponsor ??
+        g.sponsor_name ??
+        g.sponsorName ??
+        g.sponsor?.name ??
+        g.sponsor?.company_name ??
+        '',
+      entries: Number(g.entries ?? g.entry_count ?? 0),
+      ends: g.ends_at ? new Date(g.ends_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : g.ends ?? '',
+      color: g.color ?? COLORS[i % COLORS.length],
+      entered: Boolean(g.entered ?? g.has_entered ?? false),
+      ...(winners.length > 0 ? { winners } : {}),
+    };
+  });
   return { success: true, data: giveaways };
+}
+
+export interface SaveWinnerPayload {
+  id: string;
+  name: string;
+  company?: string;
+  title?: string;
+  avatar?: string;
+  drawnAt: string;
+}
+
+/**
+ * POST /api/v1/events/:eventId/giveaways/:giveawayId/winners
+ *
+ * Records the winner of a lucky draw against the specific giveaway so the
+ * backend persists it and returns it in subsequent GET giveaways responses —
+ * ensuring web, mobile, and any back-office view all show the same winner.
+ * Sends both camelCase and snake_case variants for backend compatibility.
+ */
+export async function saveGiveawayWinner(
+  giveawayId: string,
+  winner: SaveWinnerPayload,
+): Promise<ApiResponse<true>> {
+  const eventId = getEventId();
+  if (!eventId) return { success: false, error: { code: 'NO_EVENT', message: 'No active event' } };
+  if (!giveawayId) return { success: false, error: { code: 'NO_GIVEAWAY', message: 'No giveaway selected' } };
+  if (__DEV__) console.log(`[Engage] saveGiveawayWinner giveawayId=${giveawayId} winner=${winner.name}`);
+  const body = {
+    id: winner.id,
+    winner_id: winner.id,
+    winnerId: winner.id,
+    lead_id: winner.id,
+    leadId: winner.id,
+    name: winner.name,
+    company: winner.company ?? '',
+    title: winner.title ?? '',
+    avatar: winner.avatar ?? '',
+    avatar_url: winner.avatar ?? '',
+    drawn_at: winner.drawnAt,
+    drawnAt: winner.drawnAt,
+  };
+  const res = await request<any>(`/api/v1/events/${eventId}/giveaways/${giveawayId}/winners`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+  if (!res.success) return res as ApiResponse<true>;
+  return { success: true, data: true };
 }
 
 export async function enterGiveaway(giveawayId: string): Promise<ApiResponse<{ entries: number }>> {

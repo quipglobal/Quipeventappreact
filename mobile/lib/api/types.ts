@@ -132,6 +132,15 @@ export interface Survey {
   points: number;
 }
 
+export interface GiveawayWinner {
+  id: string;
+  name: string;
+  company?: string;
+  title?: string;
+  avatar?: string;
+  drawnAt: string;
+}
+
 export interface Giveaway {
   id: string;
   title: string;
@@ -140,6 +149,7 @@ export interface Giveaway {
   ends: string;
   color: string;
   entered: boolean;
+  winners?: GiveawayWinner[];
 }
 
 export interface Lead {

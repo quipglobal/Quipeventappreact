@@ -30,6 +30,7 @@ import { saveLeadEdit } from '@/app/lib/leadEditsStorage';
 import {
   GiveawayWinner,
   loadGiveawayWinners,
+  writeGiveawayWinners,
   appendGiveawayWinner,
   migrateGiveawayWinnersKey,
 } from '@/app/lib/giveawayWinnersStorage';
@@ -531,22 +532,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           //   • local-only winners appear (offline / endpoint-missing);
           //   • a winner present in both isn't double-counted.
           const winnersByGiveaway = loadGiveawayWinners(eventId);
-          setSponsorGiveaways(
-            res.data.map(g => {
+          const normalized = res.data.map(g => {
               const local = winnersByGiveaway[g.id] ?? [];
               const fromServer = Array.isArray(g.winners) ? g.winners : [];
               if (local.length === 0 && fromServer.length === 0) return g;
               const seen = new Set<string>();
               const merged: GiveawayWinner[] = [];
+              // Backend rows are canonical — their name/company/title take
+              // precedence over what was stored locally at draw time.
               for (const w of fromServer) {
                 if (w?.id && !seen.has(w.id)) { seen.add(w.id); merged.push(w); }
               }
+              // Local-only entries appear after (offline picks, endpoint-missing).
               for (const w of local) {
                 if (w?.id && !seen.has(w.id)) { seen.add(w.id); merged.push(w); }
               }
+              // Write the canonical merged list back to localStorage so the
+              // overlay stays in sync with backend names across reloads.
+              // A stale local name (e.g. "Jane D." vs the backend's "Jane Doe")
+              // is corrected the first time a hydration response carries the
+              // winner — without this, the overlay would keep the stale copy
+              // forever and diverge from what the mobile app sees.
+              if (merged.length > 0) {
+                writeGiveawayWinners(eventId, g.id, merged);
+              }
               return { ...g, winners: merged };
-            }),
-          );
+            });
+          setSponsorGiveaways(normalized);
         }
         // On NOT_IMPLEMENTED / network error: silently keep current state.
         // The sponsor UI still works locally; reconciliation picks up

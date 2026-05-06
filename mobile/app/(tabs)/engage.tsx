@@ -23,7 +23,8 @@ import { DataState } from '@/components/DataState';
 import { BadgeCameraScanner } from '@/components/BadgeCameraScanner';
 import { colors, spacing, radius } from '@/constants/theme';
 import { submitScan } from '@/lib/api/leads';
-import type { ApiResponse, LeaderboardEntry, Lead } from '@/lib/api/types';
+import { saveGiveawayWinner } from '@/lib/api/engage';
+import type { ApiResponse, LeaderboardEntry, Lead, Giveaway } from '@/lib/api/types';
 
 function BadgeScanPanel({ onScanPress }: { onScanPress: () => void }) {
   return (
@@ -504,17 +505,37 @@ function AttendeeEngage() {
 function SponsorEngage() {
   const insets = useSafeAreaInsets();
   const [mode, setMode] = useState<'tools' | 'scanner' | 'leads' | 'draw'>('tools');
-  const [drawWinner, setDrawWinner] = useState<string | null>(null);
+  const [drawWinner, setDrawWinner] = useState<{ id: string; name: string; company?: string; title?: string; avatar?: string } | null>(null);
+  const [selectedGiveaway, setSelectedGiveaway] = useState<Giveaway | null>(null);
+  const [showGiveawayPicker, setShowGiveawayPicker] = useState(false);
 
   const { data: leadsData = [], refetch: refetchLeads } = useLeads();
+  const { data: giveawaysForDraw = [] } = useGiveaways();
   const { mutate: triggerDraw, isPending: drawPending } = useLuckyDraw();
   const leads = leadsData;
 
   const runDraw = () => {
-    triggerDraw(undefined, {
+    triggerDraw(selectedGiveaway?.id, {
       onSuccess: (res) => {
-        const winner = res.data?.winner;
-        setDrawWinner(winner?.name ?? 'Unknown');
+        const w = res.data?.winner;
+        if (!w) return;
+        const winner = { id: String(w.id), name: w.name ?? 'Unknown', company: w.company, title: w.title, avatar: undefined as string | undefined };
+        setDrawWinner(winner);
+        // POST the winner to the backend against the selected giveaway so the
+        // result appears in GET giveaways for web, mobile, and back-office.
+        if (selectedGiveaway) {
+          saveGiveawayWinner(selectedGiveaway.id, {
+            id: winner.id,
+            name: winner.name,
+            company: winner.company,
+            title: winner.title,
+            drawnAt: new Date().toISOString(),
+          }).then(r => {
+            if (__DEV__ && !r.success) console.warn('[SponsorEngage] saveGiveawayWinner failed:', r.error);
+          }).catch(err => {
+            if (__DEV__) console.warn('[SponsorEngage] saveGiveawayWinner threw:', err);
+          });
+        }
       },
       onError: () => Alert.alert('Draw Failed', 'Could not pick a winner. Try again.'),
     });
@@ -536,7 +557,7 @@ function SponsorEngage() {
   if (mode === 'draw') {
     return (
       <View style={[styles.container, { paddingTop: insets.top + spacing.xl }]}>
-        <TouchableOpacity style={[styles.backBtn, { marginHorizontal: spacing.xl }]} onPress={() => { setMode('tools'); setDrawWinner(null); }}>
+        <TouchableOpacity style={[styles.backBtn, { marginHorizontal: spacing.xl }]} onPress={() => { setMode('tools'); setDrawWinner(null); setSelectedGiveaway(null); }}>
           <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
           <Text style={styles.backText}>Back</Text>
         </TouchableOpacity>
@@ -544,11 +565,45 @@ function SponsorEngage() {
           <Text style={styles.drawTitle}>Lucky Draw</Text>
           <Text style={styles.drawSubtitle}>{leads.length} participants</Text>
 
+          {/* Giveaway selector — links the draw result to a specific prize */}
+          {giveawaysForDraw.length > 0 && (
+            <TouchableOpacity
+              style={styles.giveawayPickerBtn}
+              onPress={() => setShowGiveawayPicker(v => !v)}
+            >
+              <Text style={styles.giveawayPickerLabel}>
+                {selectedGiveaway ? selectedGiveaway.title : 'Select giveaway (optional)'}
+              </Text>
+              <Ionicons name={showGiveawayPicker ? 'chevron-up' : 'chevron-down'} size={16} color={colors.textMuted} />
+            </TouchableOpacity>
+          )}
+          {showGiveawayPicker && (
+            <View style={styles.giveawayPickerList}>
+              <TouchableOpacity
+                style={styles.giveawayPickerItem}
+                onPress={() => { setSelectedGiveaway(null); setShowGiveawayPicker(false); }}
+              >
+                <Text style={[styles.giveawayPickerItemText, !selectedGiveaway && { color: colors.primary }]}>None</Text>
+              </TouchableOpacity>
+              {giveawaysForDraw.map(g => (
+                <TouchableOpacity
+                  key={g.id}
+                  style={styles.giveawayPickerItem}
+                  onPress={() => { setSelectedGiveaway(g); setShowGiveawayPicker(false); }}
+                >
+                  <Text style={[styles.giveawayPickerItemText, selectedGiveaway?.id === g.id && { color: colors.primary }]}>{g.title}</Text>
+                  {selectedGiveaway?.id === g.id && <Ionicons name="checkmark" size={16} color={colors.primary} />}
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
           <LinearGradient colors={['#3b1d8a', '#0d1a2e']} style={styles.drawBox}>
             {drawWinner ? (
               <>
                 <Text style={styles.drawWinnerLabel}>Winner!</Text>
-                <Text style={styles.drawWinnerName}>{drawWinner}</Text>
+                <Text style={styles.drawWinnerName}>{drawWinner.name}</Text>
+                {!!drawWinner.company && <Text style={styles.drawWinnerCompany}>{drawWinner.company}</Text>}
               </>
             ) : (
               <>
@@ -844,7 +899,26 @@ const styles = StyleSheet.create({
   drawBox: { width: '100%', aspectRatio: 1.2, borderRadius: radius.xl, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.xxl },
   drawWinnerLabel: { color: '#ffd700', fontSize: 16, fontWeight: '700', marginBottom: spacing.sm },
   drawWinnerName: { color: '#fff', fontSize: 28, fontWeight: '800', textAlign: 'center' },
+  drawWinnerCompany: { color: 'rgba(255,255,255,0.6)', fontSize: 14, marginTop: 4, textAlign: 'center' },
   drawHint: { color: 'rgba(255,255,255,0.4)', fontSize: 13, marginTop: spacing.md },
+  giveawayPickerBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    width: '100%', paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
+    backgroundColor: 'rgba(255,255,255,0.07)', borderRadius: radius.lg,
+    marginBottom: spacing.sm, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+  },
+  giveawayPickerLabel: { color: colors.textSecondary, fontSize: 13, fontWeight: '600', flex: 1 },
+  giveawayPickerList: {
+    width: '100%', backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: radius.lg, marginBottom: spacing.md, overflow: 'hidden',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
+  },
+  giveawayPickerItem: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
+    borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  giveawayPickerItemText: { color: colors.textSecondary, fontSize: 13, fontWeight: '500', flex: 1 },
   drawBtn: { width: '100%', borderRadius: radius.xl, overflow: 'hidden' },
   drawBtnGrad: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, padding: spacing.xl },
   drawBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },

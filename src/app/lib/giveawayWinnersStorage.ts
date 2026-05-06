@@ -72,6 +72,32 @@ export function loadGiveawayWinners(eventId: string | undefined | null): Giveawa
   }
 }
 
+/**
+ * Bulk-replace the winners for a single giveaway within the event overlay.
+ * Used after backend hydration to write the canonical merged list back to
+ * localStorage so the overlay stays in sync with the backend's authoritative
+ * names — prevents stale local names from persisting across reloads even
+ * after the backend has corrected or enriched winner data.
+ *
+ * A no-op (safe to call) when `winners` is empty — we never store an empty
+ * array and accidentally clear a previously-saved winner set.
+ */
+export function writeGiveawayWinners(
+  eventId: string | undefined | null,
+  giveawayId: string,
+  winners: GiveawayWinner[],
+): void {
+  if (!eventId || !giveawayId || typeof window === 'undefined') return;
+  if (!winners.length) return;
+  try {
+    const overlay = loadGiveawayWinners(eventId);
+    overlay[giveawayId] = winners;
+    window.localStorage.setItem(storageKey(eventId), JSON.stringify(overlay));
+  } catch {
+    // best-effort
+  }
+}
+
 export function appendGiveawayWinner(
   eventId: string | undefined | null,
   giveawayId: string,
