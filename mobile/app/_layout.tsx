@@ -19,7 +19,22 @@ SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: { retry: 2, staleTime: 1000 * 60 * 5 },
+    queries: {
+      retry: 2,
+      // staleTime: 0 (default) means data is considered stale the
+      // moment it lands. Combined with `useAuthedQuery`'s focus
+      // listener, this makes "navigate back to a screen" always pull
+      // the latest backend state without forcing the user to sign out
+      // and back in. Per-hook overrides still apply if a specific
+      // dataset truly is stable for longer.
+      staleTime: 0,
+      // Force a refetch every time a query consumer mounts. With
+      // staleTime: 0 above this is the same effect, but being
+      // explicit keeps the behaviour intentional even if a future
+      // edit raises staleTime.
+      refetchOnMount: 'always',
+      refetchOnReconnect: 'always',
+    },
     mutations: { retry: 0 },
   },
 });
