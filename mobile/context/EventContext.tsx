@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { setEventId } from '@/lib/eventStore';
+import { resetVideoFeedsFlag } from '@/lib/api/feed';
 
 const EVENT_KEY = 'cxo_current_event_id';
 
@@ -32,6 +33,12 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
   const setCurrentEventId = useCallback((id: string | null) => {
     setCurrentEventIdState(id);
     setEventId(id);
+    // Reset session-scoped NOT_IMPLEMENTED flags whenever the event
+    // changes. Without this, the first event the user visits in a
+    // session permanently decides whether the route is "available"
+    // for every subsequent event — so e.g. an Austin 404 would make
+    // LA's videos invisible too.
+    resetVideoFeedsFlag();
     if (id) {
       AsyncStorage.setItem(EVENT_KEY, id).catch(() => {});
     } else {

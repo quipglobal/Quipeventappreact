@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthedQuery } from '@/hooks/useAuthedQuery';
+import { useEvent } from '@/context/EventContext';
 import {
   listChallenges, completeChallenge as apiCompleteChallenge,
   listPolls, votePoll,
@@ -8,11 +9,12 @@ import {
 } from '@/lib/api/engage';
 
 export function useChallenges() {
+  const { currentEventId } = useEvent();
   return useAuthedQuery({
-    queryKey: ['challenges'],
+    queryKey: ['challenges', currentEventId],
     queryFn: listChallenges,
     select: (res) => res.data ?? [],
-    staleTime: 1000 * 60 * 5,
+    enabled: !!currentEventId,
   });
 }
 
@@ -28,11 +30,16 @@ export function useCompleteChallenge() {
 }
 
 export function usePolls() {
+  // Scope the cache key by event id so switching events doesn't
+  // serve the previous event's polls from cache. Without this,
+  // Austin's empty poll list would leak into LA (and vice versa)
+  // until the focus refetch completed.
+  const { currentEventId } = useEvent();
   return useAuthedQuery({
-    queryKey: ['polls'],
+    queryKey: ['polls', currentEventId],
     queryFn: listPolls,
     select: (res) => res.data ?? [],
-    staleTime: 1000 * 30,
+    enabled: !!currentEventId,
   });
 }
 
@@ -49,11 +56,12 @@ export function useVotePoll() {
 }
 
 export function useSurveys() {
+  const { currentEventId } = useEvent();
   return useAuthedQuery({
-    queryKey: ['surveys'],
+    queryKey: ['surveys', currentEventId],
     queryFn: listSurveys,
     select: (res) => res.data ?? [],
-    staleTime: 1000 * 60 * 5,
+    enabled: !!currentEventId,
   });
 }
 
@@ -70,11 +78,12 @@ export function useSubmitSurvey() {
 }
 
 export function useGiveaways() {
+  const { currentEventId } = useEvent();
   return useAuthedQuery({
-    queryKey: ['giveaways'],
+    queryKey: ['giveaways', currentEventId],
     queryFn: listGiveaways,
     select: (res) => res.data ?? [],
-    staleTime: 1000 * 60,
+    enabled: !!currentEventId,
   });
 }
 
