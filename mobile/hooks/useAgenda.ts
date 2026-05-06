@@ -1,23 +1,25 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthedQuery } from '@/hooks/useAuthedQuery';
+import { useEvent } from '@/context/EventContext';
 import { listSessions, getSession, bookmarkSession } from '@/lib/api/events';
 
 export function useAgenda(filters?: { day?: number; track?: string }) {
+  const { currentEventId } = useEvent();
   return useAuthedQuery({
-    queryKey: ['sessions', filters],
+    queryKey: ['sessions', currentEventId, filters],
     queryFn: () => listSessions(filters),
     select: (res) => res.data ?? [],
-    staleTime: 1000 * 60 * 5,
+    enabled: !!currentEventId,
   });
 }
 
 export function useSession(id: string) {
+  const { currentEventId } = useEvent();
   return useAuthedQuery({
-    queryKey: ['session', id],
+    queryKey: ['session', currentEventId, id],
     queryFn: () => getSession(id),
     select: (res) => res.data,
-    enabled: !!id,
-    staleTime: 1000 * 60 * 5,
+    enabled: !!id && !!currentEventId,
   });
 }
 

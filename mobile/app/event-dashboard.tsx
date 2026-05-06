@@ -19,35 +19,33 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
 import { useEvent } from '@/context/EventContext';
-import { useLeaderboard } from '@/hooks/useAudience';
+import { useLeaderboard, useAudience } from '@/hooks/useAudience';
 import { useEvents, useJoinEvent } from '@/hooks/useEvents';
-import { usePolls } from '@/hooks/useEngage';
+import { usePolls, useGiveaways } from '@/hooks/useEngage';
+import { useAgenda } from '@/hooks/useAgenda';
+import { usePartners } from '@/hooks/usePartners';
 import { colors, spacing, radius } from '@/constants/theme';
 import type { Event } from '@/lib/api/types';
 
 const { width: SW } = Dimensions.get('window');
 const COL = (SW - spacing.xl * 2 - spacing.md) / 2;
 
-const STATIC_STATS = [
-  { icon: 'people' as const,      label: 'Attendees',     value: '842', sub: '+12 today',  color: '#7c3aed' },
-  { icon: 'play-circle' as const, label: 'Sessions Live', value: '3',   sub: '5 upcoming', color: '#06b6d4' },
-  { icon: 'briefcase' as const,   label: 'Sponsors',      value: '24',  sub: '4 tiers',    color: '#10b981' },
-  { icon: 'gift' as const,        label: 'Giveaways',     value: '2',   sub: 'Draw at 5 PM', color: '#ec4899' },
-];
-
-const SESSIONS_NOW = [
-  { id: 's1', title: 'Opening Keynote: The Future of AI', room: 'Main Hall', remaining: '32 min', color: '#7c3aed', attendees: 412 },
-  { id: 's2', title: 'Scaling Engineering Teams',         room: 'Room A',    remaining: '18 min', color: '#06b6d4', attendees: 87 },
-  { id: 's3', title: 'UX Research Workshop',              room: 'Room B',    remaining: '51 min', color: '#ec4899', attendees: 64 },
-];
-
-type EventMeta = { category: string; categoryColor: string; bannerColors: [string, string, ...string[]]; attendees: string; sessions: number };
+type EventMeta = { category: string; categoryColor: string; bannerColors: [string, string, ...string[]] };
 const EVENT_META: Record<string, EventMeta> = {
-  'evt-1': { category: 'CONFERENCE', categoryColor: '#7c3aed', bannerColors: ['#2d1060', '#1a0a3a', '#0a0a20'], attendees: '2,400', sessions: 36 },
-  'evt-2': { category: 'CONFERENCE', categoryColor: '#4f46e5', bannerColors: ['#1a1060', '#0d0a30', '#07070f'], attendees: '1,200', sessions: 28 },
-  'evt-3': { category: 'WORKSHOP',   categoryColor: '#06b6d4', bannerColors: ['#0a2840', '#0a1a30', '#050f1a'], attendees: '1,800', sessions: 24 },
+  'evt-1': { category: 'CONFERENCE', categoryColor: '#7c3aed', bannerColors: ['#2d1060', '#1a0a3a', '#0a0a20'] },
+  'evt-2': { category: 'CONFERENCE', categoryColor: '#4f46e5', bannerColors: ['#1a1060', '#0d0a30', '#07070f'] },
+  'evt-3': { category: 'WORKSHOP',   categoryColor: '#06b6d4', bannerColors: ['#0a2840', '#0a1a30', '#050f1a'] },
 };
-const FALLBACK_META: EventMeta = { category: 'EVENT', categoryColor: '#4f46e5', bannerColors: ['#0d0d2e', '#1a0a3a', '#07070f'], attendees: '—', sessions: 0 };
+const FALLBACK_META: EventMeta = { category: 'EVENT', categoryColor: '#4f46e5', bannerColors: ['#0d0d2e', '#1a0a3a', '#07070f'] };
+
+const SESSION_COLORS = ['#7c3aed', '#06b6d4', '#ec4899', '#10b981', '#f59e0b', '#4f46e5'];
+
+function minutesUntil(iso: string): number | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return null;
+  return Math.max(0, Math.round((t - Date.now()) / 60000));
+}
 
 function formatDateRange(start: string, end: string) {
   try {
@@ -83,10 +81,15 @@ export default function EventDashboardScreen() {
   const { data: leaderboardData = [] } = useLeaderboard();
   const { data: events = [], isLoading: eventsLoading } = useEvents();
   const { mutate: joinEvent, isPending: joining } = useJoinEvent();
-  // Live polls from the backend — replaces the previous hardcoded
-  // "Active Polls: 7 / 342 votes" KPI so the dashboard mirrors what the
-  // Feed tab actually shows above the videos.
+  // All event-stat KPIs and the "Happening Now" list now come from the
+  // backend per current event. Previously these were hardcoded
+  // (842 attendees, 3 live sessions, 24 sponsors, 2 giveaways, fixed
+  // session list) and bled across event switches.
   const { data: pollsData = [], isLoading: pollsLoading } = usePolls();
+  const { data: attendeesData = [], isLoading: attendeesLoading } = useAudience();
+  const { data: sessionsData = [], isLoading: sessionsLoading } = useAgenda();
+  const { data: sponsorsData = [], isLoading: sponsorsLoading } = usePartners();
+  const { data: giveawaysData = [], isLoading: giveawaysLoading } = useGiveaways();
 
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
@@ -110,6 +113,21 @@ export default function EventDashboardScreen() {
     (sum, p) => sum + p.options.reduce((s, o) => s + o.votes, 0),
     0,
   );
+
+  // Derive "live now" sessions from real start/end times so the count
+  // and the list under "Happening Now" stay in sync with the backend.
+  const now = Date.now();
+  const liveSessions = sessionsData.filter((s) => {
+    const start = s.startTime ? new Date(s.startTime).getTime() : NaN;
+    const end = s.endTime ? new Date(s.endTime).getTime() : NaN;
+    if (Number.isNaN(start) || Number.isNaN(end)) return false;
+    return start <= now && now <= end;
+  });
+  const upcomingSessions = sessionsData.filter((s) => {
+    const start = s.startTime ? new Date(s.startTime).getTime() : NaN;
+    return !Number.isNaN(start) && start > now;
+  });
+
   const livePollsStat = {
     icon: 'flash' as const,
     label: 'Active Polls',
@@ -121,7 +139,64 @@ export default function EventDashboardScreen() {
         : `${totalPollVotes} vote${totalPollVotes === 1 ? '' : 's'}`,
     color: '#f59e0b',
   };
-  const eventStats = [STATIC_STATS[0], STATIC_STATS[1], livePollsStat, topPointsStat, STATIC_STATS[2], STATIC_STATS[3]];
+
+  const attendeesStat = {
+    icon: 'people' as const,
+    label: 'Attendees',
+    value: attendeesLoading ? '—' : String(attendeesData.length),
+    sub: attendeesLoading ? 'Loading…' : attendeesData.length === 1 ? 'registered' : 'registered',
+    color: '#7c3aed',
+  };
+  const sessionsStat = {
+    icon: 'play-circle' as const,
+    label: 'Sessions Live',
+    value: sessionsLoading ? '—' : String(liveSessions.length),
+    sub: sessionsLoading
+      ? 'Loading…'
+      : `${upcomingSessions.length} upcoming`,
+    color: '#06b6d4',
+  };
+  const sponsorsStat = {
+    icon: 'briefcase' as const,
+    label: 'Sponsors',
+    value: sponsorsLoading ? '—' : String(sponsorsData.length),
+    sub: sponsorsLoading
+      ? 'Loading…'
+      : sponsorsData.length === 0
+        ? 'None yet'
+        : `${new Set(sponsorsData.map((s) => s.tier).filter(Boolean)).size} tier${new Set(sponsorsData.map((s) => s.tier).filter(Boolean)).size === 1 ? '' : 's'}`,
+    color: '#10b981',
+  };
+  const giveawaysStat = {
+    icon: 'gift' as const,
+    label: 'Giveaways',
+    value: giveawaysLoading ? '—' : String(giveawaysData.length),
+    sub: giveawaysLoading
+      ? 'Loading…'
+      : giveawaysData.length === 0
+        ? 'None active'
+        : 'Enter to win',
+    color: '#ec4899',
+  };
+
+  const eventStats = [attendeesStat, sessionsStat, livePollsStat, topPointsStat, sponsorsStat, giveawaysStat];
+
+  // Derive "Day X of N" from the current event's actual date range so the
+  // hero pill reflects the real schedule instead of the previous "Day 1 of 3".
+  const currentEventForHero = events.find((e) => e.id === currentEventId) ?? null;
+  const dayInfo: { label: string; total: number } | null = (() => {
+    if (!currentEventForHero) return null;
+    const start = currentEventForHero.startDate ? new Date(currentEventForHero.startDate) : null;
+    const end = currentEventForHero.endDate ? new Date(currentEventForHero.endDate) : null;
+    if (!start || !end || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+    const dayMs = 24 * 60 * 60 * 1000;
+    const total = Math.max(1, Math.round((end.getTime() - start.getTime()) / dayMs) + 1);
+    const today = new Date();
+    if (today < start) return { label: 'Day 1', total };
+    if (today > end) return { label: `Day ${total}`, total };
+    const dayNum = Math.min(total, Math.floor((today.getTime() - start.getTime()) / dayMs) + 1);
+    return { label: `Day ${dayNum}`, total };
+  })();
 
   // Find the current user's rank in the full leaderboard list. Match by name
   // (the leaderboard endpoint doesn't always return a userId field).
@@ -187,7 +262,12 @@ export default function EventDashboardScreen() {
               : 'CXO Event Companion'}
           </Text>
           <View style={styles.heroRow}>
-            <View style={styles.heroStat}><Text style={styles.heroStatVal}>Day 1</Text><Text style={styles.heroStatLbl}>of 3</Text></View>
+            {dayInfo && (
+              <View style={styles.heroStat}>
+                <Text style={styles.heroStatVal}>{dayInfo.label}</Text>
+                <Text style={styles.heroStatLbl}>of {dayInfo.total}</Text>
+              </View>
+            )}
             <View style={styles.heroStat}><Text style={styles.heroStatVal}>{user?.points ?? 0}</Text><Text style={styles.heroStatLbl}>Your Pts</Text></View>
             <View style={styles.heroStat}><Text style={styles.heroStatVal}>{user?.tier ?? 'Bronze'}</Text><Text style={styles.heroStatLbl}>Tier</Text></View>
           </View>
@@ -208,29 +288,71 @@ export default function EventDashboardScreen() {
           ))}
         </View>
 
-        {/* Happening now */}
+        {/* Happening now — pulled from /api/v1/events/:id/sessions, filtered to
+            sessions that are live right now. Falls back to the next 3 upcoming
+            sessions so the section isn't blank between live blocks. */}
         <Text style={styles.sectionLabel}>HAPPENING NOW</Text>
-        <View style={styles.sessionList}>
-          {SESSIONS_NOW.map((s) => (
-            <View key={s.id} style={styles.sessionCard}>
-              <View style={[styles.sessionBar, { backgroundColor: s.color }]} />
-              <View style={styles.sessionBody}>
-                <Text style={styles.sessionTitle} numberOfLines={1}>{s.title}</Text>
-                <View style={styles.sessionMeta}>
-                  <Ionicons name="location-outline" size={11} color={colors.textMuted} />
-                  <Text style={styles.sessionMetaTxt}>{s.room}</Text>
-                  <Ionicons name="time-outline" size={11} color={colors.textMuted} />
-                  <Text style={styles.sessionMetaTxt}>{s.remaining} left</Text>
-                  <Ionicons name="people-outline" size={11} color={colors.textMuted} />
-                  <Text style={styles.sessionMetaTxt}>{s.attendees}</Text>
-                </View>
+        {sessionsLoading ? (
+          <View style={[styles.sessionList, styles.center, { paddingVertical: spacing.lg }]}>
+            <ActivityIndicator color={colors.primary} />
+          </View>
+        ) : (() => {
+          const showing = liveSessions.length > 0 ? liveSessions : upcomingSessions.slice(0, 3);
+          if (showing.length === 0) {
+            return (
+              <View style={[styles.sessionList, styles.empty]}>
+                <Ionicons name="calendar-outline" size={28} color={colors.textMuted} />
+                <Text style={styles.emptyTitle}>No sessions scheduled</Text>
               </View>
-              <View style={[styles.livePip, { backgroundColor: s.color + '25', borderColor: s.color + '55' }]}>
-                <Text style={[styles.livePipTxt, { color: s.color }]}>LIVE</Text>
-              </View>
+            );
+          }
+          return (
+            <View style={styles.sessionList}>
+              {showing.slice(0, 3).map((s, idx) => {
+                const color = s.accentColor || SESSION_COLORS[idx % SESSION_COLORS.length];
+                const isLive = liveSessions.includes(s);
+                const endMins = minutesUntil(s.endTime);
+                const startMins = minutesUntil(s.startTime);
+                const remaining = isLive
+                  ? endMins != null ? `${endMins} min left` : ''
+                  : startMins != null ? `in ${startMins} min` : '';
+                return (
+                  <View key={s.id} style={styles.sessionCard}>
+                    <View style={[styles.sessionBar, { backgroundColor: color }]} />
+                    <View style={styles.sessionBody}>
+                      <Text style={styles.sessionTitle} numberOfLines={1}>{s.title}</Text>
+                      <View style={styles.sessionMeta}>
+                        {!!s.room && (
+                          <>
+                            <Ionicons name="location-outline" size={11} color={colors.textMuted} />
+                            <Text style={styles.sessionMetaTxt}>{s.room}</Text>
+                          </>
+                        )}
+                        {!!remaining && (
+                          <>
+                            <Ionicons name="time-outline" size={11} color={colors.textMuted} />
+                            <Text style={styles.sessionMetaTxt}>{remaining}</Text>
+                          </>
+                        )}
+                        {(s.assignedAudience?.length ?? 0) > 0 && (
+                          <>
+                            <Ionicons name="people-outline" size={11} color={colors.textMuted} />
+                            <Text style={styles.sessionMetaTxt}>{s.assignedAudience!.length}</Text>
+                          </>
+                        )}
+                      </View>
+                    </View>
+                    {isLive && (
+                      <View style={[styles.livePip, { backgroundColor: color + '25', borderColor: color + '55' }]}>
+                        <Text style={[styles.livePipTxt, { color }]}>LIVE</Text>
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
             </View>
-          ))}
-        </View>
+          );
+        })()}
 
         {/* Leaderboard preview */}
         {leaderboard.length > 0 && (
