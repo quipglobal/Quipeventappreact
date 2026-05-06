@@ -7,24 +7,22 @@ import {
   TouchableOpacity,
   Dimensions,
   RefreshControl,
-  Animated,
+  ActivityIndicator,
 } from 'react-native';
 import { Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
-import { useFeed, useMarkVideoWatched, useSubmitPollVote } from '@/hooks/useFeed';
+import { useVideoFeeds, useMarkVideoWatched } from '@/hooks/useFeed';
+import { usePolls, useVotePoll } from '@/hooks/useEngage';
 import { DataState } from '@/components/DataState';
 import { colors, spacing, radius, typography } from '@/constants/theme';
-import type { FeedItem, FeedVideo, FeedPoll } from '@/lib/api/types';
+import type { FeedVideo, Poll } from '@/lib/api/types';
 
 const { width: SW } = Dimensions.get('window');
 
-type VideoItem = FeedVideo;
-type PollItem = FeedPoll;
-
-function VideoCard({ item, isVisible }: { item: VideoItem; isVisible: boolean }) {
+function VideoCard({ item, isVisible }: { item: FeedVideo; isVisible: boolean }) {
   const videoRef = useRef<Video>(null);
   const [showPlayer, setShowPlayer] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -104,7 +102,7 @@ function VideoCard({ item, isVisible }: { item: VideoItem; isVisible: boolean })
   );
 }
 
-function PollCard({ item, votedOptionId, onVote }: { item: PollItem; votedOptionId: string | null; onVote: (id: string) => void }) {
+function PollCard({ item, votedOptionId, onVote }: { item: Poll; votedOptionId: string | null; onVote: (id: string) => void }) {
   const total = item.options.reduce((s, o) => s + o.votes, 0);
   const hasVoted = !!votedOptionId;
 
@@ -152,55 +150,71 @@ export default function FeedScreen() {
   const { markPollVoted } = useAuth();
   const [pollVotes, setPollVotes] = useState<Record<string, string>>({});
   const [visibleIds, setVisibleIds] = useState<string[]>([]);
+  const watchedVideoIds = useRef<Set<string>>(new Set());
 
-  const { data, isLoading, isError, isRefetching, refetch, isFetchingNextPage, fetchNextPage, hasNextPage } = useFeed();
-  const { mutate: submitPollVote } = useSubmitPollVote();
+  const {
+    data: videos = [],
+    isLoading: videosLoading,
+    isError: videosError,
+    isRefetching: videosRefetching,
+    refetch: refetchVideos,
+  } = useVideoFeeds();
+
+  const {
+    data: polls = [],
+    isLoading: pollsLoading,
+    isRefetching: pollsRefetching,
+    refetch: refetchPolls,
+  } = usePolls();
+
+  const { mutate: votePoll } = useVotePoll();
   const { mutate: markVideoWatched } = useMarkVideoWatched();
-  const watchedVideoIds = React.useRef<Set<string>>(new Set());
 
-  const feedItems: FeedItem[] = data?.items ?? [];
+  const isLoading = videosLoading || pollsLoading;
+  const isRefetching = (videosRefetching || pollsRefetching) && !isLoading;
+
+  const activePoll = polls.length > 0 ? polls[0] : null;
 
   const onRefresh = useCallback(async () => {
-    await refetch();
-  }, [refetch]);
-
-  const onEndReached = useCallback(() => {
-    if (!isFetchingNextPage && hasNextPage) {
-      fetchNextPage();
-    }
-  }, [isFetchingNextPage, hasNextPage, fetchNextPage]);
+    await Promise.all([refetchVideos(), refetchPolls()]);
+  }, [refetchVideos, refetchPolls]);
 
   const handleVote = useCallback((pollId: string, optId: string) => {
     if (pollVotes[pollId]) return;
     setPollVotes((p) => ({ ...p, [pollId]: optId }));
     markPollVoted(pollId);
-    submitPollVote({ pollId, optionId: optId });
-  }, [pollVotes, markPollVoted, submitPollVote]);
+    votePoll({ pollId, optionId: optId });
+  }, [pollVotes, markPollVoted, votePoll]);
 
   const onViewableItemsChanged = useCallback(({ viewableItems }: any) => {
     const ids = viewableItems.map((i: any) => i.item.id) as string[];
     setVisibleIds(ids);
     ids.forEach((id) => {
-      const item = feedItems.find((f) => f.id === id);
-      if (item?.type === 'video' && !watchedVideoIds.current.has(id)) {
+      if (!watchedVideoIds.current.has(id)) {
         watchedVideoIds.current.add(id);
         markVideoWatched(id);
       }
     });
-  }, [feedItems, markVideoWatched]);
+  }, [markVideoWatched]);
 
-  const renderItem = useCallback(({ item }: { item: FeedItem }) => {
-    if (item.type === 'video') {
-      return <VideoCard item={item} isVisible={visibleIds.includes(item.id)} />;
-    }
-    return (
+  const renderVideo = useCallback(({ item }: { item: FeedVideo }) => (
+    <VideoCard item={item} isVisible={visibleIds.includes(item.id)} />
+  ), [visibleIds]);
+
+  const listHeader = activePoll ? (
+    <View style={styles.pollSection}>
       <PollCard
-        item={item}
-        votedOptionId={pollVotes[item.id] ?? null}
-        onVote={(oid) => handleVote(item.id, oid)}
+        item={activePoll}
+        votedOptionId={pollVotes[activePoll.id] ?? null}
+        onVote={(oid) => handleVote(activePoll.id, oid)}
       />
-    );
-  }, [visibleIds, pollVotes, handleVote]);
+      <View style={styles.sectionDivider}>
+        <View style={styles.dividerLine} />
+        <Text style={styles.dividerLabel}>Video Feed</Text>
+        <View style={styles.dividerLine} />
+      </View>
+    </View>
+  ) : null;
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -211,57 +225,109 @@ export default function FeedScreen() {
           <Text style={styles.liveChipText}>LIVE</Text>
         </View>
       </View>
+
       <DataState
         loading={isLoading}
-        error={isError ? 'Failed to load feed. Pull down to retry.' : null}
-        onRetry={refetch}
+        error={videosError ? 'Failed to load feed. Pull down to retry.' : null}
+        onRetry={refetchVideos}
       />
-      <FlatList
-        data={feedItems}
-        keyExtractor={(i) => i.id}
-        renderItem={renderItem}
-        contentContainerStyle={styles.list}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl refreshing={isRefetching && !isLoading} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />
-        }
-        onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={{ itemVisiblePercentThreshold: 60 }}
-        onEndReached={onEndReached}
-        onEndReachedThreshold={0.4}
-        ListEmptyComponent={!isLoading ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyEmoji}>📡</Text>
-            <Text style={styles.emptyTitle}>Join an event first</Text>
-            <Text style={styles.emptySub}>Once you join an event, live videos and polls will appear here.</Text>
-          </View>
-        ) : null}
-        ListFooterComponent={isFetchingNextPage ? (
-          <View style={styles.loadingMore}>
-            <Text style={styles.loadingMoreText}>Loading more...</Text>
-          </View>
-        ) : null}
-      />
+
+      {!isLoading && (
+        <FlatList
+          data={videos}
+          keyExtractor={(i) => i.id}
+          renderItem={renderVideo}
+          ListHeaderComponent={listHeader}
+          contentContainerStyle={styles.list}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefetching}
+              onRefresh={onRefresh}
+              tintColor={colors.primary}
+              colors={[colors.primary]}
+            />
+          }
+          onViewableItemsChanged={onViewableItemsChanged}
+          viewabilityConfig={{ itemVisiblePercentThreshold: 60 }}
+          ListEmptyComponent={
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyEmoji}>📡</Text>
+              <Text style={styles.emptyTitle}>No videos yet</Text>
+              <Text style={styles.emptySub}>
+                {activePoll
+                  ? 'Videos will appear here once the event streams begin.'
+                  : 'Once you join an event, live videos and polls will appear here.'}
+              </Text>
+            </View>
+          }
+        />
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.xl, paddingVertical: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
   topTitle: { color: colors.textPrimary, ...typography.h2 },
-  liveChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.full, backgroundColor: 'rgba(239,68,68,0.12)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)' },
+  liveChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: radius.full,
+    backgroundColor: 'rgba(239,68,68,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(239,68,68,0.3)',
+  },
   livePulse: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#ef4444' },
   liveChipText: { color: '#ef4444', fontSize: 10, fontWeight: '800', letterSpacing: 1 },
+
   list: { padding: spacing.xl, paddingBottom: 100, gap: spacing.lg },
-  loadingMore: { paddingVertical: spacing.xl, alignItems: 'center' },
-  loadingMoreText: { color: colors.textMuted, fontSize: 12 },
+
+  pollSection: { gap: spacing.lg, marginBottom: spacing.sm },
+
+  sectionDivider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginTop: spacing.sm,
+  },
+  dividerLine: { flex: 1, height: 1, backgroundColor: colors.border },
+  dividerLabel: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
 
   videoCard: { borderRadius: radius.xl, backgroundColor: colors.bgCard, borderWidth: 1, overflow: 'hidden' },
   videoThumb: { height: 190, position: 'relative', alignItems: 'center', justifyContent: 'center' },
   thumbCenter: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
   playCircle: { width: 68, height: 68, borderRadius: 34, alignItems: 'center', justifyContent: 'center' },
-  liveBadge: { position: 'absolute', top: 10, left: 10, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#ef4444', paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.full },
+  liveBadge: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#ef4444',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radius.full,
+  },
   liveDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: '#fff' },
   liveText: { color: '#fff', fontSize: 9, fontWeight: '800', letterSpacing: 1 },
   videoOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 60 },
@@ -276,9 +342,25 @@ const styles = StyleSheet.create({
   playBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
   iconBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center' },
 
-  pollCard: { borderRadius: radius.xl, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.accent + '40', padding: spacing.lg },
+  pollCard: {
+    borderRadius: radius.xl,
+    backgroundColor: colors.bgCard,
+    borderWidth: 1,
+    borderColor: colors.accent + '40',
+    padding: spacing.lg,
+  },
   pollHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md },
-  pollBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.full, backgroundColor: colors.accent + '15', borderWidth: 1, borderColor: colors.accent + '40' },
+  pollBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radius.full,
+    backgroundColor: colors.accent + '15',
+    borderWidth: 1,
+    borderColor: colors.accent + '40',
+  },
   pollBadgeText: { color: colors.accent, fontSize: 9, fontWeight: '800', letterSpacing: 1 },
   pollSession: { color: colors.textMuted, fontSize: 11 },
   pollQuestion: { color: colors.textPrimary, fontSize: 15, fontWeight: '700', lineHeight: 22, marginBottom: spacing.lg },
@@ -291,6 +373,7 @@ const styles = StyleSheet.create({
   pollBar: { height: 3, backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 2, marginTop: spacing.sm, overflow: 'hidden' },
   pollBarFill: { height: 3, borderRadius: 2 },
   pollHint: { color: colors.textMuted, fontSize: 11, textAlign: 'center', marginTop: spacing.md },
+
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.xxl, paddingVertical: 80 },
   emptyEmoji: { fontSize: 48, marginBottom: spacing.lg },
   emptyTitle: { color: colors.textPrimary, fontSize: 18, fontWeight: '700', textAlign: 'center', marginBottom: spacing.sm },

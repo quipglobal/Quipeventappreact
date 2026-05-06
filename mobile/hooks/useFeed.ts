@@ -1,6 +1,16 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { getFeedPage, markVideoWatched, submitPollVote } from '@/lib/api/feed';
+import { getFeedPage, getVideoFeeds, markVideoWatched, submitPollVote } from '@/lib/api/feed';
+import { useAuthedQuery } from '@/hooks/useAuthedQuery';
 import { useAuthedInfiniteQuery } from '@/hooks/useAuthedInfiniteQuery';
+
+export function useVideoFeeds() {
+  return useAuthedQuery({
+    queryKey: ['video-feeds'],
+    queryFn: getVideoFeeds,
+    select: (res) => res.data ?? [],
+    staleTime: 1000 * 60,
+  });
+}
 
 export function useFeed() {
   return useAuthedInfiniteQuery({
