@@ -1,295 +1,103 @@
 # CXO Inc. Event Companion App
 
-## Project Status: Both Apps De-mocked — All Live Backend Endpoints
+A full-stack event companion platform for attendees and sponsors.
 
-The mobile app is feature-complete and App Store ready. Run `eas build --profile production --platform all` to produce a signed `.ipa` and `.aab`.
+## Run & Operate
 
-## Project Overview
+**Mobile App:**
+- Start: `cd mobile && npx expo start --web --port 8080` (for console mode, web preview, and Expo Go QR)
+- Build Production: `eas build --profile production --platform all`
+- Environment Variables:
+    - `EXPO_PUBLIC_USE_MOCK_API`: `false` (always use real API)
+    - `EXPO_PUBLIC_API_BASE_URL`: `https://api.cxoinc.com/v1`
 
-Full-stack event companion platform with:
-- **Web App**: React + Vite + TypeScript (original web UI, runs on port 5000)
-- **Mobile App**: React Native (Expo SDK 52) with Expo Router (runs on port 8080 / Expo Go QR)
+**Web App (Legacy):**
+- Start: `npm run dev` (runs on port 5000)
+- Build: `npm run build`
+- Test (e2e): `npm run test:e2e`
+- Environment Variables:
+    - `VITE_API_BASE_URL`: (optional; dev uses proxy)
+    - `VITE_TENANT_ID`: `3` (CXO tenant — events 21, 28, 53, 832, etc.)
 
-The mobile app is the primary product being developed. The web app at the root is the original reference implementation.
+**Backend:**
+- URL: `https://bef44c34-7df5-4c09-93a2-5684b5888527-00-3s6pvdiz19h8o.spock.replit.dev/`
 
----
+## Stack
 
-## Mobile App (Primary)
+**Mobile App:**
+- Framework: React Native 0.76.3 (Expo SDK 52) + TypeScript
+- Router: Expo Router v4
+- State Management: React Context (AuthContext)
+- UI: Custom dark theme, LinearGradient, Ionicons
+- Data Fetching: Custom fetch client
+- Storage: AsyncStorage
 
-**Location**: `/mobile/`
+**Web App (Legacy):**
+- Framework: React 18 + Vite + TypeScript
+- Styling: Tailwind CSS
 
-### Tech Stack
-- **Framework**: React Native 0.76.3 + TypeScript
-- **Navigation**: Expo Router v4 (file-based routing)
-- **UI**: Custom dark cinematic theme, LinearGradient, Ionicons
-- **State**: React Context (AuthContext with gamification)
-- **API**: Custom fetch client — all endpoints live, no mock data (`EXPO_PUBLIC_USE_MOCK_API=false` always)
-- **Storage**: AsyncStorage (auth token)
+**Backend:**
+- Laravel PHP 8.4
 
-### Architecture
+## Where things live
 
-```
-mobile/
-  app/
-    _layout.tsx         - Root stack layout (fonts, providers, SplashScreen)
-    index.tsx           - Auth gate → redirect to (auth) or (tabs)
-    profile.tsx         - Profile modal screen
-    +not-found.tsx      - 404 screen
-    (auth)/
-      welcome.tsx       - Phone OTP login + registration
-    (tabs)/
-      _layout.tsx       - Role-aware bottom tabs (attendee vs sponsor)
-      feed.tsx          - Video/poll feed with live interactions
-      audience.tsx      - Searchable attendee directory
-      engage.tsx        - Gamification (attendee) / Sponsor tools (QR+leads+draw)
-      agenda.tsx        - Session schedule with bookmarking
-      partners.tsx      - Sponsor showcase with meeting booking
-  components/
-    auth/
-      WelcomeScreen.tsx - Complete phone OTP auth UI
-      OtpInput.tsx      - Custom 6-digit OTP input
-    ErrorBoundary.tsx   - Global error boundary
-    ToastNotification.tsx - Points toast animation
-  constants/
-    theme.ts            - Colors, spacing, radius, typography
-  context/
-    AuthContext.tsx     - Auth + gamification state (points, challenges, bookmarks)
-  lib/
-    apiClient.ts        - HTTP client + mock layer
-```
+- **Mobile App Source**: `/mobile/`
+    - Root layout: `/mobile/app/_layout.tsx`
+    - Auth gate: `/mobile/app/index.tsx`
+    - Theme definitions: `/mobile/constants/theme.ts`
+    - Auth & Gamification Context: `/mobile/context/AuthContext.tsx`
+    - API Client: `/mobile/lib/apiClient.ts`
+- **Web App Source (Legacy)**: `/src/`
+    - API Clients: `/src/app/api/`
+        - `meetingsClient.ts` — connection requests (GET/POST/PATCH v1 meeting-requests routes)
+        - `messagesClient.ts` — encrypted conversations + messages (GET/POST/PUT/DELETE)
+    - Crypto: `src/app/lib/messageCrypto.ts` — AES-GCM per-conversation key derivation (HKDF-SHA256)
+    - Lead Edits Storage: `src/app/lib/leadEditsStorage.ts`
+    - Giveaway Winners Storage: `src/app/lib/giveawayWinnersStorage.ts`
+- **Backend API Contract**: `BACKEND_SCAN_ENDPOINTS.md`
 
-### Tab Structure (Role-Based)
-- **Attendee tabs**: Feed · Audience · Engage · Agenda · Partners
-- **Sponsor tabs**: Feed · Audience · Scan Badge · Agenda · Leads
+## Architecture decisions
 
-### Screen Features
+- **Mobile-first Development**: The mobile app (`/mobile/`) is the primary product, while the root web app is a legacy reference implementation.
+- **Role-aware Mobile Navigation**: Mobile app uses role-based tab structures (Attendee vs. Sponsor) for tailored UX.
+- **Client-Side Lead Detail Persistence**: Web app uses optimistic UI, localStorage overlay, and defensive merging to protect user edits on leads, even if backend persistence is not yet fully implemented.
+- **Client-Side Lucky Draw Fallback**: If the backend lucky draw endpoint is unavailable or errors, the web app performs a client-side random pick to ensure UX completion.
+- **Cross-Actor Giveaway Sync**: Giveaway winners are synced across devices and actors by merging backend-arbitrated winners with local overlays, prioritizing backend data.
+- **Client-Side Message Encryption**: Chat messages are AES-GCM 256 encrypted before leaving the device (`messageCrypto.ts`). Key is HKDF-derived from `connectionId + sorted user ids`. Server only stores `{ ciphertext, iv, scheme }`. 5-second Undo window defers the encrypted POST so the user can retract before it hits the network. Hardening path: swap deterministic derivation for ECDH key exchange once backend stores per-user public keys.
+- **NOT_IMPLEMENTED Short-Circuit Pattern**: All event-scoped API clients (meetings, messages, giveaways, leaderboard) flip a session-scoped flag on the first 404/405 and short-circuit subsequent calls. State is managed optimistically in `AppContext` with rollback on hard failures. Flag resets on event switch so a newly-deployed backend route is picked up immediately.
 
-**Feed**: Video session cards (live indicator, like/share), live poll voting with animated results, filter by sessions/polls, points display, profile avatar button
+## Product
 
-**Audience**: Full attendee list with search, connection requests, connection counter
+- **Mobile App**:
+    - Phone number OTP login/registration.
+    - Interactive feed with video sessions, live polls, and gamification points.
+    - Searchable attendee directory with connection requests.
+    - Gamification features (points, challenges, leaderboard) for attendees.
+    - Sponsor tools (QR scanner for lead capture, lucky draw, analytics dashboard).
+    - Session agenda with bookmarking.
+    - Sponsor showcase with meeting booking.
+- **Web App (Legacy)**:
+    - Phone number OTP login/registration.
+    - Universal badge system with QR code display and scanning.
+    - Lead management (scan, list, update notes/tags/priority).
+    - Sponsor giveaway creation, editing, and deletion.
+    - Lucky draw functionality for sponsors.
+    - Connect + Message: send/accept/decline connection requests; accept-gated encrypted chat with edit, delete, and 5-second undo.
 
-**Engage (Attendee)**: Points + tier progress card, challenges with progress bars and claim, leaderboard top-5 with medals, view-only sponsor giveaways (entry happens server-side when a sponsor rep scans the attendee's badge — no in-app self-claim, no points credited from the giveaway card)
+## User preferences
 
-**Engage (Sponsor)**: Stats dashboard (leads/visits/engagement), QR scanner with simulated scan, leads list with hot/warm/cold status, lucky draw with random winner picker, analytics placeholder
+_Populate as you build_
 
-**Agenda**: Day-tab session schedule with track color coding, bookmarking
+## Gotchas
 
-**Partners**: Tier-filtered sponsor cards with giveaway info, bookmark, book meeting, website
+- **CORS for Mobile Web Preview**: Expo's default settings block requests from Replit origins; `mobile/scripts/patch-cors.js` patches `@expo/cli` to allow `*.replit.dev` and `*.replit.app`.
+- **`npm install` in Mobile**: Always use `--legacy-peer-deps` when installing packages in `/mobile`.
+- **Sponsor Giveaway Ownership**: Edit/delete affordances on giveaways are gated by `AppContext.isMyGiveaway` (permissive for all sponsors); backend remains the source of truth for authorization.
+- **Backend Lucky Draw**: The live Laravel backend's lucky draw route (`POST /api/v1/events/:eventId/leads/draw`) may not be deployed or may have routing issues (e.g., `string` vs `int` param mismatch); client-side fallback is in place.
+- **Backend Giveaways Empty**: `GET /api/v1/events/:eventId/giveaways` returns `{"success":true,"data":[]}` for ALL events. No giveaway data exists in the backend yet. The backend agent must (a) NOT filter by event/giveaway `end_date`, and (b) expose the full CRUD (see `BACKEND_SCAN_ENDPOINTS.md` §10).
+- **Backend Messages/Conversations 404**: `/api/v1/events/:eventId/conversations` returns 404 — these routes are not yet deployed. The client short-circuits to NOT_IMPLEMENTED and keeps conversations in-memory only. `BACKEND_SCAN_ENDPOINTS.md` §9 has the full encrypted-messages contract.
 
-**Profile**: Avatar with tier ring, stats (points/challenges/bookmarks), preferences toggles (notifications, reminders), event info (venue/WiFi), logout
+## Pointers
 
-### Authentication
-- Phone number → OTP flow (6-digit)
-- Mock phone numbers: `5550000001` (Jessica/attendee, Silver), `5550000002` (Michael/attendee, Gold), `8156699646` (Alex/attendee, Bronze), `5550009999` (Sarah/sponsor)
-- Demo OTP: `123456`
-- New phone = registration form (name, email, title, company)
-
-### Environment Variables
-| Variable | Purpose | Default |
-|---|---|---|
-| `EXPO_PUBLIC_USE_MOCK_API` | Use mock data (`true`) or real API | `true` |
-| `EXPO_PUBLIC_API_BASE_URL` | Laravel backend URL | `https://api.cxoinc.com/v1` |
-
-### Workflows
-- **Start Mobile**: `cd mobile && npx expo start --web --port 8080` (console mode)
-  - Web preview: switch to port 8080 in Replit preview pane
-  - Device testing: scan QR code with Expo Go app
-- **Start application**: `npm run dev` (web app, port 5000)
-
----
-
-## Web App (Legacy Reference)
-
-**Location**: Root `/`
-- React 18 + Vite + TypeScript + Tailwind CSS
-- Mock event codes: `TECH26`, `DEVCON`, `SUMMIT`, `HEALTH`, `DESIGN`
-- Port: 5000
-
-### Web App API Layer (Task 1 — API Foundation & Phone OTP Auth)
-
-New files added under `src/app/api/`:
-- **`client.ts`** — Shared fetch wrapper: base URL injection, Bearer token from localStorage, 401 auto-logout, network retry (2x), typed `ApiEnvelope<T>` response
-- **`authClient.ts`** (rewritten) — Phone OTP auth flow:
-  - `sendOtp(phone)` → `POST /api/auth/send-otp`
-  - `verifyOtp(phone, otp)` → `POST /api/auth/verify-otp` → returns `{ token, user, isNewUser }`
-  - `registerUser(params)` → `POST /api/auth/register` → creates new user + saves token
-  - `getMeApi()` → `GET /api/auth/me` → restores session from localStorage token
-
-**WelcomeScreen.tsx** — Replaced inline mock DB with real auth client calls. Handles: phone send-otp, OTP verification, existing user profile review, new user registration. Shows proper error messages for wrong OTP, network errors.
-
-**AppContext.tsx** — On mount, calls `getMeApi()` to restore session from saved token. Exposes `sessionRestored` boolean so the app can wait before rendering.
-
-**App.tsx** — Watches `sessionRestored + user` to auto-skip welcome screen when session is restored.
-
-### CORS / API Proxy (Web App — Dev)
-In development the Vite dev server proxies all `/api` requests to the backend (`vite.config.ts → server.proxy`). This eliminates browser CORS errors without touching the backend. `client.ts` sets `API_BASE_URL = ''` in dev mode so calls use relative paths through the proxy. In production the full backend URL is used directly (`import.meta.env.DEV` check).
-
-### CORS / API Proxy (Mobile App — Dev Web)
-When running the Expo app as a web preview (port 8080), API calls go through the Metro dev server proxy defined in `mobile/metro.config.js`. The proxy uses native Node.js `https` module to forward `/api/*` requests to the backend. OPTIONS preflight requests are answered directly by the proxy (returning 204 with full CORS headers).
-
-**Key fix**: Expo's internal `CorsMiddleware` (`@expo/cli`) blocked all requests from `*.replit.dev` origins by default. The patch script at `mobile/scripts/patch-cors.js` (run automatically via `postinstall`) adds `*.replit.dev` and `*.replit.app` to the allowed origins list. This patch is idempotent (safe to re-run).
-
-### Environment Variables (Web App)
-| Variable | Purpose |
-|---|---|
-| `VITE_API_BASE_URL` | Overrides backend URL (optional; dev uses proxy with empty base URL) |
-| `VITE_TENANT_ID` | Tenant ID header (`1` by default) |
-
-### Web App API Clients (src/app/api/)
-- `authClient.ts` — Email OTP login/register, getMeApi (includes badgeCode from badge_code field)
-- `audienceClient.ts` — Event members list/detail via v2 flat API (`/api/v1/events/:id/members`)
-- `leadsClient.ts` — Universal badge scan leads: scanBadgeLead, listLeads, updateLeadApi, triggerLuckyDraw (all event-scoped: `/api/v1/events/:eventId/leads/*`)
-- `eventsClient.ts` — List events, get event, join by code
-- `feedClient.ts` — Paginated feed (video+poll), mark video watched
-- `agendaClient.ts` — List sessions with day/track filters, bookmark
-- `sponsorsClient.ts` — List sponsors by tier, get sponsor detail
-- `leaderboardClient.ts` — Event-scoped points ranking (`GET /api/v1/events/:eventId/leaderboard?period=overall|today|week`); used by HomePage top-3 preview and full LeaderboardPage; tolerates camelCase/snake_case + envelope shapes; 404/405 short-circuits to NOT_IMPLEMENTED with empty-state UI
-- `meetingsClient.ts` — Event-scoped meeting requests using the *actually deployed* Laravel routes: `GET /api/v1/events/:eventId/my-meetings` (list inbox), `POST /api/v1/events/:eventId/meeting-requests` (send, body `{to_user_id, message?}`), `PATCH /api/v1/events/:eventId/meeting-requests/:id/respond` (accept/decline, body `{status}`). Threads `currentUserId` so direction (incoming vs outgoing) can be computed client-side since the backend doesn't tag it. Session-flag NOT_IMPLEMENTED fallback for tenants without the routes
-- `messagesClient.ts` — Encrypted chat under each accepted connection (`/api/v1/events/:eventId/conversations[/:cid/messages[/:mid]]`); ciphertext-only wire format `{ciphertext, iv, scheme}`; supports list/send/edit/delete with the same NOT_IMPLEMENTED fallback
-- `lib/messageCrypto.ts` — Per-conversation AES-GCM 256 + HKDF-SHA256 key derivation (`connectionId + sorted user ids` → key); `encryptMessage`/`decryptMessage` return base64 payloads; `clearMessageCryptoCache` called on sign-out. Pragmatic at-rest defense — NOT full forward-secrecy E2E (server knows participants → could re-derive). Hardening path: ECDH key exchange when backend stores per-user public keys
-
-### Universal Badge System (Web App)
-- **BottomNav**: Single universal 5-tab nav for ALL roles — Feed | Audience | My Badge | Scan | Leads (role split removed)
-- **MyBadgePage** (`src/app/components/MyBadgePage.tsx`): Full-screen QR badge with user's id+badge_code+event as JSON payload, badge code pill, download/share
-- **SponsorScannerPage**: Universal scanner (all roles); passes eventId to backend
-- **LeadsPage**: Universal leads view (all roles); event-scoped API calls
-- **badgeCode** propagated from `/api/v1/me` → AuthUser → AppContext User
-
-### Backend Endpoints Needed
-See `BACKEND_SCAN_ENDPOINTS.md` for the full spec. Required:
-- `GET /api/v1/events/:eventId/members?badge_code=:code` — resolve badge to profile
-- `POST /api/v1/events/:eventId/leads/scan` — save a scanned lead (carries notes/tags/priority; backend MUST persist + echo)
-- `GET /api/v1/events/:eventId/leads` (and `/my-leads`) — list user's leads (response MUST include notes/tags/priority)
-- `PUT /api/v1/events/:eventId/leads/:id` — update notes/tags/priority on a lead (each field independently optional)
-- `POST /api/v1/events/:eventId/leads/draw` — lucky draw winner
-
-### Lead Detail Persistence (notes / tags / priority)
-Edits to a lead's notes, tags, or priority on the web Leads page are PUT to the
-backend AND optimistically held in client state. Three layers protect the user's
-edits from disappearing while the backend hasn't yet shipped persistence on its
-v1 leads endpoints:
-
-1. **Optimistic in-memory state** in `AppContext.updateLead` — the UI reflects
-   the edit instantly.
-2. **Per-user lead-edits overlay** at `src/app/lib/leadEditsStorage.ts` — every
-   `updateLead` (and the scanner save flows) writes a tiny
-   `{notes, tags, priority}` overlay to localStorage under
-   `cxo:lead_edits:v1:<userId>` as a JSON map. Each edit is mirrored to TWO
-   keys: the lead `id` and `code:<lower(badge_code)>`. The dual indexing
-   handles the observed-in-the-wild case where the backend returns the same
-   lead under different ids between scan-time (POST /leads/scan) and a later
-   list fetch (GET /my-leads). This overlay survives logout → login (the main
-   leads cache is wiped on user change for cross-account isolation; the
-   overlay is intentionally kept so the same user's edits are restored).
-3. **Defensive merge in `LeadsPage`** — `mergeServerLeadsWithLocalEdits`
-   overlays the server response with (a) the in-memory contextLeads value and
-   (b) the localStorage overlay (looked up by id THEN by badge code via
-   `lookupLeadEdit`), in that order, whenever the server returns empty /
-   default for a field. Each field is merged independently. This is what
-   stops the lead-detail card from "flicking" back to defaults on refetch
-   AND restores the user's edits after logout → login or after a backend
-   id change.
-
-Mobile `Lead` type and normalizer both surface `tags` (array) and `priority`
-(mirror of `status`) so the data round-trips end-to-end once the backend ships
-persistence. Backend contract changes are documented in
-`mobile/BACKEND_AGENT_INSTRUCTIONS.md` and `mobile/BACKEND_API.md` §9.
-
-### Web App DataState Component
-`src/app/components/ui/DataState.tsx` — Reusable loading skeleton + error retry UI applied to: Feed, Events, Agenda, Sponsors pages.
-
-### Sponsor Giveaways & Lucky Draw
-
-**Visibility & ownership.** Both `SponsorGiveawaysPage` (manage) and
-`SponsorDrawPage` (lucky draw) render the full event-scoped list returned by
-the backend — no client-side ownership filter. We tried strict matching on
-`sponsorId === user.id OR sponsorName === user.company` first, but it hid the
-rep's own freshly-added prize whenever the Laravel backend re-stamped
-`sponsor_id` with its own foreign-key value. The list is already authorized +
-event-scoped server-side, so showing everything is the safe default and gives
-co-workers at the same booth shared visibility (preventing duplicate prize
-entries). Edit/delete affordances on each card are still gated by
-`AppContext.isMyGiveaway`, which is permissive (`user?.role === 'sponsor'`):
-the backend remains the source of truth and rejects unauthorized PATCH/DELETE
-attempts, at which point the optimistic UI rolls back. Co-worker-added items
-show an "Added by …" byline so ownership stays attributable.
-
-**CRUD endpoints.** Backed by `src/app/api/giveawaysClient.ts`:
-- `GET /api/v1/events/:eventId/giveaways` — list (hydrated on event change)
-- `POST /api/v1/events/:eventId/giveaways` — create
-- `PATCH /api/v1/events/:eventId/giveaways/:giveawayId` — edit (title, items, image)
-- `DELETE /api/v1/events/:eventId/giveaways/:giveawayId` — delete
-
-All mutations are optimistic, gracefully degrade on `NOT_IMPLEMENTED` (kept
-local-only), and roll back on real failures. A session-scoped flag short-
-circuits each verb after a 404 so we don't spam a downed route.
-
-**Lucky draw winner surface.** `SponsorDrawPage` attempts
-`POST /api/v1/events/:eventId/leads/draw` (per `BACKEND_SCAN_ENDPOINTS.md`).
-The live Laravel backend has not shipped that route yet — POST returns 405
-("the only verb registered for `/leads/{scanId}` is PATCH"), and PATCH
-crashes inside `MobileEventController::leadsUpdate` with
-`Argument #3 ($scanId) must be of type int, string given` because Laravel
-matches the literal string `draw` against the typed `int $scanId` route
-param. `triggerLuckyDraw` detects any of those signatures
-(`isMissingDrawRouteError`), short-circuits the rest of the session via a
-`drawEndpointMissing` flag, and returns `NOT_IMPLEMENTED`. `SponsorDrawPage`
-then runs a client-side random pick over the snapshotted eligible pool so
-the UX still completes.
-
-Resolved winners — server-arbitrated OR locally picked — are persisted under
-a per-event localStorage overlay (`cxo:giveaway_winners:v1:<eventId>`) by
-`src/app/lib/giveawayWinnersStorage.ts` and mirrored into
-`AppContext.sponsorGiveaways[i].winners` via
-`recordGiveawayWinner(giveawayId, winner, eventIdAtDrawStart?)`. The public
-`GiveawaysPage` reads that field and renders a "Winner(s)" pill block on each
-card so attendees immediately see who won the prize. The overlay is keyed by
-event id only (not user) since winner names are event-public.
-
-**Cross-actor sync.** AppContext's giveaway-list hydration unions backend-
-arbitrated winners (e.g. picks made by an admin in the back-office once the
-backend list endpoint returns native `winners`, or by another rep on a
-different device) with this device's local overlay, deduped by winner `id`
-with the backend row taking precedence. `SponsorDrawPage` re-seeds its in-
-memory `drawHistory` from `selectedGiveaway.winners` whenever the rep picks
-a giveaway, so any winner already drawn elsewhere appears in the on-screen
-history (and is honored by the `excludeWon` filter) instead of being
-silently re-pickable. The setup phase also renders an inline "Already
-picked for this prize" panel directly under the giveaway selector — it
-reads off the same merged `sponsorGiveaways[*].winners` so the rep sees
-prior winners the moment they pick the giveaway, without having to open
-the history sheet.
-
-**Backend persistence.** Every locally-resolved winner is also POSTed to
-`POST /api/v1/events/:eventId/giveaways/:giveawayId/winners` via
-`giveawaysClient.saveGiveawayWinner`, fired-and-forgotten from
-`recordGiveawayWinner` after the localStorage mirror. The endpoint sends
-both camelCase and snake_case copies of every field. If the route hasn't
-been deployed yet the call short-circuits to NOT_IMPLEMENTED on 404/405
-(remembered for the rest of the session) — the on-screen UX is unaffected
-because the local overlay already drives the display. See
-`BACKEND_SCAN_ENDPOINTS.md` §6 for the full request/response contract.
-
----
-
-## Backend
-
-- **Laravel PHP 8.4** at `https://bef44c34-7df5-4c09-93a2-5684b5888527-00-3s6pvdiz19h8o.spock.replit.dev/`
-- Note: CORS must be configured on backend before enabling live API (set `EXPO_PUBLIC_USE_MOCK_API=false`)
-
----
-
-## Deployment Target
-
-- **iOS App Store** + **Google Play Store** via EAS Build (Expo Application Services)
-- Bundle ID: `com.cxoinc.events`
-- App name: CXO Events
-
----
-
-## npm Install Notes
-
-Always use `--legacy-peer-deps` flag when installing packages in `/mobile`:
-```bash
-cd mobile && npm install <package> --legacy-peer-deps
-```
+- **Mobile App Directory Structure**: See `/mobile/ARCHITECTURE.md`
+- **Backend API Documentation**: `BACKEND_SCAN_ENDPOINTS.md` and `mobile/BACKEND_API.md`

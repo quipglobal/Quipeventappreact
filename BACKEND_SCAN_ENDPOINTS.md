@@ -534,6 +534,108 @@ the routes deployed.
 
 ---
 
+### 10. Sponsor Giveaways (CRUD)
+
+The frontend has a full giveaway management surface for sponsors and a
+read-only attendee view. All four methods are needed. The list endpoint
+is the most critical — it is called on every event switch to populate
+**both** the sponsor management UI and the public attendee Giveaways
+page.
+
+#### CRITICAL — no date filtering
+
+The `GET` route **MUST NOT** filter giveaways by the event's
+`end_date`, the giveaway's own `end_date`, or any `active` / `status`
+flag. Giveaways added by a sponsor rep must remain visible to all
+attendees regardless of whether the event has ended. The frontend
+relies on a blanket "show everything the backend returns" policy — any
+server-side date filter produces an empty list that the user sees as
+"no giveaways yet" even when prizes exist.
+
+```
+GET    /api/v1/events/:eventId/giveaways
+POST   /api/v1/events/:eventId/giveaways          (sponsor/organizer only)
+PUT    /api/v1/events/:eventId/giveaways/:id      (sponsor/organizer only)
+DELETE /api/v1/events/:eventId/giveaways/:id      (sponsor/organizer only)
+```
+
+**GET response** (`200`):
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "42",
+      "title": "MacBook Pro Raffle",
+      "number_of_items": 3,
+      "numberOfItems": 3,
+      "image": "https://...",
+      "sponsor_name": "Acme Corp",
+      "sponsorName": "Acme Corp",
+      "sponsor_id": "17",
+      "sponsorId": "17",
+      "created_at": "2026-04-30T10:00:00Z",
+      "winners": [
+        {
+          "id": "lead-uuid",
+          "name": "Jane Doe",
+          "company": "TechCo",
+          "title": "CTO",
+          "avatar": "https://...",
+          "drawn_at": "2026-04-30T15:00:00Z"
+        }
+      ]
+    }
+  ]
+}
+```
+
+Field tolerance: the frontend normalizer accepts both camelCase and
+snake_case variants. `winners` is optional — omit the key (or send
+`[]`) if the winners sub-table hasn't been deployed yet; the frontend
+will merge from its local overlay.
+
+**POST request body**:
+
+```json
+{
+  "title": "MacBook Pro Raffle",
+  "number_of_items": 3,
+  "numberOfItems": 3,
+  "image": "https://...",
+  "sponsor_name": "Acme Corp",
+  "sponsorName": "Acme Corp",
+  "sponsor_id": "17",
+  "sponsorId": "17"
+}
+```
+
+**POST response** (`201`): same shape as a single item in the GET
+array, including the server-issued `id`. The frontend swaps the
+optimistic temp id for this canonical id immediately on receipt.
+
+**PUT request body**: same shape as POST, partial — only the fields to
+update need to be supplied.
+
+**PUT / DELETE responses**: `{ "success": true }` is sufficient; the
+frontend updates its in-memory state optimistically and only rolls back
+on a non-success, non-NOT_IMPLEMENTED error.
+
+**Authorization**: `POST / PUT / DELETE` require the caller's membership
+role to be `sponsor` or `organizer` for the given event. `GET` is open
+to any authenticated event member (attendees AND sponsors).
+
+**Notes**:
+- If the routes are not yet deployed, a `404` / `405` from `GET`
+  flips a session-scoped flag and all subsequent write attempts
+  short-circuit to `NOT_IMPLEMENTED` — the frontend keeps the
+  sponsor's locally-added giveaways in memory and shows a degraded
+  but working UI until the routes go live.
+- The `winners` sub-resource is documented separately in §6.
+
+---
+
 ## Database Schema (suggested)
 
 ```sql
