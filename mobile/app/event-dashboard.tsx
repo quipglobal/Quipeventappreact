@@ -21,6 +21,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useEvent } from '@/context/EventContext';
 import { useLeaderboard } from '@/hooks/useAudience';
 import { useEvents, useJoinEvent } from '@/hooks/useEvents';
+import { usePolls } from '@/hooks/useEngage';
 import { colors, spacing, radius } from '@/constants/theme';
 import type { Event } from '@/lib/api/types';
 
@@ -30,7 +31,6 @@ const COL = (SW - spacing.xl * 2 - spacing.md) / 2;
 const STATIC_STATS = [
   { icon: 'people' as const,      label: 'Attendees',     value: '842', sub: '+12 today',  color: '#7c3aed' },
   { icon: 'play-circle' as const, label: 'Sessions Live', value: '3',   sub: '5 upcoming', color: '#06b6d4' },
-  { icon: 'flash' as const,       label: 'Active Polls',  value: '7',   sub: '342 votes',  color: '#f59e0b' },
   { icon: 'briefcase' as const,   label: 'Sponsors',      value: '24',  sub: '4 tiers',    color: '#10b981' },
   { icon: 'gift' as const,        label: 'Giveaways',     value: '2',   sub: 'Draw at 5 PM', color: '#ec4899' },
 ];
@@ -83,6 +83,10 @@ export default function EventDashboardScreen() {
   const { data: leaderboardData = [] } = useLeaderboard();
   const { data: events = [], isLoading: eventsLoading } = useEvents();
   const { mutate: joinEvent, isPending: joining } = useJoinEvent();
+  // Live polls from the backend — replaces the previous hardcoded
+  // "Active Polls: 7 / 342 votes" KPI so the dashboard mirrors what the
+  // Feed tab actually shows above the videos.
+  const { data: pollsData = [], isLoading: pollsLoading } = usePolls();
 
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
@@ -99,7 +103,25 @@ export default function EventDashboardScreen() {
     sub: leader ? leader.name.split(' ')[0] : 'Loading…',
     color: '#ffd700',
   };
-  const eventStats = [STATIC_STATS[0], STATIC_STATS[1], STATIC_STATS[2], topPointsStat, STATIC_STATS[3], STATIC_STATS[4]];
+  // Compute the live polls KPI from the backend response. Sums the
+  // total votes across every poll for the sub-line so the user sees
+  // real engagement, not a baked-in number.
+  const totalPollVotes = pollsData.reduce(
+    (sum, p) => sum + p.options.reduce((s, o) => s + o.votes, 0),
+    0,
+  );
+  const livePollsStat = {
+    icon: 'flash' as const,
+    label: 'Active Polls',
+    value: pollsLoading ? '—' : String(pollsData.length),
+    sub: pollsLoading
+      ? 'Loading…'
+      : pollsData.length === 0
+        ? 'None active'
+        : `${totalPollVotes} vote${totalPollVotes === 1 ? '' : 's'}`,
+    color: '#f59e0b',
+  };
+  const eventStats = [STATIC_STATS[0], STATIC_STATS[1], livePollsStat, topPointsStat, STATIC_STATS[2], STATIC_STATS[3]];
 
   // Find the current user's rank in the full leaderboard list. Match by name
   // (the leaderboard endpoint doesn't always return a userId field).

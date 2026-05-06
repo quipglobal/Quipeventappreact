@@ -210,7 +210,14 @@ export default function FeedScreen() {
   const isLoading = videosLoading || pollsLoading;
   const isRefetching = (videosRefetching || pollsRefetching) && !isLoading;
 
-  const livePolls = allPolls.filter((p) => p.isLive);
+  // Show every poll the backend returns — it is the source of truth for
+  // which polls are visible to attendees. The previous `isLive` heuristic
+  // silently dropped polls when the backend didn't carry an `is_live` /
+  // `is_active` flag (or set a status the heuristic considered closed),
+  // which is exactly why polls weren't surfacing on the home screen even
+  // though the API call succeeded. If a poll shouldn't be visible the
+  // backend should not include it in the list response.
+  const livePolls = allPolls;
 
   useEffect(() => {
     setCurrentPollIdx(0);
