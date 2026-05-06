@@ -27,13 +27,12 @@ import type { Event } from '@/lib/api/types';
 const { width: SW } = Dimensions.get('window');
 const COL = (SW - spacing.xl * 2 - spacing.md) / 2;
 
-const EVENT_STATS = [
-  { icon: 'people' as const,       label: 'Attendees',     value: '842',  sub: '+12 today',     color: '#7c3aed' },
-  { icon: 'play-circle' as const,  label: 'Sessions Live', value: '3',    sub: '5 upcoming',    color: '#06b6d4' },
-  { icon: 'flash' as const,        label: 'Active Polls',  value: '7',    sub: '342 votes',     color: '#f59e0b' },
-  { icon: 'trophy' as const,       label: 'Top Points',    value: '680',  sub: 'Aisha Kamara',  color: '#ffd700' },
-  { icon: 'briefcase' as const,    label: 'Sponsors',      value: '24',   sub: '4 tiers',       color: '#10b981' },
-  { icon: 'gift' as const,         label: 'Giveaways',     value: '2',    sub: 'Draw at 5 PM',  color: '#ec4899' },
+const STATIC_STATS = [
+  { icon: 'people' as const,      label: 'Attendees',     value: '842', sub: '+12 today',  color: '#7c3aed' },
+  { icon: 'play-circle' as const, label: 'Sessions Live', value: '3',   sub: '5 upcoming', color: '#06b6d4' },
+  { icon: 'flash' as const,       label: 'Active Polls',  value: '7',   sub: '342 votes',  color: '#f59e0b' },
+  { icon: 'briefcase' as const,   label: 'Sponsors',      value: '24',  sub: '4 tiers',    color: '#10b981' },
+  { icon: 'gift' as const,        label: 'Giveaways',     value: '2',   sub: 'Draw at 5 PM', color: '#ec4899' },
 ];
 
 const SESSIONS_NOW = [
@@ -90,6 +89,25 @@ export default function EventDashboardScreen() {
   const [popupCode, setPopupCode] = useState('');
 
   const leaderboard = leaderboardData.slice(0, 3);
+
+  // Derive live leaderboard stats from the API response
+  const leader = leaderboardData[0] ?? null;
+  const topPointsStat = {
+    icon: 'trophy' as const,
+    label: 'Top Points',
+    value: leader ? String(leader.points) : '—',
+    sub: leader ? leader.name.split(' ')[0] : 'Loading…',
+    color: '#ffd700',
+  };
+  const eventStats = [STATIC_STATS[0], STATIC_STATS[1], STATIC_STATS[2], topPointsStat, STATIC_STATS[3], STATIC_STATS[4]];
+
+  // Find the current user's rank in the full leaderboard list. Match by name
+  // (the leaderboard endpoint doesn't always return a userId field).
+  const myRank = leaderboardData.findIndex(
+    (l) => l.name === user?.name,
+  );
+  const myRankDisplay = myRank >= 0 ? `#${myRank + 1}` : '—';
+
   const upcomingEvents = events.filter((e) => e.status === 'live' || e.status === 'upcoming');
   const pastEvents = events.filter((e) => e.status === 'past');
   const tabEvents = activeTab === 'upcoming' ? upcomingEvents : pastEvents;
@@ -156,7 +174,7 @@ export default function EventDashboardScreen() {
         {/* Event stats grid */}
         <Text style={styles.sectionLabel}>EVENT STATS</Text>
         <View style={styles.statsGrid}>
-          {EVENT_STATS.map((s) => (
+          {eventStats.map((s) => (
             <View key={s.label} style={[styles.statCard, { width: COL }]}>
               <View style={[styles.statIcon, { backgroundColor: s.color + '20' }]}>
                 <Ionicons name={s.icon} size={20} color={s.color} />
@@ -211,7 +229,7 @@ export default function EventDashboardScreen() {
               ))}
               <View style={[styles.leaderRow, styles.leaderYou]}>
                 <View style={[styles.rankBadge, { backgroundColor: 'rgba(124,58,237,0.15)', borderColor: 'rgba(124,58,237,0.4)' }]}>
-                  <Text style={[styles.rankText, { color: colors.primary }]}>#14</Text>
+                  <Text style={[styles.rankText, { color: colors.primary }]}>{myRankDisplay}</Text>
                 </View>
                 <Text style={[styles.leaderName, { color: colors.primary }]}>You</Text>
                 <View style={[styles.tierPill, { backgroundColor: 'rgba(124,58,237,0.15)', borderColor: 'rgba(124,58,237,0.4)' }]}>
