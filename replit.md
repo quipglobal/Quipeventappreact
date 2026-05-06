@@ -96,6 +96,8 @@ _Populate as you build_
 - **Backend Lucky Draw**: The live Laravel backend's lucky draw route (`POST /api/v1/events/:eventId/leads/draw`) may not be deployed or may have routing issues (e.g., `string` vs `int` param mismatch); client-side fallback is in place.
 - **Backend Giveaways Empty**: `GET /api/v1/events/:eventId/giveaways` returns `{"success":true,"data":[]}` for ALL events. No giveaway data exists in the backend yet. The backend agent must (a) NOT filter by event/giveaway `end_date`, and (b) expose the full CRUD (see `BACKEND_SCAN_ENDPOINTS.md` §10).
 - **Backend Messages/Conversations 404**: `/api/v1/events/:eventId/conversations` returns 404 — these routes are not yet deployed. The client short-circuits to NOT_IMPLEMENTED and keeps conversations in-memory only. `BACKEND_SCAN_ENDPOINTS.md` §9 has the full encrypted-messages contract.
+- **Video Feeds Endpoints (live)**: Home Feed tab consumes `GET /api/v1/events/:eventId/event-video-feeds` (paginated — accepts both `?cursor=` and `?page=` styles), `GET /api/v1/events/:eventId/event-video-feeds/:feedId` (detail), and `POST .../:feedId/view` (record watch). Wired in `mobile/lib/api/feed.ts` with infinite-query support via `useVideoFeeds()` in `mobile/hooks/useFeed.ts`.
+- **Auto Refresh on Screen Focus**: Every authed query (via `useAuthedQuery` / `useAuthedInfiniteQuery`) invalidates and refetches when its consuming screen gains focus, so navigating to a screen always shows the latest backend state without sign-out / sign-in. Initial mount is skipped to avoid double-firing on top of `useQuery`'s first fetch. Opt-out per call with `refetchOnFocus: false`.
 
 ## Pointers
 

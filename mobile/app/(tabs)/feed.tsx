@@ -195,6 +195,9 @@ export default function FeedScreen() {
     isError: videosError,
     isRefetching: videosRefetching,
     refetch: refetchVideos,
+    fetchNextPage: fetchMoreVideos,
+    hasNextPage: hasMoreVideos,
+    isFetchingNextPage: isFetchingMoreVideos,
   } = useVideoFeeds();
 
   const {
@@ -310,6 +313,19 @@ export default function FeedScreen() {
           }
           onViewableItemsChanged={onViewableItemsChanged}
           viewabilityConfig={{ itemVisiblePercentThreshold: 60 }}
+          onEndReached={() => {
+            if (hasMoreVideos && !isFetchingMoreVideos) {
+              void fetchMoreVideos();
+            }
+          }}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={
+            isFetchingMoreVideos ? (
+              <View style={styles.footerLoader}>
+                <Text style={styles.footerLoaderText}>Loading more…</Text>
+              </View>
+            ) : null
+          }
           ListEmptyComponent={
             <View style={styles.emptyState}>
               <Text style={styles.emptyEmoji}>📡</Text>
@@ -511,4 +527,6 @@ const styles = StyleSheet.create({
   emptyEmoji: { fontSize: 48, marginBottom: spacing.lg },
   emptyTitle: { color: colors.textPrimary, fontSize: 18, fontWeight: '700', textAlign: 'center', marginBottom: spacing.sm },
   emptySub: { color: colors.textMuted, fontSize: 14, textAlign: 'center', lineHeight: 21 },
+  footerLoader: { paddingVertical: spacing.xl, alignItems: 'center' },
+  footerLoaderText: { color: colors.textMuted, fontSize: 13 },
 });
