@@ -325,6 +325,116 @@ function AttendeeEngage() {
         </LinearGradient>
       </View>
 
+      {/* ── Surveys & Polls section ── */}
+      <View style={styles.spSection}>
+        <View style={styles.spSectionHeader}>
+          <View style={styles.spSectionTitleRow}>
+            <Ionicons name="bar-chart" size={16} color={colors.primary} />
+            <Text style={styles.spSectionTitle}>Surveys & Polls</Text>
+            {(polls.length + surveys.length) > 0 && (
+              <View style={styles.spCountBadge}>
+                <Text style={styles.spCountText}>{polls.length + surveys.length}</Text>
+              </View>
+            )}
+          </View>
+          <TouchableOpacity onPress={() => setActiveTab('polls')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={styles.spViewAll}>View all</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Live poll preview — first live poll only */}
+        {polls.filter((p) => p.isLive).slice(0, 1).map((poll) => {
+          const voted = pollVotes[poll.id] || (votedPolls.includes(poll.id) ? poll.options[0]?.id : null);
+          const totalVotes = poll.options.reduce((s, o) => s + o.votes, 0);
+          return (
+            <View key={poll.id} style={styles.spPollPreview}>
+              <View style={styles.spPollHeader}>
+                <View style={styles.liveChip}>
+                  <View style={styles.liveDot} />
+                  <Text style={styles.liveText}>LIVE</Text>
+                </View>
+                <Text style={styles.spPollSession} numberOfLines={1}>{poll.session}</Text>
+                <View style={styles.pointsPill}>
+                  <Text style={styles.pointsPillText}>+{poll.points} pts</Text>
+                </View>
+              </View>
+              <Text style={styles.spPollQuestion} numberOfLines={2}>{poll.question}</Text>
+              {voted ? (
+                <View style={styles.spVotedRow}>
+                  <Ionicons name="checkmark-circle" size={15} color={colors.success} />
+                  <Text style={styles.spVotedMsg}>Vote counted · {totalVotes} total votes</Text>
+                </View>
+              ) : (
+                <View style={styles.spPollOptions}>
+                  {poll.options.slice(0, 3).map((opt) => (
+                    <TouchableOpacity
+                      key={opt.id}
+                      style={styles.spPollOption}
+                      onPress={() => {
+                        setPollVotes((p) => ({ ...p, [poll.id]: opt.id }));
+                        markPollVoted(poll.id);
+                        votePollMutation({ pollId: poll.id, optionId: opt.id });
+                        showToast(`Vote cast! +${poll.points} pts`, poll.points);
+                      }}
+                    >
+                      <Text style={styles.spPollOptionText} numberOfLines={1}>{opt.text}</Text>
+                    </TouchableOpacity>
+                  ))}
+                  {poll.options.length > 3 && (
+                    <TouchableOpacity onPress={() => setActiveTab('polls')}>
+                      <Text style={styles.spMoreOptions}>+{poll.options.length - 3} more options →</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+            </View>
+          );
+        })}
+
+        {/* Surveys preview — up to 2 */}
+        {surveys.slice(0, 2).map((sv) => {
+          const done = completedSurveys.includes(sv.id);
+          return (
+            <View key={sv.id} style={styles.spSurveyRow}>
+              <View style={[styles.spSurveyIcon, done && { backgroundColor: 'rgba(16,185,129,0.12)' }]}>
+                <Ionicons
+                  name={done ? 'checkmark-circle' : 'document-text-outline'}
+                  size={18}
+                  color={done ? colors.success : colors.primary}
+                />
+              </View>
+              <View style={styles.spSurveyInfo}>
+                <Text style={styles.spSurveyTitle} numberOfLines={1}>{sv.title}</Text>
+                <Text style={styles.spSurveyMeta}>{sv.questions} question{sv.questions !== 1 ? 's' : ''} · +{sv.points} pts</Text>
+              </View>
+              {done ? (
+                <Text style={styles.spSurveyDone}>Done</Text>
+              ) : (
+                <TouchableOpacity
+                  style={styles.spSurveyBtn}
+                  onPress={() => {
+                    markSurveyDone(sv.id);
+                    submitSurveyMutation({ surveyId: sv.id, answers: {} });
+                    showToast(`Survey submitted! +${sv.points} pts`, sv.points);
+                  }}
+                >
+                  <Text style={styles.spSurveyBtnText}>Start</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          );
+        })}
+
+        {/* Empty state */}
+        {polls.length === 0 && surveys.length === 0 && !loadingPolls && (
+          <View style={styles.spEmpty}>
+            <Ionicons name="chatbubble-ellipses-outline" size={28} color={colors.textMuted} />
+            <Text style={styles.spEmptyText}>No active polls or surveys</Text>
+            <Text style={styles.spEmptySub}>Check back during sessions</Text>
+          </View>
+        )}
+      </View>
+
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabScrollRow} contentContainerStyle={styles.tabScrollContent}>
         {(['challenges', 'polls', 'leaderboard', 'giveaways'] as const).map((t) => (
           <TouchableOpacity
@@ -941,5 +1051,103 @@ const styles = StyleSheet.create({
   emptyLeads: { alignItems: 'center', paddingVertical: 60, gap: spacing.md },
   emptyLeadsText: { color: colors.textSecondary, fontSize: 16, fontWeight: '700' },
   emptyLeadsSub: { color: colors.textMuted, fontSize: 12, textAlign: 'center' },
+
+  spSection: {
+    marginHorizontal: spacing.xl,
+    marginBottom: spacing.lg,
+    borderRadius: radius.xl,
+    backgroundColor: colors.bgCard,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
+  },
+  spSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.md,
+  },
+  spSectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  spSectionTitle: { color: colors.textPrimary, fontSize: 15, fontWeight: '800' },
+  spCountBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: radius.full,
+    backgroundColor: colors.primary,
+    marginLeft: 2,
+  },
+  spCountText: { color: '#fff', fontSize: 10, fontWeight: '800' },
+  spViewAll: { color: colors.primary, fontSize: 12, fontWeight: '700' },
+
+  spPollPreview: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  spPollHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  spPollSession: { flex: 1, color: colors.textMuted, fontSize: 11 },
+  spPollQuestion: { color: colors.textPrimary, fontSize: 14, fontWeight: '700', marginBottom: spacing.md },
+  spPollOptions: { gap: spacing.xs },
+  spPollOption: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.lg,
+    backgroundColor: 'rgba(124,58,237,0.07)',
+    borderWidth: 1,
+    borderColor: 'rgba(124,58,237,0.18)',
+  },
+  spPollOptionText: { color: colors.textPrimary, fontSize: 13, fontWeight: '500' },
+  spMoreOptions: { color: colors.primary, fontSize: 11, fontWeight: '600', marginTop: spacing.xs, textAlign: 'center' },
+  spVotedRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  spVotedMsg: { color: colors.success, fontSize: 12, fontWeight: '600' },
+
+  spSurveyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  spSurveyIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(124,58,237,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  spSurveyInfo: { flex: 1 },
+  spSurveyTitle: { color: colors.textPrimary, fontSize: 13, fontWeight: '600' },
+  spSurveyMeta: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
+  spSurveyBtn: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: radius.full,
+    backgroundColor: colors.primary,
+  },
+  spSurveyBtnText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  spSurveyDone: { color: colors.success, fontSize: 12, fontWeight: '700' },
+
+  spEmpty: {
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xl,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  spEmptyText: { color: colors.textSecondary, fontSize: 13, fontWeight: '600' },
+  spEmptySub: { color: colors.textMuted, fontSize: 11 },
 
 });
