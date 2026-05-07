@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
@@ -246,7 +246,15 @@ function ScannerView({ onBack, onScanSuccess }: { onBack: () => void; onScanSucc
 
 function AttendeeEngage() {
   const { user, completedChallenges, completeChallenge, votedPolls, markPollVoted, markSurveyDone, completedSurveys, showToast } = useAuth();
+  const { tab: deepLinkTab } = useLocalSearchParams<{ tab?: string }>();
   const [activeTab, setActiveTab] = useState<'challenges' | 'polls' | 'leaderboard' | 'giveaways'>('challenges');
+
+  useEffect(() => {
+    if (deepLinkTab === 'polls' || deepLinkTab === 'leaderboard' || deepLinkTab === 'giveaways') {
+      setActiveTab(deepLinkTab);
+    }
+  }, [deepLinkTab]);
+
   const [scanMode, setScanMode] = useState<'none' | 'scanner' | 'leads'>('none');
   const [pollVotes, setPollVotes] = useState<Record<string, string>>({});
 

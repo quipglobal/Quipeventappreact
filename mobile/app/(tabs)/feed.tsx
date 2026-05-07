@@ -11,10 +11,11 @@ import {
 import { Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
 import { useVideoFeeds, useMarkVideoWatched } from '@/hooks/useFeed';
-import { usePolls, useVotePoll } from '@/hooks/useEngage';
+import { usePolls, useVotePoll, useSurveys, useGiveaways } from '@/hooks/useEngage';
 import { DataState } from '@/components/DataState';
 import { colors, spacing, radius, typography } from '@/constants/theme';
 import type { FeedVideo, Poll } from '@/lib/api/types';
@@ -207,6 +208,9 @@ export default function FeedScreen() {
     refetch: refetchPolls,
   } = usePolls();
 
+  const { data: surveysData = [] } = useSurveys();
+  const { data: giveawaysData = [] } = useGiveaways();
+
   const { mutate: votePoll } = useVotePoll();
   const { mutate: markVideoWatched } = useMarkVideoWatched();
 
@@ -259,25 +263,87 @@ export default function FeedScreen() {
     <VideoCard item={item} isVisible={visibleIds.includes(item.id)} />
   ), [visibleIds]);
 
-  const listHeader = activePoll ? (
-    <View style={styles.pollSection}>
-      <PollCard
-        key={activePoll.id}
-        item={activePoll}
-        votedOptionId={pollVotes[activePoll.id] ?? null}
-        onVote={(oid) => handleVote(activePoll.id, oid)}
-        currentIndex={currentPollIdx}
-        total={livePolls.length}
-        hasMore={hasMorePolls}
-        onNext={handleNextPoll}
-      />
+  const totalPollItems = allPolls.length + surveysData.length;
+
+  const shortcutSection = (
+    <View style={styles.shortcutRow}>
+      {/* Surveys & Polls */}
+      <TouchableOpacity
+        style={styles.shortcutCard}
+        onPress={() => router.push('/(tabs)/engage?tab=polls' as Parameters<typeof router.push>[0])}
+        activeOpacity={0.78}
+      >
+        <LinearGradient colors={['rgba(124,58,237,0.22)', 'rgba(79,70,229,0.10)']} style={styles.shortcutGrad}>
+          <View style={[styles.shortcutIcon, { backgroundColor: 'rgba(124,58,237,0.22)' }]}>
+            <Ionicons name="bar-chart" size={20} color={colors.primary} />
+          </View>
+          <Text style={styles.shortcutLabel}>Surveys{'\n'}{'& Polls'}</Text>
+          {totalPollItems > 0 && (
+            <View style={styles.shortcutBadge}>
+              <Text style={styles.shortcutBadgeText}>{totalPollItems}</Text>
+            </View>
+          )}
+          <View style={styles.shortcutArrow}>
+            <Ionicons name="arrow-forward" size={12} color={colors.primary} />
+          </View>
+        </LinearGradient>
+      </TouchableOpacity>
+
+      {/* Giveaways & Draws */}
+      <TouchableOpacity
+        style={styles.shortcutCard}
+        onPress={() => router.push('/(tabs)/engage?tab=giveaways' as Parameters<typeof router.push>[0])}
+        activeOpacity={0.78}
+      >
+        <LinearGradient colors={['rgba(245,158,11,0.18)', 'rgba(234,88,12,0.08)']} style={styles.shortcutGrad}>
+          <View style={[styles.shortcutIcon, { backgroundColor: 'rgba(245,158,11,0.20)' }]}>
+            <Ionicons name="gift" size={20} color="#f59e0b" />
+          </View>
+          <Text style={[styles.shortcutLabel, { color: '#f59e0b' }]}>Giveaways{'\n'}{'& Draws'}</Text>
+          {giveawaysData.length > 0 && (
+            <View style={[styles.shortcutBadge, { backgroundColor: '#f59e0b' }]}>
+              <Text style={styles.shortcutBadgeText}>{giveawaysData.length}</Text>
+            </View>
+          )}
+          <View style={styles.shortcutArrow}>
+            <Ionicons name="arrow-forward" size={12} color="#f59e0b" />
+          </View>
+        </LinearGradient>
+      </TouchableOpacity>
+    </View>
+  );
+
+  const listHeader = (
+    <View style={styles.headerSection}>
+      {shortcutSection}
+
+      {activePoll && (
+        <View style={styles.pollSection}>
+          <View style={styles.sectionDivider}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerLabel}>Live Poll</Text>
+            <View style={styles.dividerLine} />
+          </View>
+          <PollCard
+            key={activePoll.id}
+            item={activePoll}
+            votedOptionId={pollVotes[activePoll.id] ?? null}
+            onVote={(oid) => handleVote(activePoll.id, oid)}
+            currentIndex={currentPollIdx}
+            total={livePolls.length}
+            hasMore={hasMorePolls}
+            onNext={handleNextPoll}
+          />
+        </View>
+      )}
+
       <View style={styles.sectionDivider}>
         <View style={styles.dividerLine} />
         <Text style={styles.dividerLabel}>Video Feed</Text>
         <View style={styles.dividerLine} />
       </View>
     </View>
-  ) : null;
+  );
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
@@ -371,7 +437,58 @@ const styles = StyleSheet.create({
 
   list: { padding: spacing.xl, paddingBottom: 100, gap: spacing.lg },
 
-  pollSection: { gap: spacing.lg, marginBottom: spacing.sm },
+  headerSection: { gap: spacing.md, marginBottom: spacing.sm },
+
+  shortcutRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  shortcutCard: {
+    flex: 1,
+    borderRadius: radius.xl,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.07)',
+  },
+  shortcutGrad: {
+    padding: spacing.lg,
+    gap: spacing.sm,
+    minHeight: 110,
+    justifyContent: 'space-between',
+  },
+  shortcutIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  shortcutLabel: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+    flex: 1,
+  },
+  shortcutBadge: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: colors.primary,
+    borderRadius: radius.full,
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  shortcutBadgeText: { color: '#fff', fontSize: 10, fontWeight: '800' },
+  shortcutArrow: {
+    alignSelf: 'flex-end',
+  },
+
+  pollSection: { gap: spacing.sm },
 
   sectionDivider: {
     flexDirection: 'row',
