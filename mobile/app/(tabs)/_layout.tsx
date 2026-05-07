@@ -16,20 +16,24 @@ interface TabConfig {
 }
 
 const ATTENDEE_TABS: TabConfig[] = [
-  { name: 'feed', title: 'Feed', icon: 'play-circle-outline', iconFocused: 'play-circle' },
-  { name: 'audience', title: 'Audience', icon: 'people-outline', iconFocused: 'people' },
-  { name: 'engage', title: 'Engage', icon: 'flash-outline', iconFocused: 'flash' },
-  { name: 'agenda', title: 'Agenda', icon: 'calendar-outline', iconFocused: 'calendar' },
-  { name: 'partners', title: 'Partners', icon: 'briefcase-outline', iconFocused: 'briefcase' },
+  { name: 'feed',     title: 'Feed',     icon: 'play-circle-outline', iconFocused: 'play-circle' },
+  { name: 'audience', title: 'Audience', icon: 'people-outline',      iconFocused: 'people' },
+  { name: 'engage',   title: 'Engage',   icon: 'flash-outline',        iconFocused: 'flash' },
+  { name: 'agenda',   title: 'Agenda',   icon: 'calendar-outline',     iconFocused: 'calendar' },
+  { name: 'partners', title: 'Partners', icon: 'briefcase-outline',    iconFocused: 'briefcase' },
 ];
 
 const SPONSOR_TABS: TabConfig[] = [
-  { name: 'feed', title: 'Feed', icon: 'play-circle-outline', iconFocused: 'play-circle' },
-  { name: 'audience', title: 'Audience', icon: 'people-outline', iconFocused: 'people' },
-  { name: 'engage', title: 'Scan Badge', icon: 'qr-code-outline', iconFocused: 'qr-code' },
-  { name: 'agenda', title: 'Agenda', icon: 'calendar-outline', iconFocused: 'calendar' },
-  { name: 'partners', title: 'Leads', icon: 'list-outline', iconFocused: 'list' },
+  { name: 'feed',     title: 'Home',        icon: 'home-outline',         iconFocused: 'home' },
+  { name: 'audience', title: 'Audience',    icon: 'people-outline',       iconFocused: 'people' },
+  { name: 'engage',   title: 'Scan Badge',  icon: 'qr-code-outline',      iconFocused: 'qr-code' },
+  { name: 'connects', title: 'My Connects', icon: 'git-network-outline',  iconFocused: 'git-network' },
+  { name: 'more',     title: 'More',        icon: 'grid-outline',         iconFocused: 'grid' },
 ];
+
+// Every file that lives in (tabs)/ — must be listed here so Expo Router
+// can properly show/hide each one based on the active role.
+const ALL_TAB_NAMES = ['feed', 'audience', 'engage', 'agenda', 'partners', 'connects', 'more'] as const;
 
 export default function TabsLayout() {
   const { user, toast } = useAuth();
@@ -38,6 +42,7 @@ export default function TabsLayout() {
   if (!user) return <Redirect href="/(auth)/welcome" />;
 
   const tabs = user.role === 'sponsor' ? SPONSOR_TABS : ATTENDEE_TABS;
+  const activeNames = new Set(tabs.map((t) => t.name));
 
   const tabBarHeight = Platform.OS === 'ios' ? 84 : 64;
   const tabBarPaddingBottom = Platform.OS === 'ios' ? 28 : 8;
@@ -77,22 +82,32 @@ export default function TabsLayout() {
           tabBarHideOnKeyboard: true,
         }}
       >
-        {tabs.map((tab) => (
-          <Tabs.Screen
-            key={tab.name}
-            name={tab.name}
-            options={{
-              title: tab.title,
-              tabBarIcon: ({ focused, color }) => (
-                <Ionicons
-                  name={focused ? tab.iconFocused : tab.icon}
-                  size={22}
-                  color={color}
-                />
-              ),
-            }}
-          />
-        ))}
+        {ALL_TAB_NAMES.map((name) => {
+          const cfg = activeNames.has(name)
+            ? tabs.find((t) => t.name === name)!
+            : null;
+
+          return (
+            <Tabs.Screen
+              key={name}
+              name={name}
+              options={
+                cfg
+                  ? {
+                      title: cfg.title,
+                      tabBarIcon: ({ focused, color }) => (
+                        <Ionicons
+                          name={focused ? cfg.iconFocused : cfg.icon}
+                          size={22}
+                          color={color}
+                        />
+                      ),
+                    }
+                  : { href: null }
+              }
+            />
+          );
+        })}
       </Tabs>
     </View>
   );
