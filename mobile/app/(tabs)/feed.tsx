@@ -270,7 +270,7 @@ export default function FeedScreen() {
       {/* Surveys & Polls */}
       <TouchableOpacity
         style={styles.shortcutCard}
-        onPress={() => router.push('/(tabs)/engage?tab=polls' as Parameters<typeof router.push>[0])}
+        onPress={() => router.push('/(tabs)/engage?tab=polls' as any)}
         activeOpacity={0.78}
       >
         <LinearGradient colors={['rgba(124,58,237,0.22)', 'rgba(79,70,229,0.10)']} style={styles.shortcutGrad}>
@@ -292,7 +292,7 @@ export default function FeedScreen() {
       {/* Giveaways & Draws */}
       <TouchableOpacity
         style={styles.shortcutCard}
-        onPress={() => router.push('/(tabs)/engage?tab=giveaways' as Parameters<typeof router.push>[0])}
+        onPress={() => router.push('/(tabs)/engage?tab=giveaways' as any)}
         activeOpacity={0.78}
       >
         <LinearGradient colors={['rgba(245,158,11,0.18)', 'rgba(234,88,12,0.08)']} style={styles.shortcutGrad}>
