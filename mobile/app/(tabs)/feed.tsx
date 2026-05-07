@@ -313,10 +313,11 @@ export default function FeedScreen() {
     </View>
   );
 
-  const listHeader = (
+  // Poll + video-feed divider shown inside the FlatList header (shortcuts
+  // are rendered unconditionally ABOVE the loading gate so they are always
+  // visible even while videos/polls are still fetching).
+  const feedListHeader = (
     <View style={styles.headerSection}>
-      {shortcutSection}
-
       {activePoll && (
         <View style={styles.pollSection}>
           <View style={styles.sectionDivider}>
@@ -355,6 +356,11 @@ export default function FeedScreen() {
         </View>
       </View>
 
+      {/* Shortcut cards are ALWAYS visible — not gated on video/poll loading */}
+      <View style={styles.shortcutsOuter}>
+        {shortcutSection}
+      </View>
+
       <DataState
         loading={isLoading}
         error={videosError ? 'Failed to load feed. Pull down to retry.' : null}
@@ -366,7 +372,7 @@ export default function FeedScreen() {
           data={videos}
           keyExtractor={(i) => i.id}
           renderItem={renderVideo}
-          ListHeaderComponent={listHeader}
+          ListHeaderComponent={feedListHeader}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
           refreshControl={
@@ -439,6 +445,11 @@ const styles = StyleSheet.create({
 
   headerSection: { gap: spacing.md, marginBottom: spacing.sm },
 
+  shortcutsOuter: {
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
+  },
   shortcutRow: {
     flexDirection: 'row',
     gap: spacing.md,
