@@ -26,6 +26,7 @@ const ATTENDEE_TABS: TabConfig[] = [
 const SPONSOR_TABS: TabConfig[] = [
   { name: 'feed',     title: 'Home',        icon: 'home-outline',         iconFocused: 'home' },
   { name: 'audience', title: 'Audience',    icon: 'people-outline',       iconFocused: 'people' },
+  { name: 'engage',   title: 'Scan Badge',  icon: 'qr-code-outline',      iconFocused: 'qr-code' },
   { name: 'connects', title: 'My Connects', icon: 'git-network-outline',  iconFocused: 'git-network' },
   { name: 'more',     title: 'More',        icon: 'grid-outline',         iconFocused: 'grid' },
 ];
