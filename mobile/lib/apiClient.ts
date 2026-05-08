@@ -168,9 +168,16 @@ function normalizeAuthUser(raw: any): AuthUser {
   const rolesArray: string[] = Array.isArray(raw.roles)
     ? raw.roles.map((r: any) => (typeof r === 'string' ? r : r?.name ?? '').toLowerCase())
     : [];
+
+  // Debug: log raw role fields so we can see exactly what the backend sends.
+  console.log('[normalizeAuthUser] raw.role=', raw.role, 'system_role=', raw.system_role, 'roles=', raw.roles);
+
+  const roleStr = String(raw.role ?? '').toLowerCase();
   const isSponsor =
-    raw.role === 'sponsor' ||
-    raw.role === 'sponsor_rep' ||
+    roleStr === 'sponsor' ||
+    roleStr === 'sponsor_rep' ||
+    roleStr === 'exhibitor' ||
+    roleStr === 'exhibitor_rep' ||
     systemRole === 'SPONSOR' ||
     systemRole === 'SPONSOR_REP' ||
     rolesArray.includes('sponsor') ||
@@ -329,6 +336,32 @@ export async function loginWithPassword(
   const token: string = raw.token ?? raw.access_token ?? raw.auth_token ?? '';
   const rawUser = raw.user ?? raw.data ?? raw;
   return { success: true, data: { token, user: normalizeAuthUser(rawUser) } };
+}
+
+/**
+ * Fetch the current user's event-scoped role from the event members list.
+ * The backend stores roles per-event (e.g. SPONSOR_REP, ATTENDEE) in the
+ * event_members pivot — the global /me endpoint always returns "attendee".
+ * Returns 'sponsor' if the member has SPONSOR_REP / EXHIBITOR_REP role.
+ */
+export async function getMyEventRole(eventId: string, userId: string): Promise<'sponsor' | 'attendee'> {
+  try {
+    const res = await request<any>(`/api/v1/events/${eventId}/members?per_page=200`);
+    if (!res.success || !res.data) return 'attendee';
+    const items: any[] = Array.isArray(res.data)
+      ? res.data
+      : (res.data?.data ?? res.data?.members ?? []);
+    const me = items.find((m: any) => String(m.id) === String(userId));
+    if (!me) return 'attendee';
+    const roles: string[] = Array.isArray(me.roles)
+      ? me.roles.map((r: any) => String(r).toLowerCase())
+      : [];
+    const sponsorKeywords = ['sponsor', 'sponsor_rep', 'exhibitor', 'exhibitor_rep'];
+    if (sponsorKeywords.some((k) => roles.includes(k))) return 'sponsor';
+    return 'attendee';
+  } catch {
+    return 'attendee';
+  }
 }
 
 export async function getMe(): Promise<ApiResponse<AuthUser>> {

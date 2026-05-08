@@ -38,6 +38,13 @@ export default function MoreScreen() {
       title: 'Event',
       items: [
         {
+          label: 'Scan Badge',
+          icon: 'qr-code-outline',
+          color: '#7c3aed',
+          bg: 'rgba(124,58,237,0.12)',
+          onPress: () => router.push('/(tabs)/engage' as any),
+        },
+        {
           label: 'Partners',
           icon: 'briefcase-outline',
           color: '#06b6d4',

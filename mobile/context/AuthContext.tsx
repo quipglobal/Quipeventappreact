@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { AuthUser, getMe, setToken, clearToken, setUnauthorizedHandler, clearUnauthorizedHandler } from '@/lib/apiClient';
+import { AuthUser, getMe, getMyEventRole, setToken, clearToken, setUnauthorizedHandler, clearUnauthorizedHandler } from '@/lib/apiClient';
 
 interface AppContextValue {
   user: AuthUser | null;
@@ -13,6 +13,8 @@ interface AppContextValue {
   login: (token: string, user: AuthUser) => Promise<void>;
   logout: () => Promise<void>;
   setUser: (user: AuthUser) => void;
+  /** Re-fetch the user's event-scoped role and update user.role in context. */
+  refreshEventRole: (eventId: string) => Promise<void>;
   completedChallenges: string[];
   completeChallenge: (id: string) => void;
   bookmarkedSessions: string[];
@@ -159,6 +161,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.setItem(CACHED_USER_KEY, JSON.stringify(u)).catch(() => {});
   }, []);
 
+  const refreshEventRole = useCallback(async (eventId: string) => {
+    // Capture the user id synchronously via a functional read.
+    let userId = '';
+    setUserState((prev) => { userId = prev?.id ?? ''; return prev; });
+    if (!userId) return;
+    const role = await getMyEventRole(eventId, userId);
+    setUserState((latest) => {
+      if (!latest || latest.role === role) return latest;
+      const updated = { ...latest, role };
+      AsyncStorage.setItem(CACHED_USER_KEY, JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
+  }, []);
+
   const showToast = useCallback((message: string, points?: number) => {
     setToast({ message, points });
     setTimeout(() => setToast(null), 3200);
@@ -216,7 +232,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return (
     <AuthContext.Provider value={{
       user, token, isLoading, isOffline,
-      login, logout, setUser,
+      login, logout, setUser, refreshEventRole,
       completedChallenges, completeChallenge,
       bookmarkedSessions, toggleBookmark,
       votedPolls, markPollVoted,

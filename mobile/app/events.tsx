@@ -163,7 +163,7 @@ function EmptyState({ tab }: { tab: Tab }) {
 
 export default function EventsScreen() {
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
+  const { user, refreshEventRole } = useAuth();
   const { setCurrentEventId } = useEvent();
 
   const [activeTab, setActiveTab] = useState<Tab>('upcoming');
@@ -215,6 +215,7 @@ export default function EventsScreen() {
     if (localMatch) {
       setSelectedEvent(null);
       setCurrentEventId(localMatch.id);
+      refreshEventRole(localMatch.id);
       Alert.alert(
         'Joined!',
         `You've joined "${localMatch.name}".`,
@@ -225,7 +226,10 @@ export default function EventsScreen() {
     findAndJoin(c, {
       onSuccess: (event) => {
         setSelectedEvent(null);
-        if (event.id) setCurrentEventId(event.id);
+        if (event.id) {
+          setCurrentEventId(event.id);
+          refreshEventRole(event.id);
+        }
         Alert.alert(
           'Joined!',
           `You've joined "${event.name}".`,
@@ -237,7 +241,7 @@ export default function EventsScreen() {
         Alert.alert('Not Found', msg);
       },
     });
-  }, [allEvents, findAndJoin, setCurrentEventId, goToFeed]);
+  }, [allEvents, findAndJoin, setCurrentEventId, goToFeed, refreshEventRole]);
 
   const openEventPopup = (event: Event) => {
     setSelectedEvent(event);
