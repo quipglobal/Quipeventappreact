@@ -16,24 +16,24 @@ interface TabConfig {
 }
 
 const ATTENDEE_TABS: TabConfig[] = [
-  { name: 'feed',     title: 'Feed',     icon: 'play-circle-outline', iconFocused: 'play-circle' },
+  { name: 'feed',     title: 'Home',     icon: 'home-outline',        iconFocused: 'home' },
   { name: 'audience', title: 'Audience', icon: 'people-outline',      iconFocused: 'people' },
-  { name: 'engage',   title: 'Engage',   icon: 'flash-outline',        iconFocused: 'flash' },
-  { name: 'agenda',   title: 'Agenda',   icon: 'calendar-outline',     iconFocused: 'calendar' },
-  { name: 'partners', title: 'Partners', icon: 'briefcase-outline',    iconFocused: 'briefcase' },
+  { name: 'engage',   title: 'Engage',   icon: 'flash-outline',       iconFocused: 'flash' },
+  { name: 'partners', title: 'Partners', icon: 'briefcase-outline',   iconFocused: 'briefcase' },
+  { name: 'more',     title: 'More',     icon: 'grid-outline',        iconFocused: 'grid' },
 ];
 
 const SPONSOR_TABS: TabConfig[] = [
-  { name: 'feed',     title: 'Home',        icon: 'home-outline',         iconFocused: 'home' },
-  { name: 'audience', title: 'Audience',    icon: 'people-outline',       iconFocused: 'people' },
-  { name: 'engage',   title: 'Scan Badge',  icon: 'qr-code-outline',      iconFocused: 'qr-code' },
-  { name: 'connects', title: 'My Connects', icon: 'git-network-outline',  iconFocused: 'git-network' },
-  { name: 'more',     title: 'More',        icon: 'grid-outline',         iconFocused: 'grid' },
+  { name: 'feed',     title: 'Home',       icon: 'home-outline',        iconFocused: 'home' },
+  { name: 'audience', title: 'Audience',   icon: 'people-outline',      iconFocused: 'people' },
+  { name: 'engage',   title: 'Scan Badge', icon: 'qr-code-outline',     iconFocused: 'qr-code' },
+  { name: 'leads',    title: 'My Leads',   icon: 'people-circle-outline', iconFocused: 'people-circle' },
+  { name: 'more',     title: 'More',       icon: 'grid-outline',        iconFocused: 'grid' },
 ];
 
 // Every file that lives in (tabs)/ — must be listed here so Expo Router
 // can properly show/hide each one based on the active role.
-const ALL_TAB_NAMES = ['feed', 'audience', 'engage', 'agenda', 'partners', 'connects', 'more'] as const;
+const ALL_TAB_NAMES = ['feed', 'audience', 'engage', 'agenda', 'partners', 'connects', 'leads', 'more'] as const;
 
 export default function TabsLayout() {
   const { user, toast } = useAuth();

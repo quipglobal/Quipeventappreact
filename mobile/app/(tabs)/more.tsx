@@ -32,16 +32,24 @@ interface MenuSection {
 export default function MoreScreen() {
   const insets = useSafeAreaInsets();
   const { user, logout } = useAuth();
+  const isSponsor = user?.role === 'sponsor';
 
-  const sections: MenuSection[] = [
+  const sponsorSections: MenuSection[] = [
     {
-      title: 'Event',
+      title: 'Sponsor Tools',
       items: [
         {
-          label: 'Scan Badge',
-          icon: 'qr-code-outline',
-          color: '#7c3aed',
-          bg: 'rgba(124,58,237,0.12)',
+          label: 'Manage Giveaways',
+          icon: 'gift-outline',
+          color: '#f59e0b',
+          bg: 'rgba(245,158,11,0.12)',
+          onPress: () => router.push('/(tabs)/engage' as any),
+        },
+        {
+          label: 'Lucky Draw',
+          icon: 'trophy-outline',
+          color: '#ffd700',
+          bg: 'rgba(255,215,0,0.10)',
           onPress: () => router.push('/(tabs)/engage' as any),
         },
         {
@@ -52,25 +60,11 @@ export default function MoreScreen() {
           onPress: () => router.push('/(tabs)/partners' as any),
         },
         {
-          label: 'Manage Giveaways',
-          icon: 'gift-outline',
-          color: '#f59e0b',
-          bg: 'rgba(245,158,11,0.12)',
-          onPress: () => router.push('/(tabs)/engage' as any),
-        },
-        {
           label: 'Agenda',
           icon: 'calendar-outline',
           color: '#10b981',
           bg: 'rgba(16,185,129,0.12)',
           onPress: () => router.push('/(tabs)/agenda' as any),
-        },
-        {
-          label: 'Speakers',
-          icon: 'mic-outline',
-          color: '#a78bfa',
-          bg: 'rgba(167,139,250,0.12)',
-          onPress: () => router.push('/(tabs)/audience' as any),
         },
       ],
     },
@@ -83,13 +77,6 @@ export default function MoreScreen() {
           color: colors.primary,
           bg: 'rgba(124,58,237,0.12)',
           onPress: () => router.push('/qr-badge'),
-        },
-        {
-          label: 'Leaderboard',
-          icon: 'trophy-outline',
-          color: '#ffd700',
-          bg: 'rgba(255,215,0,0.10)',
-          onPress: () => router.push('/event-dashboard' as any),
         },
         {
           label: 'Settings',
@@ -114,13 +101,74 @@ export default function MoreScreen() {
     },
   ];
 
+  const attendeeSections: MenuSection[] = [
+    {
+      title: 'Event',
+      items: [
+        {
+          label: 'Agenda',
+          icon: 'calendar-outline',
+          color: '#10b981',
+          bg: 'rgba(16,185,129,0.12)',
+          onPress: () => router.push('/(tabs)/agenda' as any),
+        },
+        {
+          label: 'Leaderboard',
+          icon: 'trophy-outline',
+          color: '#ffd700',
+          bg: 'rgba(255,215,0,0.10)',
+          onPress: () => router.push('/event-dashboard' as any),
+        },
+        {
+          label: 'My Connects',
+          icon: 'git-network-outline',
+          color: '#a78bfa',
+          bg: 'rgba(167,139,250,0.12)',
+          onPress: () => router.push('/(tabs)/connects' as any),
+        },
+      ],
+    },
+    {
+      title: 'My Account',
+      items: [
+        {
+          label: 'My Badge',
+          icon: 'qr-code-outline',
+          color: colors.primary,
+          bg: 'rgba(124,58,237,0.12)',
+          onPress: () => router.push('/qr-badge'),
+        },
+        {
+          label: 'Settings',
+          icon: 'settings-outline',
+          color: '#94a3b8',
+          bg: 'rgba(148,163,184,0.12)',
+          onPress: () => router.push('/profile'),
+        },
+      ],
+    },
+    {
+      title: 'Events',
+      items: [
+        {
+          label: 'Switch Events',
+          icon: 'swap-horizontal-outline',
+          color: '#7c3aed',
+          bg: 'rgba(124,58,237,0.12)',
+          onPress: () => router.push('/events'),
+        },
+      ],
+    },
+  ];
+
+  const sections = isSponsor ? sponsorSections : attendeeSections;
+
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>More</Text>
       </View>
 
-      {/* Profile card */}
       <TouchableOpacity
         style={styles.profileCard}
         onPress={() => router.push('/profile')}
@@ -132,12 +180,14 @@ export default function MoreScreen() {
         >
           <View style={styles.profileAvatar}>
             <Text style={styles.profileAvatarText}>
-              {user?.name ? user.name[0].toUpperCase() : 'S'}
+              {user?.name ? user.name[0].toUpperCase() : 'U'}
             </Text>
           </View>
           <View style={styles.profileInfo}>
-            <Text style={styles.profileName}>{user?.name ?? 'Sponsor Rep'}</Text>
-            <Text style={styles.profileRole}>Sponsor Representative</Text>
+            <Text style={styles.profileName}>{user?.name ?? 'User'}</Text>
+            <Text style={styles.profileRole}>
+              {isSponsor ? 'Sponsor Representative' : 'Attendee'}
+            </Text>
           </View>
           <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
         </LinearGradient>
@@ -195,7 +245,6 @@ export default function MoreScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-
   header: {
     paddingHorizontal: spacing.xl,
     paddingVertical: spacing.md,
@@ -203,7 +252,6 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   headerTitle: { color: colors.textPrimary, fontSize: 22, fontWeight: '800' },
-
   profileCard: {
     marginHorizontal: spacing.xl,
     marginTop: spacing.lg,
@@ -231,9 +279,7 @@ const styles = StyleSheet.create({
   profileInfo: { flex: 1 },
   profileName: { color: colors.textPrimary, fontSize: 15, fontWeight: '700' },
   profileRole: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
-
   scroll: { paddingHorizontal: spacing.xl, paddingTop: spacing.lg },
-
   section: { marginBottom: spacing.lg },
   sectionTitle: {
     color: colors.textMuted,
@@ -250,7 +296,6 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     overflow: 'hidden',
   },
-
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -274,7 +319,6 @@ const styles = StyleSheet.create({
   },
   badgeText: { color: '#fff', fontSize: 10, fontWeight: '800' },
   divider: { height: 1, backgroundColor: colors.border, marginLeft: 56 },
-
   signOutBtn: {
     flexDirection: 'row',
     alignItems: 'center',
