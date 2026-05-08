@@ -170,9 +170,13 @@ function normalizeAuthUser(raw: any): AuthUser {
     : [];
   const isSponsor =
     raw.role === 'sponsor' ||
+    raw.role === 'sponsor_rep' ||
     systemRole === 'SPONSOR' ||
+    systemRole === 'SPONSOR_REP' ||
     rolesArray.includes('sponsor') ||
-    rolesArray.includes('exhibitor');
+    rolesArray.includes('sponsor_rep') ||
+    rolesArray.includes('exhibitor') ||
+    rolesArray.includes('exhibitor_rep');
 
   return {
     id: String(raw.id ?? ''),
