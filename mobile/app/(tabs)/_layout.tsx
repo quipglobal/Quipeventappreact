@@ -102,7 +102,7 @@ export default function TabsLayout() {
                         />
                       ),
                     }
-                  : { href: null, tabBarButton: () => null }
+                  : { href: null, tabBarButton: () => null, tabBarItemStyle: { display: 'none', width: 0, minWidth: 0, overflow: 'hidden' } }
               }
             />
           );

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
@@ -41,7 +41,22 @@ const CACHED_USER_KEY = 'cxo_cached_user';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
-  const [user, setUserState] = useState<AuthUser | null>(null);
+  const [user, _setUserState] = useState<AuthUser | null>(null);
+  // Mirror of user state in a ref so async callbacks always see the current value
+  // without needing to be in a useCallback dependency array.
+  const userRef = useRef<AuthUser | null>(null);
+  const setUserState = useCallback((u: AuthUser | null | ((prev: AuthUser | null) => AuthUser | null)) => {
+    if (typeof u === 'function') {
+      _setUserState((prev) => {
+        const next = u(prev);
+        userRef.current = next;
+        return next;
+      });
+    } else {
+      userRef.current = u;
+      _setUserState(u);
+    }
+  }, []);
   const [token, setTokenState] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isOffline, setIsOffline] = useState(false);
@@ -175,9 +190,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refreshEventRole = useCallback(async (eventId: string) => {
-    // Capture the user id synchronously via a functional read.
-    let userId = '';
-    setUserState((prev) => { userId = prev?.id ?? ''; return prev; });
+    // Use userRef so this always sees the current user without stale closures.
+    const userId = userRef.current?.id;
     if (!userId) return;
     const role = await getMyEventRole(eventId, userId);
     setUserState((latest) => {
@@ -186,7 +200,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       AsyncStorage.setItem(CACHED_USER_KEY, JSON.stringify(updated)).catch(() => {});
       return updated;
     });
-  }, []);
+  }, [setUserState]);
 
   const showToast = useCallback((message: string, points?: number) => {
     setToast({ message, points });
