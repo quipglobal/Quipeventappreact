@@ -105,9 +105,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const res = await getMe();
 
       if (res.success && res.data) {
-        setUserState(res.data);
+        // Backend /me always returns the global role ("attendee" for everyone).
+        // Roles are stored per-event. Read the cached event ID and fetch the
+        // event-scoped role so sponsor reps see the correct footer immediately.
+        let freshUser = res.data;
+        try {
+          const cachedEventId = await AsyncStorage.getItem('cxo_current_event_id');
+          if (cachedEventId) {
+            const eventRole = await getMyEventRole(cachedEventId, freshUser.id);
+            if (eventRole !== freshUser.role) {
+              freshUser = { ...freshUser, role: eventRole };
+            }
+          }
+        } catch {}
+        setUserState(freshUser);
         setIsOffline(false);
-        await AsyncStorage.setItem(CACHED_USER_KEY, JSON.stringify(res.data));
+        await AsyncStorage.setItem(CACHED_USER_KEY, JSON.stringify(freshUser));
       } else if (res.error?.code === 'NETWORK_ERROR') {
         // Network issue — keep cached user and flag as offline
         setIsOffline(true);

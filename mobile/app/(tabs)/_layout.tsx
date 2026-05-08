@@ -102,7 +102,7 @@ export default function TabsLayout() {
                         />
                       ),
                     }
-                  : { href: null }
+                  : { href: null, tabBarButton: () => null }
               }
             />
           );
