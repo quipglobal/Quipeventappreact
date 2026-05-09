@@ -354,7 +354,7 @@ export async function getMyEventRole(eventId: string, userId: string): Promise<'
     const me = items.find((m: any) => String(m.id) === String(userId));
     if (!me) return 'attendee';
     const roles: string[] = Array.isArray(me.roles)
-      ? me.roles.map((r: any) => String(r).toLowerCase())
+      ? me.roles.map((r: any) => (typeof r === 'string' ? r : r?.name ?? '').toLowerCase())
       : [];
     const sponsorKeywords = ['sponsor', 'sponsor_rep', 'exhibitor', 'exhibitor_rep'];
     if (sponsorKeywords.some((k) => roles.includes(k))) return 'sponsor';

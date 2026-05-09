@@ -94,7 +94,7 @@ export default function TabsLayout() {
               options={
                 cfg
                   ? {
-                      title: cfg.title,
+                      tabBarLabel: cfg.title,
                       tabBarIcon: ({ focused, color }) => (
                         <Ionicons
                           name={focused ? cfg.iconFocused : cfg.icon}
