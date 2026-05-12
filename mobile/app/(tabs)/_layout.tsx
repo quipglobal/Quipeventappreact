@@ -24,16 +24,16 @@ const ATTENDEE_TABS: TabConfig[] = [
 ];
 
 const SPONSOR_TABS: TabConfig[] = [
-  { name: 'feed',     title: 'Home',       icon: 'home-outline',        iconFocused: 'home' },
-  { name: 'audience', title: 'Audience',   icon: 'people-outline',      iconFocused: 'people' },
-  { name: 'engage',   title: 'Scan Badge', icon: 'qr-code-outline',     iconFocused: 'qr-code' },
+  { name: 'feed',     title: 'Home',       icon: 'home-outline',          iconFocused: 'home' },
+  { name: 'audience', title: 'Audience',   icon: 'people-outline',        iconFocused: 'people' },
+  { name: 'scan',     title: 'Scan Badge', icon: 'scan-outline',          iconFocused: 'scan' },
   { name: 'leads',    title: 'My Leads',   icon: 'people-circle-outline', iconFocused: 'people-circle' },
-  { name: 'more',     title: 'More',       icon: 'grid-outline',        iconFocused: 'grid' },
+  { name: 'more',     title: 'More',       icon: 'grid-outline',          iconFocused: 'grid' },
 ];
 
 // Every file that lives in (tabs)/ — must be listed here so Expo Router
 // can properly show/hide each one based on the active role.
-const ALL_TAB_NAMES = ['feed', 'audience', 'engage', 'agenda', 'partners', 'connects', 'leads', 'more'] as const;
+const ALL_TAB_NAMES = ['feed', 'audience', 'engage', 'scan', 'agenda', 'partners', 'connects', 'leads', 'more'] as const;
 
 export default function TabsLayout() {
   const { user, toast } = useAuth();
