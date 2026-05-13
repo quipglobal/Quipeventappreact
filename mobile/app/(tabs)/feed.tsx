@@ -14,6 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
+import { useEvent } from '@/context/EventContext';
 import { useVideoFeeds, useMarkVideoWatched } from '@/hooks/useFeed';
 import { usePolls, useVotePoll, useSurveys, useGiveaways } from '@/hooks/useEngage';
 import { DataState } from '@/components/DataState';
@@ -184,7 +185,8 @@ function PollCard({ item, votedOptionId, onVote, currentIndex, total, hasMore, o
 
 export default function FeedScreen() {
   const insets = useSafeAreaInsets();
-  const { markPollVoted } = useAuth();
+  const { markPollVoted, markEventCheckedIn } = useAuth();
+  const { currentEventId } = useEvent();
   const [pollVotes, setPollVotes] = useState<Record<string, string>>({});
   const [currentPollIdx, setCurrentPollIdx] = useState(0);
   const [visibleIds, setVisibleIds] = useState<string[]>([]);
@@ -233,6 +235,13 @@ export default function FeedScreen() {
   const activePoll = livePolls[currentPollIdx] ?? null;
   const hasMorePolls = currentPollIdx < livePolls.length - 1;
 
+  // Award check-in points once per event, the first time the user lands on the feed.
+  useEffect(() => {
+    if (currentEventId) {
+      markEventCheckedIn(currentEventId);
+    }
+  }, [currentEventId, markEventCheckedIn]);
+
   const onRefresh = useCallback(async () => {
     await Promise.all([refetchVideos(), refetchPolls()]);
   }, [refetchVideos, refetchPolls]);
@@ -263,11 +272,9 @@ export default function FeedScreen() {
     <VideoCard item={item} isVisible={visibleIds.includes(item.id)} />
   ), [visibleIds]);
 
-  const totalPollItems = allPolls.length + surveysData.length;
-
   const shortcutSection = (
     <View style={styles.shortcutRow}>
-      {/* Surveys & Polls */}
+      {/* Surveys */}
       <TouchableOpacity
         style={styles.shortcutCard}
         onPress={() => router.push('/(tabs)/engage?tab=polls' as any)}
@@ -275,16 +282,38 @@ export default function FeedScreen() {
       >
         <LinearGradient colors={['rgba(124,58,237,0.22)', 'rgba(79,70,229,0.10)']} style={styles.shortcutGrad}>
           <View style={[styles.shortcutIcon, { backgroundColor: 'rgba(124,58,237,0.22)' }]}>
-            <Ionicons name="bar-chart" size={20} color={colors.primary} />
+            <Ionicons name="document-text-outline" size={20} color={colors.primary} />
           </View>
-          <Text style={styles.shortcutLabel}>Surveys{'\n'}{'& Polls'}</Text>
-          {totalPollItems > 0 && (
+          <Text style={styles.shortcutLabel}>Surveys</Text>
+          {surveysData.length > 0 && (
             <View style={styles.shortcutBadge}>
-              <Text style={styles.shortcutBadgeText}>{totalPollItems}</Text>
+              <Text style={styles.shortcutBadgeText}>{surveysData.length}</Text>
             </View>
           )}
           <View style={styles.shortcutArrow}>
             <Ionicons name="arrow-forward" size={12} color={colors.primary} />
+          </View>
+        </LinearGradient>
+      </TouchableOpacity>
+
+      {/* Polls */}
+      <TouchableOpacity
+        style={styles.shortcutCard}
+        onPress={() => router.push('/(tabs)/engage?tab=polls' as any)}
+        activeOpacity={0.78}
+      >
+        <LinearGradient colors={['rgba(6,182,212,0.20)', 'rgba(79,70,229,0.10)']} style={styles.shortcutGrad}>
+          <View style={[styles.shortcutIcon, { backgroundColor: 'rgba(6,182,212,0.20)' }]}>
+            <Ionicons name="bar-chart-outline" size={20} color={colors.accent} />
+          </View>
+          <Text style={[styles.shortcutLabel, { color: colors.accent }]}>Polls</Text>
+          {allPolls.length > 0 && (
+            <View style={[styles.shortcutBadge, { backgroundColor: colors.accent }]}>
+              <Text style={styles.shortcutBadgeText}>{allPolls.length}</Text>
+            </View>
+          )}
+          <View style={styles.shortcutArrow}>
+            <Ionicons name="arrow-forward" size={12} color={colors.accent} />
           </View>
         </LinearGradient>
       </TouchableOpacity>
@@ -299,7 +328,7 @@ export default function FeedScreen() {
           <View style={[styles.shortcutIcon, { backgroundColor: 'rgba(245,158,11,0.20)' }]}>
             <Ionicons name="gift" size={20} color="#f59e0b" />
           </View>
-          <Text style={[styles.shortcutLabel, { color: '#f59e0b' }]}>Giveaways{'\n'}{'& Draws'}</Text>
+          <Text style={[styles.shortcutLabel, { color: '#f59e0b' }]}>Giveaways</Text>
           {giveawaysData.length > 0 && (
             <View style={[styles.shortcutBadge, { backgroundColor: '#f59e0b' }]}>
               <Text style={styles.shortcutBadgeText}>{giveawaysData.length}</Text>
@@ -338,11 +367,13 @@ export default function FeedScreen() {
         </View>
       )}
 
-      <View style={styles.sectionDivider}>
-        <View style={styles.dividerLine} />
-        <Text style={styles.dividerLabel}>Video Feed</Text>
-        <View style={styles.dividerLine} />
-      </View>
+      {videos.length > 0 && (
+        <View style={styles.sectionDivider}>
+          <View style={styles.dividerLine} />
+          <Text style={styles.dividerLabel}>Video Feed · Watch to earn Points</Text>
+          <View style={styles.dividerLine} />
+        </View>
+      )}
     </View>
   );
 
@@ -463,9 +494,9 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.07)',
   },
   shortcutGrad: {
-    padding: spacing.lg,
+    padding: spacing.md,
     gap: spacing.sm,
-    minHeight: 110,
+    minHeight: 100,
     justifyContent: 'space-between',
   },
   shortcutIcon: {

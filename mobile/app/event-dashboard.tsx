@@ -269,7 +269,6 @@ export default function EventDashboardScreen() {
               </View>
             )}
             <View style={styles.heroStat}><Text style={styles.heroStatVal}>{user?.points ?? 0}</Text><Text style={styles.heroStatLbl}>Your Pts</Text></View>
-            <View style={styles.heroStat}><Text style={styles.heroStatVal}>{user?.tier ?? 'Bronze'}</Text><Text style={styles.heroStatLbl}>Tier</Text></View>
           </View>
         </LinearGradient>
 
@@ -376,9 +375,6 @@ export default function EventDashboardScreen() {
                   <Text style={[styles.rankText, { color: colors.primary }]}>{myRankDisplay}</Text>
                 </View>
                 <Text style={[styles.leaderName, { color: colors.primary }]}>You</Text>
-                <View style={[styles.tierPill, { backgroundColor: 'rgba(124,58,237,0.15)', borderColor: 'rgba(124,58,237,0.4)' }]}>
-                  <Text style={[styles.tierText, { color: colors.primary }]}>{user?.tier ?? 'Bronze'}</Text>
-                </View>
                 <Text style={[styles.leaderPts, { color: colors.primary }]}>{user?.points ?? 0} pts</Text>
               </View>
             </View>

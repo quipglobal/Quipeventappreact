@@ -23,6 +23,10 @@ interface AppContextValue {
   markPollVoted: (id: string) => void;
   completedSurveys: string[];
   markSurveyDone: (id: string) => void;
+  /** Event IDs for which the user has already received check-in points this session. */
+  checkedInEvents: string[];
+  /** Award check-in points once per event per session. No-op if already checked in. */
+  markEventCheckedIn: (eventId: string) => void;
   addPoints: (pts: number, reason: string) => void;
   toast: { message: string; points?: number } | null;
   showToast: (message: string, points?: number) => void;
@@ -64,6 +68,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [bookmarkedSessions, setBookmarkedSessions] = useState<string[]>([]);
   const [votedPolls, setVotedPolls] = useState<string[]>([]);
   const [completedSurveys, setCompletedSurveys] = useState<string[]>([]);
+  const [checkedInEvents, setCheckedInEvents] = useState<string[]>([]);
   const [toast, setToast] = useState<{ message: string; points?: number } | null>(null);
 
   useEffect(() => {
@@ -86,6 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setBookmarkedSessions([]);
       setVotedPolls([]);
       setCompletedSurveys([]);
+      setCheckedInEvents([]);
       AsyncStorage.multiRemove([TOKEN_KEY, CACHED_USER_KEY]).catch(() => {});
       router.replace('/(auth)/welcome');
     });
@@ -182,6 +188,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setBookmarkedSessions([]);
     setVotedPolls([]);
     setCompletedSurveys([]);
+    setCheckedInEvents([]);
   }, []);
 
   const setUser = useCallback((u: AuthUser) => {
@@ -256,6 +263,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
   }, [addPoints]);
 
+  const markEventCheckedIn = useCallback((eventId: string) => {
+    setCheckedInEvents((prev) => {
+      if (prev.includes(eventId)) return prev;
+      addPoints(50, 'Event check-in! Welcome!');
+      return [...prev, eventId];
+    });
+  }, [addPoints]);
+
   return (
     <AuthContext.Provider value={{
       user, token, isLoading, isOffline,
@@ -264,6 +279,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       bookmarkedSessions, toggleBookmark,
       votedPolls, markPollVoted,
       completedSurveys, markSurveyDone,
+      checkedInEvents, markEventCheckedIn,
       addPoints, toast, showToast,
     }}>
       {children}

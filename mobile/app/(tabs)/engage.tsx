@@ -547,19 +547,10 @@ function AttendeeEngage() {
               <Text style={styles.pointsLabel}>Your Points</Text>
               <Text style={styles.pointsValue}>{user?.points ?? 0}</Text>
             </View>
-            <View style={styles.tierBadge}>
-              <Text style={styles.tierText}>{user?.tier ?? 'Bronze'}</Text>
-            </View>
           </View>
           <View style={styles.progressBarBg}>
             <View style={[styles.progressBarFill, { width: `${Math.min(((user?.points ?? 0) / 500) * 100, 100)}%` }]} />
           </View>
-          <Text style={styles.nextTierText}>
-            {(user?.points ?? 0) < 100 ? `${100 - (user?.points ?? 0)} pts to Silver` :
-             (user?.points ?? 0) < 250 ? `${250 - (user?.points ?? 0)} pts to Gold` :
-             (user?.points ?? 0) < 500 ? `${500 - (user?.points ?? 0)} pts to Platinum` :
-             'Max tier reached!'}
-          </Text>
         </LinearGradient>
       </View>
 
@@ -1058,11 +1049,8 @@ const styles = StyleSheet.create({
   pointsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: spacing.md },
   pointsLabel: { color: 'rgba(255,255,255,0.6)', fontSize: 12, fontWeight: '600' },
   pointsValue: { color: '#fff', fontSize: 36, fontWeight: '800' },
-  tierBadge: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: radius.full, backgroundColor: 'rgba(255,255,255,0.15)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
-  tierText: { color: '#fff', fontSize: 13, fontWeight: '700' },
   progressBarBg: { height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.15)', marginBottom: spacing.sm },
   progressBarFill: { height: 4, borderRadius: 2, backgroundColor: '#ffd700' },
-  nextTierText: { color: 'rgba(255,255,255,0.5)', fontSize: 11 },
 
   tabRow: { flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.xl, marginBottom: spacing.lg },
   tabScrollRow: { marginBottom: spacing.lg },
