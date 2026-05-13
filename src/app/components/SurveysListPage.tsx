@@ -14,11 +14,12 @@ import {
 
 interface SurveysListPageProps { onBack: () => void; }
 
-const isMultiType = (t: string) => t === 'multiChoice' || t === 'multi';
-const isSingleType = (t: string) => t === 'singleChoice' || t === 'single';
-const isRatingType = (t: string) => t === 'rating';
-const isNpsType = (t: string) => t === 'nps';
-const isTextType = (t: string) => t === 'text' || t === 'long_text';
+const norm = (t: string) => t.toLowerCase().replace(/[-\s]/g, '_');
+const isMultiType = (t: string) => ['multichoice','multi_choice','multi','checkbox','multiple','multiple_select','multiple_choice'].includes(norm(t));
+const isSingleType = (t: string) => ['singlechoice','single_choice','single','radio','select'].includes(norm(t));
+const isRatingType = (t: string) => ['rating','stars','scale'].includes(norm(t));
+const isNpsType = (t: string) => norm(t) === 'nps';
+const isTextType = (t: string) => ['text','long_text','open','open_ended','short_answer','textarea','free_text','freetext'].includes(norm(t));
 
 const formatAnswer = (q: BackendSurveyQuestion, value: unknown): string => {
   if (Array.isArray(value)) return value.join(', ');
@@ -171,7 +172,7 @@ export const SurveysListPage: React.FC<SurveysListPageProps> = ({ onBack }) => {
     }
 
     if (isTextType(q.question_type)) {
-      const isLong = q.question_type === 'long_text';
+      const isLong = ['long_text', 'textarea', 'open_ended', 'open', 'free_text', 'freetext'].includes(norm(q.question_type));
       return isLong ? (
         <textarea value={(answers[q.id] as string) ?? ''} onChange={e => handleAnswer(q.id, e.target.value)}
           placeholder="Type your answer…" rows={4}
@@ -185,7 +186,12 @@ export const SurveysListPage: React.FC<SurveysListPageProps> = ({ onBack }) => {
       );
     }
 
-    return null;
+    return (
+      <textarea value={(answers[q.id] as string) ?? ''} onChange={e => handleAnswer(q.id, e.target.value)}
+        placeholder="Type your answer…" rows={3}
+        className="w-full px-4 py-3 rounded-xl outline-none resize-none"
+        style={{ background: t.inputBg, border: `1.5px solid ${t.border}`, color: t.text, fontSize: 14 }} />
+    );
   };
 
   // ─── Detail (taking survey) ──────────────────────────────────────────────

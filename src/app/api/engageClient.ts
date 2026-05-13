@@ -19,7 +19,11 @@ import { apiGet, apiPost } from './client';
 // ─── Surveys ────────────────────────────────────────────────────────────────
 
 export type BackendSurveyQuestionType =
-  | 'rating' | 'nps' | 'singleChoice' | 'multiChoice' | 'text' | 'long_text';
+  | 'rating' | 'nps'
+  | 'singleChoice' | 'single_choice' | 'single' | 'radio' | 'select'
+  | 'multiChoice' | 'multi_choice' | 'multi' | 'checkbox' | 'multiple' | 'multiple_choice'
+  | 'text' | 'long_text' | 'open' | 'open_ended' | 'short_answer' | 'textarea' | 'free_text'
+  | (string & {});
 
 export interface BackendSurveyQuestion {
   id: number;
