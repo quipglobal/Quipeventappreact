@@ -133,6 +133,34 @@ export interface Survey {
   points: number;
 }
 
+export type SurveyQuestionType =
+  | 'text'
+  | 'single_choice'
+  | 'multiple_choice'
+  | 'checkbox'
+  | 'rating'
+  | 'yes_no';
+
+export interface SurveyQuestionOption {
+  id: string;
+  text: string;
+}
+
+export interface SurveyQuestion {
+  id: string;
+  type: SurveyQuestionType;
+  text: string;
+  required?: boolean;
+  options?: SurveyQuestionOption[];
+  min?: number;
+  max?: number;
+}
+
+export interface SurveyDetail extends Omit<Survey, 'questions'> {
+  questionList: SurveyQuestion[];
+  questions: number;
+}
+
 export interface GiveawayWinner {
   id: string;
   name: string;

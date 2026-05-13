@@ -1,6 +1,6 @@
 import { request } from '@/lib/apiClient';
 import { getEventId } from '@/lib/eventStore';
-import type { ApiResponse, Challenge, Poll, Survey, Giveaway, GiveawayWinner } from '@/lib/api/types';
+import type { ApiResponse, Challenge, Poll, Survey, SurveyDetail, SurveyQuestion, SurveyQuestionType, SurveyQuestionOption, Giveaway, GiveawayWinner } from '@/lib/api/types';
 
 export async function listChallenges(): Promise<ApiResponse<Challenge[]>> {
   const eventId = getEventId();
@@ -89,6 +89,64 @@ export async function listSurveys(): Promise<ApiResponse<Survey[]>> {
     points: Number(s.points ?? s.gamification_points ?? 50),
   }));
   return { success: true, data: surveys };
+}
+
+export async function getSurveyDetail(surveyId: string): Promise<ApiResponse<SurveyDetail>> {
+  const eventId = getEventId();
+  if (!eventId) return { success: false, error: { code: 'NO_EVENT', message: 'No active event' } };
+  const res = await request<any>(`/api/v1/events/${eventId}/mobile-surveys/${surveyId}`);
+  if (!res.success) return res as ApiResponse<SurveyDetail>;
+  const raw = res.data?.data ?? res.data;
+
+  const TYPE_MAP: Record<string, SurveyQuestionType> = {
+    text: 'text', open: 'text', textarea: 'text', open_ended: 'text',
+    multiple_choice: 'single_choice', radio: 'single_choice', single: 'single_choice', single_choice: 'single_choice',
+    checkbox: 'checkbox', multi_select: 'checkbox', multiple: 'checkbox',
+    rating: 'rating', scale: 'rating', stars: 'rating', number: 'rating',
+    yes_no: 'yes_no', boolean: 'yes_no', yesno: 'yes_no', yes_or_no: 'yes_no',
+  };
+
+  const rawQuestions: any[] = Array.isArray(raw?.questions)
+    ? raw.questions
+    : Array.isArray(raw?.survey_questions)
+    ? raw.survey_questions
+    : [];
+
+  const questionList: SurveyQuestion[] = rawQuestions.map((q: any, i: number) => {
+    const rawType = String(q.type ?? q.question_type ?? q.input_type ?? 'text').toLowerCase().replace(/[-\s]/g, '_');
+    const type: SurveyQuestionType = TYPE_MAP[rawType] ?? 'text';
+
+    const rawOpts: any[] = Array.isArray(q.options) ? q.options
+      : Array.isArray(q.choices) ? q.choices
+      : Array.isArray(q.answers) ? q.answers
+      : [];
+    const options: SurveyQuestionOption[] = rawOpts.map((o: any, oi: number) => ({
+      id: String(o.id ?? o.value ?? oi),
+      text: typeof o === 'string' ? o : (o.text ?? o.label ?? o.value ?? String(o)),
+    }));
+
+    return {
+      id: String(q.id ?? `q${i}`),
+      type,
+      text: q.text ?? q.question ?? q.label ?? q.title ?? '',
+      required: Boolean(q.required ?? q.is_required ?? false),
+      options: options.length > 0 ? options : undefined,
+      min: Number(q.min ?? 1),
+      max: Number(q.max ?? 5),
+    };
+  });
+
+  return {
+    success: true,
+    data: {
+      id: String(raw?.id ?? surveyId),
+      title: raw?.title ?? raw?.name ?? '',
+      desc: raw?.description ?? raw?.desc ?? '',
+      questions: questionList.length || Number(raw?.questions_count ?? raw?.questions ?? 0),
+      questionList,
+      points: Number(raw?.points ?? raw?.gamification_points ?? 50),
+    },
+  };
 }
 
 export async function submitSurvey(surveyId: string, answers: Record<string, string>): Promise<ApiResponse<{ points: number }>> {

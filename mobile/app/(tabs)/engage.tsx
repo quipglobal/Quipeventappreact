@@ -8,6 +8,8 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
+  TextInput,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -16,7 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
 import { useEvent } from '@/context/EventContext';
-import { useChallenges, useCompleteChallenge, usePolls, useVotePoll, useSurveys, useSubmitSurvey, useGiveaways } from '@/hooks/useEngage';
+import { useChallenges, useCompleteChallenge, usePolls, useVotePoll, useSurveys, useGetSurveyDetail, useSubmitSurvey, useGiveaways } from '@/hooks/useEngage';
 import { useLeaderboard } from '@/hooks/useAudience';
 import { useLeads, useLuckyDraw, useSubmitScan, leadsQueryKey } from '@/hooks/useLeads';
 import { DataState } from '@/components/DataState';
@@ -24,7 +26,7 @@ import { BadgeCameraScanner } from '@/components/BadgeCameraScanner';
 import { colors, spacing, radius } from '@/constants/theme';
 import { submitScan } from '@/lib/api/leads';
 import { saveGiveawayWinner } from '@/lib/api/engage';
-import type { ApiResponse, LeaderboardEntry, Lead, Giveaway } from '@/lib/api/types';
+import type { ApiResponse, LeaderboardEntry, Lead, Giveaway, Survey, SurveyQuestion } from '@/lib/api/types';
 
 function BadgeScanPanel({ onScanPress }: { onScanPress: () => void }) {
   return (
@@ -244,6 +246,232 @@ function ScannerView({ onBack, onScanSuccess }: { onBack: () => void; onScanSucc
   );
 }
 
+interface SurveyDetailViewProps {
+  survey: Survey;
+  alreadyDone: boolean;
+  onBack: () => void;
+}
+
+function SurveyDetailView({ survey, alreadyDone, onBack }: SurveyDetailViewProps) {
+  const insets = useSafeAreaInsets();
+  const { markSurveyDone, showToast } = useAuth();
+  const { data: detail, isLoading } = useGetSurveyDetail(survey.id);
+  const { mutate: submitSurveyMutation, isPending: submitting } = useSubmitSurvey();
+
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [submitted, setSubmitted] = useState(false);
+
+  const questions: SurveyQuestion[] = detail?.questionList?.length
+    ? detail.questionList
+    : [{ id: 'feedback', type: 'text', text: 'Share your overall feedback', required: false }];
+
+  const setAnswer = (qId: string, val: string) =>
+    setAnswers((prev) => ({ ...prev, [qId]: val }));
+
+  const toggleCheckbox = (qId: string, optionText: string) => {
+    setAnswers((prev) => {
+      const parts = prev[qId] ? prev[qId].split('|||') : [];
+      const idx = parts.indexOf(optionText);
+      const next = idx === -1 ? [...parts, optionText] : parts.filter((_, i) => i !== idx);
+      return { ...prev, [qId]: next.join('|||') };
+    });
+  };
+
+  const handleSubmit = () => {
+    const missing = questions.filter((q) => q.required && !answers[q.id]?.trim());
+    if (missing.length > 0) {
+      showToast(`Please answer: ${missing[0].text}`);
+      return;
+    }
+
+    submitSurveyMutation(
+      { surveyId: survey.id, answers },
+      {
+        onSuccess: (res) => {
+          const firstTime = !alreadyDone;
+          markSurveyDone(survey.id);
+          const pts = res.data?.points ?? survey.points;
+          showToast(firstTime ? `Survey submitted! +${pts} pts` : 'Answers updated!', firstTime ? pts : undefined);
+          setSubmitted(true);
+          setTimeout(() => onBack(), 1200);
+        },
+        onError: () => {
+          markSurveyDone(survey.id);
+          const firstTime = !alreadyDone;
+          showToast(firstTime ? `Saved! +${survey.points} pts` : 'Answers updated!', firstTime ? survey.points : undefined);
+          setSubmitted(true);
+          setTimeout(() => onBack(), 1200);
+        },
+      },
+    );
+  };
+
+  if (submitted) {
+    return (
+      <View style={[styles.container, styles.surveySuccessCenter]}>
+        <Ionicons name="checkmark-circle" size={72} color={colors.success} />
+        <Text style={styles.surveySuccessTitle}>{alreadyDone ? 'Answers Updated!' : 'Survey Complete!'}</Text>
+        {!alreadyDone && <Text style={styles.surveySuccessPts}>+{survey.points} pts earned</Text>}
+      </View>
+    );
+  }
+
+  return (
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.xl }]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <TouchableOpacity style={styles.backBtn} onPress={onBack}>
+          <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
+          <Text style={styles.backText}>Back</Text>
+        </TouchableOpacity>
+
+        <Text style={styles.scannerTitle}>{survey.title}</Text>
+        {!!survey.desc && <Text style={styles.surveyDetailDesc}>{survey.desc}</Text>}
+
+        <View style={styles.surveyDetailMeta}>
+          <Text style={styles.surveyMeta}>
+            {isLoading ? '…' : `${questions.length} question${questions.length !== 1 ? 's' : ''}`}
+          </Text>
+          {!alreadyDone ? (
+            <View style={styles.pointsPill}>
+              <Text style={styles.pointsPillText}>+{survey.points} pts</Text>
+            </View>
+          ) : (
+            <View style={styles.surveyDonePill}>
+              <Ionicons name="checkmark-circle" size={12} color={colors.success} />
+              <Text style={styles.surveyDonePillText}>Completed — update anytime</Text>
+            </View>
+          )}
+        </View>
+
+        {isLoading ? (
+          <ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} />
+        ) : (
+          questions.map((q, idx) => (
+            <View key={q.id} style={styles.questionCard}>
+              <Text style={styles.questionNum}>
+                Q{idx + 1}{q.required ? ' *' : ''}
+              </Text>
+              <Text style={styles.questionText}>{q.text}</Text>
+
+              {(q.type === 'text') && (
+                <TextInput
+                  style={styles.textAnswerInput}
+                  placeholder="Type your answer here…"
+                  placeholderTextColor={colors.textMuted}
+                  value={answers[q.id] ?? ''}
+                  onChangeText={(v) => setAnswer(q.id, v)}
+                  multiline
+                  numberOfLines={4}
+                  textAlignVertical="top"
+                />
+              )}
+
+              {(q.type === 'single_choice' || q.type === 'multiple_choice') && (
+                <View style={styles.optionsList}>
+                  {(q.options ?? []).map((opt) => {
+                    const sel = answers[q.id] === opt.id || answers[q.id] === opt.text;
+                    return (
+                      <TouchableOpacity
+                        key={opt.id}
+                        style={[styles.optionRow, sel && styles.optionRowSelected]}
+                        onPress={() => setAnswer(q.id, opt.text)}
+                      >
+                        <View style={[styles.radioCircle, sel && styles.radioCircleFilled]}>
+                          {sel && <View style={styles.radioInnerDot} />}
+                        </View>
+                        <Text style={[styles.optionText, sel && styles.optionTextSelected]}>{opt.text}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+
+              {q.type === 'checkbox' && (
+                <View style={styles.optionsList}>
+                  {(q.options ?? []).map((opt) => {
+                    const sel = (answers[q.id] ?? '').split('|||').filter(Boolean).includes(opt.text);
+                    return (
+                      <TouchableOpacity
+                        key={opt.id}
+                        style={[styles.optionRow, sel && styles.optionRowSelected]}
+                        onPress={() => toggleCheckbox(q.id, opt.text)}
+                      >
+                        <View style={[styles.checkboxBox, sel && styles.checkboxBoxFilled]}>
+                          {sel && <Ionicons name="checkmark" size={11} color="#fff" />}
+                        </View>
+                        <Text style={[styles.optionText, sel && styles.optionTextSelected]}>{opt.text}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+
+              {q.type === 'rating' && (
+                <View style={styles.ratingRow}>
+                  {[1, 2, 3, 4, 5].map((star) => {
+                    const filled = star <= parseInt(answers[q.id] ?? '0');
+                    return (
+                      <TouchableOpacity key={star} onPress={() => setAnswer(q.id, String(star))} style={styles.starBtn}>
+                        <Ionicons
+                          name={filled ? 'star' : 'star-outline'}
+                          size={36}
+                          color={filled ? colors.warning : colors.textMuted}
+                        />
+                      </TouchableOpacity>
+                    );
+                  })}
+                  {answers[q.id] && (
+                    <Text style={styles.ratingLabel}>{answers[q.id]} / 5</Text>
+                  )}
+                </View>
+              )}
+
+              {q.type === 'yes_no' && (
+                <View style={styles.yesNoRow}>
+                  {(['Yes', 'No'] as const).map((opt) => {
+                    const sel = answers[q.id] === opt;
+                    return (
+                      <TouchableOpacity
+                        key={opt}
+                        style={[styles.yesNoBtn, sel && styles.yesNoBtnSelected]}
+                        onPress={() => setAnswer(q.id, opt)}
+                      >
+                        <Text style={[styles.yesNoBtnText, sel && styles.yesNoBtnTextSelected]}>{opt}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
+          ))
+        )}
+
+        {!isLoading && (
+          <TouchableOpacity
+            style={[styles.surveySubmitBtn, submitting && { opacity: 0.6 }]}
+            onPress={handleSubmit}
+            disabled={submitting}
+          >
+            <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.surveySubmitGrad}>
+              {submitting
+                ? <ActivityIndicator color="#fff" />
+                : <Text style={styles.surveySubmitText}>{alreadyDone ? 'Update Answers' : 'Submit Survey'}</Text>
+              }
+            </LinearGradient>
+          </TouchableOpacity>
+        )}
+
+        <View style={{ height: 60 }} />
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+}
+
 function AttendeeEngage() {
   const { user, completedChallenges, completeChallenge, votedPolls, markPollVoted, markSurveyDone, completedSurveys, showToast } = useAuth();
   const { tab: deepLinkTab } = useLocalSearchParams<{ tab?: string }>();
@@ -257,6 +485,7 @@ function AttendeeEngage() {
 
   const [scanMode, setScanMode] = useState<'none' | 'scanner' | 'leads'>('none');
   const [pollVotes, setPollVotes] = useState<Record<string, string>>({});
+  const [activeSurvey, setActiveSurvey] = useState<Survey | null>(null);
 
   const { data: challengesData = [], isLoading: loadingChallenges, isError: errorChallenges, refetch: refetchChallenges } = useChallenges();
   const { data: pollsData = [], isLoading: loadingPolls, isError: errorPolls, refetch: refetchPolls } = usePolls();
@@ -267,7 +496,6 @@ function AttendeeEngage() {
 
   const { mutate: completeChallengeMutation } = useCompleteChallenge();
   const { mutate: votePollMutation } = useVotePoll();
-  const { mutate: submitSurveyMutation } = useSubmitSurvey();
 
   const isLoading = loadingChallenges || loadingPolls;
   const isError = errorChallenges || errorPolls;
@@ -292,6 +520,16 @@ function AttendeeEngage() {
 
   if (scanMode === 'leads') {
     return <LeadsView leads={leadsData} onBack={() => setScanMode('none')} />;
+  }
+
+  if (activeSurvey) {
+    return (
+      <SurveyDetailView
+        survey={activeSurvey}
+        alreadyDone={completedSurveys.includes(activeSurvey.id)}
+        onBack={() => setActiveSurvey(null)}
+      />
+    );
   }
 
   return (
@@ -395,7 +633,7 @@ function AttendeeEngage() {
         {surveys.slice(0, 2).map((sv) => {
           const done = completedSurveys.includes(sv.id);
           return (
-            <View key={sv.id} style={styles.spSurveyRow}>
+            <TouchableOpacity key={sv.id} style={styles.spSurveyRow} onPress={() => setActiveSurvey(sv)} activeOpacity={0.8}>
               <View style={[styles.spSurveyIcon, done && { backgroundColor: 'rgba(16,185,129,0.12)' }]}>
                 <Ionicons
                   name={done ? 'checkmark-circle' : 'document-text-outline'}
@@ -408,20 +646,13 @@ function AttendeeEngage() {
                 <Text style={styles.spSurveyMeta}>{sv.questions} question{sv.questions !== 1 ? 's' : ''} · +{sv.points} pts</Text>
               </View>
               {done ? (
-                <Text style={styles.spSurveyDone}>Done</Text>
+                <Text style={styles.spSurveyDone}>Update</Text>
               ) : (
-                <TouchableOpacity
-                  style={styles.spSurveyBtn}
-                  onPress={() => {
-                    markSurveyDone(sv.id);
-                    submitSurveyMutation({ surveyId: sv.id, answers: {} });
-                    showToast(`Survey submitted! +${sv.points} pts`, sv.points);
-                  }}
-                >
+                <View style={styles.spSurveyBtn}>
                   <Text style={styles.spSurveyBtnText}>Start</Text>
-                </TouchableOpacity>
+                </View>
               )}
-            </View>
+            </TouchableOpacity>
           );
         })}
 
@@ -574,7 +805,7 @@ function AttendeeEngage() {
           {surveys.map((sv) => {
             const done = completedSurveys.includes(sv.id);
             return (
-              <View key={sv.id} style={[styles.surveyCard, done && { opacity: 0.6 }]}>
+              <TouchableOpacity key={sv.id} style={styles.surveyCard} onPress={() => setActiveSurvey(sv)} activeOpacity={0.85}>
                 <View style={styles.surveyLeft}>
                   <View style={styles.surveyIcon}>
                     <Ionicons name={done ? 'checkmark-circle' : 'document-text'} size={22} color={done ? colors.success : colors.primary} />
@@ -582,16 +813,13 @@ function AttendeeEngage() {
                   <View style={styles.surveyBody}>
                     <Text style={styles.surveyTitle}>{sv.title}</Text>
                     <Text style={styles.surveyDesc} numberOfLines={2}>{sv.desc}</Text>
-                    <Text style={styles.surveyMeta}>{sv.questions} questions · +{sv.points} pts</Text>
+                    <Text style={styles.surveyMeta}>{sv.questions} question{sv.questions !== 1 ? 's' : ''} · +{sv.points} pts</Text>
                   </View>
                 </View>
-                {!done && (
-                  <TouchableOpacity style={styles.surveyBtn} onPress={() => { markSurveyDone(sv.id); submitSurveyMutation({ surveyId: sv.id, answers: {} }); showToast(`Survey submitted! +${sv.points} pts`, sv.points); }}>
-                    <Text style={styles.surveyBtnText}>Start</Text>
-                  </TouchableOpacity>
-                )}
-                {done && <Text style={styles.surveyDoneText}>Done</Text>}
-              </View>
+                <View style={[styles.surveyBtn, done && styles.surveyBtnDone]}>
+                  <Text style={[styles.surveyBtnText, done && styles.surveyBtnTextDone]}>{done ? 'Update' : 'Start'}</Text>
+                </View>
+              </TouchableOpacity>
             );
           })}
         </>
@@ -870,7 +1098,49 @@ const styles = StyleSheet.create({
   surveyMeta: { color: colors.textSecondary, fontSize: 11 },
   surveyBtn: { paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, borderRadius: radius.full, backgroundColor: colors.primary },
   surveyBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  surveyBtnDone: { backgroundColor: 'rgba(16,185,129,0.12)', borderWidth: 1, borderColor: 'rgba(16,185,129,0.4)' },
+  surveyBtnTextDone: { color: colors.success },
   surveyDoneText: { color: colors.success, fontSize: 13, fontWeight: '700' },
+
+  surveyDetailDesc: { color: colors.textMuted, fontSize: 13, marginHorizontal: spacing.xl, marginTop: spacing.sm, marginBottom: spacing.md, lineHeight: 20 },
+  surveyDetailMeta: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginHorizontal: spacing.xl, marginBottom: spacing.xl },
+  surveyDonePill: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.full, backgroundColor: 'rgba(16,185,129,0.1)', borderWidth: 1, borderColor: 'rgba(16,185,129,0.3)' },
+  surveyDonePillText: { color: colors.success, fontSize: 11, fontWeight: '600' },
+
+  questionCard: { marginHorizontal: spacing.xl, marginBottom: spacing.lg, padding: spacing.lg, borderRadius: radius.xl, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border },
+  questionNum: { color: colors.textMuted, fontSize: 10, fontWeight: '800', letterSpacing: 1, marginBottom: 4 },
+  questionText: { color: colors.textPrimary, fontSize: 15, fontWeight: '600', marginBottom: spacing.md, lineHeight: 22 },
+
+  textAnswerInput: { color: colors.textPrimary, fontSize: 14, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.md, minHeight: 100, lineHeight: 20 },
+
+  optionsList: { gap: spacing.sm },
+  optionRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md, borderRadius: radius.lg, backgroundColor: 'rgba(255,255,255,0.04)', borderWidth: 1, borderColor: colors.border },
+  optionRowSelected: { borderColor: colors.primary + '80', backgroundColor: 'rgba(124,58,237,0.10)' },
+  radioCircle: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: colors.textMuted, alignItems: 'center', justifyContent: 'center' },
+  radioCircleFilled: { borderColor: colors.primary },
+  radioInnerDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.primary },
+  checkboxBox: { width: 20, height: 20, borderRadius: 5, borderWidth: 2, borderColor: colors.textMuted, alignItems: 'center', justifyContent: 'center' },
+  checkboxBoxFilled: { borderColor: colors.primary, backgroundColor: colors.primary },
+  optionText: { flex: 1, color: colors.textPrimary, fontSize: 14 },
+  optionTextSelected: { fontWeight: '600', color: colors.textPrimary },
+
+  ratingRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
+  starBtn: { padding: 4 },
+  ratingLabel: { color: colors.textMuted, fontSize: 13, fontWeight: '600', marginLeft: spacing.sm },
+
+  yesNoRow: { flexDirection: 'row', gap: spacing.md },
+  yesNoBtn: { flex: 1, paddingVertical: spacing.md, borderRadius: radius.lg, alignItems: 'center', borderWidth: 1.5, borderColor: colors.border, backgroundColor: 'rgba(255,255,255,0.04)' },
+  yesNoBtnSelected: { borderColor: colors.primary, backgroundColor: 'rgba(124,58,237,0.15)' },
+  yesNoBtnText: { color: colors.textMuted, fontSize: 15, fontWeight: '600' },
+  yesNoBtnTextSelected: { color: colors.textPrimary },
+
+  surveySubmitBtn: { marginHorizontal: spacing.xl, marginTop: spacing.lg, borderRadius: radius.xl, overflow: 'hidden' },
+  surveySubmitGrad: { paddingVertical: spacing.lg, alignItems: 'center', borderRadius: radius.xl },
+  surveySubmitText: { color: '#fff', fontSize: 16, fontWeight: '800' },
+
+  surveySuccessCenter: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.lg },
+  surveySuccessTitle: { color: colors.textPrimary, fontSize: 22, fontWeight: '800' },
+  surveySuccessPts: { color: colors.primary, fontSize: 17, fontWeight: '700' },
 
   challengeCard: { flexDirection: 'row', alignItems: 'center', marginHorizontal: spacing.xl, marginBottom: spacing.sm, padding: spacing.lg, borderRadius: radius.xl, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border, gap: spacing.md },
   challengeDone: { opacity: 0.6 },

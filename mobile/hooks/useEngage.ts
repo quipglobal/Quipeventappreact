@@ -4,7 +4,7 @@ import { useEvent } from '@/context/EventContext';
 import {
   listChallenges, completeChallenge as apiCompleteChallenge,
   listPolls, votePoll,
-  listSurveys, submitSurvey,
+  listSurveys, getSurveyDetail, submitSurvey,
   listGiveaways, enterGiveaway,
 } from '@/lib/api/engage';
 
@@ -62,6 +62,17 @@ export function useSurveys() {
     queryFn: listSurveys,
     select: (res) => res.data ?? [],
     enabled: !!currentEventId,
+  });
+}
+
+export function useGetSurveyDetail(surveyId: string | null) {
+  const { currentEventId } = useEvent();
+  return useAuthedQuery({
+    queryKey: ['survey-detail', currentEventId, surveyId],
+    queryFn: () => getSurveyDetail(surveyId!),
+    select: (res) => res.data ?? null,
+    enabled: !!currentEventId && !!surveyId,
+    staleTime: 5 * 60 * 1000,
   });
 }
 
