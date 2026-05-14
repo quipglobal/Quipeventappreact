@@ -1,0 +1,181 @@
+Please fix the Article PDF Reader so users can actually open and read the PDF document from the article module.
+
+Context:
+- The article list is loading correctly from the backend.
+- The current issue is that tapping an article does not open or display the PDF document.
+- Admin is already adding a PDF link in the backend.
+- The goal is to make the PDF open reliably inside the mobile app in a Kindle-style reading experience.
+- Install and configure any required plugins/dependencies so this feature works end to end.
+- Do not stop at wiring the UI only. Make the PDF actually open and render.
+
+Primary goal:
+Build a working article reader experience that can open a PDF URL from the backend and display it inside the app.
+
+Important instructions:
+First inspect the codebase and identify:
+- current mobile stack and runtime
+  - React Native / Expo / Flutter / other
+- existing article list and article detail screens
+- API response shape for article details
+- current PDF open/view logic if any
+- currently installed viewer, webview, filesystem, and linking packages
+- app navigation and screen structure
+- loading/error state patterns
+- analytics/event tracking already used for articles
+
+Then implement the fix safely without breaking existing article flows.
+
+Tasks
+
+1) Diagnose why PDF is not opening
+Please identify the real cause before patching blindly.
+
+Check all likely causes:
+- invalid or empty pdf_url
+- relative URL instead of absolute URL
+- URL encoding issues
+- http vs https issue
+- expiring/signed URL issue
+- backend returns link but viewer is not using it correctly
+- PDF viewer package missing
+- PDF viewer package installed but not configured
+- native build/plugin setup missing
+- permissions/network config missing
+- app is trying to open PDF in a component that does not support PDF rendering
+- public server response headers are incompatible
+- server not returning a real PDF file/content-type
+- document opens in browser but not in-app
+- PDF is downloadable but not renderable in current implementation
+
+Add useful logs and error handling so the exact failure can be understood.
+
+2) Install required dependencies/plugins
+Based on the actual stack, install and configure the correct packages/plugins required to:
+- open remote PDF URLs
+- render PDFs inside the app
+- optionally download/cache PDF locally before rendering
+- support fallback opening when direct render fails
+
+Requirements:
+- use the correct package for the existing stack
+- configure any native/plugin/build settings required
+- update package configuration files as needed
+- do not leave the feature half-configured
+- document what was installed and why
+
+3) Build a working Kindle-style PDF reader screen
+Implement or fix the Article Reader screen so it:
+- opens when a user taps an article
+- loads the PDF from the backend-provided link
+- shows a loading state while the document is being prepared
+- renders the PDF inside the app if supported
+- provides a clean reading experience
+- handles long documents properly
+- works reliably for public PDF links
+
+Reader requirements:
+- open the PDF from the article’s pdf_url
+- validate the URL before attempting to load
+- render the document in-app first
+- show a user-friendly error if load fails
+- do not leave the user on a blank screen
+- keep layout simple and reading-focused
+
+4) Add a reliable fallback flow
+If direct remote PDF rendering is unreliable, implement fallback logic in this order:
+
+Preferred:
+A. Render the remote public PDF URL directly in-app
+
+Fallback 1:
+B. Download/cache the PDF locally on the device, then render the local file in-app
+
+Fallback 2:
+C. Open the PDF in a supported external/system viewer or browser only if in-app rendering still fails
+
+Requirements:
+- make the fallback automatic where possible
+- do not require the user to manually retry multiple times
+- show a proper message when switching to fallback behavior
+- keep the article experience usable even if the public link host behaves inconsistently
+
+5) Validate backend PDF links before opening
+Before loading the reader:
+- verify article detail contains a valid PDF link
+- reject empty, malformed, or unsupported URLs cleanly
+- if the backend returns a non-PDF link, surface a meaningful error
+- avoid crashes when the PDF URL is missing
+
+6) Preserve analytics for article reading
+Since article analytics are already being added, ensure the reader works with analytics too.
+
+Track at minimum:
+- open only when the PDF reader actually opens successfully
+- clicks when article is tapped
+- reading time while the PDF reader screen is visible and active
+- stop/pause timer when app goes to background or screen loses focus
+
+Do not count failed PDF attempts as successful opens unless the document really loads.
+
+7) Handle failure cases gracefully
+Support all of these:
+- broken PDF link
+- server returns HTML instead of PDF
+- timeout/network failure
+- unsupported file format
+- PDF viewer error
+- permission/config issue
+- blank screen bug
+
+Show proper:
+- loading state
+- empty/error state
+- retry action where appropriate
+
+8) If public-link PDF rendering is not stable, propose the proper backend upload plan
+If the investigation shows public hosted links are unreliable for in-app PDF viewing, then prepare the mobile side to support a better backend-driven file flow.
+
+Describe clearly whether the issue is caused by:
+- the mobile viewer
+- the server hosting the PDF
+- the backend API response
+- the runtime/build limitations
+
+Also provide a recommendation for the backend:
+- upload/store the actual PDF file instead of only a third-party/public link
+- serve a stable canonical PDF URL from backend/cloud storage
+- ensure proper content-type and file accessibility
+- return a reliable pdf_url for mobile consumption
+
+9) Testing checklist
+Please test and confirm:
+1. Article list still loads correctly
+2. Tapping an article opens the reader flow
+3. A valid PDF URL renders inside the app
+4. If direct render fails, local download/cache fallback works
+5. If in-app rendering still fails, external fallback opens the PDF
+6. Broken PDF links fail gracefully without crashing
+7. Loading and error states are visible and useful
+8. Analytics do not mark failed loads as successful opens
+9. No runtime/navigation errors were introduced
+10. The feature works end to end, not just visually
+
+Acceptance criteria
+- user can tap an article and open the PDF
+- PDF is viewable inside the app whenever the stack supports it
+- required plugins/dependencies are installed and configured
+- fallback behavior exists for problematic PDF links
+- reader screen is stable and user-friendly
+- article analytics remain compatible
+- no blank screen or silent failure remains
+
+Output format
+When done, provide:
+1. Root cause of the PDF opening failure
+2. Summary of the fix
+3. Files changed
+4. Dependencies/plugins installed
+5. Any build/config changes required
+6. Whether direct public PDF links are reliable in this app setup
+7. Whether backend file upload/storage is recommended
+8. Any assumptions made

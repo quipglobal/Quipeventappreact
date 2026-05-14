@@ -17,7 +17,53 @@ function estimateReadTime(content: string): number {
   return Math.max(1, Math.round(wordCount / 200));
 }
 
+/**
+ * Resolve a PDF/document file URL from a raw backend object.
+ * Checks every field that backend implementations commonly use.
+ * Excludes generic `url` since it often points to the API endpoint, not the file.
+ * Returns null when no valid absolute https/http URL is found.
+ */
+function resolveFileUrl(raw: any): string | null {
+  const candidate =
+    raw.file_url ??
+    raw.pdf_url ??
+    raw.document_url ??
+    raw.attachment_url ??
+    raw.pdf_link ??
+    raw.download_url ??
+    raw.media_url ??
+    raw.resource_url ??
+    raw.link ??
+    raw.file ??
+    null;
+
+  if (!candidate || typeof candidate !== 'string') return null;
+
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    return candidate;
+  } catch {
+    if (candidate.startsWith('/')) return null;
+    return null;
+  }
+}
+
 function normalizeArticle(raw: any): Article {
+  if (__DEV__) {
+    const keys = Object.keys(raw ?? {});
+    console.log('[Reader] raw document keys:', keys.join(', '));
+    const fileFields = [
+      'file_url', 'pdf_url', 'document_url', 'attachment_url',
+      'pdf_link', 'download_url', 'media_url', 'resource_url',
+      'link', 'file', 'url',
+    ];
+    const found: Record<string, any> = {};
+    fileFields.forEach((f) => { if (raw?.[f] != null) found[f] = raw[f]; });
+    console.log('[Reader] file-like fields present:', JSON.stringify(found));
+    console.log('[Reader] content length:', (raw?.content ?? raw?.body ?? '').length);
+  }
+
   const author = raw.author ?? raw.user ?? raw.created_by ?? {};
   const category = raw.category ?? raw.document_category ?? {};
 
@@ -43,14 +89,18 @@ function normalizeArticle(raw: any): Article {
   const categoryColor =
     typeof category === 'object' ? (category?.color ?? '#7c3aed') : '#7c3aed';
 
+  const fileUrl = resolveFileUrl(raw);
+
+  if (__DEV__) {
+    console.log(`[Reader] article "${raw.title}" → fileUrl: ${fileUrl ?? 'null'}`);
+  }
+
   return {
     id: String(raw.id),
     title: raw.title ?? raw.name ?? '',
     excerpt: raw.excerpt ?? raw.description ?? raw.summary ?? raw.short_description ?? '',
     content: raw.content ?? raw.body ?? raw.text ?? raw.html ?? '',
-    fileUrl:
-      raw.file_url ?? raw.pdf_url ?? raw.document_url ?? raw.attachment_url ??
-      raw.file ?? raw.url ?? null,
+    fileUrl,
     authorName,
     authorAvatar,
     categoryId: String(
@@ -96,6 +146,7 @@ export async function getDocuments(categoryId?: string): Promise<ApiResponse<Art
     : Array.isArray(res.data?.documents)
     ? res.data.documents
     : [];
+  if (__DEV__) console.log(`[Reader] getDocuments → ${raw.length} items`);
   return { success: true, data: raw.map(normalizeArticle) };
 }
 
@@ -107,6 +158,7 @@ export async function getDocument(id: string): Promise<ApiResponse<Article | nul
   }
   const raw = res.data?.data ?? res.data;
   if (!raw || typeof raw !== 'object') return { success: true, data: null };
+  if (__DEV__) console.log(`[Reader] getDocument(${id}) raw top-level:`, JSON.stringify(raw).slice(0, 400));
   return { success: true, data: normalizeArticle(raw) };
 }
 
