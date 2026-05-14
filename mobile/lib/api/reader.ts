@@ -24,9 +24,12 @@ function estimateReadTime(content: string): number {
  * Returns null when no valid absolute https/http URL is found.
  */
 function resolveFileUrl(raw: any): string | null {
+  // pdf_url is the canonical field returned by GET /mobile/reader/documents[/:id]
+  // regardless of whether the PDF was uploaded to local storage or is an external link.
+  // All other aliases are kept as fallbacks for backward compatibility.
   const candidate =
-    raw.file_url ??
     raw.pdf_url ??
+    raw.file_url ??
     raw.document_url ??
     raw.attachment_url ??
     raw.pdf_link ??
@@ -44,26 +47,11 @@ function resolveFileUrl(raw: any): string | null {
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
     return candidate;
   } catch {
-    if (candidate.startsWith('/')) return null;
     return null;
   }
 }
 
 function normalizeArticle(raw: any): Article {
-  if (__DEV__) {
-    const keys = Object.keys(raw ?? {});
-    console.log('[Reader] raw document keys:', keys.join(', '));
-    const fileFields = [
-      'file_url', 'pdf_url', 'document_url', 'attachment_url',
-      'pdf_link', 'download_url', 'media_url', 'resource_url',
-      'link', 'file', 'url',
-    ];
-    const found: Record<string, any> = {};
-    fileFields.forEach((f) => { if (raw?.[f] != null) found[f] = raw[f]; });
-    console.log('[Reader] file-like fields present:', JSON.stringify(found));
-    console.log('[Reader] content length:', (raw?.content ?? raw?.body ?? '').length);
-  }
-
   const author = raw.author ?? raw.user ?? raw.created_by ?? {};
   const category = raw.category ?? raw.document_category ?? {};
 
@@ -158,7 +146,6 @@ export async function getDocument(id: string): Promise<ApiResponse<Article | nul
   }
   const raw = res.data?.data ?? res.data;
   if (!raw || typeof raw !== 'object') return { success: true, data: null };
-  if (__DEV__) console.log(`[Reader] getDocument(${id}) raw top-level:`, JSON.stringify(raw).slice(0, 400));
   return { success: true, data: normalizeArticle(raw) };
 }
 
