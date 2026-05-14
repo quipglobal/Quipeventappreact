@@ -15,7 +15,7 @@ config.server = {
   ...config.server,
   enhanceMiddleware: (metroMiddleware) => {
     return (req, res, next) => {
-      if (!req.url || !req.url.startsWith('/api')) {
+      if (!req.url || (!req.url.startsWith('/api') && !req.url.startsWith('/mobile'))) {
         return metroMiddleware(req, res, next);
       }
 

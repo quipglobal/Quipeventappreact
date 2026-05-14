@@ -1,0 +1,155 @@
+Please build the mobile Article UI using the existing backend Article APIs.
+
+Context:
+- Backend article features already exist and are working.
+- Do not rebuild the article backend module.
+- Build the mobile experience for articles as a Kindle-style reader.
+- Also track reader analytics and send them to the backend through a POST endpoint.
+- Follow the existing mobile architecture, navigation, state management, API client patterns, and styling conventions.
+
+Main goals:
+1. Build the mobile UI for article listing and article reading
+2. Display article content in a Kindle-style reading experience
+3. Track article reading analytics:
+   - article open/clicks
+   - active reading time
+   - total time on article screen
+4. Send analytics to backend via POST using the agreed payload format
+
+First inspect the codebase and identify:
+- existing article list/detail APIs and service functions
+- current navigation structure
+- current auth/session handling
+- current API client pattern
+- any existing rich text / HTML / markdown rendering utilities
+- any current analytics/event tracking pattern
+- reusable card/list/detail components
+- loading, error, and empty-state patterns already used in the app
+
+Then implement the following.
+
+1) Article Library screen
+Build a screen to list available articles from the existing backend API.
+Display at minimum:
+- article title
+- author name
+- short description / excerpt
+- category if available
+- thumbnail / cover image if available
+
+Requirements:
+- use current list/card UI patterns
+- support loading state
+- support empty state
+- support API error state
+- support pull-to-refresh if the app already uses it in similar modules
+
+2) Article Detail / Reader screen
+Build a Kindle-style reader screen for article content.
+
+Reader UX requirements:
+- clean, distraction-free layout
+- readable typography
+- proper paragraph spacing
+- comfortable line height and padding
+- support long-form article reading
+- safe scrolling behavior for long content
+- preserve headings, paragraphs, lists, and emphasis if the article content is rich text/HTML/markdown
+- use existing rendering library/utilities if already present in the project
+- do not redesign unrelated pages
+
+Nice-to-have only if easy and aligned with current patterns:
+- adjustable font size
+- light/dark/sepia reading theme
+- reading progress indicator
+- estimated read time display
+
+3) Analytics tracking for article reading
+Implement client-side analytics for reading sessions.
+
+Track at minimum:
+- article_id
+- session_id
+- click_count
+- active_read_seconds
+- total_elapsed_seconds
+- max_scroll_percent
+- started_at
+- ended_at
+- completed flag if user reaches near end of article
+
+Analytics rules:
+- create a unique reading session when user opens an article
+- opening the article should count as one click/open event for that session
+- track meaningful interaction count within the article session
+- track active reading time only while:
+  - article screen is visible
+  - app is in foreground
+  - user has not navigated away
+- pause timing when:
+  - app goes to background
+  - screen loses focus
+  - user leaves the article
+- do not count inactive background time as reading time
+- calculate max scroll depth percent reached
+- mark completed = true when user reaches the completion threshold near the end of the article
+
+4) Send analytics to backend
+Send analytics to the backend using POST.
+
+Requirements:
+- follow existing API client structure
+- use auth token/session already used by the app
+- do not send raw user_id unless the current API pattern explicitly requires it
+- send analytics:
+  - when user exits article screen
+  - when app goes to background while article is open
+  - optionally as a periodic safe flush/heartbeat only if needed
+- avoid spamming the endpoint every second
+- use session_id so repeated posts for the same session can be handled safely by backend
+- prevent duplicate submissions as much as possible from the mobile side
+- if network fails, retry using the current app’s retry strategy or queue pattern if one already exists
+
+5) API integration
+Use the existing article APIs for:
+- article list
+- article detail/content
+
+Use the new analytics POST endpoint for:
+- article reading analytics submission
+
+6) Code quality requirements
+- keep implementation modular
+- reuse existing components and utilities
+- preserve current coding style
+- do not break existing article flows
+- do not hardcode API URLs outside the normal config/service layer
+- keep typing/models/interfaces aligned with existing backend responses
+
+Acceptance criteria:
+- user can see article list in mobile app
+- user can open an article and read it in a Kindle-style layout
+- long article content renders correctly
+- loading, empty, and error states work
+- analytics session starts when article opens
+- analytics stop/pause correctly when screen is not active
+- analytics POST is sent successfully to backend
+- no console/runtime/navigation errors are introduced
+
+Testing checklist:
+1. Article list loads from backend
+2. Article detail opens correctly
+3. Reader UI looks clean and readable for long articles
+4. App does not break on empty or malformed article content
+5. Opening an article starts a reading session
+6. Leaving the article posts analytics
+7. Backgrounding the app pauses or flushes analytics correctly
+8. Re-entering article starts a new session or resumes correctly based on implementation
+9. No duplicate analytics spam is sent
+10. No runtime errors are introduced
+
+When done, provide:
+1. Summary of what was built
+2. Files changed
+3. Any assumptions made about article response shape
+4. Any mobile-side analytics decisions made

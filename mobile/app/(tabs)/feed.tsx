@@ -18,6 +18,7 @@ import { useEvent } from '@/context/EventContext';
 import { useVideoFeeds, useMarkVideoWatched } from '@/hooks/useFeed';
 import { usePolls, useVotePoll, useSurveys, useGiveaways } from '@/hooks/useEngage';
 import { DataState } from '@/components/DataState';
+import { ArticlesTab } from '@/components/ArticlesTab';
 import { colors, spacing, radius, typography } from '@/constants/theme';
 import type { FeedVideo, Poll } from '@/lib/api/types';
 
@@ -187,6 +188,7 @@ export default function FeedScreen() {
   const insets = useSafeAreaInsets();
   const { markPollVoted, markEventCheckedIn } = useAuth();
   const { currentEventId } = useEvent();
+  const [feedTab, setFeedTab] = useState<'videos' | 'articles'>('videos');
   const [pollVotes, setPollVotes] = useState<Record<string, string>>({});
   const [currentPollIdx, setCurrentPollIdx] = useState(0);
   const [visibleIds, setVisibleIds] = useState<string[]>([]);
@@ -380,67 +382,95 @@ export default function FeedScreen() {
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <View style={styles.topBar}>
-        <Text style={styles.topTitle}>Live Feed</Text>
-        <View style={styles.liveChip}>
-          <View style={styles.livePulse} />
-          <Text style={styles.liveChipText}>LIVE</Text>
+        <Text style={styles.topTitle}>Home</Text>
+        <View style={styles.feedTabToggle}>
+          <TouchableOpacity
+            style={[styles.feedTabBtn, feedTab === 'videos' && styles.feedTabBtnActive]}
+            onPress={() => setFeedTab('videos')}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="videocam" size={12} color={feedTab === 'videos' ? '#fff' : colors.textMuted} />
+            <Text style={[styles.feedTabText, feedTab === 'videos' && styles.feedTabTextActive]}>Videos</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.feedTabBtn, feedTab === 'articles' && styles.feedTabBtnActive]}
+            onPress={() => setFeedTab('articles')}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="book" size={12} color={feedTab === 'articles' ? '#fff' : colors.textMuted} />
+            <Text style={[styles.feedTabText, feedTab === 'articles' && styles.feedTabTextActive]}>Articles</Text>
+          </TouchableOpacity>
         </View>
+        {feedTab === 'videos' ? (
+          <View style={styles.liveChip}>
+            <View style={styles.livePulse} />
+            <Text style={styles.liveChipText}>LIVE</Text>
+          </View>
+        ) : (
+          <View style={styles.liveChipSpacer} />
+        )}
       </View>
 
-      {/* Shortcut cards are ALWAYS visible — not gated on video/poll loading */}
-      <View style={styles.shortcutsOuter}>
-        {shortcutSection}
-      </View>
+      {feedTab === 'articles' ? (
+        <ArticlesTab />
+      ) : (
+        <>
+          {/* Shortcut cards are ALWAYS visible — not gated on video/poll loading */}
+          <View style={styles.shortcutsOuter}>
+            {shortcutSection}
+          </View>
 
-      <DataState
-        loading={isLoading}
-        error={videosError ? 'Failed to load feed. Pull down to retry.' : null}
-        onRetry={refetchVideos}
-      />
+          <DataState
+            loading={isLoading}
+            error={videosError ? 'Failed to load feed. Pull down to retry.' : null}
+            onRetry={refetchVideos}
+          />
 
-      {!isLoading && (
-        <FlatList
-          data={videos}
-          keyExtractor={(i) => i.id}
-          renderItem={renderVideo}
-          ListHeaderComponent={feedListHeader}
-          contentContainerStyle={styles.list}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={isRefetching}
-              onRefresh={onRefresh}
-              tintColor={colors.primary}
-              colors={[colors.primary]}
+          {!isLoading && (
+            <FlatList
+              data={videos}
+              keyExtractor={(i) => i.id}
+              renderItem={renderVideo}
+              ListHeaderComponent={feedListHeader}
+              contentContainerStyle={styles.list}
+              showsVerticalScrollIndicator={false}
+              refreshControl={
+                <RefreshControl
+                  refreshing={isRefetching}
+                  onRefresh={onRefresh}
+                  tintColor={colors.primary}
+                  colors={[colors.primary]}
+                />
+              }
+              onViewableItemsChanged={onViewableItemsChanged}
+              viewabilityConfig={{ itemVisiblePercentThreshold: 60 }}
+              onEndReached={() => {
+                if (hasMoreVideos && !isFetchingMoreVideos) {
+                  void fetchMoreVideos();
+                }
+              }}
+              onEndReachedThreshold={0.5}
+              ListFooterComponent={
+                isFetchingMoreVideos ? (
+                  <View style={styles.footerLoader}>
+                    <Text style={styles.footerLoaderText}>Loading more…</Text>
+                  </View>
+                ) : null
+              }
+              ListEmptyComponent={
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyEmoji}>📡</Text>
+                  <Text style={styles.emptyTitle}>No videos yet</Text>
+                  <Text style={styles.emptySub}>
+                    {activePoll
+                      ? 'Videos will appear here once the event streams begin.'
+                      : 'Once you join an event, live videos and polls will appear here.'}
+                  </Text>
+                </View>
+              }
             />
-          }
-          onViewableItemsChanged={onViewableItemsChanged}
-          viewabilityConfig={{ itemVisiblePercentThreshold: 60 }}
-          onEndReached={() => {
-            if (hasMoreVideos && !isFetchingMoreVideos) {
-              void fetchMoreVideos();
-            }
-          }}
-          onEndReachedThreshold={0.5}
-          ListFooterComponent={
-            isFetchingMoreVideos ? (
-              <View style={styles.footerLoader}>
-                <Text style={styles.footerLoaderText}>Loading more…</Text>
-              </View>
-            ) : null
-          }
-          ListEmptyComponent={
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyEmoji}>📡</Text>
-              <Text style={styles.emptyTitle}>No videos yet</Text>
-              <Text style={styles.emptySub}>
-                {activePoll
-                  ? 'Videos will appear here once the event streams begin.'
-                  : 'Once you join an event, live videos and polls will appear here.'}
-              </Text>
-            </View>
-          }
-        />
+          )}
+        </>
       )}
     </View>
   );
@@ -458,6 +488,34 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   topTitle: { color: colors.textPrimary, ...typography.h2 },
+
+  feedTabToggle: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderRadius: radius.full,
+    padding: 3,
+  },
+  feedTabBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+    borderRadius: radius.full,
+  },
+  feedTabBtnActive: {
+    backgroundColor: colors.primary,
+  },
+  feedTabText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  feedTabTextActive: {
+    color: '#fff',
+  },
+
+  liveChipSpacer: { width: 62 },
   liveChip: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -229,3 +229,39 @@ export interface LeaderboardEntry {
   tier: string;
   tierColor: string;
 }
+
+export interface ArticleCategory {
+  id: string;
+  name: string;
+  slug: string;
+  color: string;
+  documentCount: number;
+}
+
+export interface Article {
+  id: string;
+  title: string;
+  excerpt: string;
+  content: string;
+  authorName: string;
+  authorAvatar: string | null;
+  categoryId: string;
+  categoryName: string;
+  categoryColor: string;
+  thumbnailUrl: string | null;
+  estimatedReadMinutes: number;
+  publishedAt: string;
+  updatedAt: string;
+}
+
+export interface ArticleAnalytics {
+  session_id: string;
+  article_id: string;
+  click_count: number;
+  active_read_seconds: number;
+  total_elapsed_seconds: number;
+  max_scroll_percent: number;
+  started_at: string;
+  ended_at: string;
+  completed: boolean;
+}
