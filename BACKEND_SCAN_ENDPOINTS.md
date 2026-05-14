@@ -673,3 +673,226 @@ All errors follow the existing API shape:
 ```
 
 HTTP status codes: 401 (unauthenticated), 403 (forbidden), 404 (not found), 422 (validation error), 500 (server error).
+
+---
+
+### 11. Reader / Articles API
+
+Used by both the web and mobile apps to display curated articles and track reading behaviour. All four routes live under `/mobile/reader/` (not `/api/v1/`) because they serve content that is not event-scoped.
+
+**Authentication:** `Authorization: Bearer <token>` required on all routes.
+**Headers:** `Accept: application/json`, `X-Tenant-ID: 3`
+
+---
+
+#### 11a. List Article Categories
+
+```
+GET /mobile/reader/categories
+```
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "name": "Technology",
+      "slug": "technology",
+      "color": "#06b6d4",
+      "document_count": 12
+    },
+    {
+      "id": 2,
+      "name": "Business",
+      "slug": "business",
+      "color": "#f59e0b",
+      "document_count": 8
+    }
+  ]
+}
+```
+
+> Field aliases accepted by the client (backend may use any): `title` → `name`, `accent_color` → `color`, `documents_count` / `count` → `document_count`.
+
+---
+
+#### 11b. List Articles (Documents)
+
+```
+GET /mobile/reader/documents?category_id=:id&page=:n&per_page=:n
+```
+
+All query params are optional. Default `per_page`: 20.
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 42,
+      "title": "The Future of AI at Events",
+      "excerpt": "How machine learning is reshaping conference experiences.",
+      "content": "<p>Full HTML body…</p>",
+      "thumbnail_url": "https://cdn.example.com/articles/42.jpg",
+      "author": {
+        "id": 7,
+        "name": "Jane Smith",
+        "avatar": "https://cdn.example.com/avatars/7.jpg"
+      },
+      "category": {
+        "id": 1,
+        "name": "Technology",
+        "slug": "technology",
+        "color": "#06b6d4"
+      },
+      "read_time": 5,
+      "published_at": "2026-05-01T09:00:00Z",
+      "updated_at": "2026-05-10T14:30:00Z"
+    }
+  ],
+  "meta": {
+    "current_page": 1,
+    "last_page": 3,
+    "per_page": 20,
+    "total": 52,
+    "has_more": true
+  }
+}
+```
+
+> Field aliases the client normalises: `body`/`text`/`html` → `content`, `cover_image`/`featured_image`/`image` → `thumbnail_url`, `reading_time`/`estimated_read_time` → `read_time`, `description`/`summary` → `excerpt`. Author may be a plain string or the nested object above.
+
+---
+
+#### 11c. Get Single Article
+
+```
+GET /mobile/reader/documents/:id
+```
+
+**Response `200`:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 42,
+    "title": "The Future of AI at Events",
+    "excerpt": "How machine learning is reshaping conference experiences.",
+    "content": "<p>Full HTML body with all sections…</p>",
+    "thumbnail_url": "https://cdn.example.com/articles/42.jpg",
+    "author": { "id": 7, "name": "Jane Smith", "avatar": "https://…" },
+    "category": { "id": 1, "name": "Technology", "slug": "technology", "color": "#06b6d4" },
+    "read_time": 5,
+    "published_at": "2026-05-01T09:00:00Z",
+    "updated_at": "2026-05-10T14:30:00Z"
+  }
+}
+```
+
+> The `content` field should contain the **full** HTML body. The list endpoint may omit it for performance; the detail endpoint must always include it.
+
+---
+
+#### 11d. Submit Reading Analytics
+
+```
+POST /mobile/reader/documents/:id/analytics
+```
+
+Called by the client when the user closes an article (web) or navigates away (mobile). Fires silently — failures are ignored by the client.
+
+**Request body:**
+```json
+{
+  "session_id": "web-lbqx4z-k8f2a",
+  "article_id": 42,
+  "click_count": 1,
+  "active_read_seconds": 183,
+  "total_elapsed_seconds": 240,
+  "max_scroll_percent": 74,
+  "started_at": "2026-05-14T18:32:00.000Z",
+  "ended_at": "2026-05-14T18:36:00.000Z",
+  "completed": false
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `session_id` | string | Client-generated unique ID per open (`web-<base36timestamp>-<random>` on web, `<timestamp36>-<random>` on mobile) |
+| `article_id` | integer | Same as the `:id` in the URL |
+| `click_count` | integer | Always `1` per session (may increase if article is re-opened) |
+| `active_read_seconds` | integer | Seconds the app was foregrounded while the article was open |
+| `total_elapsed_seconds` | integer | Wall-clock seconds from open → close |
+| `max_scroll_percent` | integer | 0–100; how far the user scrolled (0 on web, tracked on mobile) |
+| `started_at` | ISO-8601 | When the article was opened |
+| `ended_at` | ISO-8601 | When the article was closed |
+| `completed` | boolean | `true` when `active_read_seconds ≥ read_time_minutes × 60 × 0.8` |
+
+**Response `200`:**
+```json
+{ "success": true }
+```
+
+> The backend should upsert by `(session_id)` so duplicate POSTs are idempotent. Index on `article_id` for aggregated analytics queries.
+
+---
+
+#### 11e. Suggested Database Schema
+
+```sql
+CREATE TABLE reader_categories (
+  id          BIGINT PRIMARY KEY AUTO_INCREMENT,
+  name        VARCHAR(100) NOT NULL,
+  slug        VARCHAR(100) NOT NULL UNIQUE,
+  color       VARCHAR(20)  DEFAULT '#7c3aed',
+  tenant_id   BIGINT REFERENCES tenants(id),
+  created_at  TIMESTAMP DEFAULT NOW(),
+  updated_at  TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE reader_documents (
+  id              BIGINT PRIMARY KEY AUTO_INCREMENT,
+  category_id     BIGINT REFERENCES reader_categories(id),
+  tenant_id       BIGINT REFERENCES tenants(id),
+  title           VARCHAR(500) NOT NULL,
+  excerpt         TEXT,
+  content         LONGTEXT,
+  thumbnail_url   VARCHAR(500),
+  author_id       BIGINT REFERENCES users(id),
+  read_time       SMALLINT DEFAULT 3,
+  published_at    TIMESTAMP NULL,
+  created_at      TIMESTAMP DEFAULT NOW(),
+  updated_at      TIMESTAMP DEFAULT NOW(),
+  INDEX idx_category (category_id),
+  INDEX idx_published (published_at)
+);
+
+CREATE TABLE reader_analytics (
+  id                    BIGINT PRIMARY KEY AUTO_INCREMENT,
+  session_id            VARCHAR(64) NOT NULL UNIQUE,
+  document_id           BIGINT REFERENCES reader_documents(id),
+  user_id               BIGINT REFERENCES users(id),
+  click_count           SMALLINT DEFAULT 1,
+  active_read_seconds   INT DEFAULT 0,
+  total_elapsed_seconds INT DEFAULT 0,
+  max_scroll_percent    TINYINT DEFAULT 0,
+  started_at            TIMESTAMP NULL,
+  ended_at              TIMESTAMP NULL,
+  completed             BOOLEAN DEFAULT FALSE,
+  created_at            TIMESTAMP DEFAULT NOW(),
+  INDEX idx_document (document_id),
+  INDEX idx_user (user_id)
+);
+```
+
+---
+
+#### 11f. Client behaviour notes
+
+- **NOT_IMPLEMENTED short-circuit**: A single 404/405 from `GET /mobile/reader/categories` or `GET /mobile/reader/documents` flips a session-scoped flag; all subsequent calls short-circuit and the UI shows an empty state rather than an error.
+- **Analytics are fire-and-forget**: `POST .../analytics` failures are silently discarded by the client — never surfaced to the user.
+- **Normalisation**: The client accepts multiple field-name variants (see aliases above) so minor backend naming deviations are handled gracefully.
+- **Auth**: All four routes require a valid Bearer token. A `401` will trigger the standard session-expiry flow (clear token, reload).

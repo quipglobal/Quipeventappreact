@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Ticket, Calendar, MapPin, Users, ChevronRight, Clock,
   ArrowRight, Globe, Video, Hash, Loader2, Play, Tv2,
@@ -14,7 +14,10 @@ import {
   checkEventAccess, joinEventWithCode,
 } from '@/app/api/eventsClient';
 import { getVideoFeedCategories, getVideoFeeds, VideoFeed } from '@/app/api/videoFeedsClient';
-import { getArticleCategories, getArticles, Article, ArticleCategory } from '@/app/api/readerClient';
+import {
+  getArticleCategories, getArticles, getArticle, postArticleAnalytics,
+  Article, ArticleCategory, ArticleAnalyticsPayload,
+} from '@/app/api/readerClient';
 
 type EventStatus = 'live' | 'upcoming' | 'past';
 type EventCategory = 'conference' | 'workshop' | 'webinar' | 'meetup' | 'hackathon' | 'summit';
@@ -110,6 +113,11 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
   const [selectedArticleCategory, setSelectedArticleCategory] = useState<ArticleCategory | null>(null);
   const [articles, setArticles] = useState<Article[]>([]);
   const [articlesLoading, setArticlesLoading] = useState(false);
+  const [readingArticle, setReadingArticle] = useState<Article | null>(null);
+  const [readingArticleLoading, setReadingArticleLoading] = useState(false);
+  const articleSessionRef = useRef<{
+    sessionId: string; startedAt: Date; articleId: number;
+  } | null>(null);
 
   // ── Fetch events ─────────────────────────────────────────────────────────
   const fetchEvents = useCallback(async () => {
@@ -150,6 +158,45 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
   useEffect(() => { fetchEvents(); fetchCategories(); fetchArticleCategories(); }, [fetchEvents, fetchCategories, fetchArticleCategories]);
   useEffect(() => { fetchFeeds(selectedCategory ?? undefined); }, [fetchFeeds, selectedCategory]);
   useEffect(() => { if (feedSubTab === 'articles') fetchArticles(selectedArticleCategory?.id); }, [fetchArticles, feedSubTab, selectedArticleCategory]);
+
+  // ── Article reader handlers ───────────────────────────────────────────────
+  const handleOpenArticle = useCallback(async (article: Article) => {
+    articleSessionRef.current = {
+      sessionId: `web-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+      startedAt: new Date(),
+      articleId: article.id,
+    };
+    setReadingArticle(article);
+    if (!article.content) {
+      setReadingArticleLoading(true);
+      const res = await getArticle(article.id);
+      if (res.success && res.data) setReadingArticle(res.data);
+      setReadingArticleLoading(false);
+    }
+  }, []);
+
+  const handleCloseArticle = useCallback(() => {
+    const session = articleSessionRef.current;
+    const article = readingArticle;
+    if (session && article) {
+      const endedAt = new Date();
+      const totalElapsed = Math.round((endedAt.getTime() - session.startedAt.getTime()) / 1000);
+      const payload: ArticleAnalyticsPayload = {
+        session_id: session.sessionId,
+        article_id: article.id,
+        click_count: 1,
+        active_read_seconds: totalElapsed,
+        total_elapsed_seconds: totalElapsed,
+        max_scroll_percent: 0,
+        started_at: session.startedAt.toISOString(),
+        ended_at: endedAt.toISOString(),
+        completed: totalElapsed >= article.estimatedReadMinutes * 60 * 0.8,
+      };
+      postArticleAnalytics(article.id, payload);
+    }
+    articleSessionRef.current = null;
+    setReadingArticle(null);
+  }, [readingArticle]);
 
   const upcomingEvents = events.filter(e => e.status === 'upcoming' || e.status === 'live');
   const pastEvents = events.filter(e => e.status === 'past');
@@ -311,39 +358,40 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
   };
 
   const ArticleCard: React.FC<{ article: Article }> = ({ article }) => {
-    const readTime = article.estimated_read_time ?? Math.max(1, Math.ceil((article.content?.length ?? 800) / 800));
-    const dateStr = article.published_at ?? article.created_at;
-    const dateLabel = dateStr ? new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+    const dateLabel = article.publishedAt
+      ? new Date(article.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      : '';
     return (
-      <div
-        className="w-full rounded-2xl overflow-hidden transition-all"
+      <button
+        onClick={() => handleOpenArticle(article)}
+        className="w-full text-left rounded-2xl overflow-hidden transition-all active:scale-[0.99]"
         style={{ background: t.surface, border: `1px solid ${t.border}`, boxShadow: t.shadow }}
       >
-        {article.cover_image_url && (
+        {article.thumbnailUrl && (
           <div className="relative h-36 overflow-hidden">
             <img
-              src={article.cover_image_url}
+              src={article.thumbnailUrl}
               alt={article.title}
               className="w-full h-full object-cover"
               loading="lazy"
               onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
             />
             <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.7) 0%, transparent 60%)' }} />
-            {article.category && (
+            {article.categoryName && (
               <div className="absolute top-2.5 left-2.5 px-2 py-1 rounded-md"
-                style={{ background: 'rgba(124,58,237,0.85)', backdropFilter: 'blur(6px)' }}>
+                style={{ background: `${article.categoryColor}cc`, backdropFilter: 'blur(6px)' }}>
                 <span style={{ color: '#fff', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  {article.category.name}
+                  {article.categoryName}
                 </span>
               </div>
             )}
           </div>
         )}
         <div className="p-3.5">
-          {!article.cover_image_url && article.category && (
+          {!article.thumbnailUrl && article.categoryName && (
             <span className="inline-block px-2 py-0.5 rounded-md mb-2"
-              style={{ background: 'rgba(124,58,237,0.15)', color: '#a78bfa', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              {article.category.name}
+              style={{ background: `${article.categoryColor}25`, color: article.categoryColor, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              {article.categoryName}
             </span>
           )}
           <h3 style={{ color: t.text, fontSize: 15, fontWeight: 700, lineHeight: 1.4, marginBottom: 6 }}>
@@ -355,20 +403,20 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
               {article.excerpt}
             </p>
           )}
-          <div className="flex items-center gap-3">
-            {article.author && (
-              <span style={{ color: t.textMuted, fontSize: 11, fontWeight: 600 }}>{article.author}</span>
+          <div className="flex items-center gap-2 flex-wrap">
+            {article.authorName && (
+              <span style={{ color: t.textMuted, fontSize: 11, fontWeight: 600 }}>{article.authorName}</span>
             )}
             <div className="flex items-center gap-1 ml-auto">
               <ClockIcon style={{ width: 11, height: 11, color: t.textMuted }} />
-              <span style={{ color: t.textMuted, fontSize: 11 }}>{readTime} min read</span>
+              <span style={{ color: t.textMuted, fontSize: 11 }}>{article.estimatedReadMinutes} min read</span>
             </div>
             {dateLabel && (
               <span style={{ color: t.textMuted, fontSize: 11 }}>· {dateLabel}</span>
             )}
           </div>
         </div>
-      </div>
+      </button>
     );
   };
 
@@ -934,10 +982,97 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
         </div>
       )}
 
+      {/* ── Article Reader Modal ─────────────────────────────────────────── */}
+      {readingArticle && (
+        <div
+          className="fixed inset-0 z-[300] flex flex-col overflow-hidden"
+          style={{ background: isDark ? '#07070f' : '#fff' }}
+        >
+          {/* Header */}
+          <div className="flex-shrink-0 px-5 pt-12 pb-4 border-b"
+            style={{ borderColor: t.border, background: isDark ? 'rgba(7,7,15,0.98)' : 'rgba(255,255,255,0.98)', backdropFilter: 'blur(12px)' }}>
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div className="flex-1 min-w-0">
+                {readingArticle.categoryName && (
+                  <span className="inline-block px-2 py-0.5 rounded-md mb-2"
+                    style={{ background: `${readingArticle.categoryColor}22`, color: readingArticle.categoryColor, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    {readingArticle.categoryName}
+                  </span>
+                )}
+                <h1 style={{ color: t.text, fontSize: 18, fontWeight: 800, lineHeight: 1.35, letterSpacing: '-0.02em' }}>
+                  {readingArticle.title}
+                </h1>
+              </div>
+              <button
+                onClick={handleCloseArticle}
+                className="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center mt-1"
+                style={{ background: t.surface2 }}>
+                <X size={16} color={t.textMuted} />
+              </button>
+            </div>
+            <div className="flex items-center gap-3 flex-wrap">
+              {readingArticle.authorName && (
+                <div className="flex items-center gap-1.5">
+                  <div className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-800"
+                    style={{ background: `${readingArticle.categoryColor}33`, color: readingArticle.categoryColor }}>
+                    {readingArticle.authorName[0]?.toUpperCase()}
+                  </div>
+                  <span style={{ color: t.textSec, fontSize: 12, fontWeight: 600 }}>{readingArticle.authorName}</span>
+                </div>
+              )}
+              <div className="flex items-center gap-1">
+                <ClockIcon style={{ width: 11, height: 11, color: t.textMuted }} />
+                <span style={{ color: t.textMuted, fontSize: 11 }}>{readingArticle.estimatedReadMinutes} min read</span>
+              </div>
+              {readingArticle.publishedAt && (
+                <span style={{ color: t.textMuted, fontSize: 11 }}>
+                  {new Date(readingArticle.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto px-5 py-5" style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
+            {readingArticleLoading ? (
+              <div className="flex items-center justify-center py-20">
+                <RefreshCw size={28} style={{ color: '#7c3aed', animation: 'spin 1s linear infinite' }} />
+              </div>
+            ) : readingArticle.content ? (
+              <div
+                className="article-body max-w-prose mx-auto"
+                dangerouslySetInnerHTML={{ __html: readingArticle.content }}
+              />
+            ) : readingArticle.excerpt ? (
+              <p style={{ color: t.textSec, fontSize: 15, lineHeight: 1.75 }}>{readingArticle.excerpt}</p>
+            ) : (
+              <div className="text-center py-16">
+                <BookOpen size={36} style={{ color: t.emptyIcon, margin: '0 auto 8px' }} />
+                <p style={{ color: t.textMuted, fontSize: 14 }}>Full content not available yet.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <style>{`
         @keyframes live-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
         @keyframes spin { to { transform: rotate(360deg); } }
         .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .article-body { color: ${isDark ? 'rgba(255,255,255,0.82)' : '#1f2937'}; font-size: 15px; line-height: 1.8; }
+        .article-body h1, .article-body h2, .article-body h3 { color: ${isDark ? '#fff' : '#111827'}; font-weight: 800; margin: 1.5em 0 0.6em; line-height: 1.3; }
+        .article-body h1 { font-size: 1.5em; }
+        .article-body h2 { font-size: 1.25em; }
+        .article-body h3 { font-size: 1.1em; }
+        .article-body p { margin: 0 0 1em; }
+        .article-body ul, .article-body ol { padding-left: 1.5em; margin: 0 0 1em; }
+        .article-body li { margin-bottom: 0.4em; }
+        .article-body a { color: #a78bfa; text-decoration: underline; }
+        .article-body blockquote { border-left: 3px solid #7c3aed; padding-left: 1em; margin: 1em 0; opacity: 0.8; font-style: italic; }
+        .article-body code { background: rgba(124,58,237,0.15); color: #a78bfa; padding: 0.1em 0.4em; border-radius: 4px; font-size: 0.9em; }
+        .article-body pre { background: rgba(0,0,0,0.4); padding: 1em; border-radius: 8px; overflow-x: auto; margin: 1em 0; }
+        .article-body img { max-width: 100%; border-radius: 8px; margin: 1em 0; }
+        .article-body strong { color: ${isDark ? '#fff' : '#111827'}; font-weight: 700; }
       `}</style>
     </div>
   );
