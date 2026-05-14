@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useCallback } from 'react';
+import React, { useRef, useEffect, useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -10,12 +10,12 @@ import {
   NativeSyntheticEvent,
   NativeScrollEvent,
   StatusBar,
-  Linking,
+  Platform,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
+import { WebView } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useArticle, useSubmitArticleAnalytics, useSubmitAnalyticsEvent } from '@/hooks/useReader';
 import { colors, spacing, radius } from '@/constants/theme';
@@ -188,44 +188,63 @@ function ArticleHeader({ article }: { article: Article }) {
   );
 }
 
-function PdfDocumentView({ article, onOpen }: { article: Article; onOpen: () => void }) {
-  const accent = article.categoryColor || colors.primary;
+/**
+ * Builds the URL used inside the WebView to render a PDF in-app.
+ * - iOS / web: load the direct URL — WKWebView and browser iframes handle PDFs natively.
+ * - Android: wrap with Google Docs Viewer to avoid needing an external PDF app.
+ */
+function pdfViewerUrl(fileUrl: string): string {
+  if (Platform.OS === 'android') {
+    return `https://docs.google.com/viewer?embedded=true&url=${encodeURIComponent(fileUrl)}`;
+  }
+  return fileUrl;
+}
+
+function PdfViewer({ fileUrl, accent }: { fileUrl: string; accent: string }) {
+  const [loading, setLoading] = useState(true);
+  const [errored, setErrored] = useState(false);
+  const src = pdfViewerUrl(fileUrl);
+
+  if (errored) {
+    return (
+      <View style={styles.pdfErrorWrap}>
+        <Ionicons name="alert-circle-outline" size={44} color={colors.error} style={{ marginBottom: spacing.lg }} />
+        <Text style={styles.pdfErrorTitle}>Couldn't load document</Text>
+        <Text style={styles.pdfErrorSub}>
+          The file may be unavailable or your connection timed out.
+        </Text>
+        <TouchableOpacity
+          style={[styles.pdfRetryBtn, { backgroundColor: accent }]}
+          onPress={() => setErrored(false)}
+        >
+          <Ionicons name="refresh" size={15} color="#fff" />
+          <Text style={styles.pdfRetryText}>Try Again</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
-    <View style={styles.pdfWrap}>
-      {article.categoryName ? (
-        <View style={[styles.categoryPill, { backgroundColor: accent + '20', alignSelf: 'center', marginBottom: spacing.lg }]}>
-          <Text style={[styles.categoryPillText, { color: accent }]}>
-            {article.categoryName.toUpperCase()}
-          </Text>
+    <View style={styles.webviewWrap}>
+      {loading && (
+        <View style={styles.webviewLoader}>
+          <ActivityIndicator size="large" color={accent} />
+          <Text style={styles.webviewLoaderText}>Loading document…</Text>
         </View>
-      ) : null}
-
-      <LinearGradient
-        colors={[accent + '30', accent + '08']}
-        style={styles.pdfIcon}
-      >
-        <Ionicons name="document-text" size={52} color={accent} />
-      </LinearGradient>
-
-      <Text style={styles.pdfTitle}>{article.title}</Text>
-
-      {article.excerpt ? (
-        <Text style={styles.pdfExcerpt}>{article.excerpt}</Text>
-      ) : null}
-
-      {article.authorName ? (
-        <View style={styles.pdfMeta}>
-          <Ionicons name="person-circle-outline" size={14} color={colors.textMuted} />
-          <Text style={styles.pdfMetaText}>{article.authorName}</Text>
-        </View>
-      ) : null}
-
-      <TouchableOpacity style={[styles.openPdfBtn, { backgroundColor: accent }]} onPress={onOpen} activeOpacity={0.82}>
-        <Ionicons name="open-outline" size={18} color="#fff" />
-        <Text style={styles.openPdfBtnText}>Open Document</Text>
-      </TouchableOpacity>
-
-      <Text style={styles.pdfHint}>Opens in your browser or PDF viewer</Text>
+      )}
+      <WebView
+        key={src}
+        source={{ uri: src }}
+        style={[styles.webview, loading && { opacity: 0 }]}
+        onLoad={() => setLoading(false)}
+        onError={() => { setLoading(false); setErrored(true); }}
+        onHttpError={() => { setLoading(false); setErrored(true); }}
+        javaScriptEnabled
+        domStorageEnabled
+        allowsInlineMediaPlayback
+        startInLoadingState={false}
+        originWhitelist={['*']}
+      />
     </View>
   );
 }
@@ -248,23 +267,8 @@ export default function ArticleReaderScreen() {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const scrollPercentState = useRef(0);
 
-  const isPdfOnly = !!article?.fileUrl && !article?.content?.trim();
-
-  const openFile = useCallback(() => {
-    if (!article?.fileUrl) return;
-    Linking.openURL(article.fileUrl).catch(() => {
-      if (__DEV__) console.warn('[ArticleReader] Failed to open file URL:', article.fileUrl);
-    });
-  }, [article?.fileUrl]);
-
-  // Auto-open the PDF immediately when it's a file-only document (no HTML body).
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (!article || !article.fileUrl || article.content?.trim()) return;
-    Linking.openURL(article.fileUrl).catch(() => undefined);
-  // Keyed on article.id so it fires once per document load, not on every render.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [article?.id]);
+  const hasPdf = !!article?.fileUrl;
+  const accent = article?.categoryColor || colors.primary;
 
   const sendAnalytics = useCallback(() => {
     if (submittedRef.current || !id) return;
@@ -285,24 +289,19 @@ export default function ArticleReaderScreen() {
     });
   }, [id, submitAnalytics]);
 
-  // Fire 'open' once per article load — when the article data first becomes available.
+  // Fire 'open' once per article load.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!article || !id) return;
     submitEvent({ eventType: 'open', articleId: id });
-  // Intentionally keyed only on article.id so a re-render of the same article
-  // doesn't double-fire.  submitEvent is stable across renders.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [article?.id]);
 
   useEffect(() => {
     intervalRef.current = setInterval(() => {
       totalSecondsRef.current += 1;
-      if (isActiveRef.current) {
-        activeSecondsRef.current += 1;
-      }
+      if (isActiveRef.current) activeSecondsRef.current += 1;
     }, 1000);
-
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
@@ -310,12 +309,8 @@ export default function ArticleReaderScreen() {
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active') {
-        isActiveRef.current = true;
-      } else {
-        isActiveRef.current = false;
-        sendAnalytics();
-      }
+      isActiveRef.current = nextState === 'active';
+      if (nextState !== 'active') sendAnalytics();
     });
     return () => sub.remove();
   }, [sendAnalytics]);
@@ -392,23 +387,11 @@ export default function ArticleReaderScreen() {
         <Text style={styles.navTitle} numberOfLines={1}>
           {article.categoryName || 'Article'}
         </Text>
-        {article.fileUrl && !isPdfOnly ? (
-          <TouchableOpacity onPress={openFile} style={styles.pdfNavBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Ionicons name="document-text-outline" size={18} color={colors.primary} />
-          </TouchableOpacity>
-        ) : (
-          <View style={{ width: 38 }} />
-        )}
+        <View style={{ width: 38 }} />
       </View>
 
-      {isPdfOnly ? (
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={[styles.pdfScrollContent, { paddingBottom: insets.bottom + 60 }]}
-          showsVerticalScrollIndicator={false}
-        >
-          <PdfDocumentView article={article} onOpen={openFile} />
-        </ScrollView>
+      {hasPdf ? (
+        <PdfViewer fileUrl={article.fileUrl!} accent={accent} />
       ) : (
         <>
           <ReadingProgressBar percent={scrollPercentState.current} />
@@ -429,7 +412,6 @@ export default function ArticleReaderScreen() {
 }
 
 const READER_BG = '#0A0A16';
-const READER_CARD = '#10101E';
 
 const styles = StyleSheet.create({
   root: {
@@ -479,79 +461,62 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: spacing.xl,
   },
-  pdfScrollContent: {
-    flexGrow: 1,
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.xxl,
-  },
 
-  pdfNavBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: 'rgba(255,255,255,0.07)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  pdfWrap: {
+  webviewWrap: {
     flex: 1,
-    alignItems: 'center',
-    paddingTop: spacing.xxl,
-    gap: spacing.lg,
+    backgroundColor: '#fff',
   },
-  pdfIcon: {
-    width: 110,
-    height: 110,
-    borderRadius: 28,
+  webview: {
+    flex: 1,
+  },
+  webviewLoader: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: READER_BG,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: spacing.sm,
+    zIndex: 10,
+    gap: spacing.md,
   },
-  pdfTitle: {
-    color: '#FFFFFF',
-    fontSize: 22,
-    fontWeight: '800',
-    lineHeight: 30,
-    letterSpacing: -0.3,
-    textAlign: 'center',
-    paddingHorizontal: spacing.md,
-  },
-  pdfExcerpt: {
-    color: 'rgba(255,255,255,0.55)',
-    fontSize: 15,
-    lineHeight: 22,
-    textAlign: 'center',
-    paddingHorizontal: spacing.md,
-  },
-  pdfMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  pdfMetaText: {
+  webviewLoaderText: {
     color: colors.textMuted,
     fontSize: 13,
   },
-  openPdfBtn: {
+
+  pdfErrorWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.xxl,
+    backgroundColor: READER_BG,
+    gap: spacing.sm,
+  },
+  pdfErrorTitle: {
+    color: colors.textPrimary,
+    fontSize: 17,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: spacing.sm,
+  },
+  pdfErrorSub: {
+    color: colors.textMuted,
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 21,
+    marginBottom: spacing.lg,
+  },
+  pdfRetryBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
     paddingHorizontal: spacing.xxl,
-    paddingVertical: spacing.md + 2,
+    paddingVertical: spacing.md,
     borderRadius: radius.full,
-    marginTop: spacing.lg,
+    marginTop: spacing.md,
   },
-  openPdfBtnText: {
+  pdfRetryText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '700',
-  },
-  pdfHint: {
-    color: colors.textMuted,
-    fontSize: 12,
-    textAlign: 'center',
-    marginTop: -spacing.sm,
   },
 
   articleHeader: {
