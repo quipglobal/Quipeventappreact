@@ -3,6 +3,7 @@ import {
   Ticket, Calendar, MapPin, Users, ChevronRight, Clock,
   ArrowRight, Globe, Video, Hash, Loader2, Play, Tv2,
   LayoutGrid as GridIcon, RefreshCw, Lock, KeyRound, X, LogOut,
+  BookOpen, Clock as ClockIcon,
 } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
@@ -13,10 +14,12 @@ import {
   checkEventAccess, joinEventWithCode,
 } from '@/app/api/eventsClient';
 import { getVideoFeedCategories, getVideoFeeds, VideoFeed } from '@/app/api/videoFeedsClient';
+import { getArticleCategories, getArticles, Article, ArticleCategory } from '@/app/api/readerClient';
 
 type EventStatus = 'live' | 'upcoming' | 'past';
 type EventCategory = 'conference' | 'workshop' | 'webinar' | 'meetup' | 'hackathon' | 'summit';
 type ActiveTab = 'feeds' | 'events';
+type FeedSubTab = 'videos' | 'articles';
 
 const statusConfig: Record<EventStatus, { label: string; color: string; dotColor: string }> = {
   live:     { label: 'Happening Now', color: '#10b981', dotColor: '#34d399' },
@@ -97,11 +100,16 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
   const [isJoiningEvent, setIsJoiningEvent] = useState(false);
 
   // ── Feeds tab state ──────────────────────────────────────────────────────
+  const [feedSubTab, setFeedSubTab] = useState<FeedSubTab>('videos');
   const [categories, setCategories] = useState<string[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [feeds, setFeeds] = useState<VideoFeed[]>([]);
   const [feedsLoading, setFeedsLoading] = useState(true);
   const [playingVideo, setPlayingVideo] = useState<VideoFeed | null>(null);
+  const [articleCategories, setArticleCategories] = useState<ArticleCategory[]>([]);
+  const [selectedArticleCategory, setSelectedArticleCategory] = useState<ArticleCategory | null>(null);
+  const [articles, setArticles] = useState<Article[]>([]);
+  const [articlesLoading, setArticlesLoading] = useState(false);
 
   // ── Fetch events ─────────────────────────────────────────────────────────
   const fetchEvents = useCallback(async () => {
@@ -125,8 +133,23 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
     setFeedsLoading(false);
   }, []);
 
-  useEffect(() => { fetchEvents(); fetchCategories(); }, [fetchEvents, fetchCategories]);
+  // ── Fetch article categories ──────────────────────────────────────────────
+  const fetchArticleCategories = useCallback(async () => {
+    const res = await getArticleCategories();
+    if (res.success && res.data) setArticleCategories(res.data);
+  }, []);
+
+  // ── Fetch articles ────────────────────────────────────────────────────────
+  const fetchArticles = useCallback(async (categoryId?: number) => {
+    setArticlesLoading(true);
+    const res = await getArticles({ category_id: categoryId, per_page: 30 });
+    if (res.success && res.data) setArticles(res.data);
+    setArticlesLoading(false);
+  }, []);
+
+  useEffect(() => { fetchEvents(); fetchCategories(); fetchArticleCategories(); }, [fetchEvents, fetchCategories, fetchArticleCategories]);
   useEffect(() => { fetchFeeds(selectedCategory ?? undefined); }, [fetchFeeds, selectedCategory]);
+  useEffect(() => { if (feedSubTab === 'articles') fetchArticles(selectedArticleCategory?.id); }, [fetchArticles, feedSubTab, selectedArticleCategory]);
 
   const upcomingEvents = events.filter(e => e.status === 'upcoming' || e.status === 'live');
   const pastEvents = events.filter(e => e.status === 'past');
@@ -287,6 +310,68 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
     );
   };
 
+  const ArticleCard: React.FC<{ article: Article }> = ({ article }) => {
+    const readTime = article.estimated_read_time ?? Math.max(1, Math.ceil((article.content?.length ?? 800) / 800));
+    const dateStr = article.published_at ?? article.created_at;
+    const dateLabel = dateStr ? new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+    return (
+      <div
+        className="w-full rounded-2xl overflow-hidden transition-all"
+        style={{ background: t.surface, border: `1px solid ${t.border}`, boxShadow: t.shadow }}
+      >
+        {article.cover_image_url && (
+          <div className="relative h-36 overflow-hidden">
+            <img
+              src={article.cover_image_url}
+              alt={article.title}
+              className="w-full h-full object-cover"
+              loading="lazy"
+              onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+            />
+            <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.7) 0%, transparent 60%)' }} />
+            {article.category && (
+              <div className="absolute top-2.5 left-2.5 px-2 py-1 rounded-md"
+                style={{ background: 'rgba(124,58,237,0.85)', backdropFilter: 'blur(6px)' }}>
+                <span style={{ color: '#fff', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  {article.category.name}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+        <div className="p-3.5">
+          {!article.cover_image_url && article.category && (
+            <span className="inline-block px-2 py-0.5 rounded-md mb-2"
+              style={{ background: 'rgba(124,58,237,0.15)', color: '#a78bfa', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              {article.category.name}
+            </span>
+          )}
+          <h3 style={{ color: t.text, fontSize: 15, fontWeight: 700, lineHeight: 1.4, marginBottom: 6 }}>
+            {article.title}
+          </h3>
+          {article.excerpt && (
+            <p style={{ color: t.textSec, fontSize: 12, lineHeight: 1.55, marginBottom: 8 }}
+              className="line-clamp-2">
+              {article.excerpt}
+            </p>
+          )}
+          <div className="flex items-center gap-3">
+            {article.author && (
+              <span style={{ color: t.textMuted, fontSize: 11, fontWeight: 600 }}>{article.author}</span>
+            )}
+            <div className="flex items-center gap-1 ml-auto">
+              <ClockIcon style={{ width: 11, height: 11, color: t.textMuted }} />
+              <span style={{ color: t.textMuted, fontSize: 11 }}>{readTime} min read</span>
+            </div>
+            {dateLabel && (
+              <span style={{ color: t.textMuted, fontSize: 11 }}>· {dateLabel}</span>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const VideoCard: React.FC<{ feed: VideoFeed }> = ({ feed }) => (
     <button
       onClick={() => setPlayingVideo(feed)}
@@ -413,67 +498,163 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
       {/* ── CXO FEEDS TAB ─────────────────────────────────────────────────── */}
       {activeTab === 'feeds' && (
         <div className="flex-1 pb-8">
-          {/* Category filter pills */}
-          <div className="pt-3 pb-1 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
-            <div className="flex gap-2 px-5" style={{ minWidth: 'max-content' }}>
+
+          {/* Videos | Articles sub-tab toggle */}
+          <div className="flex gap-2 px-5 pt-3 pb-2">
+            {([
+              { key: 'videos' as FeedSubTab, label: 'Videos', icon: <Tv2 size={13} /> },
+              { key: 'articles' as FeedSubTab, label: 'Articles', icon: <BookOpen size={13} /> },
+            ]).map(tab => (
               <button
-                onClick={() => setSelectedCategory(null)}
-                className="px-3.5 py-1.5 rounded-full text-[12px] font-700 transition-all whitespace-nowrap"
+                key={tab.key}
+                onClick={() => setFeedSubTab(tab.key)}
+                className="flex items-center gap-1.5 px-4 py-1.5 rounded-full transition-all"
                 style={{
                   fontWeight: 700,
-                  background: !selectedCategory ? 'linear-gradient(135deg,#7c3aed,#4f46e5)' : t.surface2,
-                  color: !selectedCategory ? '#fff' : t.textSec,
-                  border: !selectedCategory ? 'none' : `1px solid ${t.border}`,
+                  fontSize: 13,
+                  background: feedSubTab === tab.key
+                    ? 'linear-gradient(135deg,#7c3aed,#4f46e5)'
+                    : t.surface2,
+                  color: feedSubTab === tab.key ? '#fff' : t.textSec,
+                  border: feedSubTab === tab.key ? 'none' : `1px solid ${t.border}`,
                 }}>
-                All
+                {tab.icon}
+                {tab.label}
               </button>
-              {categories.map(cat => (
-                <button
-                  key={cat}
-                  onClick={() => setSelectedCategory(cat === selectedCategory ? null : cat)}
-                  className="px-3.5 py-1.5 rounded-full text-[12px] transition-all whitespace-nowrap"
-                  style={{
-                    fontWeight: 700,
-                    background: selectedCategory === cat
-                      ? `${CATEGORY_COLORS[cat] ?? '#7c3aed'}22`
-                      : t.surface2,
-                    color: selectedCategory === cat
-                      ? (CATEGORY_COLORS[cat] ?? '#a78bfa')
-                      : t.textSec,
-                    border: `1px solid ${selectedCategory === cat ? (CATEGORY_COLORS[cat] ?? '#7c3aed') + '44' : t.border}`,
-                  }}>
-                  {cat}
-                </button>
-              ))}
-            </div>
+            ))}
           </div>
 
-          {/* Feed count */}
-          {!feedsLoading && (
-            <div className="px-5 pt-3 pb-1 flex items-center justify-between">
-              <span style={{ color: t.textMuted, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                {selectedCategory ? selectedCategory : 'All'} · {feeds.length} videos
-              </span>
-            </div>
+          {/* ── VIDEOS sub-tab ───────────────────────────────────────────── */}
+          {feedSubTab === 'videos' && (
+            <>
+              {/* Category filter pills */}
+              <div className="pt-1 pb-1 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+                <div className="flex gap-2 px-5" style={{ minWidth: 'max-content' }}>
+                  <button
+                    onClick={() => setSelectedCategory(null)}
+                    className="px-3.5 py-1.5 rounded-full text-[12px] font-700 transition-all whitespace-nowrap"
+                    style={{
+                      fontWeight: 700,
+                      background: !selectedCategory ? 'linear-gradient(135deg,#7c3aed,#4f46e5)' : t.surface2,
+                      color: !selectedCategory ? '#fff' : t.textSec,
+                      border: !selectedCategory ? 'none' : `1px solid ${t.border}`,
+                    }}>
+                    All
+                  </button>
+                  {categories.map(cat => (
+                    <button
+                      key={cat}
+                      onClick={() => setSelectedCategory(cat === selectedCategory ? null : cat)}
+                      className="px-3.5 py-1.5 rounded-full text-[12px] transition-all whitespace-nowrap"
+                      style={{
+                        fontWeight: 700,
+                        background: selectedCategory === cat ? `${CATEGORY_COLORS[cat] ?? '#7c3aed'}22` : t.surface2,
+                        color: selectedCategory === cat ? (CATEGORY_COLORS[cat] ?? '#a78bfa') : t.textSec,
+                        border: `1px solid ${selectedCategory === cat ? (CATEGORY_COLORS[cat] ?? '#7c3aed') + '44' : t.border}`,
+                      }}>
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Feed count */}
+              {!feedsLoading && (
+                <div className="px-5 pt-3 pb-1 flex items-center justify-between">
+                  <span style={{ color: t.textMuted, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                    {selectedCategory ? selectedCategory : 'All'} · {feeds.length} videos
+                  </span>
+                </div>
+              )}
+
+              {/* Video cards */}
+              <div className="px-5 pt-2">
+                {feedsLoading ? (
+                  <div className="flex items-center justify-center py-16">
+                    <RefreshCw size={26} style={{ color: '#7c3aed', animation: 'spin-cw 1s linear infinite' }} />
+                  </div>
+                ) : feeds.length === 0 ? (
+                  <div className="text-center py-12 rounded-2xl" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+                    <Tv2 size={40} style={{ color: t.emptyIcon, margin: '0 auto 8px' }} />
+                    <p style={{ color: t.textSec, fontSize: 14 }}>No videos in this category</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {feeds.map(feed => <VideoCard key={feed.id} feed={feed} />)}
+                  </div>
+                )}
+              </div>
+            </>
           )}
 
-          {/* Video cards */}
-          <div className="px-5 pt-2">
-            {feedsLoading ? (
-              <div className="flex items-center justify-center py-16">
-                <RefreshCw size={26} style={{ color: '#7c3aed', animation: 'spin-cw 1s linear infinite' }} />
+          {/* ── ARTICLES sub-tab ─────────────────────────────────────────── */}
+          {feedSubTab === 'articles' && (
+            <>
+              {/* Article category filter pills */}
+              {articleCategories.length > 0 && (
+                <div className="pt-1 pb-1 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+                  <div className="flex gap-2 px-5" style={{ minWidth: 'max-content' }}>
+                    <button
+                      onClick={() => setSelectedArticleCategory(null)}
+                      className="px-3.5 py-1.5 rounded-full text-[12px] transition-all whitespace-nowrap"
+                      style={{
+                        fontWeight: 700,
+                        background: !selectedArticleCategory ? 'linear-gradient(135deg,#7c3aed,#4f46e5)' : t.surface2,
+                        color: !selectedArticleCategory ? '#fff' : t.textSec,
+                        border: !selectedArticleCategory ? 'none' : `1px solid ${t.border}`,
+                      }}>
+                      All
+                    </button>
+                    {articleCategories.map(cat => (
+                      <button
+                        key={cat.id}
+                        onClick={() => setSelectedArticleCategory(selectedArticleCategory?.id === cat.id ? null : cat)}
+                        className="px-3.5 py-1.5 rounded-full text-[12px] transition-all whitespace-nowrap"
+                        style={{
+                          fontWeight: 700,
+                          background: selectedArticleCategory?.id === cat.id ? 'rgba(124,58,237,0.2)' : t.surface2,
+                          color: selectedArticleCategory?.id === cat.id ? '#a78bfa' : t.textSec,
+                          border: `1px solid ${selectedArticleCategory?.id === cat.id ? 'rgba(124,58,237,0.4)' : t.border}`,
+                        }}>
+                        {cat.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Article count */}
+              {!articlesLoading && (
+                <div className="px-5 pt-3 pb-1">
+                  <span style={{ color: t.textMuted, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                    {selectedArticleCategory ? selectedArticleCategory.name : 'All'} · {articles.length} articles
+                  </span>
+                </div>
+              )}
+
+              {/* Article cards */}
+              <div className="px-5 pt-2">
+                {articlesLoading ? (
+                  <div className="flex items-center justify-center py-16">
+                    <RefreshCw size={26} style={{ color: '#7c3aed', animation: 'spin-cw 1s linear infinite' }} />
+                  </div>
+                ) : articles.length === 0 ? (
+                  <div className="text-center py-12 rounded-2xl" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+                    <BookOpen size={40} style={{ color: t.emptyIcon, margin: '0 auto 8px' }} />
+                    <p style={{ color: t.textSec, fontSize: 14, fontWeight: 600 }}>No articles yet</p>
+                    <p style={{ color: t.textMuted, fontSize: 12, marginTop: 4 }}>
+                      {articlesLoading ? 'Loading…' : 'Articles will appear here once published.'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {articles.map(article => <ArticleCard key={article.id} article={article} />)}
+                  </div>
+                )}
               </div>
-            ) : feeds.length === 0 ? (
-              <div className="text-center py-12 rounded-2xl" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
-                <Tv2 size={40} style={{ color: t.emptyIcon, margin: '0 auto 8px' }} />
-                <p style={{ color: t.textSec, fontSize: 14 }}>No videos in this category</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {feeds.map(feed => <VideoCard key={feed.id} feed={feed} />)}
-              </div>
-            )}
-          </div>
+            </>
+          )}
+
         </div>
       )}
 
