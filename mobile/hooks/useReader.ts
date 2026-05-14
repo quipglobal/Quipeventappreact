@@ -1,6 +1,6 @@
 import { useMutation } from '@tanstack/react-query';
 import { useAuthedQuery } from '@/hooks/useAuthedQuery';
-import { getCategories, getDocuments, getDocument, postReadingAnalytics } from '@/lib/api/reader';
+import { getCategories, getDocuments, getDocument, postReadingAnalytics, postAnalyticsEvent } from '@/lib/api/reader';
 import type { ArticleAnalytics } from '@/lib/api/types';
 
 export function useArticleCategories() {
@@ -41,5 +41,22 @@ export function useSubmitArticleAnalytics() {
       documentId: string;
       analytics: ArticleAnalytics;
     }) => postReadingAnalytics(documentId, analytics),
+  });
+}
+
+/**
+ * Fire-and-forget lifecycle event (impression / click / open).
+ * Errors are silently ignored — analytics must never interrupt reading.
+ */
+export function useSubmitAnalyticsEvent() {
+  return useMutation({
+    mutationFn: ({
+      eventType,
+      articleId,
+    }: {
+      eventType: 'impression' | 'click' | 'open';
+      articleId: string;
+    }) => postAnalyticsEvent(eventType, articleId),
+    onError: () => undefined,
   });
 }

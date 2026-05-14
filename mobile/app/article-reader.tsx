@@ -16,7 +16,7 @@ import { useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useArticle, useSubmitArticleAnalytics } from '@/hooks/useReader';
+import { useArticle, useSubmitArticleAnalytics, useSubmitAnalyticsEvent } from '@/hooks/useReader';
 import { colors, spacing, radius } from '@/constants/theme';
 import type { Article } from '@/lib/api/types';
 
@@ -193,6 +193,7 @@ export default function ArticleReaderScreen() {
 
   const { data: article, isLoading, isError } = useArticle(id ?? null);
   const { mutate: submitAnalytics } = useSubmitArticleAnalytics();
+  const { mutate: submitEvent } = useSubmitAnalyticsEvent();
 
   const sessionIdRef = useRef(generateSessionId());
   const startedAtRef = useRef(new Date().toISOString());
@@ -222,6 +223,16 @@ export default function ArticleReaderScreen() {
       },
     });
   }, [id, submitAnalytics]);
+
+  // Fire 'open' once per article load — when the article data first becomes available.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!article || !id) return;
+    submitEvent({ eventType: 'open', articleId: id });
+  // Intentionally keyed only on article.id so a re-render of the same article
+  // doesn't double-fire.  submitEvent is stable across renders.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [article?.id]);
 
   useEffect(() => {
     intervalRef.current = setInterval(() => {

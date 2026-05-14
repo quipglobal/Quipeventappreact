@@ -15,7 +15,7 @@ import {
 } from '@/app/api/eventsClient';
 import { getVideoFeedCategories, getVideoFeeds, VideoFeed } from '@/app/api/videoFeedsClient';
 import {
-  getArticleCategories, getArticles, getArticle, postArticleAnalytics,
+  getArticleCategories, getArticles, getArticle, postArticleAnalytics, postAnalyticsEvent,
   Article, ArticleCategory, ArticleAnalyticsPayload,
 } from '@/app/api/readerClient';
 
@@ -118,6 +118,9 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
   const articleSessionRef = useRef<{
     sessionId: string; startedAt: Date; articleId: number;
   } | null>(null);
+  const articleMaxScrollRef = useRef(0);
+  const articleScrollMilestoneRef = useRef(0);
+  const firedImpressionsRef = useRef(new Set<number>());
 
   // ── Fetch events ─────────────────────────────────────────────────────────
   const fetchEvents = useCallback(async () => {
@@ -159,13 +162,28 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
   useEffect(() => { fetchFeeds(selectedCategory ?? undefined); }, [fetchFeeds, selectedCategory]);
   useEffect(() => { if (feedSubTab === 'articles') fetchArticles(selectedArticleCategory?.id); }, [fetchArticles, feedSubTab, selectedArticleCategory]);
 
+  // ── Impression tracking ───────────────────────────────────────────────────
+  useEffect(() => {
+    if (feedSubTab !== 'articles' || articles.length === 0) return;
+    const fresh = articles.filter(a => !firedImpressionsRef.current.has(a.id));
+    if (fresh.length === 0) return;
+    fresh.forEach(a => {
+      firedImpressionsRef.current.add(a.id);
+      postAnalyticsEvent({ event_type: 'impression', article_id: a.id });
+    });
+  }, [articles, feedSubTab]);
+
   // ── Article reader handlers ───────────────────────────────────────────────
   const handleOpenArticle = useCallback(async (article: Article) => {
-    articleSessionRef.current = {
-      sessionId: `web-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
-      startedAt: new Date(),
-      articleId: article.id,
-    };
+    // Reset scroll tracking for this session
+    articleMaxScrollRef.current = 0;
+    articleScrollMilestoneRef.current = 0;
+    const sessionId = `web-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    articleSessionRef.current = { sessionId, startedAt: new Date(), articleId: article.id };
+
+    // Fire click immediately on card tap
+    postAnalyticsEvent({ event_type: 'click', article_id: article.id });
+
     setReadingArticle(article);
     if (!article.content) {
       setReadingArticleLoading(true);
@@ -173,6 +191,9 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
       if (res.success && res.data) setReadingArticle(res.data);
       setReadingArticleLoading(false);
     }
+
+    // Fire open after the article is mounted and ready to read
+    postAnalyticsEvent({ event_type: 'open', article_id: article.id });
   }, []);
 
   const handleCloseArticle = useCallback(() => {
@@ -187,15 +208,52 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
         click_count: 1,
         active_read_seconds: totalElapsed,
         total_elapsed_seconds: totalElapsed,
-        max_scroll_percent: 0,
+        max_scroll_percent: articleMaxScrollRef.current,
         started_at: session.startedAt.toISOString(),
         ended_at: endedAt.toISOString(),
-        completed: totalElapsed >= article.estimatedReadMinutes * 60 * 0.8,
+        completed: articleMaxScrollRef.current >= 80 || totalElapsed >= article.estimatedReadMinutes * 60 * 0.8,
       };
-      postArticleAnalytics(article.id, payload);
+      postArticleAnalytics(payload);
     }
+    articleMaxScrollRef.current = 0;
+    articleScrollMilestoneRef.current = 0;
     articleSessionRef.current = null;
     setReadingArticle(null);
+  }, [readingArticle]);
+
+  /** Scroll handler for the article reader modal. Tracks max scroll and re-fires
+   *  read-session at 50 % and 90 % milestones so the server has incremental data
+   *  even if the user never explicitly closes the article. */
+  const handleArticleModalScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    if (!el || el.scrollHeight <= el.clientHeight) return;
+    const pct = Math.min(
+      100,
+      Math.round(((el.scrollTop + el.clientHeight) / el.scrollHeight) * 100),
+    );
+    articleMaxScrollRef.current = Math.max(articleMaxScrollRef.current, pct);
+    // Re-send read-session at 50 % and 90 % milestones (merged on server by session_id)
+    const milestone = pct >= 90 ? 90 : pct >= 50 ? 50 : 0;
+    if (milestone > 0 && milestone > articleScrollMilestoneRef.current) {
+      articleScrollMilestoneRef.current = milestone;
+      const session = articleSessionRef.current;
+      const article = readingArticle;
+      if (session && article) {
+        const now = new Date();
+        const elapsed = Math.round((now.getTime() - session.startedAt.getTime()) / 1000);
+        postArticleAnalytics({
+          session_id: session.sessionId,
+          article_id: article.id,
+          click_count: 1,
+          active_read_seconds: elapsed,
+          total_elapsed_seconds: elapsed,
+          max_scroll_percent: articleMaxScrollRef.current,
+          started_at: session.startedAt.toISOString(),
+          ended_at: now.toISOString(),
+          completed: milestone >= 90,
+        });
+      }
+    }
   }, [readingArticle]);
 
   const upcomingEvents = events.filter(e => e.status === 'upcoming' || e.status === 'live');
@@ -1033,7 +1091,11 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
           </div>
 
           {/* Content */}
-          <div className="flex-1 overflow-y-auto px-5 py-5" style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
+          <div
+            className="flex-1 overflow-y-auto px-5 py-5"
+            style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
+            onScroll={handleArticleModalScroll}
+          >
             {readingArticleLoading ? (
               <div className="flex items-center justify-center py-20">
                 <RefreshCw size={28} style={{ color: '#7c3aed', animation: 'spin 1s linear infinite' }} />

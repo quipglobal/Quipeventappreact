@@ -64,7 +64,7 @@ function normalizeArticle(raw: any): Article {
 }
 
 export async function getCategories(): Promise<ApiResponse<ArticleCategory[]>> {
-  const res = await request<any>('/mobile/reader/categories');
+  const res = await request<any>('/api/v1/mobile/reader/categories');
   if (!res.success) {
     if (__DEV__) console.log('[Reader] getCategories failed:', res.error);
     return { success: true, data: [] };
@@ -81,7 +81,7 @@ export async function getCategories(): Promise<ApiResponse<ArticleCategory[]>> {
 
 export async function getDocuments(categoryId?: string): Promise<ApiResponse<Article[]>> {
   const qs = categoryId ? `?category_id=${encodeURIComponent(categoryId)}` : '';
-  const res = await request<any>(`/mobile/reader/documents${qs}`);
+  const res = await request<any>(`/api/v1/mobile/reader/documents${qs}`);
   if (!res.success) {
     if (__DEV__) console.log('[Reader] getDocuments failed:', res.error);
     return { success: true, data: [] };
@@ -97,7 +97,7 @@ export async function getDocuments(categoryId?: string): Promise<ApiResponse<Art
 }
 
 export async function getDocument(id: string): Promise<ApiResponse<Article | null>> {
-  const res = await request<any>(`/mobile/reader/documents/${id}`);
+  const res = await request<any>(`/api/v1/mobile/reader/documents/${id}`);
   if (!res.success) {
     if (__DEV__) console.log(`[Reader] getDocument(${id}) failed:`, res.error);
     return { success: true, data: null };
@@ -107,19 +107,39 @@ export async function getDocument(id: string): Promise<ApiResponse<Article | nul
   return { success: true, data: normalizeArticle(raw) };
 }
 
+/**
+ * POST /api/v1/mobile/reader/analytics/read-session
+ * Safe to re-send — server merges by session_id (idempotent upsert).
+ * Fired on screen blur, app background, and on significant scroll milestones.
+ */
 export async function postReadingAnalytics(
-  documentId: string,
+  _documentId: string,
   analytics: ArticleAnalytics,
 ): Promise<ApiResponse<void>> {
   const res = await request<any>(
-    `/mobile/reader/documents/${documentId}/analytics`,
+    '/api/v1/mobile/reader/analytics/read-session',
     {
       method: 'POST',
       body: JSON.stringify(analytics),
     },
   );
   if (!res.success && __DEV__) {
-    console.log(`[Reader] postReadingAnalytics(${documentId}) failed:`, res.error);
+    console.log('[Reader] postReadingAnalytics failed:', res.error);
   }
   return { success: res.success };
+}
+
+/**
+ * POST /api/v1/mobile/reader/analytics/event
+ * Fire-and-forget lifecycle events: impression | click | open.
+ * Fired by the article list (impression) and article reader (click, open).
+ */
+export async function postAnalyticsEvent(
+  eventType: 'impression' | 'click' | 'open',
+  articleId: string,
+): Promise<void> {
+  request<any>('/api/v1/mobile/reader/analytics/event', {
+    method: 'POST',
+    body: JSON.stringify({ event_type: eventType, article_id: articleId }),
+  }).catch(() => undefined);
 }

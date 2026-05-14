@@ -1,15 +1,15 @@
 /**
  * Reader / Articles API Client
  * ─────────────────────────────────────────────────────────────────────────────
- *   GET  /mobile/reader/categories                       → ArticleCategory[]
- *   GET  /mobile/reader/documents[?category_id=&page=]  → Article[]
- *   GET  /mobile/reader/documents/:id                   → Article
- *   POST /mobile/reader/documents/:id/analytics         → void
+ *   GET  /api/v1/mobile/reader/categories                       → ArticleCategory[]
+ *   GET  /api/v1/mobile/reader/documents[?category_id=&page=]  → Article[]
+ *   GET  /api/v1/mobile/reader/documents/:id                   → Article
+ *   POST /api/v1/mobile/reader/analytics/event                 → void  (impression/click/open)
+ *   POST /api/v1/mobile/reader/analytics/read-session          → void  (merged on server)
  *
- * Data contract:
- *   - NOT_IMPLEMENTED short-circuit on first 404/405 (same pattern as other clients)
- *   - Full normalisation on every response: handles multiple envelope shapes
- *     and field-name variants so the UI is shielded from backend field changes
+ * NOT_IMPLEMENTED short-circuit on first 404/405 (same pattern as other clients).
+ * Full normalisation on every response — handles multiple envelope shapes and
+ * field-name variants so the UI is shielded from backend field changes.
  */
 import { apiGet, apiPost } from './client';
 
@@ -39,6 +39,7 @@ export interface Article {
   updatedAt: string;
 }
 
+/** Payload for POST /api/v1/mobile/reader/analytics/read-session */
 export interface ArticleAnalyticsPayload {
   session_id: string;
   article_id: number;
@@ -49,6 +50,12 @@ export interface ArticleAnalyticsPayload {
   started_at: string;
   ended_at: string;
   completed: boolean;
+}
+
+/** Payload for POST /api/v1/mobile/reader/analytics/event */
+export interface ArticleAnalyticsEventPayload {
+  event_type: 'impression' | 'click' | 'open';
+  article_id: number;
 }
 
 // ── Response envelopes ──────────────────────────────────────────────────────
@@ -101,7 +108,6 @@ function normalizeCategory(raw: any): ArticleCategory {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function normalizeArticle(raw: any): Article {
-  // Author — may be nested object or plain string
   const authorRaw = raw.author ?? raw.user ?? raw.created_by ?? {};
   const authorName =
     typeof authorRaw === 'string'
@@ -112,7 +118,6 @@ function normalizeArticle(raw: any): Article {
       ? (authorRaw.avatar ?? authorRaw.profile_photo_url ?? authorRaw.photo ?? null)
       : null;
 
-  // Category — may be nested object or root-level fields
   const catRaw = raw.category ?? raw.document_category ?? {};
   const categoryId =
     typeof catRaw === 'object' && catRaw !== null
@@ -123,7 +128,6 @@ function normalizeArticle(raw: any): Article {
   const categoryColor =
     typeof catRaw === 'object' && catRaw !== null ? String(catRaw.color ?? '#7c3aed') : '#7c3aed';
 
-  // Read time — backend may give it directly; fall back to word-count estimate
   const rawReadTime = raw.read_time ?? raw.reading_time ?? raw.estimated_read_time ?? null;
   const estimatedReadMinutes =
     rawReadTime !== null ? Number(rawReadTime) : estimateReadTime(raw.content ?? raw.body ?? '');
@@ -146,7 +150,6 @@ function normalizeArticle(raw: any): Article {
   };
 }
 
-/** Pull an array out of whichever envelope shape the backend returns. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function extractArray(res: any): unknown[] {
   if (Array.isArray(res.data)) return res.data;
@@ -161,7 +164,7 @@ function extractArray(res: any): unknown[] {
 
 export async function getArticleCategories(): Promise<ArticleCategoriesResponse> {
   if (categoriesNotImplemented) return { success: true, data: [] };
-  const res = await apiGet<unknown>('/mobile/reader/categories');
+  const res = await apiGet<unknown>('/api/v1/mobile/reader/categories');
   if (!res.success) {
     if (isNotImplemented(res.error?.code)) {
       categoriesNotImplemented = true;
@@ -184,7 +187,7 @@ export async function getArticles(params?: {
   qs.set('per_page', String(params?.per_page ?? 20));
   if (params?.page) qs.set('page', String(params.page));
 
-  const res = await apiGet<unknown>(`/mobile/reader/documents?${qs}`);
+  const res = await apiGet<unknown>(`/api/v1/mobile/reader/documents?${qs}`);
   if (!res.success) {
     if (isNotImplemented(res.error?.code)) {
       articlesNotImplemented = true;
@@ -197,11 +200,10 @@ export async function getArticles(params?: {
 }
 
 export async function getArticle(id: number): Promise<ArticleResponse> {
-  const res = await apiGet<unknown>(`/mobile/reader/documents/${id}`);
+  const res = await apiGet<unknown>(`/api/v1/mobile/reader/documents/${id}`);
   if (!res.success) {
     return { success: false, error: res.error ?? { message: 'Failed to load article.' } };
   }
-  // Unwrap single-item envelope: { data: { data: {...} } } or { data: {...} }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const envelope = res as any;
   const raw = envelope.data?.data ?? envelope.data;
@@ -209,13 +211,25 @@ export async function getArticle(id: number): Promise<ArticleResponse> {
   return { success: true, data: normalizeArticle(raw) };
 }
 
+/**
+ * POST /api/v1/mobile/reader/analytics/event
+ * Fire-and-forget. Tracks impression / click / open lifecycle events.
+ * Failures are silently discarded — never surfaced to the user.
+ */
+export async function postAnalyticsEvent(
+  payload: ArticleAnalyticsEventPayload,
+): Promise<void> {
+  apiPost<unknown>('/api/v1/mobile/reader/analytics/event', payload).catch(() => undefined);
+}
+
+/**
+ * POST /api/v1/mobile/reader/analytics/read-session
+ * Safe to call multiple times per session — the server merges by session_id.
+ * Fired on reader close AND on significant scroll milestones.
+ * Failures are silently discarded.
+ */
 export async function postArticleAnalytics(
-  articleId: number,
   payload: ArticleAnalyticsPayload,
-): Promise<{ success: boolean }> {
-  const res = await apiPost<unknown>(
-    `/mobile/reader/documents/${articleId}/analytics`,
-    payload,
-  );
-  return { success: res.success };
+): Promise<void> {
+  apiPost<unknown>('/api/v1/mobile/reader/analytics/read-session', payload).catch(() => undefined);
 }
