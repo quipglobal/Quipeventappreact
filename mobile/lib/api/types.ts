@@ -243,6 +243,10 @@ export interface Article {
   title: string;
   excerpt: string;
   content: string;
+  /** URL to a PDF or other binary file attached to this document. When set
+   *  and `content` is empty the reader opens it directly; when both are
+   *  present a "View PDF" button is shown alongside the HTML body. */
+  fileUrl: string | null;
   authorName: string;
   authorAvatar: string | null;
   categoryId: string;

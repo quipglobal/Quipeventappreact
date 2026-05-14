@@ -48,6 +48,9 @@ function normalizeArticle(raw: any): Article {
     title: raw.title ?? raw.name ?? '',
     excerpt: raw.excerpt ?? raw.description ?? raw.summary ?? raw.short_description ?? '',
     content: raw.content ?? raw.body ?? raw.text ?? raw.html ?? '',
+    fileUrl:
+      raw.file_url ?? raw.pdf_url ?? raw.document_url ?? raw.attachment_url ??
+      raw.file ?? raw.url ?? null,
     authorName,
     authorAvatar,
     categoryId: String(

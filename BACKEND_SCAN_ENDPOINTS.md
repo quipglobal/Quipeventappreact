@@ -724,6 +724,7 @@ All query params optional. Default `per_page`: 20.
       "title": "The Future of AI at Events",
       "excerpt": "How machine learning is reshaping conference experiences.",
       "content": "<p>Full HTML body…</p>",
+      "file_url": "https://cdn.example.com/docs/42.pdf",
       "thumbnail_url": "https://cdn.example.com/articles/42.jpg",
       "author": { "id": 7, "name": "Jane Smith", "avatar": "https://…" },
       "category": { "id": 1, "name": "Technology", "slug": "technology", "color": "#06b6d4" },
@@ -736,7 +737,7 @@ All query params optional. Default `per_page`: 20.
 }
 ```
 
-> Field aliases: `body`/`text`/`html` → `content`, `cover_image`/`featured_image`/`image` → `thumbnail_url`, `reading_time`/`estimated_read_time` → `read_time`, `description`/`summary` → `excerpt`. Author may be a plain string or the nested object above.
+> Field aliases: `body`/`text`/`html` → `content`, `cover_image`/`featured_image`/`image` → `thumbnail_url`, `reading_time`/`estimated_read_time` → `read_time`, `description`/`summary` → `excerpt`, `pdf_url`/`document_url`/`attachment_url`/`file`/`url` → `file_url`. `file_url` is `null` for HTML-only articles; present for PDF/binary documents — the mobile reader auto-opens it and shows a document card. Author may be a plain string or the nested object above.
 
 ---
 

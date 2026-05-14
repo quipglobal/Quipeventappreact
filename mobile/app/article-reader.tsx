@@ -10,6 +10,7 @@ import {
   NativeSyntheticEvent,
   NativeScrollEvent,
   StatusBar,
+  Linking,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
@@ -187,6 +188,48 @@ function ArticleHeader({ article }: { article: Article }) {
   );
 }
 
+function PdfDocumentView({ article, onOpen }: { article: Article; onOpen: () => void }) {
+  const accent = article.categoryColor || colors.primary;
+  return (
+    <View style={styles.pdfWrap}>
+      {article.categoryName ? (
+        <View style={[styles.categoryPill, { backgroundColor: accent + '20', alignSelf: 'center', marginBottom: spacing.lg }]}>
+          <Text style={[styles.categoryPillText, { color: accent }]}>
+            {article.categoryName.toUpperCase()}
+          </Text>
+        </View>
+      ) : null}
+
+      <LinearGradient
+        colors={[accent + '30', accent + '08']}
+        style={styles.pdfIcon}
+      >
+        <Ionicons name="document-text" size={52} color={accent} />
+      </LinearGradient>
+
+      <Text style={styles.pdfTitle}>{article.title}</Text>
+
+      {article.excerpt ? (
+        <Text style={styles.pdfExcerpt}>{article.excerpt}</Text>
+      ) : null}
+
+      {article.authorName ? (
+        <View style={styles.pdfMeta}>
+          <Ionicons name="person-circle-outline" size={14} color={colors.textMuted} />
+          <Text style={styles.pdfMetaText}>{article.authorName}</Text>
+        </View>
+      ) : null}
+
+      <TouchableOpacity style={[styles.openPdfBtn, { backgroundColor: accent }]} onPress={onOpen} activeOpacity={0.82}>
+        <Ionicons name="open-outline" size={18} color="#fff" />
+        <Text style={styles.openPdfBtnText}>Open Document</Text>
+      </TouchableOpacity>
+
+      <Text style={styles.pdfHint}>Opens in your browser or PDF viewer</Text>
+    </View>
+  );
+}
+
 export default function ArticleReaderScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
@@ -204,6 +247,24 @@ export default function ArticleReaderScreen() {
   const submittedRef = useRef(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const scrollPercentState = useRef(0);
+
+  const isPdfOnly = !!article?.fileUrl && !article?.content?.trim();
+
+  const openFile = useCallback(() => {
+    if (!article?.fileUrl) return;
+    Linking.openURL(article.fileUrl).catch(() => {
+      if (__DEV__) console.warn('[ArticleReader] Failed to open file URL:', article.fileUrl);
+    });
+  }, [article?.fileUrl]);
+
+  // Auto-open the PDF immediately when it's a file-only document (no HTML body).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!article || !article.fileUrl || article.content?.trim()) return;
+    Linking.openURL(article.fileUrl).catch(() => undefined);
+  // Keyed on article.id so it fires once per document load, not on every render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [article?.id]);
 
   const sendAnalytics = useCallback(() => {
     if (submittedRef.current || !id) return;
@@ -331,21 +392,38 @@ export default function ArticleReaderScreen() {
         <Text style={styles.navTitle} numberOfLines={1}>
           {article.categoryName || 'Article'}
         </Text>
-        <View style={{ width: 38 }} />
+        {article.fileUrl && !isPdfOnly ? (
+          <TouchableOpacity onPress={openFile} style={styles.pdfNavBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="document-text-outline" size={18} color={colors.primary} />
+          </TouchableOpacity>
+        ) : (
+          <View style={{ width: 38 }} />
+        )}
       </View>
 
-      <ReadingProgressBar percent={scrollPercentState.current} />
-
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 60 }]}
-        showsVerticalScrollIndicator={false}
-        onScroll={onScroll}
-        scrollEventThrottle={200}
-      >
-        <ArticleHeader article={article} />
-        <HtmlContent html={article.content} />
-      </ScrollView>
+      {isPdfOnly ? (
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={[styles.pdfScrollContent, { paddingBottom: insets.bottom + 60 }]}
+          showsVerticalScrollIndicator={false}
+        >
+          <PdfDocumentView article={article} onOpen={openFile} />
+        </ScrollView>
+      ) : (
+        <>
+          <ReadingProgressBar percent={scrollPercentState.current} />
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 60 }]}
+            showsVerticalScrollIndicator={false}
+            onScroll={onScroll}
+            scrollEventThrottle={200}
+          >
+            <ArticleHeader article={article} />
+            <HtmlContent html={article.content} />
+          </ScrollView>
+        </>
+      )}
     </View>
   );
 }
@@ -400,6 +478,80 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 24,
     paddingTop: spacing.xl,
+  },
+  pdfScrollContent: {
+    flexGrow: 1,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.xxl,
+  },
+
+  pdfNavBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  pdfWrap: {
+    flex: 1,
+    alignItems: 'center',
+    paddingTop: spacing.xxl,
+    gap: spacing.lg,
+  },
+  pdfIcon: {
+    width: 110,
+    height: 110,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.sm,
+  },
+  pdfTitle: {
+    color: '#FFFFFF',
+    fontSize: 22,
+    fontWeight: '800',
+    lineHeight: 30,
+    letterSpacing: -0.3,
+    textAlign: 'center',
+    paddingHorizontal: spacing.md,
+  },
+  pdfExcerpt: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: 'center',
+    paddingHorizontal: spacing.md,
+  },
+  pdfMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  pdfMetaText: {
+    color: colors.textMuted,
+    fontSize: 13,
+  },
+  openPdfBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.xxl,
+    paddingVertical: spacing.md + 2,
+    borderRadius: radius.full,
+    marginTop: spacing.lg,
+  },
+  openPdfBtnText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  pdfHint: {
+    color: colors.textMuted,
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: -spacing.sm,
   },
 
   articleHeader: {
