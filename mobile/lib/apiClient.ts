@@ -345,19 +345,46 @@ export async function loginWithPassword(
  * Returns 'sponsor' if the member has SPONSOR_REP / EXHIBITOR_REP role.
  */
 export async function getMyEventRole(eventId: string, userId: string): Promise<'sponsor' | 'attendee'> {
-  try {
-    const res = await request<any>(`/api/v1/events/${eventId}/members?per_page=200`);
-    if (!res.success || !res.data) return 'attendee';
-    const items: any[] = Array.isArray(res.data)
-      ? res.data
-      : (res.data?.data ?? res.data?.members ?? []);
+  // checked_in_only=false ensures we see all registered members, not just
+  // those who have physically checked in. Without this the backend defaults
+  // to checked_in_only=true and a sponsor who hasn't checked in yet would
+  // not appear in the list, causing a false 'attendee' result.
+  const SPONSOR_KEYWORDS = ['sponsor', 'sponsor_rep', 'exhibitor', 'exhibitor_rep'];
+
+  function parseRole(items: any[]): 'sponsor' | null {
     const me = items.find((m: any) => String(m.id) === String(userId));
-    if (!me) return 'attendee';
+    if (!me) return null;
     const roles: string[] = Array.isArray(me.roles)
       ? me.roles.map((r: any) => (typeof r === 'string' ? r : r?.name ?? '').toLowerCase())
       : [];
-    const sponsorKeywords = ['sponsor', 'sponsor_rep', 'exhibitor', 'exhibitor_rep'];
-    if (sponsorKeywords.some((k) => roles.includes(k))) return 'sponsor';
+    return SPONSOR_KEYWORDS.some((k) => roles.includes(k)) ? 'sponsor' : null;
+  }
+
+  try {
+    // Pass checked_in_only=false so all event members are visible, not just
+    // those who have scanned in.
+    const res = await request<any>(
+      `/api/v1/events/${eventId}/members?per_page=500&checked_in_only=false`,
+    );
+    if (res.success && res.data) {
+      const items: any[] = Array.isArray(res.data)
+        ? res.data
+        : (res.data?.data ?? res.data?.members ?? []);
+      const role = parseRole(items);
+      if (role) return role;
+    }
+
+    // Fallback: try the default (checked-in-only) endpoint in case the
+    // backend doesn't support the checked_in_only param.
+    const fallback = await request<any>(`/api/v1/events/${eventId}/members?per_page=500`);
+    if (fallback.success && fallback.data) {
+      const items: any[] = Array.isArray(fallback.data)
+        ? fallback.data
+        : (fallback.data?.data ?? fallback.data?.members ?? []);
+      const role = parseRole(items);
+      if (role) return role;
+    }
+
     return 'attendee';
   } catch {
     return 'attendee';

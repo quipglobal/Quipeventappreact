@@ -64,6 +64,7 @@ export default function TabsLayout() {
     <View style={styles.root}>
       {toast && <ToastNotification message={toast.message} points={toast.points} />}
       <Tabs
+        key={user.role}
         screenOptions={{
           headerShown: false,
           tabBarStyle: {

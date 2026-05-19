@@ -282,7 +282,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
       </div>
 
       {/* ── Points summary card ─────────────────────────────────────────── */}
-      <div className="px-4 pt-3">
+      {/* <div className="px-4 pt-3">
         <div
           className="rounded-2xl p-4"
           style={{
@@ -362,7 +362,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
             </>
           )}
         </div>
-      </div>
+      </div> */}
 
       {/* ── Spotlight: Next Session ─────────────────────────────────────── */}
       {nextSession && (
