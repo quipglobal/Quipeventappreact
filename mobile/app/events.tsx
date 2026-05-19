@@ -208,14 +208,16 @@ export default function EventsScreen() {
     router.replace('/(tabs)/feed');
   }, []);
 
-  const handleJoin = useCallback((code: string) => {
+  const handleJoin = useCallback(async (code: string) => {
     const c = code.trim().toUpperCase();
     if (!c) { Alert.alert('Enter a code', 'Please type an event code first.'); return; }
     const localMatch = allEvents.find((e) => (e.code ?? '').toUpperCase() === c || String(e.id) === c);
     if (localMatch) {
       setSelectedEvent(null);
       setCurrentEventId(localMatch.id);
-      refreshEventRole(localMatch.id);
+      // Await the role refresh so the tab layout already has the correct
+      // sponsor/attendee role before the user taps "Enter Event".
+      await refreshEventRole(localMatch.id);
       Alert.alert(
         'Joined!',
         `You've joined "${localMatch.name}".`,
@@ -224,11 +226,11 @@ export default function EventsScreen() {
       return;
     }
     findAndJoin(c, {
-      onSuccess: (event) => {
+      onSuccess: async (event) => {
         setSelectedEvent(null);
         if (event.id) {
           setCurrentEventId(event.id);
-          refreshEventRole(event.id);
+          await refreshEventRole(event.id);
         }
         Alert.alert(
           'Joined!',

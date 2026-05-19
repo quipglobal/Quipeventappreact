@@ -1,9 +1,11 @@
 import { Tabs, Redirect } from 'expo-router';
 import { Platform, View, StyleSheet } from 'react-native';
+import { useEffect } from 'react';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
+import { useEvent } from '@/context/EventContext';
 import { ToastNotification } from '@/components/ToastNotification';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
@@ -36,8 +38,19 @@ const SPONSOR_TABS: TabConfig[] = [
 const ALL_TAB_NAMES = ['feed', 'audience', 'engage', 'scan', 'agenda', 'partners', 'connects', 'leads', 'more'] as const;
 
 export default function TabsLayout() {
-  const { user, toast } = useAuth();
+  const { user, toast, refreshEventRole } = useAuth();
   const { colors, spacing } = useTheme();
+  const { currentEventId } = useEvent();
+
+  // Refresh the event-scoped role on mount so sponsor tabs appear correctly
+  // regardless of which path was used to enter (code-join, Skip, session restore).
+  // The global /me endpoint always returns 'attendee'; the real role lives in
+  // the event_members pivot and is fetched here as a safety net.
+  useEffect(() => {
+    if (currentEventId) {
+      refreshEventRole(currentEventId);
+    }
+  }, [currentEventId, refreshEventRole]);
 
   if (!user) return <Redirect href="/(auth)/welcome" />;
 
