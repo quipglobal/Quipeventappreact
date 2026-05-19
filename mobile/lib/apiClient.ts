@@ -343,50 +343,95 @@ export async function loginWithPassword(
  * The backend stores roles per-event (e.g. SPONSOR_REP, ATTENDEE) in the
  * event_members pivot — the global /me endpoint always returns "attendee".
  * Returns 'sponsor' if the member has SPONSOR_REP / EXHIBITOR_REP role.
+ *
+ * Strategy order:
+ *  1. badge_code search  — single-record lookup, fast & precise
+ *  2. checked_in_only=false — full roster, catches all registered members
+ *  3. default endpoint     — fallback for backends that ignore the param
  */
-export async function getMyEventRole(eventId: string, userId: string): Promise<'sponsor' | 'attendee'> {
-  // checked_in_only=false ensures we see all registered members, not just
-  // those who have physically checked in. Without this the backend defaults
-  // to checked_in_only=true and a sponsor who hasn't checked in yet would
-  // not appear in the list, causing a false 'attendee' result.
+export async function getMyEventRole(
+  eventId: string | number,
+  userId: string | number,
+  badgeCode?: string,
+): Promise<'sponsor' | 'attendee'> {
   const SPONSOR_KEYWORDS = ['sponsor', 'sponsor_rep', 'exhibitor', 'exhibitor_rep'];
 
-  function parseRole(items: any[]): 'sponsor' | null {
-    const me = items.find((m: any) => String(m.id) === String(userId));
-    if (!me) return null;
-    const roles: string[] = Array.isArray(me.roles)
-      ? me.roles.map((r: any) => (typeof r === 'string' ? r : r?.name ?? '').toLowerCase())
-      : [];
-    return SPONSOR_KEYWORDS.some((k) => roles.includes(k)) ? 'sponsor' : null;
+  function extractItems(data: any): any[] {
+    if (Array.isArray(data)) return data;
+    // Pagination envelope: { current_page, data: [...] }
+    if (Array.isArray(data?.data)) return data.data;
+    if (Array.isArray(data?.members)) return data.members;
+    return [];
   }
 
+  function isSponsorRecord(m: any): boolean {
+    const roles: string[] = Array.isArray(m.roles)
+      ? m.roles.map((r: any) => (typeof r === 'string' ? r : r?.name ?? '').toLowerCase())
+      : [];
+    return SPONSOR_KEYWORDS.some((k) => roles.includes(k));
+  }
+
+  function findByUserId(items: any[]): any | undefined {
+    return items.find((m: any) => String(m.id) === String(userId));
+  }
+
+  console.log(`[getMyEventRole] START eventId=${eventId} userId=${userId} badgeCode=${badgeCode ?? 'none'}`);
+
   try {
-    // Pass checked_in_only=false so all event members are visible, not just
-    // those who have scanned in.
-    const res = await request<any>(
+    // ── Strategy 1: badge_code lookup (single-record, most precise) ──────────
+    if (badgeCode) {
+      const r1 = await request<any>(
+        `/api/v1/events/${eventId}/members?badge_code=${encodeURIComponent(badgeCode)}`,
+      );
+      console.log(`[getMyEventRole] badge_code lookup success=${r1.success} data=`, JSON.stringify(r1.data)?.slice(0, 200));
+      if (r1.success && r1.data) {
+        const items = extractItems(r1.data);
+        // Badge code search returns only the matching member(s)
+        const me = items.find((m: any) =>
+          String(m.badge_code ?? '').toUpperCase() === badgeCode.toUpperCase() ||
+          String(m.id) === String(userId),
+        );
+        if (me) {
+          const role = isSponsorRecord(me) ? 'sponsor' : 'attendee';
+          console.log(`[getMyEventRole] badge_code hit → roles=${JSON.stringify(me.roles)} → ${role}`);
+          return role;
+        }
+      }
+    }
+
+    // ── Strategy 2: full roster, bypass checked-in filter ────────────────────
+    const r2 = await request<any>(
       `/api/v1/events/${eventId}/members?per_page=500&checked_in_only=false`,
     );
-    if (res.success && res.data) {
-      const items: any[] = Array.isArray(res.data)
-        ? res.data
-        : (res.data?.data ?? res.data?.members ?? []);
-      const role = parseRole(items);
-      if (role) return role;
+    console.log(`[getMyEventRole] full-roster success=${r2.success} items=${extractItems(r2.data).length}`);
+    if (r2.success && r2.data) {
+      const items = extractItems(r2.data);
+      const me = findByUserId(items);
+      if (me) {
+        const role = isSponsorRecord(me) ? 'sponsor' : 'attendee';
+        console.log(`[getMyEventRole] full-roster hit userId=${userId} roles=${JSON.stringify(me.roles)} → ${role}`);
+        return role;
+      }
+      console.log(`[getMyEventRole] full-roster: userId=${userId} NOT found among ${items.length} members`);
     }
 
-    // Fallback: try the default (checked-in-only) endpoint in case the
-    // backend doesn't support the checked_in_only param.
-    const fallback = await request<any>(`/api/v1/events/${eventId}/members?per_page=500`);
-    if (fallback.success && fallback.data) {
-      const items: any[] = Array.isArray(fallback.data)
-        ? fallback.data
-        : (fallback.data?.data ?? fallback.data?.members ?? []);
-      const role = parseRole(items);
-      if (role) return role;
+    // ── Strategy 3: default endpoint (checked-in only) ───────────────────────
+    const r3 = await request<any>(`/api/v1/events/${eventId}/members?per_page=500`);
+    console.log(`[getMyEventRole] checked-in-only success=${r3.success} items=${extractItems(r3.data).length}`);
+    if (r3.success && r3.data) {
+      const items = extractItems(r3.data);
+      const me = findByUserId(items);
+      if (me) {
+        const role = isSponsorRecord(me) ? 'sponsor' : 'attendee';
+        console.log(`[getMyEventRole] checked-in hit userId=${userId} roles=${JSON.stringify(me.roles)} → ${role}`);
+        return role;
+      }
     }
 
+    console.log(`[getMyEventRole] all strategies exhausted → attendee`);
     return 'attendee';
-  } catch {
+  } catch (err) {
+    console.log(`[getMyEventRole] EXCEPTION:`, err);
     return 'attendee';
   }
 }

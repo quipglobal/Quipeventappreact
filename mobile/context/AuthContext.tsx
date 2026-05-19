@@ -198,9 +198,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshEventRole = useCallback(async (eventId: string) => {
     // Use userRef so this always sees the current user without stale closures.
-    const userId = userRef.current?.id;
-    if (!userId) return;
-    const role = await getMyEventRole(eventId, userId);
+    const current = userRef.current;
+    if (!current?.id) return;
+    // Pass badgeCode as primary lookup key (single-record search, faster).
+    const role = await getMyEventRole(eventId, current.id, current.badgeCode);
     setUserState((latest) => {
       if (!latest || latest.role === role) return latest;
       const updated = { ...latest, role };
