@@ -1,12 +1,11 @@
 import { Tabs, Redirect } from 'expo-router';
-import { Platform, View, StyleSheet, ActivityIndicator } from 'react-native';
-import { useEffect, useState, useRef } from 'react';
+import { Platform, View, StyleSheet } from 'react-native';
+import { useEffect } from 'react';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useEvent } from '@/context/EventContext';
-import { getMyEventRole } from '@/lib/apiClient';
 import { ToastNotification } from '@/components/ToastNotification';
 
 type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
@@ -34,89 +33,28 @@ const SPONSOR_TABS: TabConfig[] = [
   { name: 'more',     title: 'More',       icon: 'grid-outline',          iconFocused: 'grid' },
 ];
 
-// Every file that lives in (tabs)/ must be listed here so Expo Router can
-// properly show/hide each one based on the active role.
+// Every file that lives in (tabs)/ — must be listed here so Expo Router
+// can properly show/hide each one based on the active role.
 const ALL_TAB_NAMES = ['feed', 'audience', 'engage', 'scan', 'agenda', 'partners', 'connects', 'leads', 'more'] as const;
 
 export default function TabsLayout() {
-  const { user, toast, setUser } = useAuth();
-  const { colors } = useTheme();
+  const { user, toast, refreshEventRole } = useAuth();
+  const { colors, spacing } = useTheme();
   const { currentEventId } = useEvent();
 
-  // resolvedRole is managed LOCALLY so it is never subject to auth-context
-  // timing issues. It starts as the cached context role (best we have before
-  // the network round-trip) and is updated once getMyEventRole() resolves.
-  const [resolvedRole, setResolvedRole] = useState<'sponsor' | 'attendee'>(
-    user?.role ?? 'attendee',
-  );
-  // roleReady blocks the tab bar from rendering until we have confirmed the
-  // role for the current event. This prevents a flash of the wrong tab set.
-  const [roleReady, setRoleReady] = useState(false);
-
-  // Track the event+user combo so we don't double-fetch on re-renders that
-  // aren't caused by an event/user change.
-  const lastFetchKey = useRef('');
-
+  // Refresh the event-scoped role on mount so sponsor tabs appear correctly
+  // regardless of which path was used to enter (code-join, Skip, session restore).
+  // The global /me endpoint always returns 'attendee'; the real role lives in
+  // the event_members pivot and is fetched here as a safety net.
   useEffect(() => {
-    if (!user?.id) {
-      // No user — auth guard below will redirect
-      setRoleReady(true);
-      return;
+    if (currentEventId) {
+      refreshEventRole(currentEventId);
     }
-
-    const fetchKey = `${currentEventId ?? 'none'}:${user.id}`;
-    if (fetchKey === lastFetchKey.current) return;
-    lastFetchKey.current = fetchKey;
-
-    if (!currentEventId) {
-      // No event selected yet — use whatever the context says and don't block
-      setResolvedRole(user.role ?? 'attendee');
-      setRoleReady(true);
-      return;
-    }
-
-    // Fetch the definitive event-scoped role from the backend.
-    // Pass badgeCode as the primary lookup key (single-record, fast).
-    setRoleReady(false);
-    let cancelled = false;
-
-    getMyEventRole(currentEventId, user.id, user.badgeCode)
-      .then((role) => {
-        if (cancelled) return;
-        console.log(`[TabsLayout] getMyEventRole resolved → ${role} (context was ${user.role})`);
-        setResolvedRole(role);
-        setRoleReady(true);
-        // Keep auth context in sync so other screens see the correct role
-        if (role !== user.role) {
-          setUser({ ...user, role });
-        }
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        console.log(`[TabsLayout] getMyEventRole error, falling back to context role:`, err);
-        setResolvedRole(user.role ?? 'attendee');
-        setRoleReady(true);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentEventId, user?.id]);
+  }, [currentEventId, refreshEventRole]);
 
   if (!user) return <Redirect href="/(auth)/welcome" />;
 
-  // While confirming the role, show a minimal spinner so the user doesn't
-  // see the wrong tab set flash for even a frame.
-  if (!roleReady) {
-    return (
-      <View style={[styles.root, styles.center]}>
-        <ActivityIndicator size="large" color="#7c3aed" />
-      </View>
-    );
-  }
-
-  const tabs = resolvedRole === 'sponsor' ? SPONSOR_TABS : ATTENDEE_TABS;
+  const tabs = user.role === 'sponsor' ? SPONSOR_TABS : ATTENDEE_TABS;
   const activeNames = new Set(tabs.map((t) => t.name));
 
   const tabBarHeight = Platform.OS === 'ios' ? 84 : 64;
@@ -126,7 +64,7 @@ export default function TabsLayout() {
     <View style={styles.root}>
       {toast && <ToastNotification message={toast.message} points={toast.points} />}
       <Tabs
-        key={resolvedRole}
+        key={user.role}
         screenOptions={{
           headerShown: false,
           tabBarStyle: {
@@ -191,5 +129,4 @@ export default function TabsLayout() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#07070F' },
-  center: { justifyContent: 'center', alignItems: 'center' },
 });
