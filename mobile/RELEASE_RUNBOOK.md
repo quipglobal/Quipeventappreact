@@ -8,9 +8,9 @@
 
 ---
 
-## Status of EAS Secrets (all set ✓)
+## Status of EAS Credentials (all configured ✓)
 
-The following secrets are already configured in the EAS dashboard:
+### Secrets (set on EAS project)
 
 | Secret | Status |
 |---|---|
@@ -20,9 +20,25 @@ The following secrets are already configured in the EAS dashboard:
 | `EXPO_PUBLIC_API_BASE_URL` | ✓ Set (`https://api.cxoinc.com`) |
 | `EXPO_PUBLIC_TENANT_ID` | ✓ Set (`3`) |
 
+### Android Keystore (uploaded & linked ✓)
+
+| Field | Value |
+|---|---|
+| EAS Keystore ID | `c6ff387d-069c-44d5-a0fe-f5055dc690dc` |
+| EAS Build Creds ID | `59efbe8a-c0ce-4b69-914e-e438bceae42a` |
+| Application ID | `com.apexevents.meet` |
+| Key Alias | `key0` |
+| Format | PKCS12 |
+| SHA-1 Fingerprint | `29724529d89c33d285c6f045d298416236d02922` |
+| MD5 Fingerprint | `1ed5b9bd6bb243661680b1dceca61313` |
+| Is Default | ✓ Yes |
+
+> Verify the SHA-1 fingerprint matches the one registered in Google Play Console
+> under Setup → App integrity → App signing.
+
 ---
 
-## One-Time Setup (run once from your local machine)
+## One-Time Setup Remaining
 
 ### Prerequisites
 ```bash
@@ -30,26 +46,7 @@ npm install -g eas-cli
 eas login   # log in with rukmin.trivedi@gmail.com
 ```
 
-### Step 1 — Upload Android Keystore
-
-> ⚠️ This is the most critical step. The keystore must match the one used for the
-> original com.apexevents.meet build on Google Play. Using a different keystore
-> will cause the submission to be rejected.
-
-```bash
-cd /path/to/project/mobile
-eas credentials --platform android
-```
-
-When prompted:
-- Select profile: **production**
-- Choose: **Upload a keystore**
-- Keystore path: `/path/to/your/original.jks`  (or .keystore)
-- Keystore password: `serpentcs`
-- Key alias: `ciosynergy`
-- Key password: `serpentcs`
-
-### Step 2 — Set Up iOS Credentials
+### Step 1 — Set Up iOS Credentials
 
 EAS can auto-manage iOS certs using an App Store Connect API Key.
 
