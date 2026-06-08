@@ -10,8 +10,8 @@
 | Field | Value |
 |---|---|
 | **App Name** | CXO Events |
-| **Bundle ID (iOS)** | com.cxoinc.events |
-| **Package Name (Android)** | com.cxoinc.events |
+| **Bundle ID (iOS)** | com.apexevents.meet |
+| **Package Name (Android)** | com.apexevents.meet |
 | **Version** | 1.0.0 |
 | **Age Rating** | 4+ (no objectionable content) |
 | **Primary Category** | Business |
@@ -78,17 +78,17 @@ conference,events,networking,business,summit,CXO,executive,agenda,leads,sponsor,
 
 ### Support URL
 ```
-https://cxoinc.com/support
+https://apexevents.com/support
 ```
 
 ### Marketing URL
 ```
-https://cxoinc.com/events-app
+https://apexevents.com/events-app
 ```
 
 ### Privacy Policy URL
 ```
-https://cxoinc.com/privacy
+https://apexevents.com/privacy
 ```
 
 ---
@@ -219,10 +219,10 @@ EXPO_PUBLIC_USE_MOCK_API=false
 
 | URL | Opens |
 |---|---|
-| `cxoinc://join?code=CXOSUMMIT26` | Switch Event screen with code pre-filled |
-| `https://cxoinc.com/join?code=CXOSUMMIT26` | Same (universal link / app link) |
+| `apexevents://join?code=CXOSUMMIT26` | Switch Event screen with code pre-filled |
+| `https://apexevents.com/join?code=CXOSUMMIT26` | Same (universal link / app link) |
 
 Configure universal links (iOS) and app links (Android) by:
-1. Hosting `/.well-known/apple-app-site-association` on `cxoinc.com`
-2. Hosting `/.well-known/assetlinks.json` on `cxoinc.com`
+1. Hosting `/.well-known/apple-app-site-association` on `apexevents.com`
+2. Hosting `/.well-known/assetlinks.json` on `apexevents.com`
 3. Confirming `app.json` → `extra.eas.projectId` is set (currently `83d2b604-c6aa-45fe-a707-16f09d2c578c`) and running `eas login` before builds

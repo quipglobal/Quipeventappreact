@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "scheme": "cxoinc",
+    "scheme": "apexevents",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#07070F",
     "splash": {
@@ -15,7 +15,7 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.cxoinc.events",
+      "bundleIdentifier": "com.apexevents.meet",
       "buildNumber": "1",
       "infoPlist": {
         "NSCameraUsageDescription": "CXO Events uses the camera to scan attendee QR badge codes at sponsor booths.",
@@ -24,7 +24,7 @@
         "UIStatusBarStyle": "UIStatusBarStyleLightContent"
       },
       "associatedDomains": [
-        "applinks:cxoinc.com"
+        "applinks:apexevents.com"
       ]
     },
     "android": {
@@ -32,7 +32,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#07070F"
       },
-      "package": "com.cxoinc.events",
+      "package": "com.apexevents.meet",
       "versionCode": 1,
       "softwareKeyboardLayoutMode": "resize",
       "permissions": [
@@ -46,7 +46,7 @@
           "data": [
             {
               "scheme": "https",
-              "host": "cxoinc.com",
+              "host": "apexevents.com",
               "pathPrefix": "/join"
             }
           ],

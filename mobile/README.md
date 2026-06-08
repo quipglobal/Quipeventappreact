@@ -90,9 +90,9 @@ The app handles the following deep link schemes:
 
 | URL | Action |
 |-----|--------|
-| `cxoinc://join?code=EVENT123` | Opens switch-event screen with code pre-filled |
-| `cxoinc://switch-event?code=EVENT123` | Same — direct route |
-| `https://cxoinc.com/join?code=EVENT123` | Universal link (iOS) / App Link (Android) — opens switch-event |
+| `apexevents://join?code=EVENT123` | Opens switch-event screen with code pre-filled |
+| `apexevents://switch-event?code=EVENT123` | Same — direct route |
+| `https://apexevents.com/join?code=EVENT123` | Universal link (iOS) / App Link (Android) — opens switch-event |
 
 ## Environment Variables
 
@@ -137,7 +137,7 @@ mobile/
 
 ## App Store Info
 
-- **iOS Bundle ID**: `com.cxoinc.events`
-- **Android Package**: `com.cxoinc.events`
+- **iOS Bundle ID**: `com.apexevents.meet`
+- **Android Package**: `com.apexevents.meet`
 - **Version**: 1.0.0 (build 1)
 - **Supported OS**: iOS 13+ / Android 8+
