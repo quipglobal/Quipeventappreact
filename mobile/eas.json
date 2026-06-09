@@ -9,7 +9,9 @@
       "distribution": "internal",
       "channel": "development",
       "env": {
-        "EXPO_PUBLIC_USE_MOCK_API": "true"
+        "EXPO_PUBLIC_USE_MOCK_API": "false",
+        "EXPO_PUBLIC_API_BASE_URL": "https://api.cxoinc.com",
+        "EXPO_PUBLIC_TENANT_ID": "3"
       }
     },
     "preview": {

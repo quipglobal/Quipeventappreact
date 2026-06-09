@@ -63,6 +63,68 @@ eas login   # log in with rukmin.trivedi@gmail.com (quipdevs-organization accoun
 
 ---
 
+## Development Builds (for testing on real devices)
+
+A development build installs **Expo Dev Client** on the device — a special shell that lets you
+load any JS bundle over the network (like Expo Go, but with your full native config).
+
+### Step 1 — Register iOS devices (iOS only, skip for Android)
+
+EAS ad-hoc distribution requires every iOS device UDID to be registered.
+Run this once per new device, then rebuild:
+
+```bash
+cd /path/to/project/mobile
+eas device:create
+```
+
+This prints a URL. Open it on the iOS device you want to register.
+The device UDID will be added to your Apple Developer account automatically.
+
+### Step 2 — Trigger the development build
+
+```bash
+cd /path/to/project/mobile
+
+# Both platforms (recommended)
+eas build --profile development --platform all
+
+# Android only
+eas build --profile development --platform android
+
+# iOS only
+eas build --profile development --platform ios
+```
+
+EAS queues the build in the cloud (~10–20 min). Monitor at:
+https://expo.dev/accounts/quipdevs-organization/projects/cxoinc/builds
+
+### Step 3 — Install on device
+
+**Android:** EAS emails you a QR code / direct `.apk` link. Scan or tap to install.
+
+**iOS:** Open the EAS build page on your iPhone in Safari → tap **Install**.
+(You must have registered the device UDID in Step 1.)
+
+### Step 4 — Load your JS bundle
+
+Once the dev client is installed, start the local Metro bundler:
+
+```bash
+cd /path/to/project/mobile
+npx expo start --dev-client
+```
+
+Then on the device, open the app and enter the URL printed by Metro (e.g. `exp+apexevents://...`),
+or scan the QR code from your terminal.
+
+> **What the development profile uses:**
+> - Real backend: `https://api.cxoinc.com` (mock API is OFF)
+> - Tenant ID: `3`
+> - EAS Update channel: `development`
+
+---
+
 ## Building for Production
 
 ```bash
