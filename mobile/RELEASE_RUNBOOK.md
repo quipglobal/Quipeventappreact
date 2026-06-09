@@ -36,29 +36,29 @@
 > Verify the SHA-1 fingerprint matches the one registered in Google Play Console
 > under Setup → App integrity → App signing.
 
+### iOS Credentials (uploaded & linked ✓)
+
+| Field | Value |
+|---|---|
+| EAS iOS App Creds ID | `ed312c43-0775-44ed-982e-1edc48dddf72` |
+| Apple App Identifier ID | `c841437b-28b3-4caf-998d-0e29a1eb5c88` |
+| Bundle ID | `com.apexevents.meet` |
+| ASC API Key EAS ID | `0dc89fb6-edcd-4b53-9446-e3eefc066f48` |
+| ASC Key ID | `672Y52LSAY` |
+| ASC Issuer ID | `69a6de87-987f-47e3-e053-5b8c7c11a4d1` |
+| Linked for Builds | ✓ Yes |
+| Linked for Submissions | ✓ Yes |
+
+> EAS will use this ASC API key to auto-manage the distribution certificate and
+> provisioning profile during the build. No manual cert/profile management needed.
+
 ---
 
-## One-Time Setup Remaining
+## Prerequisites (one-time local setup)
 
-### Prerequisites
 ```bash
 npm install -g eas-cli
-eas login   # log in with rukmin.trivedi@gmail.com
-```
-
-### Step 1 — Set Up iOS Credentials
-
-EAS can auto-manage iOS certs using an App Store Connect API Key.
-
-1. Go to App Store Connect → Users & Access → Integrations → App Store Connect API
-2. Click `+` → Name: `EAS Build` → Role: `App Manager`
-3. Download the `.p8` file
-
-Then register it:
-```bash
-eas credentials --platform ios
-# Choose: Add an App Store Connect API Key
-# Upload the .p8 file when prompted
+eas login   # log in with rukmin.trivedi@gmail.com (quipdevs-organization account)
 ```
 
 ---

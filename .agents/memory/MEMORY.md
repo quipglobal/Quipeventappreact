@@ -1,0 +1,2 @@
+- [EAS iOS Credentials](eas-ios-credentials.md) — ASC API key + Apple App Identifier IDs for com.apexevents.meet; EAS auto-manages cert/profile
+- [EAS Android Credentials](eas-android-credentials.md) — PKCS12 keystore (alias key0), EAS IDs, SHA-1 fingerprint for com.apexevents.meet
