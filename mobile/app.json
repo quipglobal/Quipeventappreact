@@ -1,7 +1,8 @@
 {
   "expo": {
     "name": "CXO Events",
-    "slug": "cxo-events",
+    "slug": "cxoinc",
+    "owner": "quipdevs-organization",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -16,12 +17,12 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.apexevents.meet",
-      "buildNumber": "1",
       "infoPlist": {
         "NSCameraUsageDescription": "CXO Events uses the camera to scan attendee QR badge codes at sponsor booths.",
         "NSPhotoLibraryUsageDescription": "CXO Events may access your photo library to set a profile picture.",
         "UIViewControllerBasedStatusBarAppearance": false,
-        "UIStatusBarStyle": "UIStatusBarStyleLightContent"
+        "UIStatusBarStyle": "UIStatusBarStyleLightContent",
+        "ITSAppUsesNonExemptEncryption": false
       },
       "associatedDomains": [
         "applinks:apexevents.com"
@@ -33,7 +34,6 @@
         "backgroundColor": "#07070F"
       },
       "package": "com.apexevents.meet",
-      "versionCode": 1,
       "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "android.permission.CAMERA",
@@ -69,6 +69,10 @@
         }
       ]
     ],
+    "updates": {
+      "url": "https://u.expo.dev/83d2b604-c6aa-45fe-a707-16f09d2c578c",
+      "enabled": false
+    },
     "experiments": {
       "typedRoutes": true
     },
