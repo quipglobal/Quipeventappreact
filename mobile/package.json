@@ -4,10 +4,10 @@
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "web": "expo start --web",
-    "postinstall": "node scripts/patch-cors.js && node scripts/patch-cache.js"
+    "postinstall": "node scripts/patch-cors.js && node scripts/patch-cache.js && node scripts/patch-gradle.js"
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.2.3",
@@ -48,6 +48,9 @@
     "patch-package": "^8.0.1",
     "sharp": "^0.34.5",
     "typescript": "^5.3.0"
+  },
+  "resolutions": {
+    "expo-modules-core": "~1.12.0"
   },
   "expo": {
     "install": {
