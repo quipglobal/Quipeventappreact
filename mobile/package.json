@@ -7,7 +7,8 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "postinstall": "node scripts/patch-cors.js && node scripts/patch-cache.js && node scripts/patch-gradle.js"
+    "postinstall": "node scripts/patch-cors.js && node scripts/patch-cache.js && node scripts/patch-gradle.js",
+    "eas-build-post-install": "node scripts/patch-gradle.js"
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.2.3",

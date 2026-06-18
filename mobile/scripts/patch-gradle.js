@@ -4,6 +4,20 @@ const path = require('path');
 const root = path.join(__dirname, '..');
 const nodeModulesDir = path.join(root, 'node_modules');
 
+function createShim(relPath, description, content) {
+  const abs = path.join(root, relPath);
+  const dir = path.dirname(abs);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  if (fs.existsSync(abs) && fs.readFileSync(abs, 'utf8') === content) {
+    console.log(`[patch-gradle] Already shimmed: ${description}`);
+    return;
+  }
+  fs.writeFileSync(abs, content, 'utf8');
+  console.log(`[patch-gradle] Created shim: ${description}`);
+}
+
 function patch(filePath, description, find, replace) {
   const abs = path.join(root, filePath);
   if (!fs.existsSync(abs)) {
@@ -11,13 +25,23 @@ function patch(filePath, description, find, replace) {
     return false;
   }
   let content = fs.readFileSync(abs, 'utf8');
+  // Check replace first: if the target text is already present, skip.
+  // This prevents re-applying a patch that was already applied (even if `find`
+  // still appears elsewhere in the file — the old "find-only" check caused
+  // duplicate blocks to be inserted on repeated runs).
+  // SPECIAL CASE: when replace === '' (deletion patch), content.includes('') is always true
+  // so we skip the replace-check and fall through to the find-check instead.
+  if (replace !== '' && content.includes(replace)) {
+    console.log(`[patch-gradle] Already patched: ${description}`);
+    return false;
+  }
   if (content.includes(find)) {
     content = content.replace(find, replace);
     fs.writeFileSync(abs, content, 'utf8');
     console.log(`[patch-gradle] Patched: ${description}`);
     return true;
   }
-  console.log(`[patch-gradle] Already patched: ${description}`);
+  console.log(`[patch-gradle] WARNING (not found): ${description} — neither find nor replace text present in ${filePath}`);
   return false;
 }
 
@@ -218,6 +242,44 @@ patch(
   'expo-modules-core: disable useExpoPublishing() call',
   'useExpoPublishing()',
   '// useExpoPublishing() disabled - SoftwareComponent not available in Gradle 8.x'
+);
+
+// Shim A: expo/config/paths — subpath export added in expo 53+; expo 52 has no exports field.
+// expo-updates 56.x imports resolveEntryPoint from this path; @expo/config already has it.
+createShim(
+  'node_modules/expo/config/paths.js',
+  'expo shim: config/paths → @expo/config/build/paths/paths',
+  `// Shim: expo/config/paths → @expo/config/build/paths/paths\n// expo-updates 56.x expects expo to export this subpath; expo 52.x doesn't have it.\nmodule.exports = require('@expo/config/build/paths/paths');\n`
+);
+
+// Shim B: expo/internal/unstable-expo-updates-cli-exports — subpath export added in expo 53+.
+// expo-updates 56.x imports drawableFileTypes, createMetroServerAndBundleRequestAsync,
+// and exportEmbedAssetsAsync from this path; all live in @expo/cli.
+createShim(
+  'node_modules/expo/internal/unstable-expo-updates-cli-exports.js',
+  'expo shim: internal/unstable-expo-updates-cli-exports → @expo/cli export embed',
+  `// Shim: expo/internal/unstable-expo-updates-cli-exports\n// expo-updates 56.x expects expo to export this subpath; expo 52.x doesn't have it.\nconst { drawableFileTypes } = require('@expo/cli/build/src/export/metroAssetLocalPath');\nconst { createMetroServerAndBundleRequestAsync, exportEmbedAssetsAsync } = require('@expo/cli/build/src/export/embed/exportEmbedAsync');\nmodule.exports = { drawableFileTypes, createMetroServerAndBundleRequestAsync, exportEmbedAssetsAsync };\n`
+);
+
+// Fix 1b: ExpoModulesCorePlugin.gradle — add KSP 2.2.0 mapping.
+// kspVersionsMap only goes up to "2.0.21". With KGP 2.2.0 the map falls back to "1.9.25-1.0.20"
+// which is incompatible: ksp-1.9.x is too old for kotlin-2.2.0.
+// Fix: add "2.2.0" → "2.2.0-2.0.2" (the KSP release for Kotlin 2.2.0 on Maven Central).
+patch(
+  'node_modules/expo-modules-core/android/ExpoModulesCorePlugin.gradle',
+  'expo-modules-core ExpoModulesCorePlugin: add KSP 2.2.0-2.0.2 mapping to kspVersionsMap',
+  `"1.9.24": "1.9.24-1.0.20",\n          "1.9.25": "1.9.25-1.0.20",\n          "2.0.21": "2.0.21-1.0.28"`,
+  `"1.9.24": "1.9.24-1.0.20",\n          "1.9.25": "1.9.25-1.0.20",\n          "2.0.21": "2.0.21-1.0.28",\n          "2.2.0": "2.2.0-2.0.2"`
+);
+
+// Fix 1c: expo-updates/android/build.gradle — add KSP 2.2.0 mapping to getKspVersion().
+// The getKspVersion() closure checks for "2.1.20" and "2.0.21" but not "2.2.0", so it falls back
+// to "1.9.24-1.0.20" which is incompatible with KGP 2.2.0.
+patch(
+  'node_modules/expo-updates/android/build.gradle',
+  'expo-updates: add KSP 2.2.0-2.0.2 case to getKspVersion()',
+  `if (kotlinVersion == "2.1.20") {\n        return "2.1.20-2.0.1"\n      } else if (kotlinVersion == "2.0.21") {`,
+  `if (kotlinVersion == "2.2.0") {\n        return "2.2.0-2.0.2"\n      } else if (kotlinVersion == "2.1.20") {\n        return "2.1.20-2.0.1"\n      } else if (kotlinVersion == "2.0.21") {`
 );
 
 // Fix 2b: expo-modules-core/android/build.gradle — hardcode the buildscript block so that
@@ -436,6 +498,290 @@ patch(
   `debugOnlyApi "androidx.browser:browser:1.8.0"`
 );
 
+// Fix 5b-i: expo-dev-menu — remove VRUtilities from DevMenuState.kt.
+// expo.modules.core.utilities.VRUtilities does not exist in expo-modules-core 2.2.3;
+// it was added in a later version. Replace isQuest() with false (non-Quest device assumption).
+patch(
+  'node_modules/expo-dev-menu/android/src/debug/java/expo/modules/devmenu/compose/DevMenuState.kt',
+  'expo-dev-menu DevMenuState: remove VRUtilities import, replace isQuest() with false',
+  `import expo.modules.core.utilities.VRUtilities\n`,
+  ``
+);
+patch(
+  'node_modules/expo-dev-menu/android/src/debug/java/expo/modules/devmenu/compose/DevMenuState.kt',
+  'expo-dev-menu DevMenuState: replace VRUtilities.isQuest() with false literal',
+  `val showFab: Boolean = VRUtilities.isQuest(),`,
+  `val showFab: Boolean = false, // VRUtilities not in expo-modules-core 2.2.3`
+);
+
+// Fix 5b-ii: expo-dev-menu — remove VRUtilities from ToolsSection.kt.
+patch(
+  'node_modules/expo-dev-menu/android/src/debug/java/expo/modules/devmenu/compose/ui/ToolsSection.kt',
+  'expo-dev-menu ToolsSection: remove VRUtilities import',
+  `import expo.modules.core.utilities.VRUtilities\n`,
+  ``
+);
+patch(
+  'node_modules/expo-dev-menu/android/src/debug/java/expo/modules/devmenu/compose/ui/ToolsSection.kt',
+  'expo-dev-menu ToolsSection: replace VRUtilities.isQuest() with true (non-Quest)',
+  `if (!VRUtilities.isQuest()) {`,
+  `if (true) { // VRUtilities.isQuest() not available; assume non-Quest`
+);
+
+// Fix 5b-iii: expo-dev-menu — remove 'override' from onDidCreateReactActivityDelegateNotification.
+// ReactActivityHandler in expo-modules-core 2.2.3 does not have this method; it was added later.
+patch(
+  'node_modules/expo-dev-menu/android/src/debug/java/expo/modules/devmenu/DevMenuPackage.kt',
+  'expo-dev-menu DevMenuPackage: remove override keyword from onDidCreateReactActivityDelegateNotification',
+  `        override fun onDidCreateReactActivityDelegateNotification(activity: ReactActivity?, delegate: ReactActivityDelegate?) {`,
+  `        fun onDidCreateReactActivityDelegateNotification(activity: ReactActivity?, delegate: ReactActivityDelegate?) { // override removed — not in ReactActivityHandler 2.2.3`
+);
+
+// Fix 5b-iv: expo-dev-menu — remove DevSupportManager.currentReactContext usage.
+// DevSupportManager in RN 0.76 does not expose currentReactContext as a property.
+patch(
+  'node_modules/expo-dev-menu/android/src/debug/java/expo/modules/devmenu/devtools/DevMenuDevToolsDelegate.kt',
+  'expo-dev-menu DevMenuDevToolsDelegate: replace currentReactContext ?: currentActivity with currentActivity',
+  `get() = devSupportManager?.currentReactContext ?: currentActivity`,
+  `get() = currentActivity // currentReactContext not in DevSupportManager RN 0.76`
+);
+patch(
+  'node_modules/expo-dev-menu/android/src/debug/java/expo/modules/devmenu/devtools/DevMenuDevToolsDelegate.kt',
+  'expo-dev-menu DevMenuDevToolsDelegate: replace currentReactContext with null',
+  `get() = devSupportManager?.currentReactContext`,
+  `get() = null // currentReactContext not in DevSupportManager RN 0.76`
+);
+
+// Fix 5b-v: expo-dev-menu — remove OptimizedRecord import and annotation from DevMenuModule.kt.
+// expo.modules.kotlin.types.OptimizedRecord does not exist in expo-modules-core 2.2.3.
+patch(
+  'node_modules/expo-dev-menu/android/src/debug/java/expo/modules/devmenu/modules/DevMenuModule.kt',
+  'expo-dev-menu DevMenuModule: remove OptimizedRecord import',
+  `import expo.modules.kotlin.types.OptimizedRecord\n`,
+  ``
+);
+patch(
+  'node_modules/expo-dev-menu/android/src/debug/java/expo/modules/devmenu/modules/DevMenuModule.kt',
+  'expo-dev-menu DevMenuModule: remove @OptimizedRecord annotation',
+  `@OptimizedRecord\n`,
+  ``
+);
+
+// Fix 5c-i: expo-dev-launcher — NonFinalBridgelessDevSupportManager.kt
+// Using createShim (full replacement) because:
+//   - Kotlin 2.2.0 raises "Inherited platform declarations clash: getJSBundleURLForRemoteDebugging()"
+//     at the class-declaration level — requires @Suppress("ACCIDENTAL_OVERRIDE").
+//   - Previous patch chain accidentally produced a duplicate loadSplitBundleFromServer override.
+//   - uniqueTag val → getUniqueTag() fun (Kotlin 2.2.0 + Java abstract method).
+//   - reload() removed in RN 0.76 → onJSBundleLoadedFromServer().
+createShim(
+  'node_modules/expo-dev-launcher/android/src/debug/java/com/facebook/react/devsupport/NonFinalBridgelessDevSupportManager.kt',
+  'expo-dev-launcher NonFinalBridgelessDevSupportManager: full replacement (RN 0.76 + Kotlin 2.2.0 compat)',
+  `/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+package com.facebook.react.devsupport
+
+import android.content.Context
+import com.facebook.react.bridge.UiThreadUtil
+import com.facebook.react.common.SurfaceDelegateFactory
+import com.facebook.react.devsupport.interfaces.DevBundleDownloadListener
+import com.facebook.react.devsupport.interfaces.DevLoadingViewManager
+import com.facebook.react.devsupport.interfaces.DevSupportManager
+import com.facebook.react.devsupport.interfaces.PausedInDebuggerOverlayManager
+import com.facebook.react.devsupport.interfaces.DevSplitBundleCallback
+import com.facebook.react.devsupport.interfaces.RedBoxHandler
+import com.facebook.react.packagerconnection.RequestHandler
+
+//
+// Expo: This is a copy of react-native's {@link com.facebook.react.devsupport.BridgelessDevSupportManager}
+// just removing the "final" modifier that we can inherit and reuse.
+// From time to time for react-native upgrade, just follow the steps to update the code
+//   1. Copy the contents from BridgelessDevSupportManager to this file.
+//   2. Rename the class to NonFinalBridgelessDevSupportManager.
+//   3. Change "public" modifier -> "open"
+//   4. Revert the comment
+//
+
+/**
+ * An implementation of [DevSupportManager] that extends the functionality in
+ * [DevSupportManagerBase] with some additional, more flexible APIs for asynchronously loading the
+ * JS bundle.
+ *
+ * @constructor The primary constructor mirrors the same constructor we have for
+ *   [BridgeDevSupportManager] and
+ *     * is kept for backward compatibility.
+ */
+@Suppress("ACCIDENTAL_OVERRIDE")
+open class NonFinalBridgelessDevSupportManager(
+  applicationContext: Context,
+  reactInstanceManagerHelper: ReactInstanceDevHelper,
+  packagerPathForJSBundleName: String?,
+  enableOnCreate: Boolean,
+  redBoxHandler: RedBoxHandler?,
+  devBundleDownloadListener: DevBundleDownloadListener?,
+  minNumShakes: Int,
+  customPackagerCommandHandlers: Map<String, RequestHandler>?,
+  surfaceDelegateFactory: SurfaceDelegateFactory?,
+  devLoadingViewManager: DevLoadingViewManager?,
+  pausedInDebuggerOverlayManager: PausedInDebuggerOverlayManager?
+) :
+  DevSupportManagerBase(
+    applicationContext,
+    reactInstanceManagerHelper,
+    packagerPathForJSBundleName,
+    enableOnCreate,
+    redBoxHandler,
+    devBundleDownloadListener,
+    minNumShakes,
+    customPackagerCommandHandlers,
+    surfaceDelegateFactory,
+    devLoadingViewManager,
+    pausedInDebuggerOverlayManager
+  ) {
+
+  constructor(
+    context: Context,
+    reactInstanceManagerHelper: ReactInstanceDevHelper,
+    packagerPathForJSBundleName: String?
+  ) : this(
+    applicationContext = context.applicationContext,
+    reactInstanceManagerHelper = reactInstanceManagerHelper,
+    packagerPathForJSBundleName = packagerPathForJSBundleName,
+    enableOnCreate = true,
+    redBoxHandler = null,
+    devBundleDownloadListener = null,
+    minNumShakes = 2,
+    customPackagerCommandHandlers = null,
+    surfaceDelegateFactory = null,
+    devLoadingViewManager = null,
+    pausedInDebuggerOverlayManager = null
+  )
+
+  override fun getUniqueTag(): String = "Bridgeless" // RN 0.76: Java abstract method, must use fun override not val
+
+  // Kotlin 2.2.0 K2: resolve "Inherited platform declarations clash" for getJSBundleURLForRemoteDebugging.
+  // DevSupportManagerBase (Java) and DevSupportManager (Java interface) both declare this method,
+  // causing a JVM signature clash. Explicit override selects the base-class implementation.
+  override fun getJSBundleURLForRemoteDebugging(): String? = super.getJSBundleURLForRemoteDebugging()
+
+  override fun loadSplitBundleFromServer(bundlePath: String, callback: DevSplitBundleCallback): Unit {} // RN 0.76 interface requirement
+
+  override fun handleReloadJS() {
+    UiThreadUtil.assertOnUiThread()
+    // dismiss redbox if exists
+    hideRedboxDialog()
+    reactInstanceDevHelper.onJSBundleLoadedFromServer() // reload() not in ReactInstanceDevHelper RN 0.76
+  }
+}
+`
+);
+
+// Fix 5c-ii: expo-dev-launcher — DevLauncherBridgelessDevSupportManager.kt
+patch(
+  'node_modules/expo-dev-launcher/android/src/debug/java/expo/modules/devlauncher/react/DevLauncherBridgelessDevSupportManager.kt',
+  'expo-dev-launcher DevLauncherBridgelessDevSupportManager: add DevSplitBundleCallback import',
+  `import com.facebook.react.devsupport.interfaces.RedBoxHandler\n`,
+  `import com.facebook.react.devsupport.interfaces.DevSplitBundleCallback\nimport com.facebook.react.devsupport.interfaces.RedBoxHandler\n`
+);
+patch(
+  'node_modules/expo-dev-launcher/android/src/debug/java/expo/modules/devlauncher/react/DevLauncherBridgelessDevSupportManager.kt',
+  'expo-dev-launcher DevLauncherBridgelessDevSupportManager: replace uniqueTag val with getUniqueTag() fun (Kotlin 2.2.0 + Java abstract method)',
+  `  override val uniqueTag: String\n    get() = "DevLauncherApp-Bridgeless"`,
+  `  override fun getUniqueTag(): String = "DevLauncherApp-Bridgeless" // RN 0.76: Java abstract method, must use fun override`
+);
+patch(
+  'node_modules/expo-dev-launcher/android/src/debug/java/expo/modules/devlauncher/react/DevLauncherBridgelessDevSupportManager.kt',
+  'expo-dev-launcher DevLauncherBridgelessDevSupportManager: fix showNewJavaError Throwable → Throwable? (interface nullability)',
+  `override fun showNewJavaError(message: String?, e: Throwable) {`,
+  `override fun showNewJavaError(message: String?, e: Throwable?) {`
+);
+patch(
+  'node_modules/expo-dev-launcher/android/src/debug/java/expo/modules/devlauncher/react/DevLauncherBridgelessDevSupportManager.kt',
+  'expo-dev-launcher DevLauncherBridgelessDevSupportManager: add loadSplitBundleFromServer no-op before companion object',
+  `\n  companion object {`,
+  `\n  override fun loadSplitBundleFromServer(bundlePath: String, callback: DevSplitBundleCallback): Unit {} // RN 0.76 interface requirement\n\n  companion object {`
+);
+
+// Fix 5c-iii: expo-dev-launcher — DevLauncherPackageDelegate.kt
+// ReactActivityHandler in expo-modules-core 2.2.3 does not have onDidCreateReactActivityDelegateNotification.
+patch(
+  'node_modules/expo-dev-launcher/android/src/debug/java/expo/modules/devlauncher/DevLauncherPackageDelegate.kt',
+  'expo-dev-launcher DevLauncherPackageDelegate: remove override from onDidCreateReactActivityDelegateNotification',
+  `        override fun onDidCreateReactActivityDelegateNotification(activity: ReactActivity?, delegate: ReactActivityDelegate?) {`,
+  `        fun onDidCreateReactActivityDelegateNotification(activity: ReactActivity?, delegate: ReactActivityDelegate?) { // override removed — not in ReactActivityHandler 2.2.3`
+);
+
+// Fix 5c-iv: expo-dev-launcher — DevLauncherEdgeToEdgeHelper.kt
+// WindowCompat.enableEdgeToEdge(Window) does not exist in androidx.core 1.15.0.
+// Use setDecorFitsSystemWindows(window, false) instead (equivalent for edge-to-edge layout).
+patch(
+  'node_modules/expo-dev-launcher/android/src/debug/java/expo/modules/devlauncher/helpers/DevLauncherEdgeToEdgeHelper.kt',
+  'expo-dev-launcher DevLauncherEdgeToEdgeHelper: replace WindowCompat.enableEdgeToEdge with setDecorFitsSystemWindows (not in core 1.15.0)',
+  `WindowCompat.enableEdgeToEdge(this)`,
+  `WindowCompat.setDecorFitsSystemWindows(this, false) // enableEdgeToEdge(Window) not in core 1.15.0`
+);
+
+// Fix 5c-v: expo-dev-launcher — DevLauncherDevSupportManagerFactory.kt
+// RN 0.76 DevSupportManagerFactory interface has only ONE create() with 11 params.
+// The 12-param create (with useDevSupport: Boolean) was added in RN 0.78 — remove 'override'.
+// Also fix the 11-param create to actually instantiate DevLauncherBridgelessDevSupportManager
+// instead of throwing, since that's the only create() RN 0.76 will ever call.
+patch(
+  'node_modules/expo-dev-launcher/android/src/debug/java/expo/modules/devlauncher/react/DevLauncherDevSupportManagerFactory.kt',
+  'expo-dev-launcher DevLauncherDevSupportManagerFactory: 11-param create → instantiate manager (throw removed, RN 0.76 only calls 11-param)',
+  `    throw IllegalStateException("Legacy architecture is not longer supported.")`,
+  `    // RN 0.76 only has 11-param create; instantiate manager here
+    return if (!enableOnCreate) {
+      ReleaseDevSupportManager()
+    } else {
+      DevLauncherBridgelessDevSupportManager(
+        applicationContext,
+        reactInstanceManagerHelper,
+        packagerPathForJSBundleName,
+        enableOnCreate,
+        redBoxHandler,
+        devBundleDownloadListener,
+        minNumShakes,
+        customPackagerCommandHandlers?.toMutableMap()
+      )
+    }`
+);
+patch(
+  'node_modules/expo-dev-launcher/android/src/debug/java/expo/modules/devlauncher/react/DevLauncherDevSupportManagerFactory.kt',
+  'expo-dev-launcher DevLauncherDevSupportManagerFactory: remove override from 12-param create (not in RN 0.76 interface)',
+  `  override fun create(
+    applicationContext: Context,
+    reactInstanceManagerHelper: ReactInstanceDevHelper,
+    packagerPathForJSBundleName: String?,
+    enableOnCreate: Boolean,
+    redBoxHandler: RedBoxHandler?,
+    devBundleDownloadListener: DevBundleDownloadListener?,
+    minNumShakes: Int,
+    customPackagerCommandHandlers: Map<String, RequestHandler>?,
+    surfaceDelegateFactory: SurfaceDelegateFactory?,
+    devLoadingViewManager: DevLoadingViewManager?,
+    pausedInDebuggerOverlayManager: PausedInDebuggerOverlayManager?,
+    useDevSupport: Boolean`,
+  `  fun create( // override removed — RN 0.76 DevSupportManagerFactory has no 12-param create
+    applicationContext: Context,
+    reactInstanceManagerHelper: ReactInstanceDevHelper,
+    packagerPathForJSBundleName: String?,
+    enableOnCreate: Boolean,
+    redBoxHandler: RedBoxHandler?,
+    devBundleDownloadListener: DevBundleDownloadListener?,
+    minNumShakes: Int,
+    customPackagerCommandHandlers: Map<String, RequestHandler>?,
+    surfaceDelegateFactory: SurfaceDelegateFactory?,
+    devLoadingViewManager: DevLoadingViewManager?,
+    pausedInDebuggerOverlayManager: PausedInDebuggerOverlayManager?,
+    useDevSupport: Boolean`
+);
+
 // Fix 5c: @react-native/gradle-plugin composite build — upgrade kotlin version to 2.2.0.
 // The composite build (includeBuild) declares `implementation(libs.kotlin.gradle.plugin)` where
 // libs.versions.kotlin = "1.9.24". Using `implementation` (not `compileOnly`) means KGP 1.9.24
@@ -454,6 +800,68 @@ patch(
   '@react-native/gradle-plugin composite build: upgrade kotlin 1.9.24 → 2.2.0 (fixes compose embeddable + KotlinTopLevelExtension class/interface mismatch)',
   `kotlin = "1.9.24"`,
   `kotlin = "2.2.0"`
+);
+
+// Fix 5d: @react-native/gradle-plugin composite build — replace kotlinOptions {} with
+// compilerOptions {} in all three build.gradle.kts files.
+// In KGP 2.x, kotlinOptions() was deprecated (warning in 1.8, error in 2.1+). Since Fix 5c
+// upgrades the composite build's KGP to 2.2.0, these files now fail to compile with:
+//   "Using 'kotlinOptions(...)' is an error. Please migrate to the compilerOptions DSL."
+// Fix: replace the deprecated kotlinOptions block with the equivalent compilerOptions block.
+// kotlinOptions {} is a hard error in KGP 2.1+ (deprecated in 1.8).
+// The replacement compilerOptions {} block drops apiVersion.set() entirely because
+// KotlinVersion.KOTLIN_1_6 is explicitly unsupported in KGP 2.2.0 (minimum is KOTLIN_1_9),
+// and the original apiVersion was only a strictness guard, not needed for compilation.
+const KOTLIN_OPTIONS_BLOCK_WITH_COMMENT = `  kotlinOptions {
+    apiVersion = "1.6"
+    // See comment above on JDK 11 support
+    jvmTarget = "11"
+    allWarningsAsErrors =
+        project.properties["enableWarningsAsErrors"]?.toString()?.toBoolean() ?: false
+  }`;
+const COMPILER_OPTIONS_BLOCK_WITH_COMMENT = `  compilerOptions {
+    // See comment above on JDK 11 support
+    jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
+    allWarningsAsErrors.set(
+        project.properties["enableWarningsAsErrors"]?.toString()?.toBoolean() ?: false
+    )
+  }`;
+const KOTLIN_OPTIONS_BLOCK_NO_COMMENT = `  kotlinOptions {
+    apiVersion = "1.6"
+    jvmTarget = "11"
+    allWarningsAsErrors =
+        project.properties["enableWarningsAsErrors"]?.toString()?.toBoolean() ?: false
+  }`;
+const COMPILER_OPTIONS_BLOCK_NO_COMMENT = `  compilerOptions {
+    jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
+    allWarningsAsErrors.set(
+        project.properties["enableWarningsAsErrors"]?.toString()?.toBoolean() ?: false
+    )
+  }`;
+
+patch(
+  'node_modules/@react-native/gradle-plugin/react-native-gradle-plugin/build.gradle.kts',
+  '@react-native/gradle-plugin react-native-gradle-plugin: replace kotlinOptions with compilerOptions (KGP 2.2.0 error)',
+  KOTLIN_OPTIONS_BLOCK_WITH_COMMENT,
+  COMPILER_OPTIONS_BLOCK_WITH_COMMENT
+);
+patch(
+  'node_modules/@react-native/gradle-plugin/shared/build.gradle.kts',
+  '@react-native/gradle-plugin shared: replace kotlinOptions with compilerOptions (KGP 2.2.0 error)',
+  KOTLIN_OPTIONS_BLOCK_NO_COMMENT,
+  COMPILER_OPTIONS_BLOCK_NO_COMMENT
+);
+patch(
+  'node_modules/@react-native/gradle-plugin/shared-testutil/build.gradle.kts',
+  '@react-native/gradle-plugin shared-testutil: replace kotlinOptions with compilerOptions (KGP 2.2.0 error)',
+  KOTLIN_OPTIONS_BLOCK_NO_COMMENT,
+  COMPILER_OPTIONS_BLOCK_NO_COMMENT
+);
+patch(
+  'node_modules/@react-native/gradle-plugin/settings-plugin/build.gradle.kts',
+  '@react-native/gradle-plugin settings-plugin: replace kotlinOptions with compilerOptions (KGP 2.2.0 error)',
+  KOTLIN_OPTIONS_BLOCK_WITH_COMMENT,
+  COMPILER_OPTIONS_BLOCK_WITH_COMMENT
 );
 
 // Fix 6: expo-updates — replace old-style expo-module-gradle-plugin
@@ -520,6 +928,238 @@ patch(
   `            ? (0, require("./createManifestForBuildAsync").createManifestForBuildAsync)(platform, possibleProjectRoot, destinationDir, entryFileArg)`
 );
 
+// Fix 8b: expo-modules-core PersistentFileLog.kt — add secondary File constructor.
+// expo-updates 0.29.x constructs PersistentFileLog(category, filesDirectory: File) but
+// expo-modules-core 2.2.3 changed the constructor to (category, context: Context).
+// Refactor to a no-arg primary constructor + two secondary constructors.
+patch(
+  'node_modules/expo-modules-core/android/src/main/java/expo/modules/core/logging/PersistentFileLog.kt',
+  'expo-modules-core PersistentFileLog: add File import',
+  `import android.content.Context\n`,
+  `import android.content.Context\nimport java.io.File\n`
+);
+patch(
+  'node_modules/expo-modules-core/android/src/main/java/expo/modules/core/logging/PersistentFileLog.kt',
+  'expo-modules-core PersistentFileLog: refactor to support File constructor (expo-updates compat)',
+  `class PersistentFileLog(\n  category: String,\n  context: Context\n) {\n`,
+  `class PersistentFileLog {\n  constructor(category: String, context: Context) {\n    filePath = "\${context.filesDir.path}/${'$'}{FILE_NAME_PREFIX}.\${category}"\n  }\n  // Compat: expo-updates 0.29.x passes File instead of Context\n  constructor(category: String, filesDirectory: File) {\n    filePath = "\${filesDirectory.path}/${'$'}{FILE_NAME_PREFIX}.\${category}"\n  }\n`
+);
+patch(
+  'node_modules/expo-modules-core/android/src/main/java/expo/modules/core/logging/PersistentFileLog.kt',
+  'expo-modules-core PersistentFileLog: change filePath val to property initialized in constructors',
+  `  private val filePath = "\${context.filesDir.path}/$FILE_NAME_PREFIX.$category"\n`,
+  `  private val filePath: String\n`
+);
+
+// Fix 8c: expo-modules-core PersistentFileLogHandler.kt — add File constructor.
+// Must add File import AND rewrite class: Kotlin requires ': super()' in each secondary constructor
+// when there is no primary constructor; the class header must say ': LogHandler' (no '()').
+patch(
+  'node_modules/expo-modules-core/android/src/main/java/expo/modules/core/logging/PersistentFileLogHandler.kt',
+  'expo-modules-core PersistentFileLogHandler: add File import',
+  `import android.content.Context\n`,
+  `import android.content.Context\nimport java.io.File\n`
+);
+patch(
+  'node_modules/expo-modules-core/android/src/main/java/expo/modules/core/logging/PersistentFileLogHandler.kt',
+  'expo-modules-core PersistentFileLogHandler: rewrite to support File constructor (expo-updates compat)',
+  `internal class PersistentFileLogHandler(\n  category: String,\n  context: Context\n) : LogHandler() {\n\n  private val persistentFileLog = PersistentFileLog(category, context)\n\n  override fun log(type: LogType, message: String, cause: Throwable?) {\n    persistentFileLog.appendEntry(message)\n    cause?.let {\n      persistentFileLog.appendEntry("\${cause.localizedMessageWithCauseLocalizedMessage()}\\n\${cause.stackTraceToString()}")\n    }\n  }\n}`,
+  `internal class PersistentFileLogHandler : LogHandler {\n  private val persistentFileLog: PersistentFileLog\n  constructor(category: String, context: Context) : super() { persistentFileLog = PersistentFileLog(category, context) }\n  constructor(category: String, filesDirectory: File) : super() { persistentFileLog = PersistentFileLog(category, filesDirectory) } // compat for expo-updates 0.29.x\n\n  override fun log(type: LogType, message: String, cause: Throwable?) {\n    persistentFileLog.appendEntry(message)\n    cause?.let {\n      persistentFileLog.appendEntry("\${cause.localizedMessageWithCauseLocalizedMessage()}\\n\${cause.stackTraceToString()}")\n    }\n  }\n}`
+);
+
+// Fix 8d: expo-modules-core LogHandlers.kt — add createPersistentFileLogHandler(File, String) overload.
+// expo-updates 0.29.x calls LogHandlers.createPersistentFileLogHandler(filesDirectory, category)
+// but expo-modules-core 2.2.3 API is createPersistentFileLogHandler(context: Context, category).
+patch(
+  'node_modules/expo-modules-core/android/src/main/java/expo/modules/core/logging/LogHandlers.kt',
+  'expo-modules-core LogHandlers: add File import',
+  `import android.content.Context\n`,
+  `import android.content.Context\nimport java.io.File\n`
+);
+patch(
+  'node_modules/expo-modules-core/android/src/main/java/expo/modules/core/logging/LogHandlers.kt',
+  'expo-modules-core LogHandlers: add createPersistentFileLogHandler(File, String) overload for expo-updates compat',
+  `  fun createPersistentFileLogHandler(context: Context, category: String): LogHandler = PersistentFileLogHandler(\n    category,\n    context\n  )\n}`,
+  `  fun createPersistentFileLogHandler(context: Context, category: String): LogHandler = PersistentFileLogHandler(\n    category,\n    context\n  )\n  // Compat overload for expo-updates 0.29.x which calls (filesDirectory: File, category: String)\n  fun createPersistentFileLogHandler(filesDirectory: File, category: String): LogHandler = PersistentFileLogHandler(\n    category,\n    filesDirectory\n  )\n}`
+);
+
+// Fix 8e: expo-dev-launcher NonFinalBridgeDevSupportManager.kt (Bridge / legacy arch variant).
+// Using createShim (full-file replacement) because multiple find/replace patches were fragile:
+//   - @LegacyArchitecture annotation patch: replace='open class NonFinalBridgeDevSupportManager'
+//     already present in original file, causing false "already patched" skip.
+//   - com.facebook.react.common.annotations.internal.* does not exist in RN 0.76.
+//   - uniqueTag val→getUniqueTag() fun (Kotlin 2.2.0 + Java abstract method).
+//   - loadSplitBundleFromServer no-op (abstract in DevSupportManager interface RN 0.76).
+//   - devSettings is DeveloperSettings? in RN 0.76 — needs null-safe access.
+createShim(
+  'node_modules/expo-dev-launcher/android/src/debug/java/com/facebook/react/devsupport/NonFinalBridgeDevSupportManager.kt',
+  'expo-dev-launcher NonFinalBridgeDevSupportManager: full replacement (RN 0.76 + Kotlin 2.2.0 compat)',
+  `/*
+ * Copyright (c) Meta Platforms, Inc. and affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+package com.facebook.react.devsupport
+
+import android.content.Context
+import com.facebook.infer.annotation.Assertions
+import com.facebook.react.bridge.ReactMarker
+import com.facebook.react.bridge.ReactMarkerConstants
+import com.facebook.react.bridge.UiThreadUtil
+import com.facebook.react.common.SurfaceDelegateFactory
+import com.facebook.react.devsupport.interfaces.DevBundleDownloadListener
+import com.facebook.react.devsupport.interfaces.DevLoadingViewManager
+import com.facebook.react.devsupport.interfaces.PausedInDebuggerOverlayManager
+import com.facebook.react.devsupport.interfaces.DevSplitBundleCallback
+import com.facebook.react.devsupport.interfaces.RedBoxHandler
+import com.facebook.react.packagerconnection.RequestHandler
+
+//
+// Expo: This is a copy of react-native's {@link com.facebook.react.devsupport.BridgeDevSupportManager}
+// just removing the "final" modifier that we can inherit and reuse.
+// From time to time for react-native upgrade, just follow the steps to update the code
+//   1. Copy the contents from BridgeDevSupportManager to this file.
+//   2. Rename the class to NonFinalBridgeDevSupportManager.
+//   3. Change the "public" modifier to "open".
+//   4. Remove invalid imports and the use of the keyword printer (search this file) todo: Fix these imports
+//   5. Revert the comment
+//
+
+/**
+ * Interface for accessing and interacting with development features. Following features are
+ * supported through this manager class:
+ * 1) Displaying JS errors (aka RedBox)
+ * 2) Displaying developers menu (Reload JS, Debug JS)
+ * 3) Communication with developer server in order to download updated JS bundle
+ * 4) Starting/stopping broadcast receiver for js reload signals
+ * 5) Starting/stopping motion sensor listener that recognize shake gestures which in turn may
+ *    trigger developers menu.
+ * 6) Launching developers settings view
+ *
+ * This class automatically monitors the state of registered views and activities to which they are
+ * bound to make sure that we don't display overlay or that we we don't listen for sensor events
+ * when app is backgrounded.
+ *
+ * [com.facebook.react.ReactInstanceManager] implementation is responsible for instantiating this
+ * class as well as for populating with a reference to [com.facebook.react.bridge.CatalystInstance]
+ * whenever instance manager recreates it (through [onNewReactContextCreated]). Also, instance
+ * manager is responsible for enabling/disabling dev support in case when app is backgrounded or
+ * when all the views has been detached from the instance (through \`setDevSupportEnabled\` method).
+ */
+@Suppress("ACCIDENTAL_OVERRIDE")
+open class NonFinalBridgeDevSupportManager(
+  applicationContext: Context,
+  reactInstanceManagerHelper: ReactInstanceDevHelper,
+  packagerPathForJSBundleName: String?,
+  enableOnCreate: Boolean,
+  redBoxHandler: RedBoxHandler?,
+  devBundleDownloadListener: DevBundleDownloadListener?,
+  minNumShakes: Int,
+  customPackagerCommandHandlers: Map<String, RequestHandler>?,
+  surfaceDelegateFactory: SurfaceDelegateFactory?,
+  devLoadingViewManager: DevLoadingViewManager?,
+  pausedInDebuggerOverlayManager: PausedInDebuggerOverlayManager?
+) :
+  DevSupportManagerBase(
+    applicationContext,
+    reactInstanceManagerHelper,
+    packagerPathForJSBundleName,
+    enableOnCreate,
+    redBoxHandler,
+    devBundleDownloadListener,
+    minNumShakes,
+    customPackagerCommandHandlers,
+    surfaceDelegateFactory,
+    devLoadingViewManager,
+    pausedInDebuggerOverlayManager
+  ) {
+
+  override fun getUniqueTag(): String = "Bridge" // RN 0.76: Java abstract method, must use fun override
+
+  // Kotlin 2.2.0 K2: resolve "Inherited platform declarations clash" for getJSBundleURLForRemoteDebugging.
+  // DevSupportManagerBase (Java) and DevSupportManager (Java interface) both declare this method,
+  // causing a JVM signature clash. Explicit override selects the base-class implementation.
+  override fun getJSBundleURLForRemoteDebugging(): String? = super.getJSBundleURLForRemoteDebugging()
+
+  override fun loadSplitBundleFromServer(bundlePath: String, callback: DevSplitBundleCallback): Unit {} // RN 0.76 interface requirement
+
+  override fun handleReloadJS() {
+    UiThreadUtil.assertOnUiThread()
+    ReactMarker.logMarker(
+      ReactMarkerConstants.RELOAD,
+      devSettings?.packagerConnectionSettings?.debugServerHost
+    )
+
+    // dismiss redbox if exists
+    hideRedboxDialog()
+
+    val bundleURL = devServerHelper.getDevServerBundleURL(Assertions.assertNotNull(jsAppBundleName))
+    reloadJSFromServer(bundleURL) {
+      UiThreadUtil.runOnUiThread { reactInstanceDevHelper.onJSBundleLoadedFromServer() }
+    }
+  }
+
+  // companion object removed — LegacyArchitecture/assertLegacyArchitecture not in RN 0.76
+}
+`
+);
+
+// Fix 8f: expo-updates Kotlin API mismatches.
+// OptimizedRecord does not exist in expo-modules-core 2.2.3.
+// onDidCreateReactHost overrides nothing in ReactNativeHostHandler 2.2.3.
+// getDelayLoadAppHandler in ReactActivityHandler 2.2.3 takes ReactNativeHost, not ReactHost.
+patch(
+  'node_modules/expo-updates/android/src/main/java/expo/modules/updates/UpdatesModule.kt',
+  'expo-updates UpdatesModule: remove OptimizedRecord import',
+  `import expo.modules.kotlin.types.OptimizedRecord\n`,
+  ``
+);
+patch(
+  'node_modules/expo-updates/android/src/main/java/expo/modules/updates/UpdatesModule.kt',
+  'expo-updates UpdatesModule: remove @OptimizedRecord annotation',
+  `  @OptimizedRecord\n`,
+  ``
+);
+patch(
+  'node_modules/expo-updates/android/src/main/java/expo/modules/updates/UpdatesPackage.kt',
+  'expo-updates UpdatesPackage: remove override from onDidCreateReactHost (not in ReactNativeHostHandler 2.2.3)',
+  `      override fun onDidCreateReactHost(context: Context, reactNativeHost: ReactHost) {`,
+  `      fun onDidCreateReactHost(context: Context, reactNativeHost: ReactHost) { // override removed — not in ReactNativeHostHandler 2.2.3`
+);
+patch(
+  'node_modules/expo-updates/android/src/main/java/expo/modules/updates/UpdatesPackage.kt',
+  'expo-updates UpdatesPackage: remove override from getDelayLoadAppHandler (ReactActivityHandler 2.2.3 takes ReactNativeHost, not ReactHost)',
+  `      override fun getDelayLoadAppHandler(activity: ReactActivity, reactHost: ReactHost): ReactActivityHandler.DelayLoadAppHandler? {`,
+  `      fun getDelayLoadAppHandler(activity: ReactActivity, reactHost: ReactHost): ReactActivityHandler.DelayLoadAppHandler? { // override removed — takes ReactNativeHost in 2.2.3`
+);
+patch(
+  'node_modules/expo-updates/android/src/main/java/expo/modules/updates/reloadscreen/ReloadScreenConfiguration.kt',
+  'expo-updates ReloadScreenConfiguration: remove OptimizedRecord import',
+  `import expo.modules.kotlin.types.OptimizedRecord\n`,
+  ``
+);
+// ReloadScreenConfiguration has 3 @OptimizedRecord annotations — each patch() call removes one
+patch(
+  'node_modules/expo-updates/android/src/main/java/expo/modules/updates/reloadscreen/ReloadScreenConfiguration.kt',
+  'expo-updates ReloadScreenConfiguration: remove @OptimizedRecord annotation (occurrence 1)',
+  `@OptimizedRecord\n`,
+  ``
+);
+patch(
+  'node_modules/expo-updates/android/src/main/java/expo/modules/updates/reloadscreen/ReloadScreenConfiguration.kt',
+  'expo-updates ReloadScreenConfiguration: remove @OptimizedRecord annotation (occurrence 2)',
+  `@OptimizedRecord\n`,
+  ``
+);
+patch(
+  'node_modules/expo-updates/android/src/main/java/expo/modules/updates/reloadscreen/ReloadScreenConfiguration.kt',
+  'expo-updates ReloadScreenConfiguration: remove @OptimizedRecord annotation (occurrence 3)',
+  `@OptimizedRecord\n`,
+  ``
+);
+
 // Fix 7: dynamic patch for all remaining modules using new-style `id 'expo-module-gradle-plugin'`
 // (expo-dev-client, expo-dev-menu-interface, expo-eas-client, expo-json-utils,
 //  expo-manifests, expo-structured-headers, expo-updates-interface, etc.)
@@ -567,3 +1207,141 @@ for (const pkg of allPkgs) {
     console.log(`[patch-gradle] WARNING: ${pkg} has expo-module-gradle-plugin but unexpected format`);
   }
 }
+
+// ─── iOS Swift patches ────────────────────────────────────────────────────────
+// react-native-bottom-tabs uses `TabViewBottomAccessoryPlacement` (a SwiftUI type
+// introduced in iOS 26) inside `@available(iOS 26.0, *)` guards, but the Swift
+// compiler still resolves parameter types at compile time against the iOS 18.x
+// SDK used by the EAS iOS builder — causing "cannot find type in scope" /
+// "generic parameter could not be inferred" / "cannot infer key path type" errors.
+// Fix: remove the iOS-26-only method + struct so they don't reference the absent type.
+
+// iOS Fix 1 — BottomAccessoryProvider.swift: remove emitPlacementChanged that
+// references TabViewBottomAccessoryPlacement? (iOS 26 type absent from iOS 18 SDK)
+patch(
+  'node_modules/react-native-bottom-tabs/ios/BottomAccessoryProvider.swift',
+  'react-native-bottom-tabs BottomAccessoryProvider: remove iOS-26-only emitPlacementChanged (TabViewBottomAccessoryPlacement not in iOS 18 SDK)',
+  `  #if !os(macOS)
+  @available(iOS 26.0, tvOS 26.0, *)
+  public func emitPlacementChanged(_ placement: TabViewBottomAccessoryPlacement?) {
+    var placementValue = "none"
+    if placement == .inline {
+      placementValue = "inline"
+    } else if placement == .expanded {
+      placementValue = "expanded"
+    }
+    self.delegate?.onPlacementChanged(placement: placementValue)
+  }
+  #endif`,
+  ``
+);
+
+// iOS Fix 2 — NewTabView.swift: remove BottomAccessoryRepresentableView struct that
+// uses @Environment(\\.tabViewBottomAccessoryPlacement) — an iOS 26 environment key
+// whose KeyPath can't be inferred when building with iOS 18 SDK.
+patch(
+  'node_modules/react-native-bottom-tabs/ios/TabView/NewTabView.swift',
+  'react-native-bottom-tabs NewTabView: remove BottomAccessoryRepresentableView struct (iOS 26 @Environment key not in iOS 18 SDK)',
+  `#if !os(macOS) && !os(tvOS)
+@available(iOS 26.0, tvOS 26.0, *)
+struct BottomAccessoryRepresentableView: PlatformViewRepresentable {
+  @Environment(\\.tabViewBottomAccessoryPlacement) var tabViewBottomAccessoryPlacement
+  var view: PlatformView
+
+  func makeUIView(context: Context) -> PlatformView {
+    let wrapper = UIView()
+    wrapper.addSubview(view)
+
+    view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+
+    emitPlacementChanged(for: view)
+    return wrapper
+  }
+
+  func updateUIView(_ uiView: PlatformView, context: Context) {
+    if let subview = uiView.subviews.first {
+      subview.frame = uiView.bounds
+    }
+    emitPlacementChanged(for: view)
+  }
+
+  private func emitPlacementChanged(for uiView: PlatformView) {
+    if let contentView = uiView.value(forKey: "bottomAccessoryProvider") as? BottomAccessoryProvider {
+      contentView.emitPlacementChanged(tabViewBottomAccessoryPlacement)
+    }
+  }
+}
+#endif`,
+  ``
+);
+
+// iOS Fix 3 — NewTabView.swift: stub renderBottomAccessoryView() to return EmptyView
+// now that BottomAccessoryRepresentableView has been removed.
+patch(
+  'node_modules/react-native-bottom-tabs/ios/TabView/NewTabView.swift',
+  'react-native-bottom-tabs NewTabView: stub renderBottomAccessoryView() → EmptyView after removing iOS-26 struct',
+  `  @ViewBuilder
+  private func renderBottomAccessoryView() -> some View {
+    #if !os(macOS) && !os(tvOS)
+    if let bottomAccessoryView {
+      if #available(iOS 26.0, *) {
+        BottomAccessoryRepresentableView(view: bottomAccessoryView)
+      }
+    }
+    #endif
+  }`,
+  `  @ViewBuilder
+  private func renderBottomAccessoryView() -> some View {
+    EmptyView()
+  }`
+);
+
+// iOS Fix 5 — expo-modules-core ObjectFactories.swift: add singular Constant(name, body)
+// DSL function used by expo-av@16.x VideoViewModule.swift. expo-modules-core@2.2.3 only
+// ships Constants(dict) — the singular Constant(name){value} form is absent, causing a
+// Swift "cannot find 'Constant' in scope" compile error on iOS.
+patch(
+  'node_modules/expo-modules-core/ios/Api/Factories/ObjectFactories.swift',
+  'expo-modules-core iOS ObjectFactories: add singular Constant(name, body) DSL (expo-av@16.x compat)',
+  `// MARK: - Events`,
+  `// MARK: - Constant (singular — for expo-av@16.x compatibility)
+
+/**
+ Definition function exporting a single named constant to JavaScript.
+ Wraps the value into a ConstantsDefinition dictionary keyed by \`name\`.
+ This singular form was introduced in a later version of expo-modules-core;
+ this shim makes expo-av@16.x compile against expo-modules-core@2.2.3.
+ */
+public func Constant<T>(_ name: String, @_implicitSelfCapture body: @escaping () -> T) -> AnyDefinition {
+  return ConstantsDefinition(body: { [name: body()] })
+}
+
+// MARK: - Events`
+);
+
+// iOS Fix 4 — NewTabView.swift: ConditionalBottomAccessoryModifier.body uses
+// .tabViewBottomAccessory{} — an iOS 26 ViewModifier that doesn't exist in iOS 18
+// SDK. Even inside `if #available(iOS 26.0, *)`, Swift 6 on iOS 18.2 SDK still
+// cannot resolve the member. Replace the whole body with `content` pass-through.
+patch(
+  'node_modules/react-native-bottom-tabs/ios/TabView/NewTabView.swift',
+  'react-native-bottom-tabs NewTabView: remove .tabViewBottomAccessory call (iOS 26 modifier absent from iOS 18 SDK)',
+  `  func body(content: Content) -> some View {
+    #if os(macOS) || os(tvOS)
+    // tabViewBottomAccessory is not available on macOS
+    content
+    #else
+    if #available(iOS 26.0, visionOS 3.0, *), bottomAccessoryView != nil {
+      content
+        .tabViewBottomAccessory {
+          renderBottomAccessoryView()
+        }
+    } else {
+      content
+    }
+    #endif
+  }`,
+  `  func body(content: Content) -> some View {
+    content
+  }`
+);
