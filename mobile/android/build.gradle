@@ -6,9 +6,57 @@ buildscript {
         minSdkVersion = Integer.parseInt(findProperty('android.minSdkVersion') ?: '24')
         compileSdkVersion = Integer.parseInt(findProperty('android.compileSdkVersion') ?: '35')
         targetSdkVersion = Integer.parseInt(findProperty('android.targetSdkVersion') ?: '34')
-        kotlinVersion = findProperty('android.kotlinVersion') ?: '1.9.24'
+        kotlinVersion = findProperty('android.kotlinVersion') ?: '2.2.0'
 
         ndkVersion = "26.1.10909125"
+    }
+    // Force KGP to 2.2.0 in the buildscript classpath.
+    // The @react-native/gradle-plugin composite build (includeBuild) declares
+    // `implementation(libs.kotlin.gradle.plugin)` where libs.versions.kotlin = "1.9.24".
+    // Using `implementation` (not `compileOnly`) causes kotlin-gradle-plugin:1.9.24 to land on the
+    // parent build's buildscript classpath alongside our 2.2.0. The compose plugin 2.2.0 queries
+    // the KGP version via the kotlin extension object; if KGP 1.9.24 wins the classpath race it
+    // reports version "1.9.24", and the compose plugin requests kotlin-compose-compiler-plugin-
+    // embeddable:1.9.24 which does not exist (introduced in Kotlin 2.0.0).
+    // Forcing all kotlin-gradle-plugin requests to 2.2.0 in the buildscript classpath ensures
+    // the compose plugin always reads version 2.2.0.
+    configurations.all {
+        resolutionStrategy {
+            force "org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.0"
+            force "org.jetbrains.kotlin:kotlin-gradle-plugin-api:2.2.0"
+        }
+    }
+    // Force KGP to 2.2.0 in the buildscript classpath.
+    // The @react-native/gradle-plugin composite build (includeBuild) declares
+    // `implementation(libs.kotlin.gradle.plugin)` where libs.versions.kotlin = "1.9.24".
+    // Using `implementation` (not `compileOnly`) causes kotlin-gradle-plugin:1.9.24 to land on the
+    // parent build's buildscript classpath alongside our 2.2.0. The compose plugin 2.2.0 queries
+    // the KGP version via the kotlin extension object; if KGP 1.9.24 wins the classpath race it
+    // reports version "1.9.24", and the compose plugin requests kotlin-compose-compiler-plugin-
+    // embeddable:1.9.24 which does not exist (introduced in Kotlin 2.0.0).
+    // Forcing all kotlin-gradle-plugin requests to 2.2.0 in the buildscript classpath ensures
+    // the compose plugin always reads version 2.2.0.
+    configurations.all {
+        resolutionStrategy {
+            force "org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.0"
+            force "org.jetbrains.kotlin:kotlin-gradle-plugin-api:2.2.0"
+        }
+    }
+    // Force KGP to 2.2.0 in the buildscript classpath.
+    // The @react-native/gradle-plugin composite build (includeBuild) declares
+    // `implementation(libs.kotlin.gradle.plugin)` where libs.versions.kotlin = "1.9.24".
+    // Using `implementation` (not `compileOnly`) causes kotlin-gradle-plugin:1.9.24 to land on the
+    // parent build's buildscript classpath alongside our 2.2.0. The compose plugin 2.2.0 queries
+    // the KGP version via the kotlin extension object; if KGP 1.9.24 wins the classpath race it
+    // reports version "1.9.24", and the compose plugin requests kotlin-compose-compiler-plugin-
+    // embeddable:1.9.24 which does not exist (introduced in Kotlin 2.0.0).
+    // Forcing all kotlin-gradle-plugin requests to 2.2.0 in the buildscript classpath ensures
+    // the compose plugin always reads version 2.2.0.
+    configurations.all {
+        resolutionStrategy {
+            force "org.jetbrains.kotlin:kotlin-gradle-plugin:2.2.0"
+            force "org.jetbrains.kotlin:kotlin-gradle-plugin-api:2.2.0"
+        }
     }
     repositories {
         google()
@@ -18,12 +66,35 @@ buildscript {
         classpath('com.android.tools.build:gradle')
         classpath('com.facebook.react:react-native-gradle-plugin')
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:${kotlinVersion}")
+        classpath("org.jetbrains.kotlin.plugin.compose:org.jetbrains.kotlin.plugin.compose.gradle.plugin:${kotlinVersion}")
     }
 }
 
 apply plugin: "com.facebook.react.rootproject"
 
+// Project-level ext so that ExpoModulesCorePlugin.kotlinVersion() returns '2.2.0'.
+// ExpoModulesCorePlugin reads rootProject.ext.get("kotlinVersion") — the project-level
+// ExtraPropertiesExtension — which is SEPARATE from buildscript.ext in Gradle 8.x.
+// Without this block, rootProject.ext.has("kotlinVersion") returns false and the plugin
+// falls back to its hardcoded default "1.9.24", causing kotlin-compose-compiler-plugin-embeddable
+// resolution to fail (that artifact doesn't exist at 1.9.24; it was introduced in Kotlin 2.0.0).
+ext {
+    kotlinVersion = '2.2.0'
+}
+
 allprojects {
+    configurations.all {
+        resolutionStrategy {
+            force 'androidx.browser:browser:1.8.0'
+            force 'androidx.core:core:1.15.0'
+            force 'androidx.core:core-ktx:1.15.0'
+            // Kotlin 2.x: kotlin-gradle-plugin/compose-plugin auto-adds kotlin-compose-compiler-plugin-embeddable
+            // to the kotlin-extension configuration. If ExpoModulesCorePlugin.kotlinVersion() resolves to
+            // 1.9.24 (the fallback), it requests an embeddable at 1.9.24 which doesn't exist (introduced in
+            // Kotlin 2.0.0). Force 2.2.0 so that whatever version is requested, 2.2.0 is used.
+            force 'org.jetbrains.kotlin:kotlin-compose-compiler-plugin-embeddable:2.2.0'
+        }
+    }
     repositories {
         maven {
             // All of React Native (JS, Obj-C sources, Android binaries) is installed from npm
