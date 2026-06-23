@@ -9,7 +9,7 @@ A full-stack event companion platform for attendees and sponsors.
 - Build Production: `eas build --profile production --platform all`
 - Environment Variables:
     - `EXPO_PUBLIC_USE_MOCK_API`: `false` (always use real API)
-    - `EXPO_PUBLIC_API_BASE_URL`: `https://api.cxoinc.com/v1`
+    - `EXPO_PUBLIC_API_BASE_URL`: `https://app.cxocollaborate.com`
 
 **Web App (Legacy):**
 - Start: `npm run dev` (runs on port 5000)
@@ -20,7 +20,7 @@ A full-stack event companion platform for attendees and sponsors.
     - `VITE_TENANT_ID`: `3` (CXO tenant — events 21, 28, 53, 832, etc.)
 
 **Backend:**
-- URL: `https://bef44c34-7df5-4c09-93a2-5684b5888527-00-3s6pvdiz19h8o.spock.replit.dev/`
+- URL: `https://app.cxocollaborate.com/api/v1`
 
 ## Stack
 
