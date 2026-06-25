@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,11 +9,12 @@ import {
   Image,
   RefreshControl,
   ActivityIndicator,
+  ViewToken,
 } from 'react-native';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useArticleCategories, useArticles } from '@/hooks/useReader';
+import { useArticleCategories, useArticles, useSubmitAnalyticsEvent } from '@/hooks/useReader';
 import { colors, spacing, radius } from '@/constants/theme';
 import type { Article, ArticleCategory } from '@/lib/api/types';
 
@@ -36,15 +37,21 @@ function formatPublishedDate(dateStr: string): string {
   }
 }
 
-function ArticleCard({ item }: { item: Article }) {
+function ArticleCard({
+  item,
+  onCardPress,
+}: {
+  item: Article;
+  onCardPress: (id: string) => void;
+}) {
   const accent = item.categoryColor || '#7c3aed';
+  const hasPdf = !!item.fileUrl;
+
   return (
     <TouchableOpacity
       style={styles.card}
       activeOpacity={0.82}
-      onPress={() =>
-        router.push({ pathname: '/article-reader', params: { id: item.id } } as any)
-      }
+      onPress={() => onCardPress(item.id)}
     >
       {item.thumbnailUrl ? (
         <Image
@@ -57,18 +64,30 @@ function ArticleCard({ item }: { item: Article }) {
           colors={[accent + '40', accent + '10']}
           style={styles.cardThumbPlaceholder}
         >
-          <Ionicons name="document-text" size={30} color={accent} />
+          <Ionicons
+            name={hasPdf ? 'document' : 'document-text'}
+            size={30}
+            color={accent}
+          />
         </LinearGradient>
       )}
 
       <View style={styles.cardBody}>
-        {item.categoryName ? (
-          <View style={[styles.catPill, { backgroundColor: accent + '20' }]}>
-            <Text style={[styles.catPillText, { color: accent }]}>
-              {item.categoryName.toUpperCase()}
-            </Text>
-          </View>
-        ) : null}
+        <View style={styles.cardTopRow}>
+          {item.categoryName ? (
+            <View style={[styles.catPill, { backgroundColor: accent + '20' }]}>
+              <Text style={[styles.catPillText, { color: accent }]}>
+                {item.categoryName.toUpperCase()}
+              </Text>
+            </View>
+          ) : null}
+          {hasPdf ? (
+            <View style={styles.pdfBadge}>
+              <Ionicons name="document-attach" size={9} color="#fff" />
+              <Text style={styles.pdfBadgeText}>PDF</Text>
+            </View>
+          ) : null}
+        </View>
 
         <Text style={styles.cardTitle} numberOfLines={2}>
           {item.title}
@@ -143,6 +162,9 @@ function CategoryPill({
 
 export function ArticlesTab() {
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | undefined>(undefined);
+  const impressedIds = useRef<Set<string>>(new Set());
+
+  const { mutate: submitEvent } = useSubmitAnalyticsEvent();
 
   const {
     data: categories = [],
@@ -163,9 +185,37 @@ export function ArticlesTab() {
     await refetch();
   }, [refetch]);
 
+  const handleCardPress = useCallback(
+    (id: string) => {
+      submitEvent({ eventType: 'click', articleId: id });
+      router.push({ pathname: '/article-reader', params: { id } } as any);
+    },
+    [submitEvent],
+  );
+
+  const onViewableItemsChanged = useCallback(
+    ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+      for (const token of viewableItems) {
+        const id: string = token.item?.id;
+        if (id && !impressedIds.current.has(id)) {
+          impressedIds.current.add(id);
+          submitEvent({ eventType: 'impression', articleId: id });
+        }
+      }
+    },
+    [submitEvent],
+  );
+
+  const viewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 40,
+    minimumViewTime: 500,
+  });
+
   const renderArticle = useCallback(
-    ({ item }: { item: Article }) => <ArticleCard item={item} />,
-    [],
+    ({ item }: { item: Article }) => (
+      <ArticleCard item={item} onCardPress={handleCardPress} />
+    ),
+    [handleCardPress],
   );
 
   const listHeader = (
@@ -245,6 +295,8 @@ export function ArticlesTab() {
       ListHeaderComponent={listHeader}
       contentContainerStyle={styles.list}
       showsVerticalScrollIndicator={false}
+      onViewableItemsChanged={onViewableItemsChanged}
+      viewabilityConfig={viewabilityConfig.current}
       refreshControl={
         <RefreshControl
           refreshing={isRefetching}
@@ -331,16 +383,36 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     gap: 4,
   },
+  cardTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: 2,
+  },
   catPill: {
     alignSelf: 'flex-start',
     paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: radius.full,
-    marginBottom: 2,
   },
   catPillText: {
     fontSize: 9,
     fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  pdfBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radius.full,
+    backgroundColor: '#ef4444',
+  },
+  pdfBadgeText: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: '#fff',
     letterSpacing: 0.5,
   },
   cardTitle: {

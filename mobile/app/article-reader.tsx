@@ -1,26 +1,34 @@
 /**
- * article-reader.tsx
+ * article-reader.tsx — Kindle-style article + PDF reader
  *
  * PDF rendering strategy
  * ─────────────────────
- * react-native-webview has no web build (no WebView.web.js). On Expo web it
- * resolves to a no-op and renders nothing. We therefore split on Platform.OS:
+ * Native (iOS/Android):
+ *   1. direct  — raw pdf_url with Bearer auth header (works for backend-hosted PDFs)
+ *   2. google  — Google Docs Viewer (handles externally-hosted public PDFs)
+ *   3. failed  — error screen with "Open in Browser"
+ *   A 15-second safety timer advances each stage when the WebView loads silently
+ *   without rendering content (e.g. a Google "can't open" page that fires onLoad).
  *
- *   web    → PdfViewerWeb   — React.createElement('iframe') directly in the
- *                             browser DOM. Tries the direct PDF URL first
- *                             (best for PDFs stored on the Laravel backend),
- *                             then falls back to Google Docs Viewer, then
- *                             shows an "Open in browser" error screen.
+ * Web (Expo web):
+ *   1. direct  — raw pdf_url in <iframe>
+ *   2. google  — Google Docs Viewer fallback
+ *   3. failed  — error screen
+ *   A 20-second timer advances each stage for silent iframe blocks (X-Frame-Options).
  *
- *   native → PdfViewerNative — WebView with Google Docs Viewer first (handles
- *                             most external PDFs and bypasses X-Frame-Options),
- *                             then direct URL, then error screen.
- *
- * In both cases the `onLoadSuccess` callback is called only on a confirmed
- * successful load so the analytics "open" event is never counted for failed
- * attempts.
+ * Analytics
+ * ─────────
+ * - 'open' event fires on confirmed PDF load success / HTML article mount
+ * - read-session fires on screen blur / app background with active + total seconds,
+ *   max scroll %, completion flag — safe to re-send (server upserts by session_id)
  */
-import React, { useRef, useEffect, useCallback, useState, createElement } from 'react';
+import React, {
+  useRef,
+  useEffect,
+  useCallback,
+  useState,
+  createElement,
+} from 'react';
 import {
   View,
   Text,
@@ -34,15 +42,31 @@ import {
   StatusBar,
   Platform,
   Linking,
+  Share,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { WebView } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useArticle, useSubmitArticleAnalytics, useSubmitAnalyticsEvent } from '@/hooks/useReader';
+import {
+  useArticle,
+  useSubmitArticleAnalytics,
+  useSubmitAnalyticsEvent,
+} from '@/hooks/useReader';
+import { getToken } from '@/lib/apiClient';
 import { colors, spacing, radius } from '@/constants/theme';
 import type { Article } from '@/lib/api/types';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Constants
+// ─────────────────────────────────────────────────────────────────────────────
+
+const READER_BG = '#0A0A16';
+const FONT_SIZES = [14, 16, 17, 19, 21] as const;
+type FontSizeIndex = 0 | 1 | 2 | 3 | 4;
+const DEFAULT_FONT_IDX: FontSizeIndex = 2;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Utilities
@@ -95,10 +119,14 @@ function parseHtmlContent(html: string): Block[] {
     const text = stripInlineTags(inner).trim();
     if (!text) continue;
     if (tag === 'h1') blocks.push({ type: 'h1', text });
-    else if (tag === 'h2' || tag === 'h3' || tag === 'h4') blocks.push({ type: 'h2', text });
+    else if (tag === 'h2' || tag === 'h3' || tag === 'h4')
+      blocks.push({ type: 'h2', text });
     else if (tag === 'h5' || tag === 'h6') blocks.push({ type: 'h3', text });
     else if (tag === 'li') blocks.push({ type: 'li', text });
-    else { const cleaned = text.trim(); if (cleaned) blocks.push({ type: 'p', text: cleaned }); }
+    else {
+      const cleaned = text.trim();
+      if (cleaned) blocks.push({ type: 'p', text: cleaned });
+    }
   }
   if (!hasMatches) {
     stripInlineTags(html)
@@ -111,55 +139,50 @@ function parseHtmlContent(html: string): Block[] {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HTML article renderer
+// Reading progress bar
 // ─────────────────────────────────────────────────────────────────────────────
 
-function HtmlContent({ html }: { html: string }) {
-  const blocks = parseHtmlContent(html);
-  if (blocks.length === 0) {
-    return <Text style={styles.noContent}>No content available.</Text>;
-  }
-  return (
-    <>
-      {blocks.map((block, i) => {
-        if (block.type === 'h1') return <Text key={i} style={styles.h1}>{block.text}</Text>;
-        if (block.type === 'h2') return <Text key={i} style={styles.h2}>{block.text}</Text>;
-        if (block.type === 'h3') return <Text key={i} style={styles.h3}>{block.text}</Text>;
-        if (block.type === 'li') {
-          return (
-            <View key={i} style={styles.liRow}>
-              <Text style={styles.liBullet}>•</Text>
-              <Text style={styles.liText}>{block.text}</Text>
-            </View>
-          );
-        }
-        return <Text key={i} style={styles.paragraph}>{block.text}</Text>;
-      })}
-    </>
-  );
-}
-
-function ReadingProgressBar({ percent }: { percent: number }) {
+function ReadingProgressBar({
+  percent,
+  accent,
+}: {
+  percent: number;
+  accent: string;
+}) {
   return (
     <View style={styles.progressBar}>
-      <View style={[styles.progressFill, { width: `${percent}%` as `${number}%` }]} />
+      <View
+        style={[
+          styles.progressFill,
+          { width: `${percent}%` as `${number}%`, backgroundColor: accent },
+        ]}
+      />
     </View>
   );
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Article header (HTML reader)
+// ─────────────────────────────────────────────────────────────────────────────
 
 function ArticleHeader({ article }: { article: Article }) {
   const accent = article.categoryColor || colors.primary;
   return (
     <View style={styles.articleHeader}>
       {article.categoryName ? (
-        <View style={[styles.categoryPill, { backgroundColor: accent + '20' }]}>
+        <View style={[styles.categoryPill, { backgroundColor: accent + '22' }]}>
           <Text style={[styles.categoryPillText, { color: accent }]}>
             {article.categoryName.toUpperCase()}
           </Text>
         </View>
       ) : null}
+
       <Text style={styles.articleTitle}>{article.title}</Text>
-      {article.excerpt ? <Text style={styles.articleExcerpt}>{article.excerpt}</Text> : null}
+
+      {article.excerpt ? (
+        <Text style={styles.articleExcerpt}>{article.excerpt}</Text>
+      ) : null}
+
       <View style={styles.articleMetaRow}>
         {article.authorName ? (
           <View style={styles.metaChip}>
@@ -169,29 +192,154 @@ function ArticleHeader({ article }: { article: Article }) {
         ) : null}
         <View style={styles.metaChip}>
           <Ionicons name="time-outline" size={14} color={colors.textMuted} />
-          <Text style={styles.metaChipText}>{article.estimatedReadMinutes} min read</Text>
+          <Text style={styles.metaChipText}>
+            {article.estimatedReadMinutes} min read
+          </Text>
         </View>
       </View>
-      <View style={styles.divider} />
+
+      <View style={[styles.divider, { backgroundColor: accent + '30' }]} />
     </View>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Shared PDF viewer sub-components
+// HTML content renderer
+// ─────────────────────────────────────────────────────────────────────────────
+
+function HtmlContent({
+  html,
+  fontSize,
+}: {
+  html: string;
+  fontSize: number;
+}) {
+  const blocks = parseHtmlContent(html);
+  const lineH = Math.round(fontSize * 1.75);
+  if (blocks.length === 0) {
+    return <Text style={styles.noContent}>No content available.</Text>;
+  }
+  return (
+    <>
+      {blocks.map((block, i) => {
+        if (block.type === 'h1')
+          return (
+            <Text key={i} style={[styles.h1, { fontSize: fontSize + 6 }]}>
+              {block.text}
+            </Text>
+          );
+        if (block.type === 'h2')
+          return (
+            <Text key={i} style={[styles.h2, { fontSize: fontSize + 2 }]}>
+              {block.text}
+            </Text>
+          );
+        if (block.type === 'h3')
+          return (
+            <Text key={i} style={[styles.h3, { fontSize: fontSize - 1 }]}>
+              {block.text}
+            </Text>
+          );
+        if (block.type === 'li') {
+          return (
+            <View key={i} style={styles.liRow}>
+              <Text style={[styles.liBullet, { fontSize, lineHeight: lineH }]}>
+                •
+              </Text>
+              <Text
+                style={[
+                  styles.liText,
+                  { fontSize, lineHeight: lineH },
+                ]}
+              >
+                {block.text}
+              </Text>
+            </View>
+          );
+        }
+        return (
+          <Text
+            key={i}
+            style={[styles.paragraph, { fontSize, lineHeight: lineH }]}
+          >
+            {block.text}
+          </Text>
+        );
+      })}
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Font size controls
+// ─────────────────────────────────────────────────────────────────────────────
+
+function FontSizeControls({
+  index,
+  onChange,
+}: {
+  index: FontSizeIndex;
+  onChange: (next: FontSizeIndex) => void;
+}) {
+  return (
+    <View style={styles.fontControls}>
+      <TouchableOpacity
+        style={[styles.fontBtn, index === 0 && styles.fontBtnDisabled]}
+        onPress={() => {
+          if (index > 0) onChange((index - 1) as FontSizeIndex);
+        }}
+        disabled={index === 0}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <Text style={[styles.fontBtnText, { fontSize: 12 }]}>A</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[
+          styles.fontBtn,
+          index === FONT_SIZES.length - 1 && styles.fontBtnDisabled,
+        ]}
+        onPress={() => {
+          if (index < FONT_SIZES.length - 1)
+            onChange((index + 1) as FontSizeIndex);
+        }}
+        disabled={index === FONT_SIZES.length - 1}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <Text style={[styles.fontBtnText, { fontSize: 18 }]}>A</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PDF sub-components (shared)
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface PdfViewerProps {
   fileUrl: string;
   accent: string;
+  authToken: string | null;
   onLoadSuccess: () => void;
 }
 
-function PdfLoadingOverlay({ accent, message }: { accent: string; message: string }) {
+function PdfLoadingOverlay({
+  accent,
+  message,
+  stage,
+}: {
+  accent: string;
+  message: string;
+  stage: string;
+}) {
   return (
     <View style={styles.webviewLoader}>
-      <ActivityIndicator size="large" color={accent} />
+      <View style={[styles.pdfLoaderIcon, { borderColor: accent + '40' }]}>
+        <ActivityIndicator size="large" color={accent} />
+      </View>
       <Text style={styles.webviewLoaderText}>{message}</Text>
+      {stage !== 'direct' && (
+        <Text style={styles.webviewLoaderSub}>Trying alternative viewer…</Text>
+      )}
     </View>
   );
 }
@@ -207,16 +355,16 @@ function PdfErrorScreen({
 }) {
   return (
     <View style={styles.pdfErrorWrap}>
-      <Ionicons
-        name="document-text-outline"
-        size={52}
-        color={colors.textMuted}
-        style={{ marginBottom: spacing.lg }}
-      />
+      <LinearGradient
+        colors={[accent + '20', 'transparent']}
+        style={styles.pdfErrorIconWrap}
+      >
+        <Ionicons name="document-text-outline" size={40} color={accent} />
+      </LinearGradient>
       <Text style={styles.pdfErrorTitle}>Couldn't display document</Text>
       <Text style={styles.pdfErrorSub}>
-        The document couldn't be rendered inside the app.
-        {'\n'}You can still open it in your browser.
+        The document couldn't be rendered inside the app.{'\n'}
+        You can still open it in your browser.
       </Text>
       <TouchableOpacity
         style={[styles.pdfOpenBtn, { backgroundColor: accent }]}
@@ -239,21 +387,11 @@ function PdfErrorScreen({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Web PDF viewer — native <iframe> element, no WebView dependency
+// Web PDF viewer — native <iframe>
+// Stage: direct → google → failed
+// 20-second timer advances when iframe loads silently (X-Frame-Options, etc.)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * On web we bypass react-native-webview entirely (it has no web build) and
- * create a native browser <iframe> via React.createElement.
- *
- * Stage order for web:
- *   1. direct — the raw pdf_url from the backend (publicly accessible storage)
- *   2. google — Google Docs Viewer fallback for externally-hosted PDFs
- *   3. failed — error screen with "Open in Browser" button
- *
- * A 20-second safety timer advances to the next stage when the browser
- * silently blocks an iframe without firing onError (e.g. X-Frame-Options).
- */
 type WebStage = 'direct' | 'google' | 'failed';
 
 function PdfViewerWeb({ fileUrl, accent, onLoadSuccess }: PdfViewerProps) {
@@ -270,14 +408,11 @@ function PdfViewerWeb({ fileUrl, accent, onLoadSuccess }: PdfViewerProps) {
       : null;
 
   const advance = useCallback(() => {
-    if (stage === 'direct') {
-      setStage('google');
-      setLoading(true);
-    } else {
-      setStage('failed');
-      setLoading(false);
-    }
-  }, [stage]);
+    setStage((s) => {
+      if (s === 'direct') { setLoading(true); return 'google'; }
+      setLoading(false); return 'failed';
+    });
+  }, []);
 
   useEffect(() => {
     loadedRef.current = false;
@@ -288,10 +423,7 @@ function PdfViewerWeb({ fileUrl, accent, onLoadSuccess }: PdfViewerProps) {
   const handleLoad = useCallback(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
     setLoading(false);
-    if (!loadedRef.current) {
-      loadedRef.current = true;
-      onLoadSuccess();
-    }
+    if (!loadedRef.current) { loadedRef.current = true; onLoadSuccess(); }
   }, [onLoadSuccess]);
 
   const handleError = useCallback(() => {
@@ -309,8 +441,6 @@ function PdfViewerWeb({ fileUrl, accent, onLoadSuccess }: PdfViewerProps) {
     );
   }
 
-  // createElement('iframe') produces a real browser <iframe>.
-  // Style uses CSS properties (not RN StyleSheet numbers).
   const iframeEl = createElement('iframe', {
     key: src,
     src,
@@ -318,14 +448,11 @@ function PdfViewerWeb({ fileUrl, accent, onLoadSuccess }: PdfViewerProps) {
     allow: 'fullscreen',
     style: {
       position: 'absolute',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      width: '100%',
-      height: '100%',
+      top: 0, left: 0, right: 0, bottom: 0,
+      width: '100%', height: '100%',
       border: 'none',
       opacity: loading ? 0 : 1,
+      background: '#fff',
     },
     onLoad: handleLoad,
     onError: handleError,
@@ -337,6 +464,7 @@ function PdfViewerWeb({ fileUrl, accent, onLoadSuccess }: PdfViewerProps) {
         <PdfLoadingOverlay
           accent={accent}
           message={stage === 'direct' ? 'Loading document…' : 'Preparing document…'}
+          stage={stage}
         />
       )}
       {iframeEl}
@@ -345,37 +473,45 @@ function PdfViewerWeb({ fileUrl, accent, onLoadSuccess }: PdfViewerProps) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Native PDF viewer — WebView with Google Docs → Direct URL cascade
+// Native PDF viewer — WebView
+// Stage: direct → google → failed
+// Direct URL gets Bearer auth header so backend-hosted PDFs load properly.
+// 15-second safety timer advances when stage loads silently without real content.
 // ─────────────────────────────────────────────────────────────────────────────
 
-type NativeStage = 'google' | 'direct' | 'failed';
+type NativeStage = 'direct' | 'google' | 'failed';
 
-function PdfViewerNative({ fileUrl, accent, onLoadSuccess }: PdfViewerProps) {
-  const [stage, setStage] = useState<NativeStage>('google');
+function PdfViewerNative({ fileUrl, accent, authToken, onLoadSuccess }: PdfViewerProps) {
+  const [stage, setStage] = useState<NativeStage>('direct');
   const [loading, setLoading] = useState(true);
   const loadedRef = useRef(false);
-
-  const src =
-    stage === 'google'
-      ? `https://docs.google.com/viewer?embedded=true&url=${encodeURIComponent(fileUrl)}`
-      : stage === 'direct'
-      ? fileUrl
-      : null;
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const advanceRef = useRef<(() => void) | null>(null);
 
   const advance = useCallback(() => {
-    if (stage === 'google') { setStage('direct'); setLoading(true); }
-    else { setStage('failed'); setLoading(false); }
+    setStage((s) => {
+      if (s === 'direct') { setLoading(true); return 'google'; }
+      setLoading(false); return 'failed';
+    });
+  }, []);
+
+  advanceRef.current = advance;
+
+  useEffect(() => {
+    loadedRef.current = false;
+    setLoading(true);
+    timerRef.current = setTimeout(() => advanceRef.current?.(), 15_000);
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, [stage]);
 
   const handleLoad = useCallback(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
     setLoading(false);
-    if (!loadedRef.current) {
-      loadedRef.current = true;
-      onLoadSuccess();
-    }
+    if (!loadedRef.current) { loadedRef.current = true; onLoadSuccess(); }
   }, [onLoadSuccess]);
 
   const handleError = useCallback(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
     setLoading(false);
     advance();
   }, [advance]);
@@ -383,6 +519,7 @@ function PdfViewerNative({ fileUrl, accent, onLoadSuccess }: PdfViewerProps) {
   const handleHttpError = useCallback(
     (e: { nativeEvent: { statusCode: number } }) => {
       if (e.nativeEvent.statusCode >= 400) {
+        if (timerRef.current) clearTimeout(timerRef.current);
         setLoading(false);
         advance();
       }
@@ -390,12 +527,28 @@ function PdfViewerNative({ fileUrl, accent, onLoadSuccess }: PdfViewerProps) {
     [advance],
   );
 
+  const src =
+    stage === 'direct'
+      ? fileUrl
+      : stage === 'google'
+      ? `https://docs.google.com/viewer?embedded=true&url=${encodeURIComponent(fileUrl)}`
+      : null;
+
+  const webViewHeaders: Record<string, string> =
+    stage === 'direct' && authToken
+      ? { Authorization: `Bearer ${authToken}` }
+      : {};
+
   if (stage === 'failed' || !src) {
     return (
       <PdfErrorScreen
         fileUrl={fileUrl}
         accent={accent}
-        onRetry={() => { loadedRef.current = false; setStage('google'); setLoading(true); }}
+        onRetry={() => {
+          loadedRef.current = false;
+          setStage('direct');
+          setLoading(true);
+        }}
       />
     );
   }
@@ -405,12 +558,13 @@ function PdfViewerNative({ fileUrl, accent, onLoadSuccess }: PdfViewerProps) {
       {loading && (
         <PdfLoadingOverlay
           accent={accent}
-          message={stage === 'google' ? 'Preparing document…' : 'Loading document…'}
+          message={stage === 'direct' ? 'Loading document…' : 'Preparing document…'}
+          stage={stage}
         />
       )}
       <WebView
         key={src}
-        source={{ uri: src }}
+        source={{ uri: src, headers: webViewHeaders }}
         style={[styles.webview, loading && styles.webviewHidden]}
         onLoad={handleLoad}
         onError={handleError}
@@ -428,12 +582,48 @@ function PdfViewerNative({ fileUrl, accent, onLoadSuccess }: PdfViewerProps) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Unified PdfViewer — selects implementation by platform
+// Unified PdfViewer
 // ─────────────────────────────────────────────────────────────────────────────
 
 function PdfViewer(props: PdfViewerProps) {
   if (Platform.OS === 'web') return <PdfViewerWeb {...props} />;
   return <PdfViewerNative {...props} />;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PDF document header (above the viewer)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function PdfDocumentHeader({ article, accent }: { article: Article; accent: string }) {
+  return (
+    <LinearGradient
+      colors={[accent + '18', 'transparent']}
+      style={styles.pdfHeaderGradient}
+    >
+      <View style={[styles.pdfHeaderIconWrap, { backgroundColor: accent + '22' }]}>
+        <Ionicons name="document-text" size={22} color={accent} />
+      </View>
+      <View style={styles.pdfHeaderText}>
+        <Text style={styles.pdfMetaTitle} numberOfLines={2}>
+          {article.title}
+        </Text>
+        <View style={styles.pdfHeaderMeta}>
+          {article.authorName ? (
+            <View style={styles.pdfMetaChip}>
+              <Ionicons name="person-outline" size={11} color={colors.textMuted} />
+              <Text style={styles.pdfMetaChipText}>{article.authorName}</Text>
+            </View>
+          ) : null}
+          <View style={styles.pdfMetaChip}>
+            <Ionicons name="time-outline" size={11} color={colors.textMuted} />
+            <Text style={styles.pdfMetaChipText}>
+              {article.estimatedReadMinutes} min read
+            </Text>
+          </View>
+        </View>
+      </View>
+    </LinearGradient>
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -456,13 +646,27 @@ export default function ArticleReaderScreen() {
   const isActiveRef = useRef(true);
   const submittedRef = useRef(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const [scrollPercent, setScrollPercent] = useState(0);
+  const [fontSizeIdx, setFontSizeIdx] = useState<FontSizeIndex>(DEFAULT_FONT_IDX);
+  const [authToken, setAuthToken] = useState<string | null>(null);
 
   const hasPdf = !!article?.fileUrl;
   const accent = article?.categoryColor || colors.primary;
+  const fontSize = FONT_SIZES[fontSizeIdx];
+
+  const minutesRemaining = article
+    ? Math.max(1, Math.round(article.estimatedReadMinutes * (1 - scrollPercent / 100)))
+    : null;
+
+  useEffect(() => {
+    getToken().then(setAuthToken).catch(() => undefined);
+  }, []);
 
   if (__DEV__ && article) {
-    console.log(`[ArticleReader] "${article.title}" hasPdf=${hasPdf} fileUrl=${article.fileUrl ?? 'null'}`);
+    console.log(
+      `[ArticleReader] "${article.title}" hasPdf=${hasPdf} fileUrl=${article.fileUrl ?? 'null'}`,
+    );
   }
 
   const sendAnalytics = useCallback(() => {
@@ -484,8 +688,6 @@ export default function ArticleReaderScreen() {
     });
   }, [id, submitAnalytics]);
 
-  // PDF articles: fire 'open' only on confirmed WebView/iframe load success.
-  // HTML articles: fire 'open' as soon as article data arrives.
   const handlePdfLoadSuccess = useCallback(() => {
     if (!id) return;
     submitEvent({ eventType: 'open', articleId: id });
@@ -529,18 +731,30 @@ export default function ArticleReaderScreen() {
     if (contentSize.height <= 0) return;
     const pct = Math.min(
       100,
-      Math.round(((contentOffset.y + layoutMeasurement.height) / contentSize.height) * 100),
+      Math.round(
+        ((contentOffset.y + layoutMeasurement.height) / contentSize.height) * 100,
+      ),
     );
     maxScrollPercentRef.current = Math.max(maxScrollPercentRef.current, pct);
     setScrollPercent(pct);
   }, []);
 
+  const handleShare = useCallback(() => {
+    if (!article) return;
+    Share.share({ message: article.title, title: article.title }).catch(() => undefined);
+  }, [article]);
+
+  // ── Loading state ──────────────────────────────────────────────────────────
   if (isLoading) {
     return (
       <View style={[styles.root, { paddingTop: insets.top }]}>
         <View style={styles.navBar}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.navIconBtn}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
           </TouchableOpacity>
           <Text style={styles.navTitle}>Article</Text>
           <View style={{ width: 38 }} />
@@ -553,18 +767,28 @@ export default function ArticleReaderScreen() {
     );
   }
 
+  // ── Error state ────────────────────────────────────────────────────────────
   if (isError || !article) {
     return (
       <View style={[styles.root, { paddingTop: insets.top }]}>
         <View style={styles.navBar}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.navIconBtn}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
           </TouchableOpacity>
           <Text style={styles.navTitle}>Article</Text>
           <View style={{ width: 38 }} />
         </View>
         <View style={styles.center}>
-          <Ionicons name="document-outline" size={48} color={colors.textMuted} style={{ marginBottom: spacing.lg }} />
+          <Ionicons
+            name="document-outline"
+            size={48}
+            color={colors.textMuted}
+            style={{ marginBottom: spacing.lg }}
+          />
           <Text style={styles.errorTitle}>Article not found</Text>
           <TouchableOpacity style={styles.backBtnLarge} onPress={() => router.back()}>
             <Text style={styles.backBtnText}>Go Back</Text>
@@ -574,46 +798,90 @@ export default function ArticleReaderScreen() {
     );
   }
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       <StatusBar barStyle="light-content" />
 
+      {/* Nav bar */}
       <View style={styles.navBar}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={styles.navIconBtn}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
         </TouchableOpacity>
+
         <Text style={styles.navTitle} numberOfLines={1}>
           {article.categoryName || 'Article'}
         </Text>
-        <View style={{ width: 38 }} />
+
+        <View style={styles.navRight}>
+          {/* Font size controls (HTML only) */}
+          {!hasPdf && (
+            <FontSizeControls index={fontSizeIdx} onChange={setFontSizeIdx} />
+          )}
+          <TouchableOpacity
+            style={styles.navIconBtn}
+            onPress={handleShare}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="share-outline" size={20} color={colors.textPrimary} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {hasPdf ? (
+        /* ── PDF mode ─────────────────────────────────────────────────────── */
         <>
-          <View style={styles.pdfMeta}>
-            <Text style={styles.pdfMetaTitle} numberOfLines={2}>{article.title}</Text>
-            {article.authorName ? (
-              <Text style={styles.pdfMetaAuthor}>{article.authorName}</Text>
-            ) : null}
-          </View>
+          <PdfDocumentHeader article={article} accent={accent} />
           <PdfViewer
             fileUrl={article.fileUrl!}
             accent={accent}
+            authToken={authToken}
             onLoadSuccess={handlePdfLoadSuccess}
           />
         </>
       ) : (
+        /* ── HTML reading mode ────────────────────────────────────────────── */
         <>
-          <ReadingProgressBar percent={scrollPercent} />
+          <ReadingProgressBar percent={scrollPercent} accent={accent} />
+
+          {/* Reading time remaining — appears once user starts scrolling */}
+          {scrollPercent > 2 && minutesRemaining !== null && (
+            <View style={styles.timeRemainingBar}>
+              <Ionicons name="book-outline" size={12} color={accent} />
+              <Text style={[styles.timeRemainingText, { color: accent }]}>
+                {minutesRemaining === 1
+                  ? 'Less than 1 min remaining'
+                  : `~${minutesRemaining} min remaining`}
+              </Text>
+            </View>
+          )}
+
           <ScrollView
             style={styles.scroll}
-            contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 60 }]}
+            contentContainerStyle={[
+              styles.content,
+              { paddingBottom: insets.bottom + 80 },
+            ]}
             showsVerticalScrollIndicator={false}
             onScroll={onScroll}
-            scrollEventThrottle={200}
+            scrollEventThrottle={100}
           >
             <ArticleHeader article={article} />
-            <HtmlContent html={article.content} />
+            <HtmlContent html={article.content} fontSize={fontSize} />
+
+            {/* End-of-article marker */}
+            {scrollPercent >= 90 && (
+              <View style={styles.finishedBanner}>
+                <Ionicons name="checkmark-circle" size={20} color={accent} />
+                <Text style={[styles.finishedText, { color: accent }]}>
+                  Article complete
+                </Text>
+              </View>
+            )}
           </ScrollView>
         </>
       )}
@@ -625,24 +893,23 @@ export default function ArticleReaderScreen() {
 // Styles
 // ─────────────────────────────────────────────────────────────────────────────
 
-const READER_BG = '#0A0A16';
-
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: READER_BG },
 
+  // Nav bar
   navBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.06)',
   },
-  backBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+  navIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: 'rgba(255,255,255,0.07)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -651,29 +918,177 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'center',
     color: colors.textMuted,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
-    letterSpacing: 0.8,
+    letterSpacing: 1,
     textTransform: 'uppercase',
     marginHorizontal: spacing.sm,
   },
+  navRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
 
+  // Font size controls
+  fontControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderRadius: radius.md,
+    overflow: 'hidden',
+  },
+  fontBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fontBtnDisabled: { opacity: 0.35 },
+  fontBtnText: {
+    color: colors.textPrimary,
+    fontWeight: '700',
+    lineHeight: 20,
+  },
+
+  // Progress + time remaining
   progressBar: { height: 2, backgroundColor: 'rgba(255,255,255,0.06)' },
-  progressFill: { height: 2, backgroundColor: colors.primary, borderRadius: 1 },
+  progressFill: { height: 2, borderRadius: 1 },
+  timeRemainingBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.04)',
+  },
+  timeRemainingText: { fontSize: 11, fontWeight: '600' },
 
+  // HTML scroll
   scroll: { flex: 1 },
   content: { paddingHorizontal: 24, paddingTop: spacing.xl },
 
-  pdfMeta: {
+  // Finished banner
+  finishedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.xl,
+    marginTop: spacing.xl,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.07)',
+  },
+  finishedText: { fontSize: 14, fontWeight: '700' },
+
+  // Article header
+  articleHeader: { marginBottom: spacing.xl },
+  categoryPill: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: radius.full,
+    marginBottom: spacing.md,
+  },
+  categoryPillText: { fontSize: 10, fontWeight: '800', letterSpacing: 1 },
+  articleTitle: {
+    color: '#FFFFFF',
+    fontSize: 26,
+    fontWeight: '800',
+    lineHeight: 34,
+    letterSpacing: -0.5,
+    marginBottom: spacing.md,
+  },
+  articleExcerpt: {
+    color: 'rgba(255,255,255,0.50)',
+    fontSize: 16,
+    lineHeight: 25,
+    fontStyle: 'italic',
+    marginBottom: spacing.lg,
+  },
+  articleMetaRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  metaChip: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  metaChipText: { color: colors.textMuted, fontSize: 12 },
+  divider: { height: 1, marginVertical: spacing.md },
+
+  // HTML blocks
+  h1: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    lineHeight: 34,
+    letterSpacing: -0.2,
+    marginTop: 28,
+    marginBottom: spacing.md,
+  },
+  h2: {
+    color: '#FFFFFFCC',
+    fontWeight: '700',
+    lineHeight: 28,
+    marginTop: 24,
+    marginBottom: spacing.sm,
+  },
+  h3: {
+    color: '#FFFFFF99',
+    fontWeight: '700',
+    lineHeight: 22,
+    marginTop: 20,
+    marginBottom: spacing.sm,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  paragraph: {
+    color: 'rgba(255,255,255,0.82)',
+    marginBottom: 18,
+    letterSpacing: 0.15,
+  },
+  liRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: 10, paddingLeft: spacing.sm },
+  liBullet: { color: colors.primary, fontWeight: '700' },
+  liText: { flex: 1, color: 'rgba(255,255,255,0.82)', letterSpacing: 0.15 },
+  noContent: {
+    color: colors.textMuted,
+    fontSize: 15,
+    textAlign: 'center',
+    fontStyle: 'italic',
+    marginTop: spacing.xxl,
+  },
+
+  // PDF header
+  pdfHeaderGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
     paddingHorizontal: spacing.xl,
     paddingVertical: spacing.md,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.06)',
-    gap: 2,
   },
-  pdfMetaTitle: { color: colors.textPrimary, fontSize: 15, fontWeight: '700', lineHeight: 21 },
-  pdfMetaAuthor: { color: colors.textMuted, fontSize: 12 },
+  pdfHeaderIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  pdfHeaderText: { flex: 1 },
+  pdfMetaTitle: {
+    color: colors.textPrimary,
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 20,
+    marginBottom: 3,
+  },
+  pdfHeaderMeta: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  pdfMetaChip: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  pdfMetaChipText: { color: colors.textMuted, fontSize: 11 },
 
+  // PDF WebView
   webviewWrap: { flex: 1, backgroundColor: '#fff', position: 'relative' },
   webview: { flex: 1 },
   webviewHidden: { opacity: 0 },
@@ -685,8 +1100,19 @@ const styles = StyleSheet.create({
     zIndex: 10,
     gap: spacing.md,
   },
-  webviewLoaderText: { color: colors.textMuted, fontSize: 13 },
+  pdfLoaderIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.sm,
+  },
+  webviewLoaderText: { color: colors.textPrimary, fontSize: 15, fontWeight: '600' },
+  webviewLoaderSub: { color: colors.textMuted, fontSize: 12 },
 
+  // PDF error
   pdfErrorWrap: {
     flex: 1,
     alignItems: 'center',
@@ -695,10 +1121,18 @@ const styles = StyleSheet.create({
     backgroundColor: READER_BG,
     gap: spacing.sm,
   },
+  pdfErrorIconWrap: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.md,
+  },
   pdfErrorTitle: {
     color: colors.textPrimary,
-    fontSize: 17,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: '800',
     textAlign: 'center',
     marginBottom: spacing.sm,
   },
@@ -706,7 +1140,7 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 14,
     textAlign: 'center',
-    lineHeight: 21,
+    lineHeight: 22,
     marginBottom: spacing.lg,
   },
   pdfOpenBtn: {
@@ -720,88 +1154,13 @@ const styles = StyleSheet.create({
   },
   pdfOpenBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
   pdfRetryLink: { marginTop: spacing.md, padding: spacing.sm },
-  pdfRetryLinkText: { color: colors.textMuted, fontSize: 13, textDecorationLine: 'underline' },
-
-  articleHeader: { marginBottom: spacing.xl },
-  categoryPill: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: radius.full,
-    marginBottom: spacing.md,
-  },
-  categoryPillText: { fontSize: 10, fontWeight: '800', letterSpacing: 1 },
-  articleTitle: {
-    color: '#FFFFFF',
-    fontSize: 24,
-    fontWeight: '800',
-    lineHeight: 32,
-    letterSpacing: -0.3,
-    marginBottom: spacing.md,
-  },
-  articleExcerpt: {
-    color: 'rgba(255,255,255,0.55)',
-    fontSize: 16,
-    lineHeight: 24,
-    fontStyle: 'italic',
-    marginBottom: spacing.lg,
-  },
-  articleMetaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, marginBottom: spacing.lg },
-  metaChip: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  metaChipText: { color: colors.textMuted, fontSize: 12 },
-  divider: { height: 1, backgroundColor: 'rgba(255,255,255,0.08)', marginVertical: spacing.md },
-
-  h1: {
-    color: '#FFFFFF',
-    fontSize: 22,
-    fontWeight: '800',
-    lineHeight: 30,
-    letterSpacing: -0.2,
-    marginTop: 28,
-    marginBottom: spacing.md,
-  },
-  h2: {
-    color: '#FFFFFFCC',
-    fontSize: 18,
-    fontWeight: '700',
-    lineHeight: 26,
-    marginTop: 24,
-    marginBottom: spacing.sm,
-  },
-  h3: {
-    color: '#FFFFFF99',
-    fontSize: 15,
-    fontWeight: '700',
-    lineHeight: 22,
-    marginTop: 20,
-    marginBottom: spacing.sm,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  paragraph: {
-    color: 'rgba(255,255,255,0.82)',
-    fontSize: 16,
-    lineHeight: 27,
-    marginBottom: 16,
-    letterSpacing: 0.15,
-  },
-  liRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: 10, paddingLeft: spacing.sm },
-  liBullet: { color: colors.primary, fontSize: 16, lineHeight: 27, fontWeight: '700' },
-  liText: {
-    flex: 1,
-    color: 'rgba(255,255,255,0.82)',
-    fontSize: 16,
-    lineHeight: 27,
-    letterSpacing: 0.15,
-  },
-  noContent: {
+  pdfRetryLinkText: {
     color: colors.textMuted,
-    fontSize: 15,
-    textAlign: 'center',
-    fontStyle: 'italic',
-    marginTop: spacing.xxl,
+    fontSize: 13,
+    textDecorationLine: 'underline',
   },
 
+  // States
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xxl },
   loadingText: { color: colors.textMuted, fontSize: 13, marginTop: spacing.md },
   errorTitle: {
@@ -809,7 +1168,6 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '700',
     marginBottom: spacing.xl,
-    textAlign: 'center',
   },
   backBtnLarge: {
     paddingHorizontal: spacing.xxl,
