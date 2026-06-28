@@ -4,7 +4,9 @@ const http = require('http');
 
 const BACKEND =
   process.env.EXPO_PUBLIC_API_BASE_URL ||
-  'https://bef44c34-7df5-4c09-93a2-5684b5888527-00-3s6pvdiz19h8o.spock.replit.dev';
+  'https://app.cxocollaborate.com';
+
+console.log(`[metro-proxy] Proxying /api/* → ${BACKEND}`);
 
 const backendUrl = new URL(BACKEND);
 const transport = backendUrl.protocol === 'https:' ? https : http;
