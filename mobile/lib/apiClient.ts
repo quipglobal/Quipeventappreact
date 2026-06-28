@@ -213,10 +213,15 @@ function normalizeAuthUser(raw: any): AuthUser {
   };
 }
 
-export async function sendOtp(phone: string): Promise<ApiResponse<{ message: string }>> {
+/**
+ * Step 1 of OTP login.
+ * POST /api/v1/auth/send-otp  →  { identifier, type: "login" }
+ * `identifier` is either an E.164 phone number (+1XXXXXXXXXX) or an email address.
+ */
+export async function sendOtp(identifier: string): Promise<ApiResponse<{ message: string }>> {
   return request('/api/v1/auth/send-otp', {
     method: 'POST',
-    body: JSON.stringify({ identifier: phone, type: 'login' }),
+    body: JSON.stringify({ identifier, type: 'login' }),
   });
 }
 
@@ -226,10 +231,21 @@ export interface VerifyOtpResult {
   isNewUser: boolean;
 }
 
-export async function verifyOtp(phone: string, otp: string): Promise<ApiResponse<VerifyOtpResult>> {
+/**
+ * Step 2 of OTP login.
+ * POST /api/v1/auth/verify-otp  →  { identifier, code, type: "login" }
+ *
+ * Success cases:
+ *   • Existing account  → { token, user, isNewUser: false }
+ *   • Brand-new email   → backend returns { verified: true } with no token
+ *                         → { token: '', user: null, isNewUser: true }
+ *                         → caller should show registration form
+ *   • account_exists: true in response always comes with a token (treated as existing).
+ */
+export async function verifyOtp(identifier: string, otp: string): Promise<ApiResponse<VerifyOtpResult>> {
   const res = await request<any>('/api/v1/auth/verify-otp', {
     method: 'POST',
-    body: JSON.stringify({ identifier: phone, code: otp, type: 'login' }),
+    body: JSON.stringify({ identifier, code: otp, type: 'login' }),
   });
 
   if (!res.success || !res.data) return res as ApiResponse<VerifyOtpResult>;
@@ -238,7 +254,23 @@ export async function verifyOtp(phone: string, otp: string): Promise<ApiResponse
   const token: string = raw.token ?? raw.access_token ?? raw.auth_token ?? '';
 
   if (!token) {
-    return { success: false, error: { code: 'NO_TOKEN', message: 'Authentication failed. Please try again.' } };
+    // Backend confirmed email/phone is valid but no account exists yet.
+    // Signals: verified:true | account_exists:false | email_verified:true
+    const isVerifiedNewUser =
+      raw.verified === true ||
+      raw.email_verified === true ||
+      raw.account_exists === false ||
+      raw.is_new_user === true ||
+      raw.isNewUser === true;
+
+    if (isVerifiedNewUser) {
+      return { success: true, data: { token: '', user: null, isNewUser: true } };
+    }
+
+    return {
+      success: false,
+      error: { code: 'NO_TOKEN', message: 'Authentication failed. Please try again.' },
+    };
   }
 
   const rawUser = raw.user ?? (raw.data && typeof raw.data === 'object' && raw.data.id ? raw.data : null) ?? null;
