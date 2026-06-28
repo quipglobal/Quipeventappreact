@@ -2,8 +2,18 @@ import { request } from '@/lib/apiClient';
 import type { ApiResponse, ArticleCategory, Article, ArticleAnalytics } from '@/lib/api/types';
 
 function normalizeCategory(raw: any): ArticleCategory {
+  // Backend returns plain strings: ["Finance", "Research", "Technology"]
+  if (typeof raw === 'string') {
+    return {
+      id: raw,
+      name: raw,
+      slug: raw.toLowerCase().replace(/\s+/g, '-'),
+      color: '#7c3aed',
+      documentCount: 0,
+    };
+  }
   return {
-    id: String(raw.id ?? raw.slug ?? ''),
+    id: String(raw.id ?? raw.slug ?? raw.name ?? ''),
     name: raw.name ?? raw.title ?? '',
     slug: raw.slug ?? String(raw.id ?? ''),
     color: raw.color ?? raw.accent_color ?? '#7c3aed',
@@ -201,12 +211,14 @@ function normalizeArticle(raw: any): Article {
     authorName,
     authorAvatar,
     categoryId: String(
-      (typeof category === 'object' ? category?.id : null) ?? raw.category_id ?? raw.document_category_id ?? '',
+      (typeof category === 'string' ? category : null) ??
+      (typeof category === 'object' ? category?.id : null) ??
+      raw.category_id ?? raw.document_category_id ?? '',
     ),
     categoryName,
     categoryColor,
     thumbnailUrl:
-      raw.thumbnail ?? raw.thumbnail_url ?? raw.cover_image ?? raw.featured_image ?? raw.image ?? null,
+      raw.thumbnail ?? raw.thumbnail_url ?? raw.cover_image_url ?? raw.cover_image ?? raw.featured_image ?? raw.image ?? null,
     estimatedReadMinutes,
     publishedAt: raw.published_at ?? raw.created_at ?? '',
     updatedAt: raw.updated_at ?? raw.published_at ?? raw.created_at ?? '',
@@ -232,7 +244,8 @@ export async function getCategories(): Promise<ApiResponse<ArticleCategory[]>> {
 }
 
 export async function getDocuments(categoryId?: string): Promise<ApiResponse<Article[]>> {
-  const qs = categoryId ? `?category_id=${encodeURIComponent(categoryId)}` : '';
+  // Backend filter param is ?category= (the category name string, e.g. "Finance")
+  const qs = categoryId ? `?category=${encodeURIComponent(categoryId)}` : '';
   const res = await request<any>(`/api/v1/mobile/reader/documents${qs}`);
   if (!res.success) {
     if (__DEV__) console.log('[Reader] getDocuments failed:', res.error);
