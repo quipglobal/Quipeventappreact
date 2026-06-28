@@ -114,7 +114,7 @@ function normalizeArticle(raw: any): Article {
     console.log(`[Reader] article "${raw.title}" → fileUrl: ${fileUrl ?? 'null'}`);
   }
 
-  return {
+  const normalized: Article = {
     id: String(raw.id),
     title: raw.title ?? raw.name ?? '',
     excerpt: raw.excerpt ?? raw.description ?? raw.summary ?? raw.short_description ?? '',
@@ -133,6 +133,12 @@ function normalizeArticle(raw: any): Article {
     publishedAt: raw.published_at ?? raw.created_at ?? '',
     updatedAt: raw.updated_at ?? raw.published_at ?? raw.created_at ?? '',
   };
+
+  if (__DEV__) {
+    (normalized as any).__rawKeys = Object.keys(raw).join(', ');
+  }
+
+  return normalized;
 }
 
 export async function getCategories(): Promise<ApiResponse<ArticleCategory[]>> {

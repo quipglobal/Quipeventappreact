@@ -845,6 +845,17 @@ export default function ArticleReaderScreen() {
         </View>
       </View>
 
+      {/* DEV-only: visible debug strip so we can see what fileUrl resolved to */}
+      {__DEV__ && article && (
+        <View style={styles.devDebugStrip}>
+          <Text style={styles.devDebugText} numberOfLines={3} selectable>
+            {hasPdf
+              ? `✅ fileUrl: ${article.fileUrl}`
+              : `❌ fileUrl null | raw keys: ${(article as any).__rawKeys ?? 'n/a'}`}
+          </Text>
+        </View>
+      )}
+
       {showPdfViewer && hasPdf ? (
         /* ── PDF full-screen mode ─────────────────────────────────────────── */
         <>
@@ -1142,6 +1153,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     flexShrink: 0,
   },
+
+  // DEV-only debug strip
+  devDebugStrip: {
+    backgroundColor: '#1a1a00',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ffff0044',
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+  },
+  devDebugText: { color: '#ffff00', fontSize: 10, fontFamily: 'monospace' },
 
   // Back-to-text strip shown above PDF viewer when article also has content
   pdfBackToText: {
