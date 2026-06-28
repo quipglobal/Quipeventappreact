@@ -17,38 +17,69 @@ function estimateReadTime(content: string): number {
   return Math.max(1, Math.round(wordCount / 200));
 }
 
+const BACKEND_BASE = 'https://app.cxocollaborate.com';
+
 /**
  * Resolve a PDF/document file URL from a raw backend object.
- * Checks every field that backend implementations commonly use.
- * Excludes generic `url` since it often points to the API endpoint, not the file.
- * Returns null when no valid absolute https/http URL is found.
+ *
+ * Resolution order:
+ *  1. Canonical PDF-specific fields (pdf_url, file_url, document_url, …)
+ *  2. Nested objects: attachment?.url, media?.url, file?.url
+ *  3. Generic `url` field — included here because for /reader/documents the
+ *     `url` field IS the file URL, not an API endpoint.
+ *
+ * Relative paths (e.g. /storage/docs/42.pdf) are resolved against BACKEND_BASE.
+ * Returns null when no valid http/https URL is found.
  */
 function resolveFileUrl(raw: any): string | null {
-  // pdf_url is the canonical field returned by GET /mobile/reader/documents[/:id]
-  // regardless of whether the PDF was uploaded to local storage or is an external link.
-  // All other aliases are kept as fallbacks for backward compatibility.
-  const candidate =
-    raw.pdf_url ??
-    raw.file_url ??
-    raw.document_url ??
-    raw.attachment_url ??
-    raw.pdf_link ??
-    raw.download_url ??
-    raw.media_url ??
-    raw.resource_url ??
-    raw.link ??
-    raw.file ??
-    null;
+  const candidates: Array<string | null | undefined> = [
+    raw.pdf_url,
+    raw.file_url,
+    raw.document_url,
+    raw.attachment_url,
+    raw.pdf_link,
+    raw.download_url,
+    raw.media_url,
+    raw.resource_url,
+    raw.pdf_path,
+    raw.file_path,
+    typeof raw.attachment === 'object' && raw.attachment !== null
+      ? (raw.attachment.url ?? raw.attachment.full_url ?? raw.attachment.path)
+      : null,
+    typeof raw.media === 'object' && raw.media !== null && !Array.isArray(raw.media)
+      ? (raw.media.url ?? raw.media.full_url ?? raw.media.original_url)
+      : null,
+    Array.isArray(raw.media) && raw.media.length > 0
+      ? (raw.media[0].url ?? raw.media[0].original_url ?? raw.media[0].full_url)
+      : null,
+    raw.link,
+    raw.file,
+    raw.url,
+  ];
 
-  if (!candidate || typeof candidate !== 'string') return null;
-
-  try {
-    const parsed = new URL(candidate);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
-    return candidate;
-  } catch {
-    return null;
+  for (const c of candidates) {
+    if (!c || typeof c !== 'string' || !c.trim()) continue;
+    const trimmed = c.trim();
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return trimmed;
+    } catch {
+      if (trimmed.startsWith('/')) {
+        return BACKEND_BASE + trimmed;
+      }
+    }
   }
+
+  if (__DEV__) {
+    const allKeys = Object.keys(raw).join(', ');
+    console.log(`[Reader] resolveFileUrl: no URL found. Raw keys: ${allKeys}`);
+    const urlLike = Object.entries(raw).filter(
+      ([k, v]) => typeof v === 'string' && (String(v).includes('http') || String(v).includes('.pdf') || k.includes('url') || k.includes('file') || k.includes('path')),
+    );
+    if (urlLike.length) console.log('[Reader] URL-like fields:', JSON.stringify(Object.fromEntries(urlLike)));
+  }
+
+  return null;
 }
 
 function normalizeArticle(raw: any): Article {

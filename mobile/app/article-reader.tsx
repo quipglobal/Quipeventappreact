@@ -657,10 +657,16 @@ export default function ArticleReaderScreen() {
   const [scrollPercent, setScrollPercent] = useState(0);
   const [fontSizeIdx, setFontSizeIdx] = useState<FontSizeIndex>(DEFAULT_FONT_IDX);
   const [authToken, setAuthToken] = useState<string | null>(null);
+  const [showPdfViewer, setShowPdfViewer] = useState(false);
 
   const hasPdf = !!article?.fileUrl;
+  const hasContent = !!article?.content?.replace(/<[^>]*>/g, '').trim();
   const accent = article?.categoryColor || colors.primary;
   const fontSize = FONT_SIZES[fontSizeIdx];
+
+  useEffect(() => {
+    if (hasPdf && !hasContent) setShowPdfViewer(true);
+  }, [hasPdf, hasContent]);
 
   const minutesRemaining = article
     ? Math.max(1, Math.round(article.estimatedReadMinutes * (1 - scrollPercent / 100)))
@@ -839,9 +845,21 @@ export default function ArticleReaderScreen() {
         </View>
       </View>
 
-      {hasPdf ? (
+      {showPdfViewer && hasPdf ? (
         /* ── PDF full-screen mode ─────────────────────────────────────────── */
         <>
+          {/* If there's also text content, show a back-to-text button in nav */}
+          {hasContent && (
+            <TouchableOpacity
+              style={styles.pdfBackToText}
+              onPress={() => setShowPdfViewer(false)}
+            >
+              <Ionicons name="document-text-outline" size={13} color={accent} />
+              <Text style={[styles.pdfBackToTextLabel, { color: accent }]}>
+                View Description
+              </Text>
+            </TouchableOpacity>
+          )}
           <PdfViewer
             fileUrl={article.fileUrl!}
             accent={accent}
@@ -850,11 +868,10 @@ export default function ArticleReaderScreen() {
           />
         </>
       ) : (
-        /* ── HTML reading mode ────────────────────────────────────────────── */
+        /* ── HTML reading mode (+ optional PDF attachment card) ───────────── */
         <>
           <ReadingProgressBar percent={scrollPercent} accent={accent} />
 
-          {/* Reading time remaining — appears once user starts scrolling */}
           {scrollPercent > 2 && minutesRemaining !== null && (
             <View style={styles.timeRemainingBar}>
               <Ionicons name="book-outline" size={12} color={accent} />
@@ -876,10 +893,34 @@ export default function ArticleReaderScreen() {
             onScroll={onScroll}
             scrollEventThrottle={100}
           >
+            {/* PDF attachment card — shown when article has both text + PDF */}
+            {hasPdf && (
+              <TouchableOpacity
+                style={[styles.pdfAttachCard, { borderColor: accent + '40' }]}
+                activeOpacity={0.8}
+                onPress={() => setShowPdfViewer(true)}
+              >
+                <LinearGradient
+                  colors={[accent + '18', accent + '08']}
+                  style={styles.pdfAttachGradient}
+                >
+                  <View style={[styles.pdfAttachIcon, { backgroundColor: accent + '22' }]}>
+                    <Ionicons name="document-text" size={24} color={accent} />
+                  </View>
+                  <View style={styles.pdfAttachBody}>
+                    <Text style={styles.pdfAttachTitle}>View PDF Document</Text>
+                    <Text style={styles.pdfAttachSub}>Tap to open full-screen reader</Text>
+                  </View>
+                  <View style={[styles.pdfAttachChevron, { backgroundColor: accent }]}>
+                    <Ionicons name="chevron-forward" size={16} color="#fff" />
+                  </View>
+                </LinearGradient>
+              </TouchableOpacity>
+            )}
+
             <ArticleHeader article={article} />
             <HtmlContent html={article.content} fontSize={fontSize} />
 
-            {/* End-of-article marker */}
             {scrollPercent >= 90 && (
               <View style={styles.finishedBanner}>
                 <Ionicons name="checkmark-circle" size={20} color={accent} />
@@ -1063,6 +1104,57 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     marginTop: spacing.xxl,
   },
+
+  // PDF attachment card (shown in text mode when article also has PDF)
+  pdfAttachCard: {
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    overflow: 'hidden',
+    marginBottom: spacing.lg,
+  },
+  pdfAttachGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.md,
+    gap: spacing.md,
+  },
+  pdfAttachIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  pdfAttachBody: { flex: 1 },
+  pdfAttachTitle: {
+    color: colors.textPrimary,
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  pdfAttachSub: { color: colors.textMuted, fontSize: 12 },
+  pdfAttachChevron: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+
+  // Back-to-text strip shown above PDF viewer when article also has content
+  pdfBackToText: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+  },
+  pdfBackToTextLabel: { fontSize: 12, fontWeight: '600' },
 
   // PDF full-screen viewer
   pdfFullWrap: { flex: 1, backgroundColor: READER_BG, position: 'relative' },
