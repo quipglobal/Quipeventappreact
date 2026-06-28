@@ -4,17 +4,16 @@
  * PDF rendering strategy
  * ─────────────────────
  * Native (iOS/Android):
- *   1. direct  — raw pdf_url with Bearer auth header (works for backend-hosted PDFs)
- *   2. google  — Google Docs Viewer (handles externally-hosted public PDFs)
- *   3. failed  — error screen with "Open in Browser"
- *   A 15-second safety timer advances each stage when the WebView loads silently
- *   without rendering content (e.g. a Google "can't open" page that fires onLoad).
+ *   - React Native fetch() downloads PDF bytes with Bearer auth header (no CORS)
+ *   - Bytes converted to base64 and embedded in an inline WebView HTML page
+ *   - PDF.js (cdnjs CDN) renders pages as canvas elements — works on both platforms
+ *   - No native PDF modules required; pinch-to-zoom supported via WebView
+ *   - Error states: download failure → in-app error + "Open in Browser" fallback
  *
  * Web (Expo web):
  *   1. direct  — raw pdf_url in <iframe>
- *   2. google  — Google Docs Viewer fallback
- *   3. failed  — error screen
- *   A 20-second timer advances each stage for silent iframe blocks (X-Frame-Options).
+ *   2. google  — Google Docs Viewer fallback (20s timer advances on silent block)
+ *   3. failed  — error screen with "Open in Browser"
  *
  * Analytics
  * ─────────
@@ -312,7 +311,7 @@ function FontSizeControls({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PDF sub-components (shared)
+// PDF sub-components
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface PdfViewerProps {
@@ -322,24 +321,97 @@ interface PdfViewerProps {
   onLoadSuccess: () => void;
 }
 
-function PdfLoadingOverlay({
-  accent,
-  message,
-  stage,
-}: {
-  accent: string;
-  message: string;
-  stage: string;
-}) {
+function arrayBufferToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  const chunks: string[] = [];
+  const CHUNK = 8192;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    chunks.push(String.fromCharCode(...(bytes.subarray(i, i + CHUNK) as any)));
+  }
+  return btoa(chunks.join(''));
+}
+
+function buildPdfHtml(base64Data: string, accent: string): string {
+  const safeAccent = accent.replace(/[^#a-zA-Z0-9]/g, '');
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=5.0,user-scalable=yes">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;background:#0a0a16;overflow-x:hidden}
+#loader{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#0a0a16;color:#fff;gap:16px;z-index:99}
+.spinner{width:52px;height:52px;border:3px solid rgba(124,58,237,.25);border-top-color:${safeAccent};border-radius:50%;animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.lt{font-family:-apple-system,sans-serif;font-size:15px;color:rgba(255,255,255,.75)}
+.ls{font-family:-apple-system,sans-serif;font-size:12px;color:rgba(255,255,255,.4);margin-top:4px}
+#err{position:fixed;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;background:#0a0a16;color:#fff;text-align:center;padding:40px;gap:14px}
+.ei{font-size:48px}
+.et{font-family:-apple-system,sans-serif;font-size:18px;font-weight:700}
+.em{font-family:-apple-system,sans-serif;font-size:13px;color:rgba(255,255,255,.5);max-width:280px;line-height:1.5}
+.rb{margin-top:8px;padding:13px 32px;background:${safeAccent};color:#fff;border:none;border-radius:28px;font-family:-apple-system,sans-serif;font-size:14px;font-weight:700;cursor:pointer}
+#pages{display:none;flex-direction:column;align-items:center;padding:16px;gap:10px;min-height:100%}
+.pg{display:block;background:#fff;box-shadow:0 4px 24px rgba(0,0,0,.6);max-width:100%}
+.pn{font-family:-apple-system,sans-serif;font-size:11px;color:rgba(255,255,255,.3);text-align:center;padding-bottom:6px}
+</style>
+</head>
+<body>
+<div id="loader"><div class="spinner"></div><div class="lt">Rendering document…</div><div id="ls" class="ls"></div></div>
+<div id="err"><div class="ei">📄</div><div class="et">Couldn't display document</div><div class="em" id="em"></div><button class="rb" onclick="render()">Try Again</button></div>
+<div id="pages"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+var B64='${base64Data}';
+function post(t,d){try{window.ReactNativeWebView&&window.ReactNativeWebView.postMessage(JSON.stringify(Object.assign({type:t},d)))}catch(e){}}
+function showErr(m){document.getElementById('loader').style.display='none';var e=document.getElementById('err');e.style.display='flex';document.getElementById('em').textContent=m||'Could not render this document.';post('error',{message:m})}
+async function render(){
+  document.getElementById('err').style.display='none';
+  var pg=document.getElementById('pages');pg.style.display='none';pg.innerHTML='';
+  document.getElementById('loader').style.display='flex';
+  document.getElementById('ls').textContent='';
+  pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  try{
+    document.getElementById('ls').textContent='Loading…';
+    var raw=atob(B64);
+    var buf=new ArrayBuffer(raw.length);
+    var view=new Uint8Array(buf);
+    for(var i=0;i<raw.length;i++)view[i]=raw.charCodeAt(i);
+    document.getElementById('ls').textContent='Rendering…';
+    var pdf=await pdfjsLib.getDocument({data:buf}).promise;
+    pg.style.display='flex';
+    document.getElementById('loader').style.display='none';
+    var dpr=Math.min(window.devicePixelRatio||1,2);
+    for(var n=1;n<=pdf.numPages;n++){
+      var page=await pdf.getPage(n);
+      var vp0=page.getViewport({scale:1});
+      var dispW=Math.min(window.innerWidth-32,768);
+      var sc=(dispW/vp0.width)*dpr;
+      var vp=page.getViewport({scale:sc});
+      var canvas=document.createElement('canvas');
+      canvas.className='pg';
+      canvas.width=vp.width;canvas.height=vp.height;
+      canvas.style.width=(vp.width/dpr)+'px';canvas.style.height=(vp.height/dpr)+'px';
+      await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;
+      pg.appendChild(canvas);
+      if(pdf.numPages>1){var lbl=document.createElement('div');lbl.className='pn';lbl.textContent=n+' of '+pdf.numPages;pg.appendChild(lbl)}
+    }
+    post('loaded',{pages:pdf.numPages});
+  }catch(e){showErr(e.message||'Render failed')}
+}
+document.readyState==='loading'?document.addEventListener('DOMContentLoaded',render):render();
+</script>
+</body>
+</html>`;
+}
+
+function PdfLoadingOverlay({ accent, message }: { accent: string; message: string }) {
   return (
-    <View style={styles.webviewLoader}>
-      <View style={[styles.pdfLoaderIcon, { borderColor: accent + '40' }]}>
+    <View style={styles.pdfLoaderWrap}>
+      <View style={[styles.pdfLoaderRing, { borderTopColor: accent }]}>
         <ActivityIndicator size="large" color={accent} />
       </View>
-      <Text style={styles.webviewLoaderText}>{message}</Text>
-      {stage !== 'direct' && (
-        <Text style={styles.webviewLoaderSub}>Trying alternative viewer…</Text>
-      )}
+      <Text style={styles.pdfLoaderText}>{message}</Text>
     </View>
   );
 }
@@ -347,10 +419,12 @@ function PdfLoadingOverlay({
 function PdfErrorScreen({
   fileUrl,
   accent,
+  message,
   onRetry,
 }: {
   fileUrl: string;
   accent: string;
+  message?: string;
   onRetry: () => void;
 }) {
   return (
@@ -363,8 +437,8 @@ function PdfErrorScreen({
       </LinearGradient>
       <Text style={styles.pdfErrorTitle}>Couldn't display document</Text>
       <Text style={styles.pdfErrorSub}>
-        The document couldn't be rendered inside the app.{'\n'}
-        You can still open it in your browser.
+        {message || "The document couldn't be rendered inside the app."}
+        {'\n'}You can still open it in your browser.
       </Text>
       <TouchableOpacity
         style={[styles.pdfOpenBtn, { backgroundColor: accent }]}
@@ -387,9 +461,7 @@ function PdfErrorScreen({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Web PDF viewer — native <iframe>
-// Stage: direct → google → failed
-// 20-second timer advances when iframe loads silently (X-Frame-Options, etc.)
+// Web PDF viewer — native <iframe> with Google Docs fallback
 // ─────────────────────────────────────────────────────────────────────────────
 
 type WebStage = 'direct' | 'google' | 'failed';
@@ -459,125 +531,96 @@ function PdfViewerWeb({ fileUrl, accent, onLoadSuccess }: PdfViewerProps) {
   });
 
   return (
-    <View style={styles.webviewWrap}>
-      {loading && (
-        <PdfLoadingOverlay
-          accent={accent}
-          message={stage === 'direct' ? 'Loading document…' : 'Preparing document…'}
-          stage={stage}
-        />
-      )}
+    <View style={styles.pdfFullWrap}>
+      {loading && <PdfLoadingOverlay accent={accent} message={stage === 'direct' ? 'Loading document…' : 'Preparing document…'} />}
       {iframeEl}
     </View>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Native PDF viewer — WebView
-// Stage: direct → google → failed
-// Direct URL gets Bearer auth header so backend-hosted PDFs load properly.
-// 15-second safety timer advances when stage loads silently without real content.
+// Native PDF viewer — PDF.js canvas renderer
+// Fetches PDF bytes in RN context (no CORS), converts to base64, renders via
+// an inline WebView HTML page using PDF.js from CDN.
+// Works on both iOS and Android — no native PDF modules required.
 // ─────────────────────────────────────────────────────────────────────────────
 
-type NativeStage = 'direct' | 'google' | 'failed';
+type FetchState = 'idle' | 'fetching' | 'done' | 'error';
 
 function PdfViewerNative({ fileUrl, accent, authToken, onLoadSuccess }: PdfViewerProps) {
-  const [stage, setStage] = useState<NativeStage>('direct');
-  const [loading, setLoading] = useState(true);
-  const loadedRef = useRef(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const advanceRef = useRef<(() => void) | null>(null);
+  const [fetchState, setFetchState] = useState<FetchState>('fetching');
+  const [errorMsg, setErrorMsg] = useState<string>('');
+  const [base64, setBase64] = useState<string>('');
 
-  const advance = useCallback(() => {
-    setStage((s) => {
-      if (s === 'direct') { setLoading(true); return 'google'; }
-      setLoading(false); return 'failed';
-    });
-  }, []);
+  const doFetch = useCallback(() => {
+    let cancelled = false;
+    setFetchState('fetching');
+    setErrorMsg('');
+    setBase64('');
 
-  advanceRef.current = advance;
+    const headers: Record<string, string> = {};
+    if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+
+    fetch(fileUrl, { headers })
+      .then(async (resp) => {
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const buf = await resp.arrayBuffer();
+        return arrayBufferToBase64(buf);
+      })
+      .then((b64) => {
+        if (cancelled) return;
+        setBase64(b64);
+        setFetchState('done');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setErrorMsg(err.message || 'Download failed');
+        setFetchState('error');
+      });
+
+    return () => { cancelled = true; };
+  }, [fileUrl, authToken]);
 
   useEffect(() => {
-    loadedRef.current = false;
-    setLoading(true);
-    timerRef.current = setTimeout(() => advanceRef.current?.(), 15_000);
-    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  }, [stage]);
+    const cleanup = doFetch();
+    return cleanup;
+  }, [doFetch]);
 
-  const handleLoad = useCallback(() => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    setLoading(false);
-    if (!loadedRef.current) { loadedRef.current = true; onLoadSuccess(); }
-  }, [onLoadSuccess]);
+  if (fetchState === 'fetching') {
+    return <PdfLoadingOverlay accent={accent} message="Loading document…" />;
+  }
 
-  const handleError = useCallback(() => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    setLoading(false);
-    advance();
-  }, [advance]);
-
-  const handleHttpError = useCallback(
-    (e: { nativeEvent: { statusCode: number } }) => {
-      if (e.nativeEvent.statusCode >= 400) {
-        if (timerRef.current) clearTimeout(timerRef.current);
-        setLoading(false);
-        advance();
-      }
-    },
-    [advance],
-  );
-
-  const src =
-    stage === 'direct'
-      ? fileUrl
-      : stage === 'google'
-      ? `https://docs.google.com/viewer?embedded=true&url=${encodeURIComponent(fileUrl)}`
-      : null;
-
-  const webViewHeaders: Record<string, string> =
-    stage === 'direct' && authToken
-      ? { Authorization: `Bearer ${authToken}` }
-      : {};
-
-  if (stage === 'failed' || !src) {
+  if (fetchState === 'error' || !base64) {
     return (
       <PdfErrorScreen
         fileUrl={fileUrl}
         accent={accent}
-        onRetry={() => {
-          loadedRef.current = false;
-          setStage('direct');
-          setLoading(true);
-        }}
+        message={errorMsg}
+        onRetry={doFetch}
       />
     );
   }
 
+  const html = buildPdfHtml(base64, accent);
+
   return (
-    <View style={styles.webviewWrap}>
-      {loading && (
-        <PdfLoadingOverlay
-          accent={accent}
-          message={stage === 'direct' ? 'Loading document…' : 'Preparing document…'}
-          stage={stage}
-        />
-      )}
-      <WebView
-        key={src}
-        source={{ uri: src, headers: webViewHeaders }}
-        style={[styles.webview, loading && styles.webviewHidden]}
-        onLoad={handleLoad}
-        onError={handleError}
-        onHttpError={handleHttpError}
-        javaScriptEnabled
-        domStorageEnabled
-        allowsInlineMediaPlayback
-        startInLoadingState={false}
-        originWhitelist={['*']}
-        allowsLinkPreview={false}
-        setSupportMultipleWindows={false}
-      />
-    </View>
+    <WebView
+      source={{ html }}
+      style={styles.pdfWebView}
+      javaScriptEnabled
+      domStorageEnabled
+      originWhitelist={['*']}
+      allowUniversalAccessFromFileURLs
+      showsVerticalScrollIndicator={false}
+      showsHorizontalScrollIndicator={false}
+      scalesPageToFit={false}
+      onMessage={(e) => {
+        try {
+          const data = JSON.parse(e.nativeEvent.data);
+          if (data.type === 'loaded') onLoadSuccess();
+        } catch {}
+      }}
+    />
   );
 }
 
@@ -588,42 +631,6 @@ function PdfViewerNative({ fileUrl, accent, authToken, onLoadSuccess }: PdfViewe
 function PdfViewer(props: PdfViewerProps) {
   if (Platform.OS === 'web') return <PdfViewerWeb {...props} />;
   return <PdfViewerNative {...props} />;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PDF document header (above the viewer)
-// ─────────────────────────────────────────────────────────────────────────────
-
-function PdfDocumentHeader({ article, accent }: { article: Article; accent: string }) {
-  return (
-    <LinearGradient
-      colors={[accent + '18', 'transparent']}
-      style={styles.pdfHeaderGradient}
-    >
-      <View style={[styles.pdfHeaderIconWrap, { backgroundColor: accent + '22' }]}>
-        <Ionicons name="document-text" size={22} color={accent} />
-      </View>
-      <View style={styles.pdfHeaderText}>
-        <Text style={styles.pdfMetaTitle} numberOfLines={2}>
-          {article.title}
-        </Text>
-        <View style={styles.pdfHeaderMeta}>
-          {article.authorName ? (
-            <View style={styles.pdfMetaChip}>
-              <Ionicons name="person-outline" size={11} color={colors.textMuted} />
-              <Text style={styles.pdfMetaChipText}>{article.authorName}</Text>
-            </View>
-          ) : null}
-          <View style={styles.pdfMetaChip}>
-            <Ionicons name="time-outline" size={11} color={colors.textMuted} />
-            <Text style={styles.pdfMetaChipText}>
-              {article.estimatedReadMinutes} min read
-            </Text>
-          </View>
-        </View>
-      </View>
-    </LinearGradient>
-  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -833,9 +840,8 @@ export default function ArticleReaderScreen() {
       </View>
 
       {hasPdf ? (
-        /* ── PDF mode ─────────────────────────────────────────────────────── */
+        /* ── PDF full-screen mode ─────────────────────────────────────────── */
         <>
-          <PdfDocumentHeader article={article} accent={accent} />
           <PdfViewer
             fileUrl={article.fileUrl!}
             accent={accent}
@@ -1058,61 +1064,29 @@ const styles = StyleSheet.create({
     marginTop: spacing.xxl,
   },
 
-  // PDF header
-  pdfHeaderGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
-  },
-  pdfHeaderIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  },
-  pdfHeaderText: { flex: 1 },
-  pdfMetaTitle: {
-    color: colors.textPrimary,
-    fontSize: 14,
-    fontWeight: '700',
-    lineHeight: 20,
-    marginBottom: 3,
-  },
-  pdfHeaderMeta: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  pdfMetaChip: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  pdfMetaChipText: { color: colors.textMuted, fontSize: 11 },
+  // PDF full-screen viewer
+  pdfFullWrap: { flex: 1, backgroundColor: READER_BG, position: 'relative' },
+  pdfWebView: { flex: 1, backgroundColor: READER_BG },
 
-  // PDF WebView
-  webviewWrap: { flex: 1, backgroundColor: '#fff', position: 'relative' },
-  webview: { flex: 1 },
-  webviewHidden: { opacity: 0 },
-  webviewLoader: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: READER_BG,
+  // PDF loading overlay (shown while RN is downloading bytes)
+  pdfLoaderWrap: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 10,
+    backgroundColor: READER_BG,
     gap: spacing.md,
   },
-  pdfLoaderIcon: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    borderWidth: 1,
+  pdfLoaderRing: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.sm,
   },
-  webviewLoaderText: { color: colors.textPrimary, fontSize: 15, fontWeight: '600' },
-  webviewLoaderSub: { color: colors.textMuted, fontSize: 12 },
+  pdfLoaderText: { color: colors.textPrimary, fontSize: 15, fontWeight: '600' },
 
-  // PDF error
+  // PDF error state
   pdfErrorWrap: {
     flex: 1,
     alignItems: 'center',
