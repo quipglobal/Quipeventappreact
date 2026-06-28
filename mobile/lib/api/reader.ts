@@ -31,52 +31,130 @@ const BACKEND_BASE = 'https://app.cxocollaborate.com';
  * Relative paths (e.g. /storage/docs/42.pdf) are resolved against BACKEND_BASE.
  * Returns null when no valid http/https URL is found.
  */
-function resolveFileUrl(raw: any): string | null {
-  const candidates: Array<string | null | undefined> = [
-    raw.pdf_url,
-    raw.file_url,
-    raw.document_url,
-    raw.attachment_url,
-    raw.pdf_link,
-    raw.download_url,
-    raw.media_url,
-    raw.resource_url,
-    raw.pdf_path,
-    raw.file_path,
-    typeof raw.attachment === 'object' && raw.attachment !== null
-      ? (raw.attachment.url ?? raw.attachment.full_url ?? raw.attachment.path)
-      : null,
-    typeof raw.media === 'object' && raw.media !== null && !Array.isArray(raw.media)
-      ? (raw.media.url ?? raw.media.full_url ?? raw.media.original_url)
-      : null,
-    Array.isArray(raw.media) && raw.media.length > 0
-      ? (raw.media[0].url ?? raw.media[0].original_url ?? raw.media[0].full_url)
-      : null,
-    raw.link,
-    raw.file,
-    raw.url,
-  ];
+/** Resolve a string path/URL to a full https URL, or return null. */
+function toUrl(v: unknown): string | null {
+  if (!v || typeof v !== 'string') return null;
+  const trimmed = v.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = new URL(trimmed);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? trimmed : null;
+  } catch {
+    return trimmed.startsWith('/') ? BACKEND_BASE + trimmed : null;
+  }
+}
 
-  for (const c of candidates) {
-    if (!c || typeof c !== 'string' || !c.trim()) continue;
-    const trimmed = c.trim();
-    try {
-      const parsed = new URL(trimmed);
-      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return trimmed;
-    } catch {
-      if (trimmed.startsWith('/')) {
-        return BACKEND_BASE + trimmed;
+/** Extract URL from an object that might be a Spatie media item or similar. */
+function urlFromObj(obj: unknown): string | null {
+  if (!obj || typeof obj !== 'object') return null;
+  const o = obj as Record<string, unknown>;
+  return (
+    toUrl(o.original_url) ??
+    toUrl(o.url) ??
+    toUrl(o.full_url) ??
+    toUrl(o.path) ??
+    toUrl(o.download_url) ??
+    null
+  );
+}
+
+/**
+ * Resolve a PDF/document file URL from a raw backend object.
+ *
+ * Handles:
+ * - Direct string fields (file_url, pdf_url, document_url, …)
+ * - Fields that are objects { url, original_url, … } (Spatie media items)
+ * - media[] array (Spatie Media Library) — prefers PDF mime type, else first item
+ * - attachments[] array
+ * - Nested objects: attachment, document, pdf, file
+ * - Relative paths resolved against BACKEND_BASE
+ */
+function resolveFileUrl(raw: any): string | null {
+  // 1. Direct string fields — try every plausible name
+  const directFields = [
+    'pdf_url', 'file_url', 'document_url', 'attachment_url',
+    'pdf_link', 'download_url', 'media_url', 'resource_url',
+    'pdf_path', 'file_path', 'document_path', 'attachment_path',
+    'pdf', 'document', 'link',
+  ];
+  for (const f of directFields) {
+    const candidate = raw[f];
+    if (candidate && typeof candidate === 'string') {
+      const u = toUrl(candidate);
+      if (u) return u;
+    }
+    // Field might itself be an object with a url key
+    if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+      const u = urlFromObj(candidate);
+      if (u) return u;
+    }
+  }
+
+  // 2. Spatie Media Library: raw.media array
+  //    Prefer items with mime_type containing 'pdf' or collection_name 'documents'/'pdf'
+  if (Array.isArray(raw.media) && raw.media.length > 0) {
+    const pdfItem =
+      raw.media.find((m: any) =>
+        String(m.mime_type ?? '').includes('pdf') ||
+        String(m.collection_name ?? '').toLowerCase().includes('pdf') ||
+        String(m.collection_name ?? '').toLowerCase().includes('doc') ||
+        String(m.file_name ?? '').toLowerCase().endsWith('.pdf'),
+      ) ?? raw.media[0];
+    const u = urlFromObj(pdfItem);
+    if (u) return u;
+  }
+
+  // 3. Spatie Media Library: raw.media as single object
+  if (raw.media && typeof raw.media === 'object' && !Array.isArray(raw.media)) {
+    const u = urlFromObj(raw.media);
+    if (u) return u;
+  }
+
+  // 4. attachments[] array
+  if (Array.isArray(raw.attachments) && raw.attachments.length > 0) {
+    const pdfItem =
+      raw.attachments.find((a: any) =>
+        String(a.mime_type ?? '').includes('pdf') ||
+        String(a.name ?? a.file_name ?? '').toLowerCase().endsWith('.pdf'),
+      ) ?? raw.attachments[0];
+    const u = urlFromObj(pdfItem) ?? toUrl(pdfItem);
+    if (u) return u;
+  }
+
+  // 5. files[] array
+  if (Array.isArray(raw.files) && raw.files.length > 0) {
+    const pdfItem =
+      raw.files.find((f: any) =>
+        String(f.mime_type ?? '').includes('pdf') ||
+        String(f.name ?? f.file_name ?? '').toLowerCase().endsWith('.pdf'),
+      ) ?? raw.files[0];
+    const u = urlFromObj(pdfItem) ?? toUrl(pdfItem);
+    if (u) return u;
+  }
+
+  // 6. Fallback: scan ALL string fields for anything that looks like a PDF URL
+  for (const [k, v] of Object.entries(raw)) {
+    if (typeof v !== 'string') continue;
+    if (v.toLowerCase().endsWith('.pdf') || v.includes('/pdf/') || v.includes('/document')) {
+      const u = toUrl(v);
+      if (u) {
+        if (__DEV__) console.log(`[Reader] resolveFileUrl: found PDF-like URL in field "${k}": ${u}`);
+        return u;
       }
     }
   }
 
   if (__DEV__) {
-    const allKeys = Object.keys(raw).join(', ');
-    console.log(`[Reader] resolveFileUrl: no URL found. Raw keys: ${allKeys}`);
+    console.log('[Reader] resolveFileUrl: no URL found. Raw keys:', Object.keys(raw).join(', '));
     const urlLike = Object.entries(raw).filter(
-      ([k, v]) => typeof v === 'string' && (String(v).includes('http') || String(v).includes('.pdf') || k.includes('url') || k.includes('file') || k.includes('path')),
+      ([k, v]) =>
+        typeof v === 'string' &&
+        (String(v).includes('http') || String(v).includes('.pdf') ||
+         k.includes('url') || k.includes('file') || k.includes('path')),
     );
-    if (urlLike.length) console.log('[Reader] URL-like fields:', JSON.stringify(Object.fromEntries(urlLike)));
+    if (urlLike.length) {
+      console.log('[Reader] URL-like fields:', JSON.stringify(Object.fromEntries(urlLike)));
+    }
   }
 
   return null;
@@ -183,7 +261,26 @@ export async function getDocument(id: string): Promise<ApiResponse<Article | nul
   }
   const raw = res.data?.data ?? res.data;
   if (!raw || typeof raw !== 'object') return { success: true, data: null };
-  return { success: true, data: normalizeArticle(raw) };
+
+  if (__DEV__) {
+    console.log('[Reader] RAW article response:', JSON.stringify(raw, null, 2));
+  }
+
+  const normalized = normalizeArticle(raw);
+
+  if (__DEV__) {
+    // Attach a flat summary of all fields + values for the on-screen debug strip
+    const summary = Object.entries(raw)
+      .map(([k, v]) => {
+        if (v === null || v === undefined) return `${k}=null`;
+        if (typeof v === 'object') return `${k}={obj}`;
+        return `${k}=${String(v).slice(0, 60)}`;
+      })
+      .join('\n');
+    (normalized as any).__rawSummary = summary;
+  }
+
+  return { success: true, data: normalized };
 }
 
 /**

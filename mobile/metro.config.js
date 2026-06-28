@@ -2,6 +2,12 @@ const { getDefaultConfig } = require('expo/metro-config');
 const https = require('https');
 const http = require('http');
 
+// Stores the last /reader/documents response so we can curl /debug/reader-response
+let _lastReaderResponse = { url: null, status: null, body: null, ts: null };
+
+// Stores the last article raw data beaconed from the native app
+let _lastArticleData = null;
+
 const BACKEND =
   process.env.EXPO_PUBLIC_API_BASE_URL ||
   'https://app.cxocollaborate.com';
@@ -17,11 +23,47 @@ config.server = {
   ...config.server,
   enhanceMiddleware: (metroMiddleware) => {
     return (req, res, next) => {
+      // Debug endpoint — curl http://localhost:8080/debug/reader-response
+      if (req.url === '/debug/reader-response') {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify(_lastReaderResponse, null, 2));
+        return;
+      }
+
+      // Beacon endpoint — native app POSTs raw article data here so we can inspect it
+      if (req.url === '/debug/article-data') {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+        if (req.method === 'OPTIONS') {
+          res.writeHead(204); res.end(); return;
+        }
+        if (req.method === 'POST') {
+          const chunks = [];
+          req.on('data', (c) => chunks.push(c));
+          req.on('end', () => {
+            try {
+              _lastArticleData = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+              console.log('\n[metro-proxy] 📄 ARTICLE DATA RECEIVED FROM APP:');
+              console.log(JSON.stringify(_lastArticleData, null, 2));
+            } catch (e) {
+              _lastArticleData = { parseError: e.message };
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true }));
+          });
+          return;
+        }
+        // GET — return stored data
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(_lastArticleData, null, 2));
+        return;
+      }
+
       if (!req.url || (!req.url.startsWith('/api') && !req.url.startsWith('/mobile'))) {
         return metroMiddleware(req, res, next);
       }
 
-      // Answer CORS preflight directly — never let it reach Expo's CorsMiddleware
+      // Answer CORS preflight directly
       if (req.method === 'OPTIONS') {
         res.writeHead(204, {
           'Access-Control-Allow-Origin': '*',
@@ -33,7 +75,6 @@ config.server = {
         return;
       }
 
-      // Proxy all other /api/* requests to the backend
       const targetPath =
         backendUrl.pathname.replace(/\/$/, '') + req.url;
 
@@ -53,8 +94,29 @@ config.server = {
           ...proxyRes.headers,
           'Access-Control-Allow-Origin': '*',
         };
-        res.writeHead(proxyRes.statusCode || 200, responseHeaders);
-        proxyRes.pipe(res);
+
+        const isReaderRoute = req.url && req.url.includes('/reader/documents');
+        if (isReaderRoute) {
+          const chunks = [];
+          proxyRes.on('data', (chunk) => chunks.push(chunk));
+          proxyRes.on('end', () => {
+            const body = Buffer.concat(chunks).toString('utf8');
+            console.log(`[metro-proxy] ${req.method} ${req.url} → ${proxyRes.statusCode}`);
+            try {
+              const parsed = JSON.parse(body);
+              _lastReaderResponse = { url: req.url, status: proxyRes.statusCode, body: parsed, ts: new Date().toISOString() };
+              console.log('[metro-proxy] READER RESPONSE:', JSON.stringify(parsed, null, 2));
+            } catch {
+              _lastReaderResponse = { url: req.url, status: proxyRes.statusCode, body: body.slice(0, 4000), ts: new Date().toISOString() };
+              console.log('[metro-proxy] READER RESPONSE (raw):', body.slice(0, 2000));
+            }
+            res.writeHead(proxyRes.statusCode || 200, responseHeaders);
+            res.end(body);
+          });
+        } else {
+          res.writeHead(proxyRes.statusCode || 200, responseHeaders);
+          proxyRes.pipe(res);
+        }
       });
 
       proxyReq.on('error', (err) => {

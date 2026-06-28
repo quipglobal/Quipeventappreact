@@ -46,8 +46,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd mobile && npx expo start --web --port 8080 --clear"
-waitForPort = 8080
+args = "cd mobile && npx expo start --web --port 8080"
 
 [[workflows.workflow]]
 name = "e2e-no-polling-after-signout"
