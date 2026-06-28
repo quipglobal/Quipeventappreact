@@ -117,10 +117,19 @@ function ArticleCard({
             </View>
           ) : null}
         </View>
-      </View>
 
-      <View style={styles.cardChevron}>
-        <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+        {/* CTA button */}
+        <View style={[styles.cardCta, { backgroundColor: accent + '18', borderColor: accent + '35' }]}>
+          <Ionicons
+            name={hasPdf ? 'document-text' : 'book-outline'}
+            size={11}
+            color={accent}
+          />
+          <Text style={[styles.cardCtaText, { color: accent }]}>
+            {hasPdf ? 'View PDF' : 'Start Reading'}
+          </Text>
+          <Ionicons name="arrow-forward" size={11} color={accent} />
+        </View>
       </View>
     </TouchableOpacity>
   );
@@ -441,8 +450,20 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 10,
   },
-  cardChevron: {
-    paddingRight: spacing.md,
+  cardCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    marginTop: 6,
+  },
+  cardCtaText: {
+    fontSize: 11,
+    fontWeight: '700',
   },
 
   center: {
