@@ -75,7 +75,7 @@ function resolveFileUrl(raw: any): string | null {
     'pdf_url', 'file_url', 'document_url', 'attachment_url',
     'pdf_link', 'download_url', 'media_url', 'resource_url',
     'pdf_path', 'file_path', 'document_path', 'attachment_path',
-    'pdf', 'document', 'link',
+    'pdf', 'document', 'link', 'file', 'url',
   ];
   for (const f of directFields) {
     const candidate = raw[f];
@@ -212,10 +212,6 @@ function normalizeArticle(raw: any): Article {
     updatedAt: raw.updated_at ?? raw.published_at ?? raw.created_at ?? '',
   };
 
-  if (__DEV__) {
-    (normalized as any).__rawKeys = Object.keys(raw).join(', ');
-  }
-
   return normalized;
 }
 
@@ -267,18 +263,6 @@ export async function getDocument(id: string): Promise<ApiResponse<Article | nul
   }
 
   const normalized = normalizeArticle(raw);
-
-  if (__DEV__) {
-    // Attach a flat summary of all fields + values for the on-screen debug strip
-    const summary = Object.entries(raw)
-      .map(([k, v]) => {
-        if (v === null || v === undefined) return `${k}=null`;
-        if (typeof v === 'object') return `${k}={obj}`;
-        return `${k}=${String(v).slice(0, 60)}`;
-      })
-      .join('\n');
-    (normalized as any).__rawSummary = summary;
-  }
 
   return { success: true, data: normalized };
 }

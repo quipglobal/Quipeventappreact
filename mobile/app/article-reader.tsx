@@ -57,7 +57,6 @@ import {
 import { getToken } from '@/lib/apiClient';
 import { colors, spacing, radius } from '@/constants/theme';
 import type { Article } from '@/lib/api/types';
-import Constants from 'expo-constants';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -683,31 +682,6 @@ export default function ArticleReaderScreen() {
     );
   }
 
-  // DEV-only: beacon raw article data to Metro so we can inspect the backend response
-  useEffect(() => {
-    if (!__DEV__ || !article) return;
-    const hostUri: string =
-      (Constants.expoConfig as any)?.hostUri ??
-      (Constants as any).manifest?.debuggerHost ??
-      (Constants as any).manifest2?.extra?.expoGo?.debuggerHost ??
-      '172.24.0.2:8080';
-    const metroUrl = `http://${hostUri}/debug/article-data`;
-    const payload = {
-      id: article.id,
-      title: article.title,
-      fileUrl: article.fileUrl ?? null,
-      rawKeys: (article as any).__rawKeys ?? null,
-      rawSummary: (article as any).__rawSummary ?? null,
-      ts: new Date().toISOString(),
-    };
-    fetch(metroUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    }).catch(() => undefined);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [article?.id]);
-
   const sendAnalytics = useCallback(() => {
     if (submittedRef.current || !id) return;
     submittedRef.current = true;
@@ -870,22 +844,6 @@ export default function ArticleReaderScreen() {
           </TouchableOpacity>
         </View>
       </View>
-
-      {/* DEV-only: visible debug strip — shows full raw API fields so we can
-           identify which field the backend uses for the PDF URL */}
-      {__DEV__ && article && (
-        <ScrollView
-          style={styles.devDebugStrip}
-          nestedScrollEnabled
-          showsVerticalScrollIndicator={false}
-        >
-          <Text style={styles.devDebugText} selectable>
-            {hasPdf
-              ? `✅ PDF resolved:\n${article.fileUrl}`
-              : `❌ No PDF. Backend fields:\n${(article as any).__rawSummary ?? (article as any).__rawKeys ?? 'reload article to see raw data'}`}
-          </Text>
-        </ScrollView>
-      )}
 
       {showPdfViewer && hasPdf ? (
         /* ── PDF full-screen mode ─────────────────────────────────────────── */
@@ -1184,17 +1142,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     flexShrink: 0,
   },
-
-  // DEV-only debug strip
-  devDebugStrip: {
-    backgroundColor: '#1a1a00',
-    borderBottomWidth: 1,
-    borderBottomColor: '#ffff0044',
-    paddingHorizontal: spacing.md,
-    paddingVertical: 6,
-    maxHeight: 180,
-  },
-  devDebugText: { color: '#ffff00', fontSize: 10, fontFamily: 'monospace', lineHeight: 16 },
 
   // Back-to-text strip shown above PDF viewer when article also has content
   pdfBackToText: {

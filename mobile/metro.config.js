@@ -5,9 +5,6 @@ const http = require('http');
 // Stores the last /reader/documents response so we can curl /debug/reader-response
 let _lastReaderResponse = { url: null, status: null, body: null, ts: null };
 
-// Stores the last article raw data beaconed from the native app
-let _lastArticleData = null;
-
 const BACKEND =
   process.env.EXPO_PUBLIC_API_BASE_URL ||
   'https://app.cxocollaborate.com';
@@ -27,35 +24,6 @@ config.server = {
       if (req.url === '/debug/reader-response') {
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
         res.end(JSON.stringify(_lastReaderResponse, null, 2));
-        return;
-      }
-
-      // Beacon endpoint — native app POSTs raw article data here so we can inspect it
-      if (req.url === '/debug/article-data') {
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-        if (req.method === 'OPTIONS') {
-          res.writeHead(204); res.end(); return;
-        }
-        if (req.method === 'POST') {
-          const chunks = [];
-          req.on('data', (c) => chunks.push(c));
-          req.on('end', () => {
-            try {
-              _lastArticleData = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-              console.log('\n[metro-proxy] 📄 ARTICLE DATA RECEIVED FROM APP:');
-              console.log(JSON.stringify(_lastArticleData, null, 2));
-            } catch (e) {
-              _lastArticleData = { parseError: e.message };
-            }
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ ok: true }));
-          });
-          return;
-        }
-        // GET — return stored data
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(_lastArticleData, null, 2));
         return;
       }
 
