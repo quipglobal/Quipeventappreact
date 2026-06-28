@@ -10,7 +10,7 @@ const BASE_URL =
   Platform.OS === 'web'
     ? ''
     : (process.env.EXPO_PUBLIC_API_BASE_URL ?? '');
-const TENANT_ID = process.env.EXPO_PUBLIC_TENANT_ID ?? '1';
+const TENANT_ID = process.env.EXPO_PUBLIC_TENANT_ID ?? '3';
 
 function parseBool(v: string | undefined, fallback = false): boolean {
   if (v == null || v === '') return fallback;
