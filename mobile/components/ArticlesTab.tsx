@@ -118,18 +118,20 @@ function ArticleCard({
           ) : null}
         </View>
 
-        {/* CTA button */}
-        <View style={[styles.cardCta, { backgroundColor: accent + '18', borderColor: accent + '35' }]}>
+        {/* Read Article button */}
+        <TouchableOpacity
+          style={[styles.readBtn, { backgroundColor: accent }]}
+          activeOpacity={0.78}
+          onPress={() => onCardPress(item.id)}
+        >
           <Ionicons
-            name={hasPdf ? 'document-text' : 'book-outline'}
-            size={11}
-            color={accent}
+            name={hasPdf ? 'document-text-outline' : 'book-outline'}
+            size={13}
+            color="#fff"
           />
-          <Text style={[styles.cardCtaText, { color: accent }]}>
-            {hasPdf ? 'View PDF' : 'Start Reading'}
-          </Text>
-          <Ionicons name="arrow-forward" size={11} color={accent} />
-        </View>
+          <Text style={styles.readBtnText}>Read Article</Text>
+          <Ionicons name="arrow-forward-outline" size={13} color="#fff" />
+        </TouchableOpacity>
       </View>
     </TouchableOpacity>
   );
@@ -450,20 +452,21 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 10,
   },
-  cardCta: {
+  readBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: radius.full,
-    borderWidth: 1,
-    marginTop: 6,
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: radius.lg,
+    marginTop: 8,
   },
-  cardCtaText: {
-    fontSize: 11,
+  readBtnText: {
+    fontSize: 13,
     fontWeight: '700',
+    color: '#fff',
+    letterSpacing: 0.1,
   },
 
   center: {
