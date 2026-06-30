@@ -2,3 +2,4 @@
 - [EAS iOS Credentials](eas-ios-credentials.md) — ASC API key + Apple App Identifier IDs for com.apexevents.meet; EAS auto-manages cert/profile
 - [EAS Android Credentials](eas-android-credentials.md) — PKCS12 keystore (alias key0), EAS IDs, SHA-1 fingerprint for com.apexevents.meet
 - [EAS Android Compose Resolution](eas-android-compose-resolution.md) — expo-dev-launcher releaseCompileOnly 1.9.0 vs runtime 1.7.x Gradle consistent-resolution conflict; fix: eachDependency + releaseRuntimeOnly
+- [EAS API Build Trigger](eas-api-build-trigger.md) — how to trigger EAS builds via GraphQL when EAS CLI hangs; tarball structure + GCS upload pattern
