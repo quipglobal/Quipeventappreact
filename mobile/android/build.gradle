@@ -64,6 +64,23 @@ allprojects {
             // 1.9.24 (the fallback), it requests an embeddable at 1.9.24 which doesn't exist (introduced in
             // Kotlin 2.0.0). Force 2.2.0 so that whatever version is requested, 2.2.0 is used.
             force 'org.jetbrains.kotlin:kotlin-compose-compiler-plugin-embeddable:2.2.0'
+            // expo-dev-launcher and expo-dev-menu both declare:
+            //   releaseCompileOnly "androidx.compose.foundation:foundation-android:1.9.0"
+            //   debugOnly "androidx.compose.foundation:foundation-android:1.9.0"
+            // The debugOnly closure adds the dep to the debug RUNTIME classpath, so debug builds resolve
+            // to 1.9.0 everywhere → no conflict. For release, only compileOnly is declared; the release
+            // RUNTIME classpath gets compose transitively from react-android at ~1.7.x. Gradle's
+            // "consistent resolution" then creates {strictly 1.7.x} for the release compile classpath,
+            // which conflicts with the compileOnly dep at 1.9.0 → EAS_BUILD_UNKNOWN_GRADLE_ERROR.
+            // Fix: force all androidx.compose.* to 1.9.0 so the release runtime also uses 1.9.0,
+            // satisfying the consistent resolution constraint. Confirmed safe: debug builds with
+            // compileSdk 35 already compile and run against compose 1.9.0 successfully.
+            eachDependency { details ->
+                if (details.requested.group.startsWith('androidx.compose')) {
+                    details.useVersion '1.9.0'
+                    details.because 'force all Compose to 1.9.0: release runtime must match expo-dev-launcher/expo-dev-menu releaseCompileOnly to satisfy Gradle consistent resolution'
+                }
+            }
         }
     }
     repositories {

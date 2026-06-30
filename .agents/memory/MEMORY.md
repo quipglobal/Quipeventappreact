@@ -1,3 +1,4 @@
 - [EAS Build Kotlin/Swift Fixes](eas-build-kotlin-fixes.md) — iOS 26 @available doesn't protect compile-time types; singular Constant DSL missing from expo-modules-core@2.2.3 iOS; patch ordering & double-run behavior
 - [EAS iOS Credentials](eas-ios-credentials.md) — ASC API key + Apple App Identifier IDs for com.apexevents.meet; EAS auto-manages cert/profile
 - [EAS Android Credentials](eas-android-credentials.md) — PKCS12 keystore (alias key0), EAS IDs, SHA-1 fingerprint for com.apexevents.meet
+- [EAS Android Compose Resolution](eas-android-compose-resolution.md) — expo-dev-launcher releaseCompileOnly 1.9.0 vs runtime 1.7.x Gradle consistent-resolution conflict; fix: eachDependency + releaseRuntimeOnly

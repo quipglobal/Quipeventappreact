@@ -445,6 +445,22 @@ patch(
   `implementation 'androidx.core:core-ktx:1.15.0'`
 );
 
+// Fix 4c: expo-dev-launcher — release runtime compose consistent-resolution conflict.
+// expo-dev-launcher declares releaseCompileOnly "foundation-android:1.9.0" but its debugOnly
+// closure only adds releaseImplementation when configureInRelease=true (normally false).
+// So the release RUNTIME classpath gets compose transitively from react-android at ~1.7.x.
+// Gradle's consistent resolution then creates {strictly 1.7.x} for the release compile
+// classpath, which rejects the compileOnly dep at 1.9.0 → EAS_BUILD_UNKNOWN_GRADLE_ERROR.
+// Fix: explicitly add releaseRuntimeOnly for foundation-android so the runtime also has
+// 1.9.0, making consistent resolution derive {strictly 1.9.0} for compile (satisfied). ✓
+patch(
+  'node_modules/expo-dev-launcher/android/build.gradle',
+  'expo-dev-launcher: add releaseRuntimeOnly foundation-android:1.9.0 to fix consistent resolution conflict',
+  `  releaseCompileOnly "androidx.compose.foundation:foundation-android:$composeVersion"`,
+  `  releaseCompileOnly "androidx.compose.foundation:foundation-android:$composeVersion"
+  releaseRuntimeOnly "androidx.compose.foundation:foundation-android:$composeVersion" // consistent resolution fix: runtime must match compileOnly version`
+);
+
 // Fix 5: expo-dev-menu — same issue as expo-dev-launcher. With Kotlin 2.2.0 the compose
 // plugin is bundled in kotlin-gradle-plugin; apply it after applyKotlinExpoModulesCorePlugin().
 patch(
