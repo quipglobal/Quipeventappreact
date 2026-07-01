@@ -75,6 +75,13 @@ allprojects {
             // Fix: force all androidx.compose.* to 1.9.0 so the release runtime also uses 1.9.0,
             // satisfying the consistent resolution constraint. Confirmed safe: debug builds with
             // compileSdk 35 already compile and run against compose 1.9.0 successfully.
+            // expo-updates pulls in bcutil-jdk15to18:1.81 which declares a dynamic
+            // version range [1.81,1.82) for bcprov-jdk15to18. Gradle tries to list
+            // available versions from oss.sonatype.org/content/repositories/snapshots/
+            // which is unreachable on the EAS build worker → build failure.
+            // Fix: pin to the exact release so no remote lookup is needed.
+            force 'org.bouncycastle:bcprov-jdk15to18:1.81'
+            force 'org.bouncycastle:bcutil-jdk15to18:1.81'
             eachDependency { details ->
                 if (details.requested.group.startsWith('androidx.compose')) {
                     details.useVersion '1.9.0'

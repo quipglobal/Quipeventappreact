@@ -1335,6 +1335,92 @@ public func Constant<T>(_ name: String, @_implicitSelfCapture body: @escaping ()
 // MARK: - Events`
 );
 
+// Fix KEYSTORE: Decode KEYSTORE_B64 env var and write android/app/release.keystore +
+// android/keystore.properties. The build.gradle loads keystore.properties at project
+// scope (before the android {} block) so keystoreProps is available in signingConfigs
+// without any Groovy delegate-scope ambiguity. Bypasses EAS's "Injecting signing config
+// into build.gradle" mechanism which mangles complex Groovy and causes "Value is null".
+(function writeReleaseKeystore() {
+  const ksB64 = process.env.KEYSTORE_B64;
+  const ksPass = process.env.KEYSTORE_PASSWORD;
+  const kAlias = process.env.KEY_ALIAS;
+  const kPass  = process.env.KEY_PASSWORD;
+
+  if (!ksB64 || !ksPass || !kAlias) {
+    console.log('[patch-gradle] KEYSTORE_B64/KEYSTORE_PASSWORD/KEY_ALIAS not set — skipping keystore write (local / no-sign build)');
+    return;
+  }
+
+  // Write keystore binary
+  const ksPath = path.join(root, 'android', 'app', 'release.keystore');
+  try {
+    const buf = Buffer.from(ksB64.trim(), 'base64');
+    fs.writeFileSync(ksPath, buf);
+    console.log(`[patch-gradle] Wrote android/app/release.keystore (${buf.length} bytes)`);
+  } catch (e) {
+    console.warn('[patch-gradle] WARNING: could not write release.keystore:', e.message);
+    return;
+  }
+
+  // Write android/keystore.properties (read at project scope by build.gradle)
+  // storeFile is relative to android/ (the root project dir for :app builds)
+  // keyPassword: empty key password falls back to storePassword for PKCS12 keystores
+  const resolvedKeyPass = (kPass && kPass.length > 0) ? kPass : ksPass;
+  const propsContent = [
+    `storeFile=app/release.keystore`,
+    `storePassword=${ksPass}`,
+    `keyAlias=${kAlias}`,
+    `keyPassword=${resolvedKeyPass}`,
+  ].join('\n') + '\n';
+  const propsPath = path.join(root, 'android', 'keystore.properties');
+  try {
+    fs.writeFileSync(propsPath, propsContent, 'utf8');
+    console.log(`[patch-gradle] Wrote android/keystore.properties (alias=${kAlias})`);
+  } catch (e) {
+    console.warn('[patch-gradle] WARNING: could not write keystore.properties:', e.message);
+  }
+}());
+
+// Fix SONATYPE: Create a Gradle init script that removes oss.sonatype.org/snapshots from
+// all project repository handlers at runtime. The EAS build worker cannot reach that host
+// (connection refused / timeout), which causes a hard network error — not a 404 — so Gradle
+// doesn't fall through to the next repo (JitPack, mavenCentral) and the build fails.
+// The init script fires as each repository is added via the `repositories.all {}` hook and
+// immediately removes any sonatype-snapshots repo before Gradle uses it for resolution.
+(function installBlockSonatypeInitScript() {
+  const os = require('os');
+  const initDir = path.join(os.homedir(), '.gradle', 'init.d');
+  const initScriptPath = path.join(initDir, 'block-sonatype.gradle');
+  const initScriptContent = [
+    '// block-sonatype.gradle — created by patch-gradle.js',
+    '// oss.sonatype.org/content/repositories/snapshots/ is unreachable from EAS build workers.',
+    '// This init script removes that repository from every project so Gradle falls through',
+    '// to JitPack / mavenCentral instead of failing with a hard network error.',
+    'allprojects {',
+    '    repositories.all { repo ->',
+    '        if (repo instanceof MavenArtifactRepository) {',
+    "            def u = repo.url.toString()",
+    "            if (u.contains('sonatype.org/content/repositories/snapshots')) {",
+    '                repositories.remove(repo)',
+    '            }',
+    '        }',
+    '    }',
+    '}',
+  ].join('\n');
+  try {
+    fs.mkdirSync(initDir, { recursive: true });
+    if (!fs.existsSync(initScriptPath) ||
+        fs.readFileSync(initScriptPath, 'utf8') !== initScriptContent) {
+      fs.writeFileSync(initScriptPath, initScriptContent, 'utf8');
+      console.log('[patch-gradle] Created ~/.gradle/init.d/block-sonatype.gradle');
+    } else {
+      console.log('[patch-gradle] Already present: block-sonatype.gradle');
+    }
+  } catch (e) {
+    console.warn('[patch-gradle] WARNING: could not create Gradle init script:', e.message);
+  }
+}());
+
 // iOS Fix 4 — NewTabView.swift: ConditionalBottomAccessoryModifier.body uses
 // .tabViewBottomAccessory{} — an iOS 26 ViewModifier that doesn't exist in iOS 18
 // SDK. Even inside `if #available(iOS 26.0, *)`, Swift 6 on iOS 18.2 SDK still

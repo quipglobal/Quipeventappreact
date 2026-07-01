@@ -2,6 +2,16 @@ apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
+// Load keystore credentials from android/keystore.properties (written by patch-gradle.js
+// during eas-build-post-install). This block lives at project scope so the `keystoreProps`
+// variable is captured by the signingConfigs closure without any delegate-scope ambiguity.
+// Falls back gracefully when the file is absent (local dev / unsigned builds).
+def keystoreProps = new Properties()
+def keystorePropsFile = rootProject.file("keystore.properties")
+if (keystorePropsFile.exists()) {
+    keystorePropsFile.withInputStream { keystoreProps.load(it) }
+}
+
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
 
 /**
@@ -102,13 +112,13 @@ android {
             keyPassword 'android'
         }
         release {
-            // EAS Cloud injects KEYSTORE_PATH / KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD
-            // for production builds. Fall back to debug keystore for local builds only.
-            if (System.getenv("KEYSTORE_PATH")) {
-                storeFile file(System.getenv("KEYSTORE_PATH"))
-                storePassword System.getenv("KEYSTORE_PASSWORD") ?: ''
-                keyAlias System.getenv("KEY_ALIAS") ?: ''
-                keyPassword System.getenv("KEY_PASSWORD") ?: ''
+            // keystoreProps loaded at project scope above (from android/keystore.properties).
+            // Falls back to debug.keystore when the file is absent (local / unsigned builds).
+            if (keystoreProps['storeFile']) {
+                storeFile rootProject.file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword'] ?: keystoreProps['storePassword']
             } else {
                 storeFile file('debug.keystore')
                 storePassword 'android'
@@ -136,6 +146,16 @@ android {
     }
     androidResources {
         ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~'
+    }
+}
+
+// Safety net: if EAS's signing-config injection wrote keyPassword "" (empty string),
+// bundletool NPEs when opening the PKCS12 key entry. Normalize empty keyPassword to
+// storePassword (correct for PKCS12 keystores where key and store share the same password).
+afterEvaluate {
+    def rel = android.signingConfigs.findByName('release')
+    if (rel != null && (rel.keyPassword == null || rel.keyPassword.isEmpty())) {
+        rel.keyPassword = rel.storePassword ?: ''
     }
 }
 

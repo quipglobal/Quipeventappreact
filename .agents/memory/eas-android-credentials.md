@@ -5,7 +5,7 @@ description: Android keystore details for com.apexevents.meet production builds 
 
 ## Rule
 Android keystore for `com.apexevents.meet` is a PKCS12 file (not JKS despite .jks extension).
-Alias is `key0`, keystore password `event123`, key password `serpentcs`.
+Alias is `key0`, keystore password `event123`, key password is EMPTY (use keystorePassword as fallback).
 
 **Key IDs (as of June 2026):**
 - EAS Keystore ID: `c6ff387d-069c-44d5-a0fe-f5055dc690dc`
@@ -15,3 +15,22 @@ Alias is `key0`, keystore password `event123`, key password `serpentcs`.
 **Why:** The keystore must match the Google Play signing key exactly. The format is PKCS12 not JKS.
 
 **How to apply:** Verify SHA-1 matches Google Play Console → Setup → App integrity → App signing before submitting.
+
+## Signing approach (CONFIRMED WORKING — build 913e3cfe, July 2026)
+
+**DO NOT use `secrets.buildCredentials`** — EAS injects into `build.gradle` and its rewriting
+breaks complex Groovy expressions (causes "Value is null" at signingConfigs evaluation time).
+
+**INSTEAD:** pass keystore via `builderEnvironment.env` (GENERIC build type, GraphQL trigger):
+- `KEYSTORE_B64` — base64-encoded .keystore file contents
+- `KEYSTORE_PASSWORD` — keystore/store password
+- `KEY_ALIAS` — key alias (key0)
+- `KEY_PASSWORD` — key password (pass keystorePassword since keyPassword is empty)
+
+**patch-gradle.js** (runs in both `postinstall` and `eas-build-post-install`) decodes
+`KEYSTORE_B64` → `android/app/release.keystore` and writes `android/keystore.properties`.
+
+**build.gradle** loads `keystore.properties` at PROJECT SCOPE (before `android {}` block)
+into `def keystoreProps`, then references it in `signingConfigs.release` via
+`rootProject.file(keystoreProps['storeFile'])`. This avoids Groovy delegate-scope ambiguity
+(`projectDir` is null inside SigningConfig closure delegate).
