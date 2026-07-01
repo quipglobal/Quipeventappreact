@@ -46,7 +46,8 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd mobile && npx expo start --web --port 8080"
+args = "cd mobile && REACT_NATIVE_PACKAGER_HOSTNAME=$REPLIT_DEV_DOMAIN npx expo start --go --port 8080"
+waitForPort = 8080
 
 [[workflows.workflow]]
 name = "e2e-no-polling-after-signout"

@@ -3,3 +3,4 @@
 - [EAS Android Credentials](eas-android-credentials.md) — PKCS12 keystore (alias key0), EAS IDs, SHA-1 fingerprint for com.apexevents.meet
 - [EAS Android Compose Resolution](eas-android-compose-resolution.md) — expo-dev-launcher releaseCompileOnly 1.9.0 vs runtime 1.7.x Gradle consistent-resolution conflict; fix: eachDependency + releaseRuntimeOnly
 - [EAS API Build Trigger](eas-api-build-trigger.md) — how to trigger EAS builds via GraphQL when EAS CLI hangs; tarball structure + GCS upload pattern
+- [Expo Replit Dev Server Setup](expo-replit-dev-server.md) — --go + REACT_NATIVE_PACKAGER_HOSTNAME required for Replit emulator/QR; never use --web (gets stuck at 98.8%)
