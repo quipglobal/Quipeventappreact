@@ -386,15 +386,27 @@ export async function updateLeadStatus(leadId: string, status: Lead['status']): 
   const eventId = getEventId();
   if (!eventId) return { success: false, error: { code: 'NO_EVENT', message: 'No active event' } };
   return request<Lead>(`/api/v1/events/${eventId}/leads/${leadId}`, {
-    method: 'PATCH',
+    method: 'PUT',
     body: JSON.stringify({ status }),
   });
 }
 
+/**
+ * POST /api/v1/events/:eventId/leads/draw
+ * Picks a random winner from the current event's leads (optional giveawayId scopes the pool).
+ * Matches BACKEND_SCAN_ENDPOINTS.md §5.
+ */
 export async function triggerLuckyDraw(giveawayId?: string): Promise<ApiResponse<{ winner: Lead }>> {
-  if (__DEV__) console.log(`[Leads] triggerLuckyDraw giveawayId=${giveawayId}`);
-  return request<{ winner: Lead }>('/api/v1/sponsor/lucky-draw', {
+  const eventId = getEventId();
+  if (__DEV__) console.log(`[Leads] triggerLuckyDraw eventId=${eventId} giveawayId=${giveawayId}`);
+  if (!eventId) return { success: false, error: { code: 'NO_EVENT', message: 'No active event' } };
+  const body: Record<string, unknown> = {};
+  if (giveawayId) {
+    body.giveaway_id = giveawayId;
+    body.giveawayId  = giveawayId;
+  }
+  return request<{ winner: Lead }>(`/api/v1/events/${eventId}/leads/draw`, {
     method: 'POST',
-    body: JSON.stringify({ giveawayId }),
+    body: JSON.stringify(body),
   });
 }

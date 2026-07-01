@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { listMeetings, sendMeetingRequest, respondToMeeting } from '@/lib/api/meetings';
 import type { SendMeetingRequest } from '@/lib/api/meetings';
 import { useAuthedQuery } from '@/hooks/useAuthedQuery';
+import { useAuth } from '@/context/AuthContext';
 
 export function useMeetings() {
   // Auth-gated by `useAuthedQuery` — the wrapper AND-merges its
@@ -24,6 +25,8 @@ export function useMeetings() {
   // so the user immediately sees fresh data on resume. Mirrors the
   // foreground-gating pattern in `useReconcilePendingLeadsBackground`.
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const currentUserId = user?.id != null ? String(user.id) : undefined;
   const [appActive, setAppActive] = useState(AppState.currentState === 'active');
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state: AppStateStatus) => {
@@ -43,7 +46,7 @@ export function useMeetings() {
 
   return useAuthedQuery({
     queryKey: ['meetings'],
-    queryFn: listMeetings,
+    queryFn: () => listMeetings(currentUserId),
     select: (res) => res.data ?? [],
     staleTime: 0,
     refetchInterval: 30_000,
