@@ -5,11 +5,17 @@ import { Platform } from 'react-native';
  * On native (iOS/Android) use the full backend URL — no CORS restrictions.
  * On web (Expo web in browser) use '' so calls go to the Metro dev-server proxy
  * at /api/*, which forwards them to the backend without CORS issues.
+ *
+ * IMPORTANT: EXPO_PUBLIC_API_BASE_URL must be present in the EAS build's
+ * builderEnvironment.env so Metro bakes it in. The fallback to the production
+ * URL here acts as a safety net so a missing env var can never silently produce
+ * empty-host fetch() calls on device (which manifest as "No internet" errors).
  */
+const PRODUCTION_API_URL = 'https://app.cxocollaborate.com';
 const BASE_URL =
   Platform.OS === 'web'
     ? ''
-    : (process.env.EXPO_PUBLIC_API_BASE_URL ?? '');
+    : (process.env.EXPO_PUBLIC_API_BASE_URL || PRODUCTION_API_URL);
 const TENANT_ID = process.env.EXPO_PUBLIC_TENANT_ID ?? '3';
 
 function parseBool(v: string | undefined, fallback = false): boolean {
@@ -125,12 +131,24 @@ export async function request<T>(
     if (__DEV__) {
       console.warn(`[API] ${method} ${path} threw after ${Date.now() - startMs}ms:`, err);
     }
+    // Android surfaces network failures as TypeErrors with varied messages
+    // depending on the failure mode (no connectivity, DNS failure, connection
+    // refused, timeout, etc.). Casting the net wide catches them all.
+    const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
     const isNetworkError =
       err instanceof TypeError &&
-      (err.message.includes('fetch') ||
-        err.message.includes('Network') ||
-        err.message.includes('network') ||
-        err.message.includes('Failed to fetch'));
+      (msg.includes('fetch') ||
+        msg.includes('network') ||
+        msg.includes('failed to fetch') ||
+        msg.includes('unable to resolve host') ||
+        msg.includes('connection refused') ||
+        msg.includes('econnrefused') ||
+        msg.includes('timeout') ||
+        msg.includes('socket') ||
+        msg.includes('ssl') ||
+        msg.includes('certificate') ||
+        msg.includes('only absolute urls') ||
+        msg.includes('net::'));
     return {
       success: false,
       error: {
