@@ -3,7 +3,7 @@
     "name": "CXO Events",
     "slug": "cxoinc",
     "owner": "quipdevs-organization",
-    "version": "2.4",
+    "version": "2.5",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "apexevents",
@@ -34,7 +34,7 @@
         "backgroundColor": "#07070F"
       },
       "package": "com.apexevents.meet",
-      "versionCode": 20,
+      "versionCode": 21,
       "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "android.permission.CAMERA",
