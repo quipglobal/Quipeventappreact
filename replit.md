@@ -5,14 +5,18 @@ A full-stack event companion platform for attendees and sponsors.
 ## Run & Operate
 
 **Mobile App:**
-- Start: `cd mobile && npx expo start --web --port 8080` (for console mode, web preview, and Expo Go QR)
+- Start: `cd mobile && REACT_NATIVE_PACKAGER_HOSTNAME=$REPLIT_DEV_DOMAIN npx expo start --go --port 5000`
+  - Runs on port 5000 (`outputType: webview`) — shows live app in Replit preview pane
+  - QR code in Metro console: `exp://REPLIT_DEV_DOMAIN:5000` — scan with Expo Go on a physical device
+  - Web preview auto-proxies `/api/*` to `https://app.cxocollaborate.com` via metro.config.js
+  - Replit built-in simulator does NOT support Expo SDK 52 (platform limitation)
 - Build Production: `eas build --profile production --platform all`
 - Environment Variables:
     - `EXPO_PUBLIC_USE_MOCK_API`: `false` (always use real API)
     - `EXPO_PUBLIC_API_BASE_URL`: `https://app.cxocollaborate.com`
 
 **Web App (Legacy):**
-- Start: `npm run dev` (runs on port 5000)
+- Start: `npm run dev` (runs on port 5000 — stop "Start Mobile" first to free the port)
 - Build: `npm run build`
 - Test (e2e): `npm run test:e2e`
 - Environment Variables:
