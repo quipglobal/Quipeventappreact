@@ -42,12 +42,12 @@ name = "Start Mobile"
 author = "agent"
 
 [workflows.workflow.metadata]
-outputType = "webview"
+outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd mobile && REACT_NATIVE_PACKAGER_HOSTNAME=$REPLIT_DEV_DOMAIN npx expo start --go --port 5000"
-waitForPort = 5000
+args = "cd mobile && REACT_NATIVE_PACKAGER_HOSTNAME=$REPLIT_DEV_DOMAIN npx expo start --go --port 8080"
+waitForPort = 8080
 
 [[workflows.workflow]]
 name = "e2e-no-polling-after-signout"
@@ -91,10 +91,6 @@ externalPort = 5173
 [[ports]]
 localPort = 8080
 externalPort = 8080
-
-[[ports]]
-localPort = 8081
-externalPort = 8081
 
 [[ports]]
 localPort = 9000
