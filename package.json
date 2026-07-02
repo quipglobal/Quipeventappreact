@@ -76,6 +76,7 @@
     "@playwright/test": "^1.59.1",
     "@tailwindcss/vite": "4.1.12",
     "@vitejs/plugin-react": "4.7.0",
+    "expo": "~52.0.0",
     "tailwindcss": "4.1.12",
     "vite": "6.3.5"
   },

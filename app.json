@@ -1,3 +1,8 @@
 {
-  "expo": {}
+  "expo": {
+    "name": "CXO Events",
+    "slug": "cxoinc",
+    "version": "2.5",
+    "sdkVersion": "52.0.0"
+  }
 }
