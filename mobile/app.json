@@ -34,11 +34,14 @@
         "backgroundColor": "#07070F"
       },
       "package": "com.apexevents.meet",
-      "versionCode": 23,
+      "versionCode": 24,
+      "targetSdkVersion": 35,
+      "compileSdkVersion": 35,
       "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "android.permission.CAMERA",
-        "android.permission.VIBRATE"
+        "android.permission.VIBRATE",
+        "com.google.android.gms.permission.AD_ID"
       ],
       "intentFilters": [
         {

@@ -59,6 +59,28 @@ patch(
   `android.kotlinVersion=2.2.0`
 );
 
+// Fix 0-sdk: android/gradle.properties — expo prebuild for SDK 52 generates
+// android.targetSdkVersion=34 (the template default). Google Play requires targetSdkVersion >= 35
+// as of August 2024. app.json sets targetSdkVersion:35 which should propagate, but this patch
+// is belt-and-suspenders in case prebuild writes the old value before the patch runs.
+patch(
+  'android/gradle.properties',
+  'android/gradle.properties: set android.targetSdkVersion=35 (Google Play requirement)',
+  `android.targetSdkVersion=34`,
+  `android.targetSdkVersion=35`
+);
+
+// Fix 0-sdk-build: android/build.gradle — the fallback default in the ext block was '34'.
+// app.json targetSdkVersion:35 generates android.targetSdkVersion=35 in gradle.properties so
+// findProperty() returns '35'. This patch covers the case where gradle.properties doesn't have
+// the property and falls back to the ext default.
+patch(
+  'android/build.gradle',
+  'android/build.gradle: set targetSdkVersion fallback default to 35 (Google Play requirement)',
+  `targetSdkVersion = Integer.parseInt(findProperty('android.targetSdkVersion') ?: '34')`,
+  `targetSdkVersion = Integer.parseInt(findProperty('android.targetSdkVersion') ?: '35')`
+);
+
 // Fix 0 (build.gradle belt-and-suspenders): expo prebuild also puts
 // `kotlinVersion = findProperty('android.kotlinVersion') ?: '1.9.25'` in android/build.gradle.
 // Since the gradle.properties patch above sets android.kotlinVersion=2.2.0, findProperty will
