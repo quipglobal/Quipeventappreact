@@ -99,3 +99,8 @@ public func Constant<T>(_ name: String, @_implicitSelfCapture body: @escaping ()
 - `UpdatesPackage`: `onDidCreateReactHost` and `getDelayLoadAppHandler` must NOT use `override` (no matching base in RN 0.76).
 - `ReloadScreenConfiguration.kt`: had 3 `@OptimizedRecord` annotations — each `patch()` call with `find='@OptimizedRecord\n'` removes one occurrence. Needed 3 separate calls.
 - `OptimizedRecord` type does not exist in expo-modules-core 2.2.3.
+
+## expo-updates + expo-dev-launcher Gradle plugin KGP version mismatch
+Both `expo-updates-gradle-plugin` and `expo-dev-launcher-gradle-plugin` pin `kotlin("jvm") version "1.9.25"` in their own `build.gradle.kts`. `@react-native/gradle-plugin` is compiled by KGP 2.2.0 (metadata 2.2.0). KGP 1.9.x can only read metadata ≤ 2.0.0, so `:compileKotlin` fails on EAS with "Class ReactExtension was compiled with an incompatible version of Kotlin".
+Fix (patch-gradle.js Fixes 0f & 0g): bump both to `version "2.2.0"` + migrate `kotlinOptions {}` → `compilerOptions {}`.
+Error signature: `"the compiler version 1.9.0 can read versions up to 2.0.0"` in RUN_GRADLEW phase.

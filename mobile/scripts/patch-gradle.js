@@ -187,6 +187,58 @@ patch(
     repositories {`
 );
 
+// Fix 0f: expo-updates-gradle-plugin — bump Kotlin JVM version from 1.9.25 to 2.2.0.
+// expo-updates-gradle-plugin/build.gradle.kts pins kotlin("jvm") version("1.9.25"). The
+// @react-native/gradle-plugin composite build is compiled by KGP 2.2.0, producing metadata
+// version 2.2.0. When expo-updates compileKotlin runs under KGP 1.9.25, it reads
+// ReactExtension.class and fails: "the compiler version 1.9.0 can read versions up to 2.0.0".
+// Fix: bump the kotlin("jvm") version to 2.2.0 and migrate kotlinOptions → compilerOptions.
+patch(
+  'node_modules/expo-updates/expo-updates-gradle-plugin/build.gradle.kts',
+  'expo-updates-gradle-plugin: bump kotlin("jvm") from 1.9.25 to 2.2.0 (KGP metadata compatibility)',
+  `  kotlin("jvm") version("1.9.25")`,
+  `  kotlin("jvm") version("2.2.0")`
+);
+patch(
+  'node_modules/expo-updates/expo-updates-gradle-plugin/build.gradle.kts',
+  'expo-updates-gradle-plugin: replace kotlinOptions with compilerOptions (KGP 2.2.0)',
+  `tasks.withType<KotlinCompile> {
+  kotlinOptions {
+    jvmTarget = JavaVersion.VERSION_11.toString()
+  }
+}`,
+  `tasks.withType<KotlinCompile> {
+  compilerOptions {
+    jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
+  }
+}`
+);
+
+// Fix 0g: expo-dev-launcher-gradle-plugin — same KGP 1.9.25 → 2.2.0 bump.
+// expo-dev-launcher-gradle-plugin/build.gradle.kts also pins kotlin("jvm") version "1.9.25"
+// and references ReactExtension compiled by KGP 2.2.0, causing the same metadata version
+// incompatibility at :expo-dev-launcher-gradle-plugin:compileKotlin.
+patch(
+  'node_modules/expo-dev-launcher/expo-dev-launcher-gradle-plugin/build.gradle.kts',
+  'expo-dev-launcher-gradle-plugin: bump kotlin("jvm") from 1.9.25 to 2.2.0 (KGP metadata compatibility)',
+  `  kotlin("jvm") version "1.9.25"`,
+  `  kotlin("jvm") version "2.2.0"`
+);
+patch(
+  'node_modules/expo-dev-launcher/expo-dev-launcher-gradle-plugin/build.gradle.kts',
+  'expo-dev-launcher-gradle-plugin: replace kotlinOptions with compilerOptions (KGP 2.2.0)',
+  `tasks.withType<KotlinCompile> {
+  kotlinOptions {
+    jvmTarget = JavaVersion.VERSION_11.toString()
+  }
+}`,
+  `tasks.withType<KotlinCompile> {
+  compilerOptions {
+    jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
+  }
+}`
+);
+
 const EXPO_MODULES_CORE_PLUGIN = `new File(project(":expo-modules-core").projectDir.absolutePath, "ExpoModulesCorePlugin.gradle")`;
 const EXPO_MODULES_CORE_SETUP = `
 def expoModulesCorePlugin = new File(project(":expo-modules-core").projectDir.absolutePath, "ExpoModulesCorePlugin.gradle")
