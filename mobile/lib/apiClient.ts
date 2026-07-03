@@ -62,12 +62,27 @@ export interface ApiResponse<T> {
   error?: { code: string; message: string };
 }
 
+/**
+ * How long we wait for the backend before giving up and telling the user
+ * something actionable. `app.cxocollaborate.com` has been observed to hang
+ * for 10s+ on individual requests (TLS handshake fine, response never
+ * arrives) — without an explicit timeout the underlying `fetch()` promise
+ * just sits there indefinitely on native, and RN eventually surfaces it to
+ * our catch block as a generic "Network request failed" TypeError, which
+ * we were previously always relabeling as "No internet connection" even
+ * though the device had a perfectly good connection and the real problem
+ * was a slow/unresponsive server.
+ */
+const REQUEST_TIMEOUT_MS = 20000;
+
 export async function request<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<ApiResponse<T>> {
   const method = (options.method ?? 'GET').toUpperCase();
   const startMs = __DEV__ ? Date.now() : 0;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
     const token = await getToken();
     const headers: Record<string, string> = {
@@ -78,7 +93,11 @@ export async function request<T>(
     };
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+    const res = await fetch(`${BASE_URL}${path}`, {
+      ...options,
+      headers,
+      signal: options.signal ?? controller.signal,
+    });
 
     if (__DEV__) {
       console.log(`[API] ${method} ${path} → ${res.status} (${Date.now() - startMs}ms)`);
@@ -131,24 +150,53 @@ export async function request<T>(
     if (__DEV__) {
       console.warn(`[API] ${method} ${path} threw after ${Date.now() - startMs}ms:`, err);
     }
-    // Android surfaces network failures as TypeErrors with varied messages
-    // depending on the failure mode (no connectivity, DNS failure, connection
-    // refused, timeout, etc.). Casting the net wide catches them all.
+
+    // Our own AbortController fires after REQUEST_TIMEOUT_MS — this means
+    // the request reached the network stack fine but the server never
+    // responded in time. This is NOT the same as "no internet": the device
+    // is connected, the backend is just slow/hung. Telling the user to
+    // "check their network" here sends them chasing the wrong problem.
+    const isTimeout =
+      (err instanceof DOMException && err.name === 'AbortError') ||
+      (err instanceof Error && err.name === 'AbortError');
+    if (isTimeout) {
+      return {
+        success: false,
+        error: {
+          code: 'TIMEOUT',
+          message: 'The server is taking longer than usual to respond. Please try again in a moment.',
+        },
+      };
+    }
+
+    // Genuine connectivity loss is directly observable on web via
+    // navigator.onLine; on native we fall back to message sniffing below
+    // since RN doesn't expose an equivalent synchronous signal here.
+    const deviceOffline =
+      typeof navigator !== 'undefined' &&
+      typeof navigator.onLine === 'boolean' &&
+      navigator.onLine === false;
+
+    // Android/iOS surface *all* fetch failures (no connectivity, DNS
+    // failure, connection refused, TLS errors, etc.) as TypeErrors with
+    // varied messages. We still cast a wide net here, but timeouts are now
+    // handled above via AbortError, so what's left genuinely points at a
+    // connectivity/DNS/TLS problem rather than a slow server.
     const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
     const isNetworkError =
-      err instanceof TypeError &&
-      (msg.includes('fetch') ||
-        msg.includes('network') ||
-        msg.includes('failed to fetch') ||
-        msg.includes('unable to resolve host') ||
-        msg.includes('connection refused') ||
-        msg.includes('econnrefused') ||
-        msg.includes('timeout') ||
-        msg.includes('socket') ||
-        msg.includes('ssl') ||
-        msg.includes('certificate') ||
-        msg.includes('only absolute urls') ||
-        msg.includes('net::'));
+      deviceOffline ||
+      (err instanceof TypeError &&
+        (msg.includes('fetch') ||
+          msg.includes('network') ||
+          msg.includes('failed to fetch') ||
+          msg.includes('unable to resolve host') ||
+          msg.includes('connection refused') ||
+          msg.includes('econnrefused') ||
+          msg.includes('socket') ||
+          msg.includes('ssl') ||
+          msg.includes('certificate') ||
+          msg.includes('only absolute urls') ||
+          msg.includes('net::')));
     return {
       success: false,
       error: {
@@ -158,6 +206,8 @@ export async function request<T>(
           : 'Something went wrong. Please try again.',
       },
     };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 

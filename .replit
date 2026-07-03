@@ -25,6 +25,10 @@ args = "Start Mobile"
 task = "workflow.run"
 args = "e2e-no-polling-after-signout"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Mobile Web Preview"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -60,6 +64,18 @@ args = "npm run test:e2e"
 [workflows.workflow.metadata]
 isValidation = true
 
+[[workflows.workflow]]
+name = "Mobile Web Preview"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd mobile && npx expo start --web --port 8000"
+waitForPort = 8000
+
+[workflows.workflow.metadata]
+outputType = "console"
+
 [[ports]]
 localPort = 3001
 externalPort = 3001
@@ -91,6 +107,10 @@ externalPort = 5000
 [[ports]]
 localPort = 5004
 externalPort = 5173
+
+[[ports]]
+localPort = 8000
+externalPort = 8000
 
 [[ports]]
 localPort = 8080
