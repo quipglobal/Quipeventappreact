@@ -38,11 +38,12 @@ Mutation: `build { createAndroidBuild(appId, job, metadata, secrets) { build { i
 - `metadata`: `{}` (same — required empty object, not omittable)
 - Upload endpoint is `createUploadSession(type: EAS_BUILD_GCS_PROJECT_SOURCES)`, NOT `createAssetUploadURLAsync` (that mutation does not exist for this purpose).
 
-## Known systemic failure mode (as of 2026-07-03): UNKNOWN_ERROR right after INSTALL_CUSTOM_TOOLS
-Multiple API-triggered Android builds (5+, with varied job payloads: with/without `cache`, `updates.channel`, `developmentClient`) all ERRORED with a generic `UNKNOWN_ERROR` ("See logs for more information"), crashing immediately after the `INSTALL_CUSTOM_TOOLS` phase succeeds and *before* `PREPARE_PROJECT` even starts (no archive-download log lines appear at all).
-- Ruled out payload correctness as the cause: even `retryAndroidBuild(buildId)` — which replays EAS's own server-stored job verbatim, not a manually-reconstructed payload — failed identically at the same phase boundary.
-- `retryAndroidBuild` can only retry builds in `errored`/`canceled` state (not `finished`), and fails with `EAS_BUILD_NOT_RETRIABLE` if the build has expired (old builds can't be replayed after some retention window).
-- Conclusion: this looks like a transient EAS build infrastructure issue (PREPARE_PROJECT / archive-fetch stage) unrelated to project/job configuration. If encountered again, don't waste time permuting job fields — check EAS status or retry later instead.
+## CRITICAL: always set `builderEnvironment.image` explicitly (root cause of UNKNOWN_ERROR crashes)
+If `builderEnvironment.image` is omitted, the API defaults GENERIC android jobs to the ancient `ubuntu-22.04-jdk-11-ndk-r21e` image, whose worker crashes silently with a generic `UNKNOWN_ERROR` immediately after `INSTALL_CUSTOM_TOOLS` succeeds and before `PREPARE_PROJECT` starts (zero error lines in the worker log — log just ends).
+- **Fix**: set `job.builderEnvironment.image: "ubuntu-22.04-jdk-17-ndk-r26b"` (the image CLI-triggered builds use). Also set `mode: "BUILD"`, `experimental: {}`, `environment: "PRODUCTION"` to match the CLI job shape.
+- **Debugging technique that found this**: the worker dumps the FULL resolved job JSON at `SPIN_UP_BUILDER` phase in the log file. Diff the job dump of a known-good (CLI-triggered) build against the failing build's dump — that's how the image mismatch was spotted. Log files are brotli-compressed `.txt` from `logFiles` on the build object (re-query GraphQL for fresh signed URLs, they expire in 900s).
+- `retryAndroidBuild(buildId)` replays the stored job verbatim (including the bad defaulted image), so retries fail identically — a retry failing does NOT prove infrastructure outage. It only retries `errored`/`canceled` builds and fails `EAS_BUILD_NOT_RETRIABLE` on `finished` or expired builds.
+- Successful build with this fix: `47fb2766-31c5-4e06-a38d-ac1b0d592736` (versionCode 25, v2.6) → `https://expo.dev/artifacts/eas/xakPb8P1M-NK8fSES_yIECjTjMFlVk5w24TY8ElT-LM.aab`
 
 ## CRITICAL: Tarball structure (--strip-components 1)
 The EAS worker extracts with:
