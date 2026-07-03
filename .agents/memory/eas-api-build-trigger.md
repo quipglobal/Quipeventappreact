@@ -28,12 +28,21 @@ curl -X PUT "$url" \
 Expect HTTP 200.
 
 ### 3. Trigger build via GraphQL
-Mutation: `build { createAndroidBuild(appId, job, metadata) { build { id status } } }`
+Mutation: `build { createAndroidBuild(appId, job, metadata, secrets) { build { id status } } }` — note the mutation also needs a top-level `secrets: {}` variable/arg alongside `metadata: {}` (see below), even though GraphQL marks both nullable.
 - `job.type`: `"GENERIC"`
 - `job.projectArchive.type`: `"GCS"`, `job.projectArchive.bucketKey`: from step 1
 - `job.projectRootDirectory`: `"."`  ← IMPORTANT: must be dot, not "mobile"
 - `job.buildType`: `"APP_BUNDLE"`
 - `job.gradleCommand`: `":app:bundleRelease"`
+- `job.secrets`: `{}` (required object, even empty — omitting it entirely causes a `"$": Required` Zod validation error server-side despite the GraphQL schema marking it optional)
+- `metadata`: `{}` (same — required empty object, not omittable)
+- Upload endpoint is `createUploadSession(type: EAS_BUILD_GCS_PROJECT_SOURCES)`, NOT `createAssetUploadURLAsync` (that mutation does not exist for this purpose).
+
+## Known systemic failure mode (as of 2026-07-03): UNKNOWN_ERROR right after INSTALL_CUSTOM_TOOLS
+Multiple API-triggered Android builds (5+, with varied job payloads: with/without `cache`, `updates.channel`, `developmentClient`) all ERRORED with a generic `UNKNOWN_ERROR` ("See logs for more information"), crashing immediately after the `INSTALL_CUSTOM_TOOLS` phase succeeds and *before* `PREPARE_PROJECT` even starts (no archive-download log lines appear at all).
+- Ruled out payload correctness as the cause: even `retryAndroidBuild(buildId)` — which replays EAS's own server-stored job verbatim, not a manually-reconstructed payload — failed identically at the same phase boundary.
+- `retryAndroidBuild` can only retry builds in `errored`/`canceled` state (not `finished`), and fails with `EAS_BUILD_NOT_RETRIABLE` if the build has expired (old builds can't be replayed after some retention window).
+- Conclusion: this looks like a transient EAS build infrastructure issue (PREPARE_PROJECT / archive-fetch stage) unrelated to project/job configuration. If encountered again, don't waste time permuting job fields — check EAS status or retry later instead.
 
 ## CRITICAL: Tarball structure (--strip-components 1)
 The EAS worker extracts with:
