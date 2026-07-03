@@ -54,6 +54,13 @@ tar -C $EAS_BUILD_WORKINGDIR --strip-components 1 -zxf project.tar.gz
 - Single-component paths (`package.json`) → stripped to empty → skipped
 - Two-component paths (`android/build.gradle`) → `android` stripped → `build.gradle` at root (wrong)
 
+**ALSO REQUIRED when staging**: sanitize Replit firewall URLs in BOTH lockfiles before tarring, or the build fails at INSTALL_DEPENDENCIES with `getaddrinfo ENOTFOUND package-firewall.replit.local` (see eas-yarn-lock-replit-firewall.md):
+```bash
+sed -i 's|http://package-firewall.replit.local/npm/|https://registry.npmjs.org/|g; s|https://package-firewall.replit.local/npm/|https://registry.npmjs.org/|g' \
+  /tmp/wrap/project/yarn.lock /tmp/wrap/project/package-lock.json
+```
+EAS runs `yarn install` (yarn.lock takes precedence), but sanitize package-lock.json too.
+
 **Fix**: Wrap all files under a single top-level directory before creating the tarball:
 ```bash
 mkdir -p /tmp/wrap/project
