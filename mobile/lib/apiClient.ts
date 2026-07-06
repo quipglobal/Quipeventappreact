@@ -75,12 +75,40 @@ export interface ApiResponse<T> {
  */
 const REQUEST_TIMEOUT_MS = 20000;
 
+/**
+ * TEMPORARY DIAGNOSTIC LOGGING — remove once the login issue is pinpointed.
+ * Logs raw request/response detail for the two auth endpoints (send-otp,
+ * verify-otp) so backend can see: exact URL, wall-clock timing, raw HTTP
+ * status, and the raw response body text BEFORE any JSON parsing — plus the
+ * raw error if fetch itself throws. Tokens/codes are redacted before logging.
+ *
+ * Active in dev (Expo Go / web preview) automatically; for a production
+ * diagnostic build, opt in explicitly with EXPO_PUBLIC_AUTH_DEBUG=true.
+ * Scope is strictly limited to the two OTP endpoints.
+ */
+const AUTH_DEBUG =
+  __DEV__ || parseBool(process.env.EXPO_PUBLIC_AUTH_DEBUG, false);
+
+const AUTH_DEBUG_PATHS = ['/api/v1/auth/send-otp', '/api/v1/auth/verify-otp'];
+
+function isAuthDebugPath(path: string): boolean {
+  return AUTH_DEBUG && AUTH_DEBUG_PATHS.includes(path);
+}
+
+function redactSensitive(text: string): string {
+  return text
+    .replace(/("(?:token|access_token|auth_token|refresh_token)"\s*:\s*")[^"]+(")/gi, '$1[REDACTED]$2')
+    .replace(/("(?:code|otp)"\s*:\s*")[^"]*(")/gi, '$1[REDACTED]$2');
+}
+
 export async function request<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<ApiResponse<T>> {
   const method = (options.method ?? 'GET').toUpperCase();
-  const startMs = __DEV__ ? Date.now() : 0;
+  const startMs = Date.now();
+  const url = `${BASE_URL}${path}`;
+  const authDebug = isAuthDebugPath(path);
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
@@ -93,11 +121,23 @@ export async function request<T>(
     };
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    const res = await fetch(`${BASE_URL}${path}`, {
+    if (authDebug) {
+      console.log(
+        `[AUTH-DEBUG] → ${method} url="${url}" (BASE_URL="${BASE_URL}" path="${path}") tenant=${TENANT_ID} at=${new Date(startMs).toISOString()}`,
+      );
+    }
+
+    const res = await fetch(url, {
       ...options,
       headers,
       signal: options.signal ?? controller.signal,
     });
+
+    if (authDebug) {
+      console.log(
+        `[AUTH-DEBUG] ← ${method} ${path} rawStatus=${res.status} ${res.statusText ?? ''} elapsed=${Date.now() - startMs}ms at=${new Date().toISOString()}`,
+      );
+    }
 
     if (__DEV__) {
       console.log(`[API] ${method} ${path} → ${res.status} (${Date.now() - startMs}ms)`);
@@ -120,13 +160,32 @@ export async function request<T>(
     }
 
     let json: any;
-    try {
-      json = await res.json();
-    } catch {
-      return {
-        success: false,
-        error: { code: 'PARSE_ERROR', message: 'Unexpected server response. Please try again.' },
-      };
+    if (authDebug) {
+      let rawText = '';
+      try {
+        rawText = await res.text();
+        console.log(
+          `[AUTH-DEBUG] ${method} ${path} rawBody (${rawText.length} bytes): ${redactSensitive(rawText).slice(0, 2000)}`,
+        );
+        json = JSON.parse(rawText);
+      } catch (parseErr) {
+        console.log(
+          `[AUTH-DEBUG] ${method} ${path} body read/JSON.parse FAILED: ${parseErr instanceof Error ? `${parseErr.name}: ${parseErr.message}` : String(parseErr)} rawBody="${redactSensitive(rawText).slice(0, 500)}"`,
+        );
+        return {
+          success: false,
+          error: { code: 'PARSE_ERROR', message: 'Unexpected server response. Please try again.' },
+        };
+      }
+    } else {
+      try {
+        json = await res.json();
+      } catch {
+        return {
+          success: false,
+          error: { code: 'PARSE_ERROR', message: 'Unexpected server response. Please try again.' },
+        };
+      }
     }
 
     if (json.success === true) return json as ApiResponse<T>;
@@ -147,6 +206,11 @@ export async function request<T>(
     const errorCode = json.error?.code ?? json.code ?? 'REQUEST_FAILED';
     return { success: false, error: { code: errorCode, message: errorMessage } };
   } catch (err) {
+    if (authDebug) {
+      console.log(
+        `[AUTH-DEBUG] ${method} ${path} fetch THREW (no HTTP response) after ${Date.now() - startMs}ms at=${new Date().toISOString()}: ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`,
+      );
+    }
     if (__DEV__) {
       console.warn(`[API] ${method} ${path} threw after ${Date.now() - startMs}ms:`, err);
     }
