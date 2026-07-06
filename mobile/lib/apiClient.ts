@@ -286,11 +286,22 @@ function normalizeAuthUser(raw: any): AuthUser {
  * POST /api/v1/auth/send-otp  →  { identifier, type: "login" }
  * `identifier` is either an E.164 phone number (+1XXXXXXXXXX) or an email address.
  */
-export async function sendOtp(identifier: string): Promise<ApiResponse<{ message: string }>> {
-  return request('/api/v1/auth/send-otp', {
+export async function sendOtp(identifier: string): Promise<ApiResponse<{ otpSent: boolean }>> {
+  const res = await request<any>('/api/v1/auth/send-otp', {
     method: 'POST',
     body: JSON.stringify({ identifier, type: 'login' }),
   });
+  if (!res.success) return res as ApiResponse<{ otpSent: boolean }>;
+
+  // For type:'login', the backend only actually emails a code when the
+  // account exists. It signals this by including `expires_in` in the
+  // response. When the account is unknown it still returns 200 with a
+  // generic "If this account exists…" message and NO `expires_in`.
+  // Without this check the app sends the user to a dead-end OTP screen
+  // for an email that never received a code.
+  const data = (res.data ?? {}) as Record<string, unknown>;
+  const otpSent = 'expires_in' in data && data.expires_in != null;
+  return { success: true, data: { otpSent } };
 }
 
 export interface VerifyOtpResult {

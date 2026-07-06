@@ -28,7 +28,14 @@ curl -X PUT "$url" \
 Expect HTTP 200.
 
 ### 3. Trigger build via GraphQL
-Mutation: `build { createAndroidBuild(appId, job, metadata, secrets) { build { id status } } }` — note the mutation also needs a top-level `secrets: {}` variable/arg alongside `metadata: {}` (see below), even though GraphQL marks both nullable.
+CONFIRMED-WORKING minimal mutation (no top-level `secrets`, no `job.secrets`, no `experimental`/`environment` needed):
+```
+mutation CreateAndroidBuild($appId: ID!, $job: AndroidJobInput!, $metadata: BuildMetadataInput) {
+  build { createAndroidBuild(appId: $appId, job: $job, metadata: $metadata) { build { id status } } }
+}
+```
+`metadata: {buildProfile:"production", channel:"production", distribution:"STORE", gitCommitHash:<hash>}`. `job` includes `mode:"BUILD"` but NOT `secrets`. Earlier notes claiming a required top-level `secrets:{}` / `experimental:{}` / `environment:"PRODUCTION"` are obsolete — the minimal shape above works.
+NOTE: use `curl` for the POST, NOT python `urllib` — Cloudflare 403 (error 1010) blocks urllib's user-agent; curl passes.
 - `job.type`: `"GENERIC"`
 - `job.projectArchive.type`: `"GCS"`, `job.projectArchive.bucketKey`: from step 1
 - `job.projectRootDirectory`: `"."`  ← IMPORTANT: must be dot, not "mobile"

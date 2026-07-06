@@ -13,6 +13,7 @@ import {
   Dimensions,
   Image,
   Modal,
+  Keyboard,
   KeyboardTypeOptions,
   SafeAreaView,
   StatusBar,
@@ -127,10 +128,11 @@ export function WelcomeScreen() {
   const { login } = useAuth();
 
   const sheetAnim = useRef(new Animated.Value(0)).current;
+  const keyboardOffset = useRef(new Animated.Value(0)).current;
   const [sheetOpen, setSheetOpen] = useState(false);
 
   const [view, setView] = useState<View_>('phone');
-  const [loginMode, setLoginMode] = useState<LoginMode>('phone');
+  const [loginMode, setLoginMode] = useState<LoginMode>('email');
   const [country, setCountry] = useState<Country>(DEFAULT_COUNTRY);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [phoneDigits, setPhoneDigits] = useState('');
@@ -176,10 +178,11 @@ export function WelcomeScreen() {
   };
 
   const closeSheet = () => {
+    Keyboard.dismiss();
     Animated.timing(sheetAnim, { toValue: 0, duration: 280, useNativeDriver: true }).start(() => {
       setSheetOpen(false);
       setView('phone');
-      setLoginMode('phone');
+      setLoginMode('email');
       setPhoneDigits('');
       setEmailInput('');
       setPhoneIdentifier('');
@@ -205,27 +208,25 @@ export function WelcomeScreen() {
   }, []);
 
   const handlePhoneContinue = useCallback(async () => {
-    let identifier: string;
-    if (loginMode === 'email') {
-      const email = emailInput.trim();
-      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-        setPhoneError('Please enter a valid email address.');
-        return;
-      }
-      identifier = email;
-    } else {
-      const digits = cleanPhone(phoneDigits);
-      if (digits.length < 6) { setPhoneError('Please enter a valid phone number.'); return; }
-      identifier = buildIdentifier(country, digits);
+    const email = emailInput.trim();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setPhoneError('Please enter a valid email address.');
+      return;
     }
+    const identifier = email;
     setPhoneError('');
     setPhoneLoading(true);
     try {
       const res = await sendOtp(identifier);
       if (!res.success) { setPhoneError(res.error?.message ?? 'Failed to send code.'); return; }
+      if (!res.data?.otpSent) {
+        setPhoneError("We couldn't find an account for that email. Please check the address and try again.");
+        return;
+      }
       setPhoneIdentifier(identifier);
       setOtpValue('');
       setOtpError('');
+      Keyboard.dismiss();
       setView('otp');
       startResendCountdown();
     } catch {
@@ -233,7 +234,30 @@ export function WelcomeScreen() {
     } finally {
       setPhoneLoading(false);
     }
-  }, [loginMode, country, phoneDigits, emailInput, startResendCountdown]);
+  }, [emailInput, startResendCountdown]);
+
+  useEffect(() => {
+    // On Android the window uses adjustResize (see AndroidManifest), so the
+    // OS already lifts the bottom-anchored sheet above the keyboard — adding
+    // our own translate there would double-adjust. iOS never resizes for the
+    // keyboard, so the sheet must be lifted manually to keep inputs visible.
+    if (Platform.OS !== 'ios') return;
+    const showSub = Keyboard.addListener('keyboardWillShow', (e) => {
+      Animated.timing(keyboardOffset, {
+        toValue: -e.endCoordinates.height,
+        duration: e.duration || 250,
+        useNativeDriver: true,
+      }).start();
+    });
+    const hideSub = Keyboard.addListener('keyboardWillHide', (e) => {
+      Animated.timing(keyboardOffset, {
+        toValue: 0,
+        duration: e.duration || 250,
+        useNativeDriver: true,
+      }).start();
+    });
+    return () => { showSub.remove(); hideSub.remove(); };
+  }, [keyboardOffset]);
 
   useEffect(() => {
     if (otpValue.length === 6 && view === 'otp') {
@@ -245,13 +269,14 @@ export function WelcomeScreen() {
     setOtpLoading(true);
     try {
       const res = await verifyOtp(phoneIdentifier, otpValue);
-      if (!res.success) { setOtpError(res.error?.message ?? 'Incorrect code. Please try again.'); return; }
-      const data = res.data!;
+      if (!res.success || !res.data) { setOtpError(res.error?.message ?? 'Incorrect code. Please try again.'); return; }
+      const data = res.data;
       if (!data.isNewUser && data.user) {
         setResolvedUser(data.user);
         setResolvedToken(data.token);
         setView('profile-review');
       } else {
+        setCreateForm((p) => ({ ...p, email: p.email || phoneIdentifier }));
         setView('create-account');
       }
     } catch {
@@ -275,7 +300,7 @@ export function WelcomeScreen() {
     setCreateError('');
     setCreateLoading(true);
     try {
-      const res = await register({ phone: phoneIdentifier, ...createForm });
+      const res = await register({ phone: '', ...createForm });
       if (!res.success || !res.data) { setCreateError(res.error?.message ?? 'Registration failed.'); return; }
       await login(res.data.token, res.data.user);
       router.replace('/events');
@@ -405,7 +430,7 @@ export function WelcomeScreen() {
       <Animated.View
         style={[
           styles.sheet,
-          { transform: [{ translateY: sheetTranslate }], paddingBottom: insets.bottom + spacing.lg },
+          { transform: [{ translateY: sheetTranslate }, { translateY: keyboardOffset }], paddingBottom: insets.bottom + spacing.lg },
         ]}
         pointerEvents={sheetOpen ? 'box-none' : 'none'}
       >
@@ -580,66 +605,26 @@ function PhoneView({
   return (
     <View style={sheetStyles.section}>
       <View style={sheetStyles.iconBox}>
-        <Text style={{ fontSize: 22 }}>{loginMode === 'email' ? '✉️' : '📱'}</Text>
+        <Text style={{ fontSize: 22 }}>✉️</Text>
       </View>
       <Text style={sheetStyles.title}>Log in</Text>
-      <Text style={sheetStyles.subtitle}>Enter your details to continue</Text>
+      <Text style={sheetStyles.subtitle}>Enter your email to continue</Text>
 
-      <View style={sheetStyles.modeToggle}>
-        <TouchableOpacity
-          style={[sheetStyles.modeTab, loginMode === 'phone' && sheetStyles.modeTabActive]}
-          onPress={() => onSetLoginMode('phone')}
-          activeOpacity={0.8}
-        >
-          <Text style={[sheetStyles.modeTabText, loginMode === 'phone' && sheetStyles.modeTabTextActive]}>Phone</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[sheetStyles.modeTab, loginMode === 'email' && sheetStyles.modeTabActive]}
-          onPress={() => onSetLoginMode('email')}
-          activeOpacity={0.8}
-        >
-          <Text style={[sheetStyles.modeTabText, loginMode === 'email' && sheetStyles.modeTabTextActive]}>Email</Text>
-        </TouchableOpacity>
-      </View>
+      <View style={{ height: spacing.lg }} />
 
-      {loginMode === 'phone' ? (
-        <>
-          <Text style={sheetStyles.fieldLabel}>MOBILE NUMBER</Text>
-          <View style={sheetStyles.phoneRow}>
-            <TouchableOpacity style={sheetStyles.countryCode} onPress={onOpenPicker} activeOpacity={0.75}>
-              <Text style={sheetStyles.flag}>{country.flag}</Text>
-              <Text style={sheetStyles.countryNum}>{country.dialCode}</Text>
-              <Text style={sheetStyles.countryChevron}>▾</Text>
-            </TouchableOpacity>
-            <TextInput
-              style={sheetStyles.phoneInput}
-              value={formatPhone(country, phoneDigits)}
-              onChangeText={(t) => setPhoneDigits(cleanPhone(t).slice(0, 15))}
-              keyboardType="phone-pad"
-              placeholder="Phone number"
-              placeholderTextColor="rgba(255,255,255,0.25)"
-              returnKeyType="done"
-              onSubmitEditing={onContinue}
-            />
-          </View>
-        </>
-      ) : (
-        <>
-          <Text style={sheetStyles.fieldLabel}>EMAIL ADDRESS</Text>
-          <TextInput
-            style={sheetStyles.textInput}
-            value={emailInput}
-            onChangeText={setEmailInput}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-            placeholder="you@company.com"
-            placeholderTextColor="rgba(255,255,255,0.25)"
-            returnKeyType="done"
-            onSubmitEditing={onContinue}
-          />
-        </>
-      )}
+      <Text style={sheetStyles.fieldLabel}>EMAIL ADDRESS</Text>
+      <TextInput
+        style={sheetStyles.textInput}
+        value={emailInput}
+        onChangeText={setEmailInput}
+        keyboardType="email-address"
+        autoCapitalize="none"
+        autoCorrect={false}
+        placeholder="you@company.com"
+        placeholderTextColor="rgba(255,255,255,0.25)"
+        returnKeyType="done"
+        onSubmitEditing={onContinue}
+      />
 
       {!!phoneError && <Text style={sheetStyles.errorText}>{phoneError}</Text>}
 

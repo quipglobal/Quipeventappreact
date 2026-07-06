@@ -6,6 +6,7 @@ description: Android keystore details for com.apexevents.meet production builds 
 ## Rule
 Android keystore for `com.apexevents.meet` is a PKCS12 file (not JKS despite .jks extension).
 Alias is `key0`, keystore password `event123`, key password is EMPTY (use keystorePassword as fallback).
+Keystore file lives in the repo at `attached_assets/ciosynergykeystore_*.jks` (CN=CXO Inc Events, O=Apex Events). Verify with `openssl pkcs12 -in <file> -passin pass:event123 -nokeys -clcerts | openssl x509 -noout -fingerprint -sha1` (no keytool/Java in sandbox) — SHA-1 must equal the value below.
 
 **Key IDs (as of June 2026):**
 - EAS Keystore ID: `c6ff387d-069c-44d5-a0fe-f5055dc690dc`
