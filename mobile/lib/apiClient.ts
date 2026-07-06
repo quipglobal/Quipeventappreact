@@ -226,9 +226,17 @@ export async function request<T>(
     // responded in time. This is NOT the same as "no internet": the device
     // is connected, the backend is just slow/hung. Telling the user to
     // "check their network" here sends them chasing the wrong problem.
+    //
+    // IMPORTANT: never reference `DOMException` here. Hermes (the native
+    // JS engine) does not define it as a global, so `err instanceof
+    // DOMException` itself throws a ReferenceError on device — which
+    // escaped this catch block entirely and surfaced as the generic
+    // "Something went wrong" in the UI for EVERY network-level failure on
+    // Android/iOS. Checking `.name` is engine- and realm-agnostic.
+    const errName = (err as { name?: unknown } | null | undefined)?.name;
+    const rawMsg = (err instanceof Error ? err.message : String(err)).toLowerCase();
     const isTimeout =
-      (err instanceof DOMException && err.name === 'AbortError') ||
-      (err instanceof Error && err.name === 'AbortError');
+      errName === 'AbortError' || rawMsg.includes('abort');
     if (isTimeout) {
       return {
         success: false,
@@ -247,15 +255,16 @@ export async function request<T>(
       typeof navigator.onLine === 'boolean' &&
       navigator.onLine === false;
 
-    // Android/iOS surface *all* fetch failures (no connectivity, DNS
+    // Android/iOS surface *most* fetch failures (no connectivity, DNS
     // failure, connection refused, TLS errors, etc.) as TypeErrors with
-    // varied messages. We still cast a wide net here, but timeouts are now
-    // handled above via AbortError, so what's left genuinely points at a
-    // connectivity/DNS/TLS problem rather than a slow server.
+    // varied messages — but native layers (OkHttp/NSURLSession) can also
+    // surface them as plain Errors, so match on any Error, not just
+    // TypeError. Timeouts are handled above via AbortError, so what's left
+    // genuinely points at a connectivity/DNS/TLS problem, not a slow server.
     const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
     const isNetworkError =
       deviceOffline ||
-      (err instanceof TypeError &&
+      (err instanceof Error &&
         (msg.includes('fetch') ||
           msg.includes('network') ||
           msg.includes('failed to fetch') ||

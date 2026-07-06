@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "Mfj55wmOBQR7UhHR8eEz7"
+uri = "file://builds/cxo-events-v2.9-vc28.tar.gz"
+type = "unspecified"
+title = "CXO Events v2.9 (versionCode 28) — signed Android AAB with login fix"
