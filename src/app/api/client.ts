@@ -2,7 +2,8 @@
  * Shared API Client
  * ─────────────────────────────────────────────────────────────────────────────
  * Wraps fetch with:
- *  - Base URL injection (always '' — proxy handles routing)
+ *  - Absolute base URL support for production/native builds
+ *  - Relative /api fallback for same-origin web deployments
  *  - JSON headers + X-Tenant-ID header
  *  - Bearer token from localStorage
  *  - 401 handler that clears token and reloads to show login
@@ -10,14 +11,52 @@
  */
 
 /**
- * Always use relative paths — the Vite dev-server proxy (in dev) and
- * server.js proxy (in production) both forward /api/* to the backend.
- * Using VITE_API_BASE_URL directly causes cross-origin fetch failures
- * because the backend doesn't send Access-Control-Allow-Origin.
+ * Web deployments served through Vite/Express can continue to use relative
+ * paths so the local proxy and same-origin production proxy keep working.
+ * Standalone builds do not have that proxy, so they MUST inject an absolute
+ * API URL through EXPO_PUBLIC_API_BASE_URL / EXPO_PUBLIC_API_URL (or the
+ * existing VITE_API_BASE_URL for web builds).
  */
-export const API_BASE_URL = '';
 
-const TENANT_ID = import.meta.env.VITE_TENANT_ID ?? '1';
+function readEnv(name: string): string {
+  try {
+    if (typeof process !== 'undefined' && process?.env?.[name]) {
+      return String(process.env[name]);
+    }
+  } catch {}
+
+  try {
+    const metaEnv = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
+    if (metaEnv?.[name]) {
+      return String(metaEnv[name]);
+    }
+  } catch {}
+
+  return '';
+}
+
+function normalizeBaseUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed;
+}
+
+function hasHttpOrigin(): boolean {
+  if (typeof window === 'undefined') return false;
+  return /^https?:$/i.test(window.location.protocol);
+}
+
+const configuredBaseUrl = normalizeBaseUrl(
+  readEnv('EXPO_PUBLIC_API_BASE_URL') ||
+  readEnv('EXPO_PUBLIC_API_URL') ||
+  readEnv('VITE_API_BASE_URL')
+);
+
+export const API_BASE_URL = configuredBaseUrl || (hasHttpOrigin() ? '' : '');
+export const TENANT_ID =
+  readEnv('EXPO_PUBLIC_TENANT_ID') ||
+  readEnv('VITE_TENANT_ID') ||
+  '3';
 
 export const TOKEN_KEY = 'auth_token';
 
@@ -59,6 +98,12 @@ function buildHeaders(extra?: Record<string, string>): Record<string, string> {
 function handle401(): void {
   clearToken();
   window.location.reload();
+}
+
+function buildUrl(path: string): string | null {
+  if (API_BASE_URL) return `${API_BASE_URL}${path}`;
+  if (hasHttpOrigin()) return path;
+  return null;
 }
 
 async function parseResponse<T>(res: Response): Promise<ApiEnvelope<T>> {
@@ -112,9 +157,22 @@ async function fetchWithRetry(url: string, options: RequestInit, retries = MAX_R
   }
 }
 
+function configError<T>(): ApiEnvelope<T> {
+  return {
+    success: false,
+    error: {
+      code: 'CONFIG_ERROR',
+      message: 'API base URL is not configured for this build.',
+    },
+  };
+}
+
 export async function apiGet<T>(path: string, extraHeaders?: Record<string, string>): Promise<ApiEnvelope<T>> {
+  const url = buildUrl(path);
+  if (!url) return configError<T>();
+
   try {
-    const res = await fetchWithRetry(`${API_BASE_URL}${path}`, {
+    const res = await fetchWithRetry(url, {
       method: 'GET',
       headers: buildHeaders(extraHeaders),
     });
@@ -125,8 +183,11 @@ export async function apiGet<T>(path: string, extraHeaders?: Record<string, stri
 }
 
 export async function apiPost<T>(path: string, body: unknown, extraHeaders?: Record<string, string>): Promise<ApiEnvelope<T>> {
+  const url = buildUrl(path);
+  if (!url) return configError<T>();
+
   try {
-    const res = await fetchWithRetry(`${API_BASE_URL}${path}`, {
+    const res = await fetchWithRetry(url, {
       method: 'POST',
       headers: buildHeaders(extraHeaders),
       body: JSON.stringify(body),
@@ -138,8 +199,11 @@ export async function apiPost<T>(path: string, body: unknown, extraHeaders?: Rec
 }
 
 export async function apiPut<T>(path: string, body: unknown, extraHeaders?: Record<string, string>): Promise<ApiEnvelope<T>> {
+  const url = buildUrl(path);
+  if (!url) return configError<T>();
+
   try {
-    const res = await fetchWithRetry(`${API_BASE_URL}${path}`, {
+    const res = await fetchWithRetry(url, {
       method: 'PUT',
       headers: buildHeaders(extraHeaders),
       body: JSON.stringify(body),
@@ -151,8 +215,11 @@ export async function apiPut<T>(path: string, body: unknown, extraHeaders?: Reco
 }
 
 export async function apiPatch<T>(path: string, body: unknown): Promise<ApiEnvelope<T>> {
+  const url = buildUrl(path);
+  if (!url) return configError<T>();
+
   try {
-    const res = await fetchWithRetry(`${API_BASE_URL}${path}`, {
+    const res = await fetchWithRetry(url, {
       method: 'PATCH',
       headers: buildHeaders(),
       body: JSON.stringify(body),
@@ -164,8 +231,11 @@ export async function apiPatch<T>(path: string, body: unknown): Promise<ApiEnvel
 }
 
 export async function apiDelete<T>(path: string, extraHeaders?: Record<string, string>): Promise<ApiEnvelope<T>> {
+  const url = buildUrl(path);
+  if (!url) return configError<T>();
+
   try {
-    const res = await fetchWithRetry(`${API_BASE_URL}${path}`, {
+    const res = await fetchWithRetry(url, {
       method: 'DELETE',
       headers: buildHeaders(extraHeaders),
     });
