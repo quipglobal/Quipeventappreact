@@ -122,8 +122,14 @@ export async function request<T>(
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
     if (authDebug) {
+      // On native, BASE_URL is the real backend origin and `url` is absolute.
+      // On web, BASE_URL is "" and the request goes through the metro dev
+      // proxy — show the effective production target so logs are unambiguous.
+      const effectiveUrl = BASE_URL
+        ? url
+        : `${PRODUCTION_API_URL}${path} (via metro dev proxy, web only)`;
       console.log(
-        `[AUTH-DEBUG] → ${method} url="${url}" (BASE_URL="${BASE_URL}" path="${path}") tenant=${TENANT_ID} at=${new Date(startMs).toISOString()}`,
+        `[AUTH-DEBUG] → ${method} url="${url}" effectiveTarget="${effectiveUrl}" (BASE_URL="${BASE_URL || '(empty: web/metro proxy)'}" path="${path}") platform=${Platform.OS} tenant=${TENANT_ID} at=${new Date(startMs).toISOString()}`,
       );
     }
 
