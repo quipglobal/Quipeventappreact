@@ -98,7 +98,7 @@ function isAuthDebugPath(path: string): boolean {
 function redactSensitive(text: string): string {
   return text
     .replace(/("(?:token|access_token|auth_token|refresh_token)"\s*:\s*")[^"]+(")/gi, '$1[REDACTED]$2')
-    .replace(/("(?:code|otp)"\s*:\s*")[^"]*(")/gi, '$1[REDACTED]$2');
+    .replace(/("(?:code|otp)"\s*:\s*")\d{4,8}(")/gi, '$1[REDACTED]$2');
 }
 
 export async function request<T>(
