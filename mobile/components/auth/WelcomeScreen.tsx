@@ -12,19 +12,16 @@ import {
   Platform,
   Dimensions,
   Image,
-  Modal,
   Keyboard,
-  KeyboardTypeOptions,
-  SafeAreaView,
-  StatusBar,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { OtpInput } from './OtpInput';
-import { sendOtp, verifyOtp, register, loginWithPassword, AuthUser, USE_MOCK_AUTH } from '@/lib/apiClient';
+import { sendOtp, verifyOtp, register, loginWithPassword, AuthUser } from '@/lib/apiClient';
 import { useAuth } from '@/context/AuthContext';
-import { colors, spacing, radius, typography } from '@/constants/theme';
+import { colors, spacing, radius } from '@/constants/theme';
 import {
   fetchGlobalVideoFeeds,
   fetchGlobalArticles,
@@ -35,157 +32,484 @@ import {
   Category,
 } from '@/lib/api/globalFeeds';
 
-const SCREEN_HEIGHT = Dimensions.get('window').height;
-const SHEET_HEIGHT = Math.min(SCREEN_HEIGHT * 0.75, 600);
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-type View_ = 'phone' | 'otp' | 'profile-review' | 'create-account';
-type LoginMode = 'phone' | 'email';
+// Sheet grows to fit content but never exceeds 92% of screen
+const MAX_SHEET = SCREEN_HEIGHT * 0.92;
+
+type SheetView = 'email' | 'no-account' | 'otp' | 'profile-review' | 'create-account';
 type TopTab = 'feeds' | 'events' | null;
 type FeedSubTab = 'podcast' | 'articles';
 
-interface Country {
-  flag: string;
-  dialCode: string;
-  name: string;
-  localDigits: number;
+interface CreateForm {
+  firstName: string;
+  lastName: string;
+  email: string;
+  title: string;
+  company: string;
+  phone: string;
 }
 
-const COUNTRIES: Country[] = [
-  { flag: '🇺🇸', dialCode: '+1', name: 'United States', localDigits: 10 },
-  { flag: '🇨🇦', dialCode: '+1', name: 'Canada', localDigits: 10 },
-  { flag: '🇬🇧', dialCode: '+44', name: 'United Kingdom', localDigits: 10 },
-  { flag: '🇮🇳', dialCode: '+91', name: 'India', localDigits: 10 },
-  { flag: '🇦🇺', dialCode: '+61', name: 'Australia', localDigits: 9 },
-  { flag: '🇦🇪', dialCode: '+971', name: 'UAE', localDigits: 9 },
-  { flag: '🇸🇦', dialCode: '+966', name: 'Saudi Arabia', localDigits: 9 },
-  { flag: '🇸🇬', dialCode: '+65', name: 'Singapore', localDigits: 8 },
-  { flag: '🇩🇪', dialCode: '+49', name: 'Germany', localDigits: 11 },
-  { flag: '🇫🇷', dialCode: '+33', name: 'France', localDigits: 9 },
-  { flag: '🇯🇵', dialCode: '+81', name: 'Japan', localDigits: 11 },
-  { flag: '🇨🇳', dialCode: '+86', name: 'China', localDigits: 11 },
-  { flag: '🇧🇷', dialCode: '+55', name: 'Brazil', localDigits: 11 },
-  { flag: '🇲🇽', dialCode: '+52', name: 'Mexico', localDigits: 10 },
-  { flag: '🇰🇷', dialCode: '+82', name: 'South Korea', localDigits: 10 },
-  { flag: '🇮🇹', dialCode: '+39', name: 'Italy', localDigits: 10 },
-  { flag: '🇪🇸', dialCode: '+34', name: 'Spain', localDigits: 9 },
-  { flag: '🇳🇱', dialCode: '+31', name: 'Netherlands', localDigits: 9 },
-  { flag: '🇨🇭', dialCode: '+41', name: 'Switzerland', localDigits: 9 },
-  { flag: '🇸🇪', dialCode: '+46', name: 'Sweden', localDigits: 9 },
-  { flag: '🇳🇴', dialCode: '+47', name: 'Norway', localDigits: 8 },
-  { flag: '🇩🇰', dialCode: '+45', name: 'Denmark', localDigits: 8 },
-  { flag: '🇫🇮', dialCode: '+358', name: 'Finland', localDigits: 9 },
-  { flag: '🇲🇾', dialCode: '+60', name: 'Malaysia', localDigits: 10 },
-  { flag: '🇮🇩', dialCode: '+62', name: 'Indonesia', localDigits: 12 },
-  { flag: '🇳🇿', dialCode: '+64', name: 'New Zealand', localDigits: 9 },
-  { flag: '🇿🇦', dialCode: '+27', name: 'South Africa', localDigits: 9 },
-  { flag: '🇳🇬', dialCode: '+234', name: 'Nigeria', localDigits: 10 },
-  { flag: '🇪🇬', dialCode: '+20', name: 'Egypt', localDigits: 10 },
-  { flag: '🇵🇰', dialCode: '+92', name: 'Pakistan', localDigits: 10 },
-  { flag: '🇧🇩', dialCode: '+880', name: 'Bangladesh', localDigits: 10 },
-  { flag: '🇷🇺', dialCode: '+7', name: 'Russia', localDigits: 10 },
-  { flag: '🇹🇷', dialCode: '+90', name: 'Turkey', localDigits: 10 },
-  { flag: '🇵🇱', dialCode: '+48', name: 'Poland', localDigits: 9 },
-  { flag: '🇧🇪', dialCode: '+32', name: 'Belgium', localDigits: 9 },
-  { flag: '🇦🇹', dialCode: '+43', name: 'Austria', localDigits: 10 },
-  { flag: '🇵🇹', dialCode: '+351', name: 'Portugal', localDigits: 9 },
-  { flag: '🇬🇷', dialCode: '+30', name: 'Greece', localDigits: 10 },
-  { flag: '🇮🇪', dialCode: '+353', name: 'Ireland', localDigits: 9 },
-  { flag: '🇵🇭', dialCode: '+63', name: 'Philippines', localDigits: 10 },
-  { flag: '🇹🇭', dialCode: '+66', name: 'Thailand', localDigits: 9 },
-  { flag: '🇻🇳', dialCode: '+84', name: 'Vietnam', localDigits: 9 },
-  { flag: '🇹🇼', dialCode: '+886', name: 'Taiwan', localDigits: 9 },
-  { flag: '🇭🇰', dialCode: '+852', name: 'Hong Kong', localDigits: 8 },
-  { flag: '🇮🇱', dialCode: '+972', name: 'Israel', localDigits: 9 },
-  { flag: '🇦🇷', dialCode: '+54', name: 'Argentina', localDigits: 10 },
-  { flag: '🇨🇱', dialCode: '+56', name: 'Chile', localDigits: 9 },
-  { flag: '🇨🇴', dialCode: '+57', name: 'Colombia', localDigits: 10 },
-  { flag: '🇵🇪', dialCode: '+51', name: 'Peru', localDigits: 9 },
-  { flag: '🇶🇦', dialCode: '+974', name: 'Qatar', localDigits: 8 },
-  { flag: '🇰🇼', dialCode: '+965', name: 'Kuwait', localDigits: 8 },
-  { flag: '🇧🇭', dialCode: '+973', name: 'Bahrain', localDigits: 8 },
-  { flag: '🇴🇲', dialCode: '+968', name: 'Oman', localDigits: 8 },
-  { flag: '🇯🇴', dialCode: '+962', name: 'Jordan', localDigits: 9 },
-  { flag: '🇱🇧', dialCode: '+961', name: 'Lebanon', localDigits: 8 },
-];
+// ─── Input Row ────────────────────────────────────────────────────────────────
+function InputRow({
+  icon,
+  placeholder,
+  value,
+  onChangeText,
+  keyboardType,
+  autoCapitalize,
+  editable = true,
+  style,
+}: {
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  placeholder: string;
+  value: string;
+  onChangeText?: (v: string) => void;
+  keyboardType?: 'default' | 'email-address' | 'phone-pad';
+  autoCapitalize?: 'none' | 'words' | 'sentences';
+  editable?: boolean;
+  style?: object;
+}) {
+  return (
+    <View style={[sh.inputRow, !editable && sh.inputRowDisabled, style]}>
+      <Ionicons name={icon} size={16} color="rgba(255,255,255,0.35)" style={sh.inputIcon} />
+      <TextInput
+        style={sh.inputText}
+        placeholder={placeholder}
+        placeholderTextColor="rgba(255,255,255,0.28)"
+        value={value}
+        onChangeText={onChangeText}
+        keyboardType={keyboardType ?? 'default'}
+        autoCapitalize={autoCapitalize ?? 'sentences'}
+        autoCorrect={false}
+        editable={editable}
+        selectTextOnFocus={editable}
+      />
+    </View>
+  );
+}
 
-const DEFAULT_COUNTRY = COUNTRIES[0]; // United States
+// ─── Email View (Login) ───────────────────────────────────────────────────────
+function EmailView({
+  email,
+  setEmail,
+  error,
+  loading,
+  onContinue,
+}: {
+  email: string;
+  setEmail: (v: string) => void;
+  error: string;
+  loading: boolean;
+  onContinue: () => void;
+}) {
+  return (
+    <View style={sh.sheetPad}>
+      {/* Icon */}
+      <View style={sh.iconWrap}>
+        <LinearGradient colors={['#7c3aed', '#5b21b6']} style={sh.iconGrad}>
+          <Ionicons name="mail" size={26} color="#fff" />
+        </LinearGradient>
+      </View>
 
-const cleanPhone = (raw: string) => raw.replace(/\D/g, '');
+      <Text style={sh.sheetTitle}>Log in</Text>
+      <Text style={sh.sheetSub}>Enter your email address to continue</Text>
 
-const formatUsPhone = (digits: string) => {
-  const d = digits.slice(0, 10);
-  if (d.length <= 3) return d;
-  if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
-  return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
-};
+      <Text style={sh.fieldLabel}>EMAIL ADDRESS</Text>
+      <InputRow
+        icon="mail-outline"
+        placeholder="you@example.com"
+        value={email}
+        onChangeText={setEmail}
+        keyboardType="email-address"
+        autoCapitalize="none"
+      />
+      {!!error && <Text style={sh.errorText}>{error}</Text>}
 
-const formatPhone = (country: Country, digits: string) => {
-  if (country.dialCode === '+1') return formatUsPhone(digits);
-  return digits;
-};
+      {/* Continue */}
+      <TouchableOpacity
+        style={[sh.darkBtn, loading && { opacity: 0.6 }]}
+        onPress={onContinue}
+        disabled={loading}
+        activeOpacity={0.85}
+      >
+        {loading ? (
+          <ActivityIndicator color="#fff" size="small" />
+        ) : (
+          <>
+            <Ionicons name="lock-closed" size={16} color="rgba(255,255,255,0.7)" style={{ marginRight: 8 }} />
+            <Text style={sh.darkBtnText}>Continue</Text>
+          </>
+        )}
+      </TouchableOpacity>
 
-const buildIdentifier = (country: Country, digits: string): string => {
-  return `${country.dialCode}${digits}`;
-};
+      <Text style={sh.footerNote}>
+        We'll send a one-time verification code to your email address.
+      </Text>
+    </View>
+  );
+}
 
-const DEMO_PHONES = [
-  { label: 'Attendee #1', phone: '5550000001' },
-  { label: 'Attendee #2', phone: '8156699646' },
-  { label: 'Sponsor', phone: '5550009999' },
-];
+// ─── No Account Found View ────────────────────────────────────────────────────
+function NoAccountView({
+  email,
+  onCreateAccount,
+  onTryDifferent,
+}: {
+  email: string;
+  onCreateAccount: () => void;
+  onTryDifferent: () => void;
+}) {
+  return (
+    <View style={[sh.sheetPad, { alignItems: 'center' }]}>
+      {/* Warning icon */}
+      <View style={sh.noAccountIconWrap}>
+        <Ionicons name="search" size={28} color="#f87171" />
+        <View style={sh.noAccountBadge}>
+          <Ionicons name="alert" size={10} color="#fff" />
+        </View>
+      </View>
 
+      <Text style={sh.sheetTitle}>No account found</Text>
+      <Text style={[sh.sheetSub, { textAlign: 'center' }]}>
+        We couldn't find an account for
+      </Text>
+      <View style={sh.emailPill}>
+        <Text style={sh.emailPillText} numberOfLines={1}>{email}</Text>
+      </View>
+
+      {/* Create account */}
+      <TouchableOpacity style={sh.purpleBtn} onPress={onCreateAccount} activeOpacity={0.85}>
+        <LinearGradient
+          colors={['#7c3aed', '#5b21b6']}
+          style={StyleSheet.absoluteFill}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+        />
+        <Ionicons name="person-add-outline" size={18} color="#fff" style={{ marginRight: 8 }} />
+        <Text style={sh.purpleBtnText}>Create an Account</Text>
+      </TouchableOpacity>
+
+      <View style={sh.orRow}>
+        <View style={sh.orLine} />
+        <Text style={sh.orText}>or</Text>
+        <View style={sh.orLine} />
+      </View>
+
+      <TouchableOpacity style={sh.darkBtn} onPress={onTryDifferent} activeOpacity={0.85}>
+        <Text style={sh.darkBtnText}>Try a different email</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+// ─── Create Profile View ──────────────────────────────────────────────────────
+function CreateProfileView({
+  form,
+  setForm,
+  error,
+  loading,
+  onSubmit,
+  onBack,
+  onSignIn,
+}: {
+  form: CreateForm;
+  setForm: (f: Partial<CreateForm>) => void;
+  error: string;
+  loading: boolean;
+  onSubmit: () => void;
+  onBack: () => void;
+  onSignIn: () => void;
+}) {
+  return (
+    <ScrollView
+      style={{ flex: 1 }}
+      contentContainerStyle={sh.sheetPad}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+    >
+      {/* Back */}
+      <TouchableOpacity style={sh.backRow} onPress={onBack} activeOpacity={0.7}>
+        <Ionicons name="arrow-back" size={16} color="rgba(255,255,255,0.5)" />
+        <Text style={sh.backText}>Back</Text>
+      </TouchableOpacity>
+
+      {/* Icon */}
+      <View style={sh.iconWrap}>
+        <LinearGradient colors={['#7c3aed', '#5b21b6']} style={sh.iconGrad}>
+          <Ionicons name="person" size={26} color="#fff" />
+        </LinearGradient>
+      </View>
+
+      <Text style={sh.sheetTitle}>Create your profile</Text>
+      <Text style={sh.sheetSub}>Tell us a bit about yourself to get started</Text>
+
+      {/* First + Last */}
+      <View style={sh.nameRow}>
+        <View style={[sh.inputRow, { flex: 1 }]}>
+          <Ionicons name="person-outline" size={16} color="rgba(255,255,255,0.35)" style={sh.inputIcon} />
+          <TextInput
+            style={sh.inputText}
+            placeholder="First name"
+            placeholderTextColor="rgba(255,255,255,0.28)"
+            value={form.firstName}
+            onChangeText={(v) => setForm({ firstName: v })}
+            autoCapitalize="words"
+          />
+        </View>
+        <View style={[sh.inputRow, { flex: 1 }]}>
+          <TextInput
+            style={[sh.inputText, { paddingLeft: 12 }]}
+            placeholder="Last name"
+            placeholderTextColor="rgba(255,255,255,0.28)"
+            value={form.lastName}
+            onChangeText={(v) => setForm({ lastName: v })}
+            autoCapitalize="words"
+          />
+        </View>
+      </View>
+
+      {/* Email (pre-filled, read-only) */}
+      <InputRow
+        icon="mail-outline"
+        placeholder="Email"
+        value={form.email}
+        editable={false}
+        style={sh.inputMt}
+      />
+
+      {/* Job title */}
+      <View style={[sh.inputRow, sh.inputMt]}>
+        <Ionicons name="briefcase-outline" size={16} color="rgba(255,255,255,0.35)" style={sh.inputIcon} />
+        <TextInput
+          style={sh.inputText}
+          placeholder="Job title"
+          placeholderTextColor="rgba(255,255,255,0.28)"
+          value={form.title}
+          onChangeText={(v) => setForm({ title: v })}
+          autoCapitalize="words"
+        />
+      </View>
+
+      {/* Company */}
+      <View style={[sh.inputRow, sh.inputMt]}>
+        <Ionicons name="business-outline" size={16} color="rgba(255,255,255,0.35)" style={sh.inputIcon} />
+        <TextInput
+          style={sh.inputText}
+          placeholder="Company"
+          placeholderTextColor="rgba(255,255,255,0.28)"
+          value={form.company}
+          onChangeText={(v) => setForm({ company: v })}
+          autoCapitalize="words"
+        />
+      </View>
+
+      {/* Phone (optional) */}
+      <View style={[sh.inputRow, sh.inputMt]}>
+        <Ionicons name="call-outline" size={16} color="rgba(255,255,255,0.35)" style={sh.inputIcon} />
+        <TextInput
+          style={sh.inputText}
+          placeholder="Phone number (optional)"
+          placeholderTextColor="rgba(255,255,255,0.28)"
+          value={form.phone}
+          onChangeText={(v) => setForm({ phone: v })}
+          keyboardType="phone-pad"
+        />
+      </View>
+
+      {!!error && <Text style={[sh.errorText, { marginTop: 10 }]}>{error}</Text>}
+
+      <Text style={sh.termsText}>
+        By creating an account, you agree to our{' '}
+        <Text style={sh.termsLink}>Terms of Service</Text>
+        {' '}and{' '}
+        <Text style={sh.termsLink}>Privacy Policy</Text>.
+      </Text>
+
+      {/* Create Account */}
+      <TouchableOpacity
+        style={[sh.darkBtn, loading && { opacity: 0.6 }]}
+        onPress={onSubmit}
+        disabled={loading}
+        activeOpacity={0.85}
+      >
+        {loading ? (
+          <ActivityIndicator color="#fff" size="small" />
+        ) : (
+          <>
+            <Ionicons name="lock-closed" size={16} color="rgba(255,255,255,0.7)" style={{ marginRight: 8 }} />
+            <Text style={sh.darkBtnText}>Create Account</Text>
+          </>
+        )}
+      </TouchableOpacity>
+
+      {/* Sign in link */}
+      <TouchableOpacity onPress={onSignIn} style={sh.signInLink} activeOpacity={0.7}>
+        <Text style={sh.signInText}>Already have an account? </Text>
+        <Text style={[sh.signInText, sh.signInPurple]}>Sign in</Text>
+      </TouchableOpacity>
+
+      <View style={{ height: 24 }} />
+    </ScrollView>
+  );
+}
+
+// ─── Profile Review View ──────────────────────────────────────────────────────
+function ProfileReviewView({
+  user,
+  onConfirm,
+  onBack,
+}: {
+  user: AuthUser;
+  onConfirm: () => void;
+  onBack: () => void;
+}) {
+  return (
+    <View style={sh.sheetPad}>
+      <TouchableOpacity style={sh.backRow} onPress={onBack} activeOpacity={0.7}>
+        <Ionicons name="arrow-back" size={16} color="rgba(255,255,255,0.5)" />
+        <Text style={sh.backText}>Back</Text>
+      </TouchableOpacity>
+
+      <View style={sh.iconWrap}>
+        <LinearGradient colors={['#10b981', '#047857']} style={sh.iconGrad}>
+          <Ionicons name="checkmark-circle" size={26} color="#fff" />
+        </LinearGradient>
+      </View>
+
+      <Text style={sh.sheetTitle}>Welcome back!</Text>
+      <Text style={sh.sheetSub}>Confirm it's you to continue</Text>
+
+      <View style={sh.reviewCard}>
+        <View style={sh.reviewAvatar}>
+          <Text style={sh.reviewAvatarText}>
+            {(user.name || user.email || 'U')[0].toUpperCase()}
+          </Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={sh.reviewName}>{user.name || 'User'}</Text>
+          <Text style={sh.reviewEmail}>{user.email}</Text>
+          {user.company ? <Text style={sh.reviewCompany}>{user.company}</Text> : null}
+        </View>
+      </View>
+
+      <TouchableOpacity style={sh.purpleBtn} onPress={onConfirm} activeOpacity={0.85}>
+        <LinearGradient
+          colors={['#7c3aed', '#5b21b6']}
+          style={StyleSheet.absoluteFill}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+        />
+        <Text style={sh.purpleBtnText}>Continue as {user.name?.split(' ')[0] || 'me'}</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+// ─── OTP View ─────────────────────────────────────────────────────────────────
+function OtpView({
+  email,
+  otpValue,
+  setOtpValue,
+  error,
+  loading,
+  resendCountdown,
+  onResend,
+  onBack,
+}: {
+  email: string;
+  otpValue: string;
+  setOtpValue: (v: string) => void;
+  error: string;
+  loading: boolean;
+  resendCountdown: number;
+  onResend: () => void;
+  onBack: () => void;
+}) {
+  return (
+    <View style={sh.sheetPad}>
+      <TouchableOpacity style={sh.backRow} onPress={onBack} activeOpacity={0.7}>
+        <Ionicons name="arrow-back" size={16} color="rgba(255,255,255,0.5)" />
+        <Text style={sh.backText}>Back</Text>
+      </TouchableOpacity>
+
+      <View style={sh.iconWrap}>
+        <LinearGradient colors={['#7c3aed', '#5b21b6']} style={sh.iconGrad}>
+          <Ionicons name="shield-checkmark" size={26} color="#fff" />
+        </LinearGradient>
+      </View>
+
+      <Text style={sh.sheetTitle}>Enter code</Text>
+      <Text style={sh.sheetSub}>
+        We sent a 6-digit code to{'\n'}
+        <Text style={{ color: '#c4b5fd' }}>{email}</Text>
+      </Text>
+
+      <OtpInput
+        value={otpValue}
+        onChange={setOtpValue}
+        hasError={!!error}
+      />
+      {!!error && <Text style={[sh.errorText, { textAlign: 'center', marginTop: 8 }]}>{error}</Text>}
+
+      {loading && (
+        <ActivityIndicator color={colors.primary} style={{ marginTop: 16 }} />
+      )}
+
+      <TouchableOpacity
+        onPress={onResend}
+        disabled={resendCountdown > 0}
+        style={sh.resendRow}
+        activeOpacity={0.7}
+      >
+        <Text style={[sh.resendText, resendCountdown > 0 && { color: 'rgba(255,255,255,0.3)' }]}>
+          {resendCountdown > 0
+            ? `Resend code in ${resendCountdown}s`
+            : "Didn't receive it? Resend"}
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+// ─── Main WelcomeScreen ───────────────────────────────────────────────────────
 export function WelcomeScreen() {
   const insets = useSafeAreaInsets();
   const { login } = useAuth();
 
+  // Sheet animation
   const sheetAnim = useRef(new Animated.Value(0)).current;
   const keyboardOffset = useRef(new Animated.Value(0)).current;
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [sheetView, setSheetView] = useState<SheetView>('email');
 
-  const [view, setView] = useState<View_>('phone');
-  const [loginMode, setLoginMode] = useState<LoginMode>('email');
-  const [country, setCountry] = useState<Country>(DEFAULT_COUNTRY);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [phoneDigits, setPhoneDigits] = useState('');
-  const [emailInput, setEmailInput] = useState('');
-  const [phoneIdentifier, setPhoneIdentifier] = useState('');
-  const [phoneLoading, setPhoneLoading] = useState(false);
-  const [phoneError, setPhoneError] = useState('');
+  // Email / OTP state
+  const [email, setEmail] = useState('');
+  const [emailError, setEmailError] = useState('');
+  const [emailLoading, setEmailLoading] = useState(false);
+  const [identifier, setIdentifier] = useState(''); // what was actually sent to backend
 
   const [otpValue, setOtpValue] = useState('');
-  const [otpLoading, setOtpLoading] = useState(false);
   const [otpError, setOtpError] = useState('');
+  const [otpLoading, setOtpLoading] = useState(false);
   const [resendCountdown, setResendCountdown] = useState(0);
   const resendRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [resolvedUser, setResolvedUser] = useState<AuthUser | null>(null);
   const [resolvedToken, setResolvedToken] = useState('');
 
-  const [createForm, setCreateForm] = useState({ name: '', email: '', title: '', company: '' });
-  const [createLoading, setCreateLoading] = useState(false);
+  // Create-account form
+  const [createForm, setCreateFormState] = useState<CreateForm>({
+    firstName: '', lastName: '', email: '', title: '', company: '', phone: '',
+  });
+  const setCreateForm = (patch: Partial<CreateForm>) =>
+    setCreateFormState((p) => ({ ...p, ...patch }));
   const [createError, setCreateError] = useState('');
-  const [devLoading, setDevLoading] = useState(false);
+  const [createLoading, setCreateLoading] = useState(false);
 
-  const handleDevLogin = useCallback(async (email: string, password: string) => {
-    setDevLoading(true);
-    try {
-      const res = await loginWithPassword(email, password);
-      if (!res.success || !res.data) {
-        console.warn('[DevLogin] failed:', res.error);
-        return;
-      }
-      await login(res.data.token, res.data.user);
-      router.replace('/events');
-    } catch (e) {
-      console.warn('[DevLogin] error:', e);
-    } finally {
-      setDevLoading(false);
-    }
-  }, [login]);
-
+  // Top-level tabs + feeds
   const [activeTab, setActiveTab] = useState<TopTab>(null);
   const [feedSubTab, setFeedSubTab] = useState<FeedSubTab>('podcast');
-
   const [videos, setVideos] = useState<GlobalVideoFeed[]>([]);
   const [articles, setArticles] = useState<GlobalArticle[]>([]);
   const [videoCats, setVideoCats] = useState<Category[]>([]);
@@ -194,10 +518,23 @@ export function WelcomeScreen() {
   const [selectedArticleCat, setSelectedArticleCat] = useState<string | null>(null);
   const [feedsLoading, setFeedsLoading] = useState(false);
 
-  useEffect(() => {
-    if (activeTab === 'feeds') {
-      loadFeeds();
+  // Dev login
+  const [devLoading, setDevLoading] = useState(false);
+  const handleDevLogin = useCallback(async (devEmail: string, password: string) => {
+    setDevLoading(true);
+    try {
+      const res = await loginWithPassword(devEmail, password);
+      if (!res.success || !res.data) return;
+      await login(res.data.token, res.data.user);
+      router.replace('/events');
+    } finally {
+      setDevLoading(false);
     }
+  }, [login]);
+
+  // Feeds loading
+  useEffect(() => {
+    if (activeTab === 'feeds') loadFeeds();
   }, [activeTab, feedSubTab, selectedVideoCat, selectedArticleCat]);
 
   const loadFeeds = async () => {
@@ -205,159 +542,154 @@ export function WelcomeScreen() {
     try {
       if (feedSubTab === 'podcast') {
         const [vRes, cRes] = await Promise.all([
-          fetchGlobalVideoFeeds({ category: selectedVideoCat || undefined }),
+          fetchGlobalVideoFeeds({ category: selectedVideoCat ?? undefined }),
           videoCats.length ? Promise.resolve(null) : fetchVideoCategories(),
         ]);
         if (vRes.success && vRes.data) setVideos(vRes.data.data);
         if (cRes?.success && cRes.data) setVideoCats(cRes.data);
       } else {
         const [aRes, cRes] = await Promise.all([
-          fetchGlobalArticles({ category: selectedArticleCat || undefined }),
+          fetchGlobalArticles({ category: selectedArticleCat ?? undefined }),
           articleCats.length ? Promise.resolve(null) : fetchArticleCategories(),
         ]);
         if (aRes.success && aRes.data) setArticles(aRes.data.data);
         if (cRes?.success && cRes.data) setArticleCats(cRes.data);
       }
-    } catch (e) {
-      console.warn('Failed to load feeds', e);
+    } catch {
+      // silent
     } finally {
       setFeedsLoading(false);
     }
   };
 
-  const openSheet = () => {
+  // Sheet open/close
+  const openSheet = useCallback(() => {
     setActiveTab('events');
+    setSheetView('email');
     setSheetOpen(true);
-    Animated.spring(sheetAnim, { toValue: 1, useNativeDriver: true, damping: 20, stiffness: 180 }).start();
-  };
+    Animated.spring(sheetAnim, { toValue: 1, useNativeDriver: true, damping: 22, stiffness: 200 }).start();
+  }, [sheetAnim]);
 
-  const closeSheet = () => {
+  const closeSheet = useCallback(() => {
     Keyboard.dismiss();
-    Animated.timing(sheetAnim, { toValue: 0, duration: 280, useNativeDriver: true }).start(() => {
+    Animated.timing(sheetAnim, { toValue: 0, duration: 260, useNativeDriver: true }).start(() => {
       setSheetOpen(false);
       setActiveTab(null);
-      setView('phone');
-      setLoginMode('email');
-      setPhoneDigits('');
-      setEmailInput('');
-      setPhoneIdentifier('');
-      setPhoneError('');
+      setSheetView('email');
+      setEmail('');
+      setEmailError('');
       setOtpValue('');
       setOtpError('');
       setResolvedUser(null);
-      setCreateForm({ name: '', email: '', title: '', company: '' });
+      setResolvedToken('');
+      setCreateFormState({ firstName: '', lastName: '', email: '', title: '', company: '', phone: '' });
       setCreateError('');
       if (resendRef.current) clearInterval(resendRef.current);
       setResendCountdown(0);
     });
-  };
+  }, [sheetAnim]);
+
+  // Keyboard lift (iOS only — Android uses adjustResize)
+  useEffect(() => {
+    if (Platform.OS !== 'ios') return;
+    const show = Keyboard.addListener('keyboardWillShow', (e) => {
+      Animated.timing(keyboardOffset, { toValue: -e.endCoordinates.height, duration: e.duration || 250, useNativeDriver: true }).start();
+    });
+    const hide = Keyboard.addListener('keyboardWillHide', (e) => {
+      Animated.timing(keyboardOffset, { toValue: 0, duration: e.duration || 250, useNativeDriver: true }).start();
+    });
+    return () => { show.remove(); hide.remove(); };
+  }, [keyboardOffset]);
 
   const startResendCountdown = useCallback(() => {
     setResendCountdown(30);
     resendRef.current = setInterval(() => {
       setResendCountdown((p) => {
-        if (p <= 1) { if (resendRef.current) clearInterval(resendRef.current); return 0; }
+        if (p <= 1) { clearInterval(resendRef.current!); return 0; }
         return p - 1;
       });
     }, 1000);
   }, []);
 
-  const handlePhoneContinue = useCallback(async () => {
-    const email = emailInput.trim();
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setPhoneError('Please enter a valid email address.');
+  // Step 1 — email → OTP or no-account
+  const handleEmailContinue = useCallback(async () => {
+    const trimmed = email.trim().toLowerCase();
+    if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      setEmailError('Please enter a valid email address.');
       return;
     }
-    const identifier = email;
-    setPhoneError('');
-    setPhoneLoading(true);
+    setEmailError('');
+    setEmailLoading(true);
     try {
-      const res = await sendOtp(identifier);
-      if (!res.success) { setPhoneError(res.error?.message ?? 'Failed to send code.'); return; }
-      setPhoneIdentifier(identifier);
+      const res = await sendOtp(trimmed);
+      if (!res.success) { setEmailError(res.error?.message ?? 'Failed to send code.'); return; }
+      setIdentifier(trimmed);
       Keyboard.dismiss();
       if (!res.data?.otpSent) {
-        // Email not found — route to registration form instead of dead-end error
-        setCreateForm((p) => ({ ...p, email: identifier }));
-        setView('create-account');
-        return;
+        // No account — show "No account found" interstitial
+        setCreateForm({ email: trimmed });
+        setSheetView('no-account');
+      } else {
+        setOtpValue('');
+        setOtpError('');
+        setSheetView('otp');
+        startResendCountdown();
       }
-      setOtpValue('');
-      setOtpError('');
-      setView('otp');
-      startResendCountdown();
     } catch {
-      setPhoneError('Something went wrong. Please try again.');
+      setEmailError('Something went wrong. Please try again.');
     } finally {
-      setPhoneLoading(false);
+      setEmailLoading(false);
     }
-  }, [emailInput, startResendCountdown]);
+  }, [email, startResendCountdown]);
 
+  // OTP auto-verify when 6 digits entered
   useEffect(() => {
-    // On Android the window uses adjustResize (see AndroidManifest), so the
-    // OS already lifts the bottom-anchored sheet above the keyboard — adding
-    // our own translate there would double-adjust. iOS never resizes for the
-    // keyboard, so the sheet must be lifted manually to keep inputs visible.
-    if (Platform.OS !== 'ios') return;
-    const showSub = Keyboard.addListener('keyboardWillShow', (e) => {
-      Animated.timing(keyboardOffset, {
-        toValue: -e.endCoordinates.height,
-        duration: e.duration || 250,
-        useNativeDriver: true,
-      }).start();
-    });
-    const hideSub = Keyboard.addListener('keyboardWillHide', (e) => {
-      Animated.timing(keyboardOffset, {
-        toValue: 0,
-        duration: e.duration || 250,
-        useNativeDriver: true,
-      }).start();
-    });
-    return () => { showSub.remove(); hideSub.remove(); };
-  }, [keyboardOffset]);
-
-  useEffect(() => {
-    if (otpValue.length === 6 && view === 'otp') {
-      handleVerifyOtp();
-    }
+    if (otpValue.length === 6 && sheetView === 'otp') handleVerifyOtp();
   }, [otpValue]);
 
   const handleVerifyOtp = useCallback(async () => {
     setOtpLoading(true);
     try {
-      const res = await verifyOtp(phoneIdentifier, otpValue);
-      if (!res.success || !res.data) { setOtpError(res.error?.message ?? 'Incorrect code. Please try again.'); return; }
+      const res = await verifyOtp(identifier, otpValue);
+      if (!res.success || !res.data) { setOtpError(res.error?.message ?? 'Incorrect code. Try again.'); return; }
       const data = res.data;
       if (!data.isNewUser && data.user) {
         setResolvedUser(data.user);
         setResolvedToken(data.token);
-        setView('profile-review');
+        setSheetView('profile-review');
       } else {
-        setCreateForm((p) => ({ ...p, email: p.email || phoneIdentifier }));
-        setView('create-account');
+        setCreateForm({ email: identifier });
+        setSheetView('create-account');
       }
     } catch {
       setOtpError('Something went wrong. Please try again.');
     } finally {
       setOtpLoading(false);
     }
-  }, [phoneIdentifier, otpValue]);
+  }, [identifier, otpValue]);
 
-  const handleProfileConfirm = async () => {
+  const handleProfileConfirm = useCallback(async () => {
     if (!resolvedUser) return;
     await login(resolvedToken, resolvedUser);
     router.replace('/events');
-  };
+  }, [resolvedUser, resolvedToken, login]);
 
   const handleCreateAccount = useCallback(async () => {
-    if (!createForm.name.trim() || !createForm.email.trim()) {
-      setCreateError('Name and email are required.');
+    if (!createForm.firstName.trim() || !createForm.email.trim()) {
+      setCreateError('First name and email are required.');
       return;
     }
     setCreateError('');
     setCreateLoading(true);
     try {
-      const res = await register({ phone: '', ...createForm });
+      const fullName = `${createForm.firstName.trim()} ${createForm.lastName.trim()}`.trim();
+      const res = await register({
+        name: fullName,
+        email: createForm.email,
+        phone: createForm.phone,
+        title: createForm.title,
+        company: createForm.company,
+      });
       if (!res.success || !res.data) { setCreateError(res.error?.message ?? 'Registration failed.'); return; }
       await login(res.data.token, res.data.user);
       router.replace('/events');
@@ -366,32 +698,21 @@ export function WelcomeScreen() {
     } finally {
       setCreateLoading(false);
     }
-  }, [createForm, phoneIdentifier, login]);
+  }, [createForm, login]);
 
   const sheetTranslate = sheetAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [SHEET_HEIGHT, 0],
+    outputRange: [MAX_SHEET, 0],
   });
-
   const backdropOpacity = sheetAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
 
   return (
     <View style={styles.container}>
+      {/* Background */}
+      <LinearGradient colors={['#0d0d1a', '#1a0d2e', '#0d1a2e']} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
+      <LinearGradient colors={['transparent', 'rgba(109,40,217,0.15)', 'rgba(4,4,16,0.97)']} style={[StyleSheet.absoluteFill, { top: '30%' }]} start={{ x: 0.5, y: 0 }} end={{ x: 0.5, y: 1 }} />
 
-      <LinearGradient
-        colors={['#0d0d1a', '#1a0d2e', '#0d1a2e']}
-        style={StyleSheet.absoluteFill}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-      />
-
-      <LinearGradient
-        colors={['transparent', 'rgba(109,40,217,0.15)', 'rgba(4,4,16,0.97)']}
-        style={[StyleSheet.absoluteFill, { top: '30%' }]}
-        start={{ x: 0.5, y: 0 }}
-        end={{ x: 0.5, y: 1 }}
-      />
-
+      {/* Top bar */}
       <View style={[styles.topBar, { paddingTop: insets.top + spacing.md }]}>
         <TouchableOpacity onPress={() => setActiveTab(null)}>
           <Image source={require('@/assets/cxo-logo.png')} style={styles.logo} resizeMode="contain" />
@@ -418,77 +739,74 @@ export function WelcomeScreen() {
         </View>
       </View>
 
+      {/* Content area */}
       {activeTab === 'feeds' ? (
         <View style={styles.feedsContainer}>
+          {/* Sub-tabs */}
           <View style={styles.subTabs}>
-            <TouchableOpacity
-              style={[styles.subTab, feedSubTab === 'podcast' && styles.subTabActive]}
-              onPress={() => setFeedSubTab('podcast')}
-            >
-              <Text style={[styles.subTabText, feedSubTab === 'podcast' && styles.subTabTextActive]}>Podcast</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.subTab, feedSubTab === 'articles' && styles.subTabActive]}
-              onPress={() => setFeedSubTab('articles')}
-            >
-              <Text style={[styles.subTabText, feedSubTab === 'articles' && styles.subTabTextActive]}>Articles</Text>
-            </TouchableOpacity>
+            {(['podcast', 'articles'] as FeedSubTab[]).map((st) => (
+              <TouchableOpacity
+                key={st}
+                style={[styles.subTab, feedSubTab === st && styles.subTabActive]}
+                onPress={() => setFeedSubTab(st)}
+              >
+                <Text style={[styles.subTabText, feedSubTab === st && styles.subTabTextActive]}>
+                  {st === 'podcast' ? 'Podcast' : 'Articles'}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </View>
 
-          <View style={styles.filterContainer}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
+          {/* Category chips */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
+            <TouchableOpacity
+              style={[styles.filterChip, !(feedSubTab === 'podcast' ? selectedVideoCat : selectedArticleCat) && styles.filterChipActive]}
+              onPress={() => feedSubTab === 'podcast' ? setSelectedVideoCat(null) : setSelectedArticleCat(null)}
+            >
+              <Text style={[styles.filterChipText, !(feedSubTab === 'podcast' ? selectedVideoCat : selectedArticleCat) && styles.filterChipTextActive]}>All</Text>
+            </TouchableOpacity>
+            {(feedSubTab === 'podcast' ? videoCats : articleCats).map((cat) => (
               <TouchableOpacity
-                style={[styles.filterChip, (feedSubTab === 'podcast' ? !selectedVideoCat : !selectedArticleCat) && styles.filterChipActive]}
-                onPress={() => feedSubTab === 'podcast' ? setSelectedVideoCat(null) : setSelectedArticleCat(null)}
+                key={cat.id}
+                style={[styles.filterChip, (feedSubTab === 'podcast' ? selectedVideoCat === cat.slug : selectedArticleCat === cat.slug) && styles.filterChipActive]}
+                onPress={() => feedSubTab === 'podcast' ? setSelectedVideoCat(cat.slug) : setSelectedArticleCat(cat.slug)}
               >
-                <Text style={[styles.filterChipText, (feedSubTab === 'podcast' ? !selectedVideoCat : !selectedArticleCat) && styles.filterChipTextActive]}>All</Text>
+                <Text style={[styles.filterChipText, (feedSubTab === 'podcast' ? selectedVideoCat === cat.slug : selectedArticleCat === cat.slug) && styles.filterChipTextActive]}>{cat.name}</Text>
               </TouchableOpacity>
-              {(feedSubTab === 'podcast' ? videoCats : articleCats).map(cat => (
-                <TouchableOpacity
-                  key={cat.id}
-                  style={[styles.filterChip, (feedSubTab === 'podcast' ? selectedVideoCat === cat.slug : selectedArticleCat === cat.slug) && styles.filterChipActive]}
-                  onPress={() => feedSubTab === 'podcast' ? setSelectedVideoCat(cat.slug) : setSelectedArticleCat(cat.slug)}
-                >
-                  <Text style={[styles.filterChipText, (feedSubTab === 'podcast' ? selectedVideoCat === cat.slug : selectedArticleCat === cat.slug) && styles.filterChipTextActive]}>{cat.name}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
+            ))}
+          </ScrollView>
 
           {feedsLoading ? (
-            <View style={styles.centered}>
-              <ActivityIndicator color={colors.primary} />
-            </View>
+            <View style={styles.centered}><ActivityIndicator color={colors.primary} /></View>
           ) : (
             <FlatList
               data={(feedSubTab === 'podcast' ? videos : articles) as any[]}
-              keyExtractor={item => item.id}
+              keyExtractor={(item) => String(item.id)}
               contentContainerStyle={styles.feedList}
               renderItem={({ item }) => (
                 <View style={styles.feedCard}>
-                  <Image source={{ uri: item.thumbnail }} style={styles.cardThumb} />
+                  {item.thumbnail ? (
+                    <Image source={{ uri: item.thumbnail }} style={styles.cardThumb} />
+                  ) : null}
                   <View style={styles.cardContent}>
                     <View style={styles.cardHeader}>
-                      <View style={styles.cardCategory}>
-                        <Text style={styles.cardCategoryText}>{item.category}</Text>
-                      </View>
-                      {item.duration && (
-                        <Text style={styles.cardDuration}>{item.duration}</Text>
-                      )}
-                      {item.read_time && (
-                        <Text style={styles.cardDuration}>{String(item.read_time)}</Text>
-                      )}
+                      {item.category ? (
+                        <View style={styles.cardCategory}>
+                          <Text style={styles.cardCategoryText}>{String(item.category)}</Text>
+                        </View>
+                      ) : null}
+                      {(item.duration || item.read_time) ? (
+                        <Text style={styles.cardDuration}>{String(item.duration ?? item.read_time)}</Text>
+                      ) : null}
                     </View>
                     <Text style={styles.cardTitle} numberOfLines={2}>{String(item.title)}</Text>
-                    {item.excerpt && (
-                      <Text style={styles.cardExcerpt} numberOfLines={2}>{String(item.excerpt)}</Text>
-                    )}
+                    {item.excerpt ? <Text style={styles.cardExcerpt} numberOfLines={2}>{String(item.excerpt)}</Text> : null}
                   </View>
                 </View>
               )}
               ListEmptyComponent={
                 <View style={styles.centered}>
-                  <Text style={styles.emptyText}>No content found.</Text>
+                  <Text style={styles.emptyText}>No content available yet.</Text>
                 </View>
               }
             />
@@ -497,7 +815,6 @@ export function WelcomeScreen() {
       ) : (
         <>
           <View style={styles.spacer} />
-
           <View style={styles.chips}>
             {[
               { emoji: '⚡', label: 'Live Polls' },
@@ -516,56 +833,34 @@ export function WelcomeScreen() {
           <View style={[styles.hero, { paddingBottom: insets.bottom + spacing.xl }]}>
             <Text style={styles.heroTitle}>
               Where the{'\n'}
-              <Text style={styles.heroGradientText}>Future Connects</Text>
+              <Text style={styles.heroAccent}>Future Connects</Text>
             </Text>
             <Text style={styles.heroSub}>
               Engage with leaders, earn points, climb the leaderboard — your event experience, fully gamified.
             </Text>
 
             <TouchableOpacity style={styles.ctaButton} onPress={openSheet} activeOpacity={0.85}>
-              <LinearGradient
-                colors={['#7c3aed', '#4f46e5', '#0ea5e9']}
-                style={StyleSheet.absoluteFill}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-              />
+              <LinearGradient colors={['#7c3aed', '#4f46e5', '#0ea5e9']} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} />
               <Text style={styles.ctaText}>Start Networking</Text>
             </TouchableOpacity>
-
             <Text style={styles.ctaSub}>Sign in to your account to get started</Text>
 
             {__DEV__ && (
               <View style={{ marginTop: spacing.lg, gap: spacing.xs }}>
-                <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10, textAlign: 'center', marginBottom: 4 }}>
-                  DEV ONLY — Quick Login
-                </Text>
+                <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10, textAlign: 'center', marginBottom: 4 }}>DEV ONLY</Text>
                 <TouchableOpacity
-                  style={{ backgroundColor: 'rgba(124,58,237,0.25)', borderWidth: 1, borderColor: 'rgba(124,58,237,0.5)', borderRadius: radius.md, paddingVertical: 10, paddingHorizontal: 20, alignItems: 'center' }}
+                  style={{ backgroundColor: 'rgba(124,58,237,0.2)', borderWidth: 1, borderColor: 'rgba(124,58,237,0.4)', borderRadius: radius.md, paddingVertical: 10, paddingHorizontal: 20, alignItems: 'center' }}
                   onPress={() => handleDevLogin('testuser@cxoinc.com', 'Test1234!')}
                   disabled={devLoading}
-                  activeOpacity={0.75}
                 >
-                  {devLoading ? (
-                    <ActivityIndicator color="#7c3aed" size="small" />
-                  ) : (
-                    <Text style={{ color: '#a78bfa', fontSize: 12, fontWeight: '600' }}>
-                      Login as Attendee (testuser@cxoinc.com)
-                    </Text>
-                  )}
+                  {devLoading ? <ActivityIndicator color="#7c3aed" size="small" /> : <Text style={{ color: '#a78bfa', fontSize: 12, fontWeight: '600' }}>Login as Attendee</Text>}
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={{ backgroundColor: 'rgba(6,182,212,0.15)', borderWidth: 1, borderColor: 'rgba(6,182,212,0.4)', borderRadius: radius.md, paddingVertical: 10, paddingHorizontal: 20, alignItems: 'center' }}
+                  style={{ backgroundColor: 'rgba(6,182,212,0.1)', borderWidth: 1, borderColor: 'rgba(6,182,212,0.3)', borderRadius: radius.md, paddingVertical: 10, paddingHorizontal: 20, alignItems: 'center' }}
                   onPress={() => handleDevLogin('testsponsor@cxoinc.com', 'Test1234!')}
                   disabled={devLoading}
-                  activeOpacity={0.75}
                 >
-                  {devLoading ? (
-                    <ActivityIndicator color="#06b6d4" size="small" />
-                  ) : (
-                    <Text style={{ color: '#67e8f9', fontSize: 12, fontWeight: '600' }}>
-                      Login as Sponsor (testsponsor@cxoinc.com)
-                    </Text>
-                  )}
+                  {devLoading ? <ActivityIndicator color="#06b6d4" size="small" /> : <Text style={{ color: '#67e8f9', fontSize: 12, fontWeight: '600' }}>Login as Sponsor</Text>}
                 </TouchableOpacity>
               </View>
             )}
@@ -573,710 +868,358 @@ export function WelcomeScreen() {
         </>
       )}
 
+      {/* Backdrop */}
       {sheetOpen && (
-        <Animated.View
-          style={[styles.backdrop, { opacity: backdropOpacity }]}
-          pointerEvents="box-only"
-        >
+        <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]} pointerEvents="box-only">
           <TouchableOpacity style={StyleSheet.absoluteFill} onPress={closeSheet} />
         </Animated.View>
       )}
 
+      {/* Sheet */}
       <Animated.View
         style={[
           styles.sheet,
-          { transform: [{ translateY: sheetTranslate }, { translateY: keyboardOffset }], paddingBottom: insets.bottom + spacing.lg },
+          { transform: [{ translateY: sheetTranslate }, { translateY: keyboardOffset }] },
         ]}
         pointerEvents={sheetOpen ? 'box-none' : 'none'}
       >
+        {/* Handle */}
         <View style={styles.sheetHandle} />
 
+        {/* Close */}
         <TouchableOpacity style={styles.sheetClose} onPress={closeSheet}>
-          <Text style={styles.sheetCloseX}>✕</Text>
+          <Ionicons name="close" size={16} color="rgba(255,255,255,0.6)" />
         </TouchableOpacity>
 
-        <ScrollView
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: spacing.xl }}
-        >
-          {view === 'phone' && (
-            <PhoneView
-              loginMode={loginMode}
-              onSetLoginMode={(m) => { setLoginMode(m); setPhoneDigits(''); setEmailInput(''); setPhoneError(''); }}
-              country={country}
-              onOpenPicker={() => setPickerOpen(true)}
-              phoneDigits={phoneDigits}
-              setPhoneDigits={(v) => { setPhoneDigits(v); setPhoneError(''); }}
-              emailInput={emailInput}
-              setEmailInput={(v) => { setEmailInput(v); setPhoneError(''); }}
-              phoneError={phoneError}
-              phoneLoading={phoneLoading}
-              onContinue={handlePhoneContinue}
-              onDemoFill={(d) => { setPhoneDigits(d); setPhoneError(''); }}
-              onDevLogin={handleDevLogin}
-              devLoading={devLoading}
-            />
-          )}
+        {sheetView === 'email' && (
+          <EmailView
+            email={email}
+            setEmail={(v) => { setEmail(v); setEmailError(''); }}
+            error={emailError}
+            loading={emailLoading}
+            onContinue={handleEmailContinue}
+          />
+        )}
 
-          {view === 'otp' && (
-            <OtpView
-              displayPhone={loginMode === 'email' ? emailInput.trim() : `${country.dialCode} ${formatPhone(country, phoneDigits)}`}
-              otpValue={otpValue}
-              setOtpValue={(v) => { setOtpValue(v); setOtpError(''); }}
-              otpError={otpError}
-              otpLoading={otpLoading}
-              resendCountdown={resendCountdown}
-              onResend={() => {
-                if (resendCountdown > 0) return;
-                setOtpValue('');
-                setOtpError('');
-                handlePhoneContinue();
-              }}
-              onBack={() => setView('phone')}
-            />
-          )}
+        {sheetView === 'no-account' && (
+          <NoAccountView
+            email={identifier || email}
+            onCreateAccount={() => setSheetView('create-account')}
+            onTryDifferent={() => { setSheetView('email'); setEmail(''); setEmailError(''); }}
+          />
+        )}
 
-          {view === 'profile-review' && resolvedUser && (
-            <ProfileReview user={resolvedUser} onConfirm={handleProfileConfirm} onBack={() => setView('otp')} />
-          )}
+        {sheetView === 'otp' && (
+          <OtpView
+            email={identifier}
+            otpValue={otpValue}
+            setOtpValue={(v) => { setOtpValue(v); setOtpError(''); }}
+            error={otpError}
+            loading={otpLoading}
+            resendCountdown={resendCountdown}
+            onResend={() => {
+              if (resendCountdown > 0) return;
+              setOtpValue('');
+              setOtpError('');
+              handleEmailContinue();
+            }}
+            onBack={() => { setSheetView('email'); setOtpValue(''); setOtpError(''); }}
+          />
+        )}
 
-          {view === 'create-account' && (
-            <CreateAccount
-              form={createForm}
-              setForm={setCreateForm}
-              error={createError}
-              loading={createLoading}
-              onSubmit={handleCreateAccount}
-              onBack={() => setView('otp')}
-            />
-          )}
-        </ScrollView>
+        {sheetView === 'profile-review' && resolvedUser && (
+          <ProfileReviewView
+            user={resolvedUser}
+            onConfirm={handleProfileConfirm}
+            onBack={() => setSheetView('otp')}
+          />
+        )}
+
+        {sheetView === 'create-account' && (
+          <CreateProfileView
+            form={createForm}
+            setForm={setCreateForm}
+            error={createError}
+            loading={createLoading}
+            onSubmit={handleCreateAccount}
+            onBack={() => setSheetView(identifier ? 'no-account' : 'email')}
+            onSignIn={() => { setSheetView('email'); setEmail(''); setEmailError(''); }}
+          />
+        )}
       </Animated.View>
-
-      <CountryPickerModal
-        visible={pickerOpen}
-        selected={country}
-        onSelect={(c) => { setCountry(c); setPhoneDigits(''); setPickerOpen(false); }}
-        onClose={() => setPickerOpen(false)}
-      />
     </View>
   );
 }
 
-function CountryPickerModal({
-  visible, selected, onSelect, onClose,
-}: {
-  visible: boolean;
-  selected: Country;
-  onSelect: (c: Country) => void;
-  onClose: () => void;
-}) {
-  const [search, setSearch] = useState('');
-  const insets = useSafeAreaInsets();
-
-  const filtered = search.trim()
-    ? COUNTRIES.filter(
-        (c) =>
-          c.name.toLowerCase().includes(search.toLowerCase()) ||
-          c.dialCode.includes(search)
-      )
-    : COUNTRIES;
-
-  return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={onClose}
-    >
-      <View style={pickerStyles.container}>
-        <View style={[pickerStyles.header, { paddingTop: insets.top + 16 }]}>
-          <Text style={pickerStyles.title}>Select Country</Text>
-          <TouchableOpacity onPress={onClose} style={pickerStyles.closeBtn}>
-            <Text style={pickerStyles.closeBtnText}>✕</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={pickerStyles.searchRow}>
-          <Text style={pickerStyles.searchIcon}>🔍</Text>
-          <TextInput
-            style={pickerStyles.searchInput}
-            value={search}
-            onChangeText={setSearch}
-            placeholder="Search country or code…"
-            placeholderTextColor="rgba(255,255,255,0.3)"
-            autoCapitalize="none"
-            clearButtonMode="while-editing"
-          />
-        </View>
-
-        <FlatList
-          data={filtered}
-          keyExtractor={(item) => `${item.dialCode}-${item.name}`}
-          keyboardShouldPersistTaps="handled"
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={[pickerStyles.row, item.name === selected.name && pickerStyles.rowSelected]}
-              onPress={() => { setSearch(''); onSelect(item); }}
-              activeOpacity={0.7}
-            >
-              <Text style={pickerStyles.rowFlag}>{item.flag}</Text>
-              <Text style={pickerStyles.rowName}>{item.name}</Text>
-              <Text style={pickerStyles.rowCode}>{item.dialCode}</Text>
-              {item.name === selected.name && (
-                <Text style={pickerStyles.rowCheck}>✓</Text>
-              )}
-            </TouchableOpacity>
-          )}
-          ItemSeparatorComponent={() => <View style={pickerStyles.separator} />}
-          contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
-        />
-      </View>
-    </Modal>
-  );
-}
-
-function PhoneView({
-  loginMode, onSetLoginMode, country, onOpenPicker, phoneDigits, setPhoneDigits,
-  emailInput, setEmailInput, phoneError, phoneLoading, onContinue, onDemoFill,
-  onDevLogin, devLoading,
-}: {
-  loginMode: LoginMode;
-  onSetLoginMode: (m: LoginMode) => void;
-  country: Country;
-  onOpenPicker: () => void;
-  phoneDigits: string;
-  setPhoneDigits: (v: string) => void;
-  emailInput: string;
-  setEmailInput: (v: string) => void;
-  phoneError: string;
-  phoneLoading: boolean;
-  onContinue: () => void;
-  onDemoFill: (d: string) => void;
-  onDevLogin: (e: string, p: string) => void;
-  devLoading: boolean;
-}) {
-  return (
-    <View style={sheetStyles.section}>
-      <View style={sheetStyles.iconBox}>
-        <Text style={{ fontSize: 24 }}>👋</Text>
-      </View>
-      <Text style={sheetStyles.title}>Welcome back</Text>
-      <Text style={sheetStyles.subtitle}>Enter your details to join the event community.</Text>
-
-      <View style={sheetStyles.modeToggle}>
-        <TouchableOpacity
-          style={[sheetStyles.modeTab, loginMode === 'email' && sheetStyles.modeTabActive]}
-          onPress={() => onSetLoginMode('email')}
-        >
-          <Text style={[sheetStyles.modeTabText, loginMode === 'email' && sheetStyles.modeTabTextActive]}>Email</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[sheetStyles.modeTab, loginMode === 'phone' && sheetStyles.modeTabActive]}
-          onPress={() => onSetLoginMode('phone')}
-        >
-          <Text style={[sheetStyles.modeTabText, loginMode === 'phone' && sheetStyles.modeTabTextActive]}>Phone</Text>
-        </TouchableOpacity>
-      </View>
-
-      <Text style={sheetStyles.fieldLabel}>{loginMode === 'email' ? 'EMAIL ADDRESS' : 'PHONE NUMBER'}</Text>
-
-      {loginMode === 'email' ? (
-        <TextInput
-          style={sheetStyles.textInput}
-          value={emailInput}
-          onChangeText={setEmailInput}
-          placeholder="name@company.com"
-          placeholderTextColor="rgba(255,255,255,0.2)"
-          keyboardType="email-address"
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-      ) : (
-        <View style={sheetStyles.phoneRow}>
-          <TouchableOpacity style={sheetStyles.countryCode} onPress={onOpenPicker}>
-            <Text style={sheetStyles.flag}>{country.flag}</Text>
-            <Text style={sheetStyles.countryNum}>{country.dialCode}</Text>
-            <Text style={sheetStyles.countryChevron}>▼</Text>
-          </TouchableOpacity>
-          <TextInput
-            style={sheetStyles.phoneInput}
-            value={formatPhone(country, phoneDigits)}
-            onChangeText={(v) => setPhoneDigits(cleanPhone(v))}
-            placeholder="000 000 0000"
-            placeholderTextColor="rgba(255,255,255,0.2)"
-            keyboardType="phone-pad"
-            maxLength={16}
-          />
-        </View>
-      )}
-
-      {!!phoneError && <Text style={sheetStyles.errorText}>{phoneError}</Text>}
-
-      <TouchableOpacity
-        style={[sheetStyles.btn, phoneLoading && sheetStyles.btnDisabled]}
-        onPress={onContinue}
-        disabled={phoneLoading}
-      >
-        {phoneLoading ? <ActivityIndicator color="#fff" /> : <Text style={sheetStyles.btnText}>Continue</Text>}
-      </TouchableOpacity>
-
-      {USE_MOCK_AUTH && (
-        <View style={{ marginTop: spacing.xl, gap: spacing.sm }}>
-          <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10, textAlign: 'center' }}>DEMO ACCOUNTS (TAP TO FILL)</Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, justifyContent: 'center' }}>
-            {DEMO_PHONES.map((d) => (
-              <TouchableOpacity key={d.label} style={sheetStyles.demoBtn} onPress={() => onDemoFill(d.phone)}>
-                <Text style={sheetStyles.demoBtnText}>{d.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-      )}
-    </View>
-  );
-}
-
-function OtpView({
-  displayPhone, otpValue, setOtpValue, otpError, otpLoading, resendCountdown, onResend, onBack,
-}: {
-  displayPhone: string;
-  otpValue: string;
-  setOtpValue: (v: string) => void;
-  otpError: string;
-  otpLoading: boolean;
-  resendCountdown: number;
-  onResend: () => void;
-  onBack: () => void;
-}) {
-  return (
-    <View style={sheetStyles.section}>
-      <TouchableOpacity style={sheetStyles.backBtn} onPress={onBack}>
-        <Text style={sheetStyles.backBtnText}>← Back</Text>
-      </TouchableOpacity>
-      <Text style={sheetStyles.title}>Verify it's you</Text>
-      <Text style={sheetStyles.subtitle}>
-        Enter the 6-digit code sent to{'\n'}
-        <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>{displayPhone}</Text>
-      </Text>
-
-      <View style={{ marginTop: spacing.xl }}>
-        <OtpInput value={otpValue} onChange={setOtpValue} hasError={!!otpError} />
-      </View>
-
-      {!!otpError && <Text style={[sheetStyles.errorText, { textAlign: 'center' }]}>{otpError}</Text>}
-
-      <TouchableOpacity
-        style={[sheetStyles.btn, (otpValue.length < 6 || otpLoading) && sheetStyles.btnDisabled]}
-        disabled={otpValue.length < 6 || otpLoading}
-      >
-        {otpLoading ? <ActivityIndicator color="#fff" /> : <Text style={sheetStyles.btnText}>Verify Code</Text>}
-      </TouchableOpacity>
-
-      <TouchableOpacity style={{ marginTop: spacing.lg, alignSelf: 'center' }} onPress={onResend} disabled={resendCountdown > 0}>
-        <Text style={{ color: resendCountdown > 0 ? colors.textMuted : colors.primary, fontSize: 13, fontWeight: '600' }}>
-          {resendCountdown > 0 ? `Resend code in ${resendCountdown}s` : 'Resend code'}
-        </Text>
-      </TouchableOpacity>
-    </View>
-  );
-}
-
-function ProfileReview({ user, onConfirm, onBack }: { user: AuthUser, onConfirm: () => void, onBack: () => void }) {
-  return (
-    <View style={sheetStyles.section}>
-      <TouchableOpacity style={sheetStyles.backBtn} onPress={onBack}>
-        <Text style={sheetStyles.backBtnText}>← Back</Text>
-      </TouchableOpacity>
-      <Text style={sheetStyles.title}>Account Found</Text>
-      <Text style={sheetStyles.subtitle}>Is this you? Confirm to continue to the events list.</Text>
-
-      <View style={sheetStyles.profileCard}>
-        <Image source={{ uri: user.avatar }} style={sheetStyles.profileAvatar} />
-        <View style={sheetStyles.profileInfo}>
-          <Text style={sheetStyles.profileName}>{user.name}</Text>
-          <Text style={sheetStyles.profileRole}>{user.title} at {user.company}</Text>
-          <View style={[sheetStyles.roleBadge, user.role === 'sponsor' && sheetStyles.roleBadgeSponsor]}>
-            <Text style={sheetStyles.roleBadgeText}>{user.role.toUpperCase()}</Text>
-          </View>
-        </View>
-      </View>
-
-      <TouchableOpacity style={sheetStyles.btn} onPress={onConfirm}>
-        <Text style={sheetStyles.btnText}>Yes, that's me</Text>
-      </TouchableOpacity>
-    </View>
-  );
-}
-
-function CreateAccount({
-  form, setForm, error, loading, onSubmit, onBack,
-}: {
-  form: { name: string; email: string; title: string; company: string };
-  setForm: React.Dispatch<React.SetStateAction<{ name: string; email: string; title: string; company: string }>>;
-  error: string;
-  loading: boolean;
-  onSubmit: () => void;
-  onBack: () => void;
-}) {
-  return (
-    <View style={sheetStyles.section}>
-      <TouchableOpacity style={sheetStyles.backBtn} onPress={onBack}>
-        <Text style={sheetStyles.backBtnText}>← Back</Text>
-      </TouchableOpacity>
-      <Text style={sheetStyles.title}>Create Account</Text>
-      <Text style={sheetStyles.subtitle}>Join our community to access events and features.</Text>
-
-      <View style={{ gap: spacing.lg, marginTop: spacing.xl }}>
-        <View>
-          <Text style={sheetStyles.fieldLabel}>FULL NAME</Text>
-          <TextInput
-            style={sheetStyles.textInput}
-            value={form.name}
-            onChangeText={(v) => setForm((p) => ({ ...p, name: v }))}
-            placeholder="John Doe"
-            placeholderTextColor="rgba(255,255,255,0.2)"
-          />
-        </View>
-        <View>
-          <Text style={sheetStyles.fieldLabel}>JOB TITLE</Text>
-          <TextInput
-            style={sheetStyles.textInput}
-            value={form.title}
-            onChangeText={(v) => setForm((p) => ({ ...p, title: v }))}
-            placeholder="Chief Executive Officer"
-            placeholderTextColor="rgba(255,255,255,0.2)"
-          />
-        </View>
-        <View>
-          <Text style={sheetStyles.fieldLabel}>COMPANY</Text>
-          <TextInput
-            style={sheetStyles.textInput}
-            value={form.company}
-            onChangeText={(v) => setForm((p) => ({ ...p, company: v }))}
-            placeholder="Acme Inc."
-            placeholderTextColor="rgba(255,255,255,0.2)"
-          />
-        </View>
-      </View>
-
-      {!!error && <Text style={sheetStyles.errorText}>{error}</Text>}
-
-      <TouchableOpacity
-        style={[sheetStyles.btn, loading && sheetStyles.btnDisabled]}
-        onPress={onSubmit}
-        disabled={loading}
-      >
-        {loading ? <ActivityIndicator color="#fff" /> : <Text style={sheetStyles.btnText}>Create & Continue</Text>}
-      </TouchableOpacity>
-    </View>
-  );
-}
-
-const sheetStyles = StyleSheet.create({
-  section: {
-    paddingHorizontal: spacing.xxl,
-    paddingTop: spacing.lg,
+// ─── Sheet sub-styles ─────────────────────────────────────────────────────────
+const sh = StyleSheet.create({
+  sheetPad: {
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 16,
   },
-  iconBox: {
-    width: 48,
-    height: 48,
-    borderRadius: radius.xl,
-    backgroundColor: 'rgba(124,58,237,0.2)',
-    borderWidth: 1,
-    borderColor: 'rgba(124,58,237,0.4)',
+  iconWrap: {
+    marginBottom: 18,
+    marginTop: 4,
+  },
+  iconGrad: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: spacing.lg,
   },
-  title: {
-    color: colors.textPrimary,
+  sheetTitle: {
+    color: '#ffffff',
     fontSize: 24,
     fontWeight: '800',
     letterSpacing: -0.5,
+    marginBottom: 6,
+  },
+  sheetSub: {
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: 14,
+    lineHeight: 20,
     marginBottom: 4,
   },
-  subtitle: {
-    color: colors.textMuted,
-    fontSize: 13,
-    lineHeight: 19,
-  },
   fieldLabel: {
-    color: 'rgba(255,255,255,0.45)',
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1.2,
-    marginBottom: 8,
-    marginTop: spacing.lg,
-  },
-  phoneRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    overflow: 'hidden',
-  },
-  countryCode: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 14,
-    borderRightWidth: 1,
-    borderRightColor: 'rgba(255,255,255,0.1)',
-    minWidth: 80,
-  },
-  flag: {
-    fontSize: 18,
-  },
-  countryNum: {
-    color: colors.textPrimary,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  countryChevron: {
     color: 'rgba(255,255,255,0.4)',
     fontSize: 10,
-    marginLeft: 2,
+    fontWeight: '700',
+    letterSpacing: 1.3,
+    marginTop: 20,
+    marginBottom: 8,
   },
-  phoneInput: {
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    minHeight: 50,
+    overflow: 'hidden',
+  },
+  inputRowDisabled: {
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  inputIcon: {
+    marginLeft: 14,
+    marginRight: 6,
+  },
+  inputText: {
     flex: 1,
-    color: colors.textPrimary,
-    fontSize: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
+    color: '#ffffff',
+    fontSize: 15,
+    paddingVertical: 13,
+    paddingRight: 14,
+  },
+  inputMt: {
+    marginTop: 10,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 20,
   },
   errorText: {
     color: '#f87171',
     fontSize: 12,
     marginTop: 6,
   },
-  btn: {
+  darkBtn: {
+    flexDirection: 'row',
     height: 52,
-    borderRadius: radius.xl,
-    backgroundColor: colors.primary,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: spacing.xl,
+    marginTop: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
   },
-  btnDisabled: {
-    opacity: 0.5,
-  },
-  btnText: {
-    color: '#fff',
+  darkBtnText: {
+    color: '#ffffff',
     fontSize: 15,
     fontWeight: '700',
     letterSpacing: -0.2,
   },
-  demoBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: radius.md,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+  purpleBtn: {
+    flexDirection: 'row',
+    height: 52,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    marginTop: 24,
+    width: '100%',
+  },
+  purpleBtnText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: -0.2,
+  },
+  footerNote: {
+    color: 'rgba(255,255,255,0.3)',
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: 16,
+    lineHeight: 16,
+  },
+  // No-account view
+  noAccountIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: 'rgba(239,68,68,0.15)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(239,68,68,0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+    marginTop: 12,
+    alignSelf: 'center',
   },
-  demoBtnText: {
-    color: colors.textMuted,
+  noAccountBadge: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#ef4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emailPill: {
+    marginTop: 10,
+    marginBottom: 4,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    maxWidth: '90%',
+    alignSelf: 'center',
+  },
+  emailPillText: {
+    color: 'rgba(255,255,255,0.7)',
     fontSize: 13,
+    fontWeight: '600',
   },
-  backBtn: {
-    marginBottom: spacing.md,
+  orRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 20,
+    width: '100%',
   },
-  backBtnText: {
+  orLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  orText: {
+    color: 'rgba(255,255,255,0.35)',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  // Create account
+  termsText: {
+    color: 'rgba(255,255,255,0.35)',
+    fontSize: 11,
+    textAlign: 'center',
+    lineHeight: 16,
+    marginTop: 18,
+  },
+  termsLink: {
+    color: 'rgba(196,181,253,0.7)',
+  },
+  signInLink: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: 16,
+  },
+  signInText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.4)',
+  },
+  signInPurple: {
+    color: '#a78bfa',
+    fontWeight: '600',
+  },
+  // Back button
+  backRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 20,
+  },
+  backText: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  // OTP
+  resendRow: {
+    alignItems: 'center',
+    marginTop: 20,
+    paddingVertical: 8,
+  },
+  resendText: {
     color: colors.primary,
     fontSize: 13,
     fontWeight: '600',
   },
-  textInput: {
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    color: colors.textPrimary,
-    fontSize: 15,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-  },
-  modeToggle: {
-    flexDirection: 'row',
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    marginTop: spacing.lg,
-    padding: 3,
-  },
-  modeTab: {
-    flex: 1,
-    paddingVertical: 9,
-    borderRadius: radius.md,
-    alignItems: 'center',
-  },
-  modeTabActive: {
-    backgroundColor: colors.primary,
-  },
-  modeTabText: {
-    color: 'rgba(255,255,255,0.5)',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  modeTabTextActive: {
-    color: '#fff',
-  },
-  profileCard: {
+  // Profile review
+  reviewCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
+    gap: 14,
     backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: radius.xl,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
-    padding: spacing.lg,
-    marginTop: spacing.xl,
-    marginBottom: spacing.xl,
+    padding: 16,
+    marginTop: 20,
+    marginBottom: 8,
   },
-  profileAvatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+  reviewAvatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     backgroundColor: 'rgba(124,58,237,0.3)',
-  },
-  profileName: {
-    color: colors.textPrimary,
-    fontSize: 16,
-    fontWeight: '700',
-    marginBottom: 2,
-  },
-  profileRole: {
-    color: colors.textMuted,
-    fontSize: 12,
-    marginBottom: 6,
-  },
-  profileInfo: {
-    flex: 1,
-  },
-  roleBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: radius.full,
-    backgroundColor: 'rgba(124,58,237,0.25)',
-    borderWidth: 1,
-    borderColor: 'rgba(124,58,237,0.5)',
-  },
-  roleBadgeSponsor: {
-    backgroundColor: 'rgba(6,182,212,0.2)',
-    borderColor: 'rgba(6,182,212,0.5)',
-  },
-  roleBadgeText: {
-    color: colors.textPrimary,
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
-});
-
-const pickerStyles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0d0d1a',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.08)',
-  },
-  title: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  closeBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  closeBtnText: {
-    color: 'rgba(255,255,255,0.6)',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  searchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    margin: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-  },
-  searchIcon: {
-    fontSize: 14,
-  },
-  searchInput: {
-    flex: 1,
-    color: '#fff',
-    fontSize: 15,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    gap: 12,
-  },
-  rowSelected: {
-    backgroundColor: 'rgba(124,58,237,0.12)',
-  },
-  rowFlag: {
+  reviewAvatarText: {
+    color: '#c4b5fd',
     fontSize: 22,
-    width: 30,
-    textAlign: 'center',
+    fontWeight: '800',
   },
-  rowName: {
-    flex: 1,
+  reviewName: {
     color: '#fff',
-    fontSize: 15,
-  },
-  rowCode: {
-    color: 'rgba(255,255,255,0.5)',
-    fontSize: 14,
-    fontWeight: '600',
-    minWidth: 48,
-    textAlign: 'right',
-  },
-  rowCheck: {
-    color: '#7c3aed',
     fontSize: 16,
     fontWeight: '700',
-    marginLeft: 4,
   },
-  separator: {
-    height: 1,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    marginHorizontal: 20,
+  reviewEmail: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 13,
+    marginTop: 2,
+  },
+  reviewCompany: {
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: 12,
+    marginTop: 2,
   },
 });
 
+// ─── Outer screen styles ──────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
+  container: { flex: 1, backgroundColor: colors.bg },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1285,37 +1228,33 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.md,
     zIndex: 10,
   },
-  logo: {
-    height: 32,
-    width: 100,
-  },
+  logo: { height: 32, width: 100 },
   topTabs: {
     flexDirection: 'row',
     backgroundColor: 'rgba(255,255,255,0.08)',
-    borderRadius: radius.full,
+    borderRadius: 999,
     padding: 3,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
   },
-  topTab: {
-    paddingHorizontal: 16,
+  topTab: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 999 },
+  topTabActive: { backgroundColor: colors.primary },
+  topTabText: { color: 'rgba(255,255,255,0.6)', fontSize: 12, fontWeight: '700' },
+  topTabTextActive: { color: '#fff' },
+  liveBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: radius.full,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
   },
-  topTabActive: {
-    backgroundColor: colors.primary,
-  },
-  topTabText: {
-    color: 'rgba(255,255,255,0.6)',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  topTabTextActive: {
-    color: '#fff',
-  },
-  feedsContainer: {
-    flex: 1,
-  },
+  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#34d399' },
+  liveText: { color: 'rgba(255,255,255,0.7)', fontSize: 10, fontWeight: '700', letterSpacing: 1.2 },
+  feedsContainer: { flex: 1 },
   subTabs: {
     flexDirection: 'row',
     paddingHorizontal: spacing.xl,
@@ -1323,213 +1262,76 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     marginBottom: spacing.md,
   },
-  subTab: {
-    paddingBottom: 8,
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
-  },
-  subTabActive: {
-    borderBottomColor: colors.primary,
-  },
-  subTabText: {
-    color: colors.textSecondary,
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  subTabTextActive: {
-    color: colors.primary,
-  },
-  filterContainer: {
-    marginBottom: spacing.md,
-  },
-  filterScroll: {
-    paddingHorizontal: spacing.xl,
-    gap: spacing.sm,
-  },
+  subTab: { paddingBottom: 8, borderBottomWidth: 2, borderBottomColor: 'transparent' },
+  subTabActive: { borderBottomColor: colors.primary },
+  subTabText: { color: colors.textSecondary, fontSize: 15, fontWeight: '600' },
+  subTabTextActive: { color: colors.primary },
+  filterScroll: { paddingHorizontal: spacing.xl, gap: 8, paddingBottom: spacing.md },
   filterChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: radius.full,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 999,
     backgroundColor: 'rgba(255,255,255,0.06)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
   },
-  filterChipActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  filterChipText: {
-    color: colors.textSecondary,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  filterChipTextActive: {
-    color: '#fff',
-  },
-  feedList: {
-    paddingHorizontal: spacing.xl,
-    paddingBottom: 100,
-  },
+  filterChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  filterChipText: { color: colors.textSecondary, fontSize: 13, fontWeight: '600' },
+  filterChipTextActive: { color: '#fff' },
+  feedList: { paddingHorizontal: spacing.xl, paddingBottom: 100 },
   feedCard: {
     backgroundColor: colors.bgCard,
-    borderRadius: radius.lg,
+    borderRadius: 14,
     overflow: 'hidden',
     marginBottom: spacing.lg,
     borderWidth: 1,
     borderColor: colors.border,
   },
-  cardThumb: {
-    width: '100%',
-    height: 180,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-  },
-  cardContent: {
-    padding: spacing.md,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  cardCategory: {
-    backgroundColor: 'rgba(124,58,237,0.15)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: radius.sm,
-  },
-  cardCategoryText: {
-    color: colors.primaryLight,
-    fontSize: 10,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-  },
-  cardDuration: {
-    color: colors.textMuted,
-    fontSize: 11,
-  },
-  cardTitle: {
-    color: colors.textPrimary,
-    fontSize: 16,
-    fontWeight: '700',
-    lineHeight: 22,
-    marginBottom: 6,
-  },
-  cardExcerpt: {
-    color: colors.textSecondary,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  centered: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: spacing.xxxl,
-  },
-  emptyText: {
-    color: colors.textMuted,
-    fontSize: 14,
-  },
-  liveBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: radius.full,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.14)',
-  },
-  liveDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#34d399',
-  },
-  liveText: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1.2,
-  },
+  cardThumb: { width: '100%', height: 180, backgroundColor: 'rgba(255,255,255,0.05)' },
+  cardContent: { padding: spacing.md },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  cardCategory: { backgroundColor: 'rgba(124,58,237,0.15)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  cardCategoryText: { color: '#c4b5fd', fontSize: 10, fontWeight: '700', textTransform: 'uppercase' },
+  cardDuration: { color: colors.textMuted, fontSize: 11 },
+  cardTitle: { color: colors.textPrimary, fontSize: 16, fontWeight: '700', lineHeight: 22, marginBottom: 6 },
+  cardExcerpt: { color: colors.textSecondary, fontSize: 13, lineHeight: 18 },
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40 },
+  emptyText: { color: colors.textMuted, fontSize: 14 },
   spacer: { flex: 1 },
-  chips: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    paddingHorizontal: spacing.xxl,
-    marginBottom: spacing.xl,
-  },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: spacing.xxl, marginBottom: spacing.xl },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 12,
     paddingVertical: 7,
-    borderRadius: radius.full,
+    borderRadius: 999,
     backgroundColor: 'rgba(0,0,0,0.5)',
     borderWidth: 1,
     borderColor: 'rgba(124,58,237,0.5)',
   },
   chipEmoji: { fontSize: 12 },
   chipLabel: { color: '#fff', fontSize: 11, fontWeight: '600' },
-  hero: {
-    paddingHorizontal: spacing.xxl,
-  },
-  heroTitle: {
-    color: '#fff',
-    fontSize: 38,
-    fontWeight: '900',
-    letterSpacing: -1.5,
-    lineHeight: 44,
-    marginBottom: 10,
-  },
-  heroGradientText: {
-    color: '#c4b5fd',
-  },
-  heroSub: {
-    color: 'rgba(255,255,255,0.5)',
-    fontSize: 14,
-    lineHeight: 21,
-    marginBottom: spacing.xl,
-  },
-  ctaButton: {
-    height: 56,
-    borderRadius: radius.xl,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-    marginBottom: spacing.md,
-  },
-  ctaText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '800',
-    letterSpacing: -0.2,
-  },
-  ctaSub: {
-    color: 'rgba(255,255,255,0.4)',
-    fontSize: 12,
-    textAlign: 'center',
-  },
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    zIndex: 10,
-  },
+  hero: { paddingHorizontal: spacing.xxl },
+  heroTitle: { color: '#fff', fontSize: 38, fontWeight: '900', letterSpacing: -1.5, lineHeight: 44, marginBottom: 10 },
+  heroAccent: { color: '#c4b5fd' },
+  heroSub: { color: 'rgba(255,255,255,0.5)', fontSize: 14, lineHeight: 21, marginBottom: spacing.xl },
+  ctaButton: { height: 56, borderRadius: 16, alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginBottom: spacing.md },
+  ctaText: { color: '#fff', fontSize: 16, fontWeight: '800', letterSpacing: -0.2 },
+  ctaSub: { color: 'rgba(255,255,255,0.4)', fontSize: 12, textAlign: 'center' },
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.72)', zIndex: 10 },
   sheet: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(10,10,20,0.98)',
+    backgroundColor: '#0a0a14',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
     zIndex: 20,
-    maxHeight: SCREEN_HEIGHT * 0.9,
+    maxHeight: MAX_SHEET,
   },
   sheetHandle: {
     width: 36,
@@ -1547,14 +1349,9 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(255,255,255,0.1)',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 10,
-  },
-  sheetCloseX: {
-    color: 'rgba(255,255,255,0.55)',
-    fontSize: 13,
-    fontWeight: '600',
   },
 });
