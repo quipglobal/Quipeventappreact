@@ -91,9 +91,15 @@ export default function LeadsScreen() {
         >
           {leads.map((l) => {
             const isRetrying = retryingIds.has(l.id);
-            const statusColor = l.status === 'hot' ? '#ef4444' : l.status === 'warm' ? '#f59e0b' : '#6b7280';
+            const priority = l.priority ?? l.status;
+            const statusColor = priority === 'hot' ? '#ef4444' : priority === 'warm' ? '#f59e0b' : '#3b82f6';
             return (
-              <View key={l.id} style={styles.card}>
+              <TouchableOpacity
+                key={l.id}
+                style={styles.card}
+                activeOpacity={0.85}
+                onPress={() => router.push({ pathname: '/lead-detail', params: { id: l.id } } as any)}
+              >
                 <View style={styles.cardRow}>
                   <View style={[styles.avatar, { backgroundColor: l.color + '22', borderColor: l.color + '44' }]}>
                     <Text style={[styles.avatarText, { color: l.color }]}>{l.name[0]}</Text>
@@ -104,6 +110,7 @@ export default function LeadsScreen() {
                     <Text style={styles.time}>Scanned at {l.scannedAt}</Text>
                   </View>
                   <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+                  <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
                 </View>
                 {!!l.notes && <Text style={styles.notes} numberOfLines={2}>{l.notes}</Text>}
                 {!!l.tags?.length && (
@@ -131,7 +138,7 @@ export default function LeadsScreen() {
                     </TouchableOpacity>
                   </View>
                 )}
-              </View>
+              </TouchableOpacity>
             );
           })}
         </ScrollView>

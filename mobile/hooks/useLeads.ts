@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { listLeads, submitScan, updateLeadStatus, triggerLuckyDraw, reconcilePendingLead } from '@/lib/api/leads';
-import type { ScanPayload } from '@/lib/api/leads';
+import { listLeads, submitScan, updateLeadStatus, updateLead, triggerLuckyDraw, reconcilePendingLead } from '@/lib/api/leads';
+import type { ScanPayload, LeadEdits } from '@/lib/api/leads';
 import type { ApiResponse, Lead } from '@/lib/api/types';
 import { loadCachedLeads, saveCachedLeads } from '@/lib/leadsStorage';
+import { loadLeadEdits, saveLeadEdit, lookupLeadEdit, type LeadEditsMap } from '@/lib/leadEditsStorage';
 import { leadsQueryKey } from '@/lib/leadsCacheKey';
 import { useAuth } from '@/context/AuthContext';
 import { useEvent } from '@/context/EventContext';
@@ -32,6 +33,32 @@ function mergeLeads(serverLeads: Lead[], cachedLeads: Lead[]): Lead[] {
     return true;
   });
   return [...localOnly, ...serverLeads];
+}
+
+/**
+ * Overlay the user's locally-saved lead edits (notes / tags / priority)
+ * on top of a leads list. Mirrors the web `mergeServerLeadsWithLocalEdits`
+ * intent: because the backend doesn't reliably persist these three fields
+ * on its v1 leads endpoints, a plain server refetch would wipe an edit the
+ * user just made. Applying the overlay after every merge keeps those edits
+ * visible until (and unless) the backend echoes a real value. Each field
+ * that's present in the overlay entry wins; absent fields fall through to
+ * the lead's existing value. `status` and `priority` are kept in sync.
+ */
+function applyLeadEditsOverlay(leads: Lead[], overlay: LeadEditsMap): Lead[] {
+  if (!leads.length) return leads;
+  return leads.map((l) => {
+    const entry = lookupLeadEdit(overlay, l.id, l.code);
+    if (!entry) return l;
+    const priority = entry.priority ?? l.priority ?? l.status;
+    return {
+      ...l,
+      notes: entry.notes !== undefined ? entry.notes : l.notes,
+      tags: entry.tags !== undefined ? entry.tags : l.tags,
+      status: priority ?? l.status,
+      priority: priority ?? l.priority,
+    };
+  });
 }
 
 export function useLeads() {
@@ -127,7 +154,12 @@ export function useLeads() {
       // rows aren't blown away on a successful refetch.
       const cached = queryClient.getQueryData<ApiResponse<Lead[]>>(queryKey);
       const cachedLeads = cached?.data ?? [];
-      return { success: true, data: mergeLeads(res.data, cachedLeads) };
+      const merged = mergeLeads(res.data, cachedLeads);
+      // Re-apply the user's locally-saved edits (notes/tags/priority) on
+      // top of the server rows so a refetch doesn't wipe an edit the
+      // backend hasn't persisted yet.
+      const overlay = await loadLeadEdits(userId);
+      return { success: true, data: applyLeadEditsOverlay(merged, overlay) };
     },
     select: (res) => res?.data ?? [],
     staleTime: 1000 * 30,
@@ -287,6 +319,63 @@ export function useUpdateLeadStatus() {
     onSuccess: () => {
       if (!userId || !eventId) return;
       queryClient.invalidateQueries({ queryKey: leadsQueryKey(userId, eventId) });
+    },
+  });
+}
+
+/**
+ * Edit a lead's notes / tags / priority. Applies the change three ways so
+ * it's durable regardless of backend support:
+ *   1. Optimistically patches the React Query cache so the UI updates
+ *      instantly (and the cache-subscription in `useLeads` mirrors it to
+ *      the per-(user,event) AsyncStorage leads cache).
+ *   2. Writes the three editable fields to the per-user lead-edits overlay
+ *      (`leadEditsStorage`) so the edit survives a server refetch — which
+ *      would otherwise prefer the server row — and logout → login.
+ *   3. Fires the PUT `/leads/:id` request for forward-compat / cross-device
+ *      sync. A failure (incl. NOT_IMPLEMENTED) is tolerated: the optimistic
+ *      + overlay state is deliberately NOT rolled back, since the backend
+ *      hasn't shipped reliable notes/tags/priority persistence yet.
+ */
+export function useUpdateLead() {
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const { currentEventId } = useEvent();
+  const userId = user?.id ?? null;
+  const eventId = currentEventId;
+  return useMutation({
+    mutationFn: ({ leadId, updates }: { leadId: string; updates: LeadEdits; code?: string | null }) =>
+      updateLead(leadId, updates),
+    onMutate: async ({ leadId, updates, code }) => {
+      if (!userId || !eventId) return;
+      const key = leadsQueryKey(userId, eventId);
+      // Snapshot the badge code before mutating so the overlay is mirrored
+      // under both id and code — handles the id drift between scan-time and
+      // a later list fetch.
+      const existing = queryClient.getQueryData<ApiResponse<Lead[]>>(key)?.data ?? [];
+      const found = existing.find((l) => l.id === leadId);
+      const leadCode = code ?? found?.code ?? null;
+      // 1. Optimistic cache patch.
+      queryClient.setQueryData<ApiResponse<Lead[]>>(key, (prev) => {
+        const rows = prev?.data ?? [];
+        return {
+          success: true,
+          data: rows.map((l) =>
+            l.id === leadId
+              ? {
+                  ...l,
+                  notes: updates.notes !== undefined ? updates.notes : l.notes,
+                  tags: updates.tags !== undefined ? updates.tags : l.tags,
+                  status: updates.priority ?? l.status,
+                  priority: updates.priority ?? l.priority,
+                }
+              : l,
+          ),
+        };
+      });
+      // 2. Persist to the AsyncStorage overlay so the edit survives refetch
+      //    / logout → login.
+      await saveLeadEdit(userId, leadId, updates, leadCode);
     },
   });
 }

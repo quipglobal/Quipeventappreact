@@ -2,6 +2,10 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { setEventId } from '@/lib/eventStore';
 import { resetVideoFeedsFlag } from '@/lib/api/feed';
+import { resetGiveawaysEndpointMissing } from '@/lib/api/engage';
+import { resetLeadsListEndpointMissing, resetLeadsUpdateEndpointMissing } from '@/lib/api/leads';
+import { resetSponsorReviewsEndpointMissing } from '@/lib/api/sponsorReviews';
+import { resetMessagesEndpointMissing } from '@/lib/api/messages';
 
 const EVENT_KEY = 'cxo_current_event_id';
 
@@ -39,6 +43,11 @@ export function EventProvider({ children }: { children: React.ReactNode }) {
     // for every subsequent event — so e.g. an Austin 404 would make
     // LA's videos invisible too.
     resetVideoFeedsFlag();
+    resetLeadsListEndpointMissing();
+    resetLeadsUpdateEndpointMissing();
+    resetGiveawaysEndpointMissing();
+    resetSponsorReviewsEndpointMissing();
+    resetMessagesEndpointMissing();
     if (id) {
       AsyncStorage.setItem(EVENT_KEY, id).catch(() => {});
     } else {

@@ -6,6 +6,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   Alert,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -14,7 +15,9 @@ import { useAuth } from '@/context/AuthContext';
 import { usePartners } from '@/hooks/usePartners';
 import { useLeads, useUpdateLeadStatus } from '@/hooks/useLeads';
 import { DataState } from '@/components/DataState';
+import { SponsorReviews } from '@/components/SponsorReviews';
 import { colors, spacing, radius } from '@/constants/theme';
+import type { Sponsor } from '@/lib/api/types';
 
 const TIER_ORDER = ['Platinum', 'Gold', 'Silver', 'Bronze'];
 const STATUS_COLORS = { hot: '#ef4444', warm: '#f59e0b', cold: '#6b7280' };
@@ -24,6 +27,7 @@ function AttendeePartners() {
   const { showToast } = useAuth();
   const [savedPartners, setSavedPartners] = useState<string[]>([]);
   const [activeFilter, setActiveFilter] = useState('All');
+  const [selectedPartner, setSelectedPartner] = useState<Sponsor | null>(null);
 
   const { data: sponsors = [], isLoading, isError, refetch } = usePartners();
 
@@ -74,7 +78,7 @@ function AttendeePartners() {
       {filtered.map((s) => {
         const saved = savedPartners.includes(s.id);
         return (
-          <View key={s.id} style={styles.card}>
+          <TouchableOpacity key={s.id} style={styles.card} activeOpacity={0.85} onPress={() => setSelectedPartner(s)}>
             <LinearGradient colors={[s.accentColor + '22', colors.bgCard]} style={styles.cardHeader}>
               <View style={styles.cardHeaderRow}>
                 <View style={[styles.logoBox, { backgroundColor: s.accentColor + '22', borderColor: s.accentColor + '44' }]}>
@@ -109,16 +113,108 @@ function AttendeePartners() {
                   <Ionicons name="calendar-outline" size={14} color="#fff" />
                   <Text style={styles.primaryBtnText}>Book Meeting</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.secondaryBtn} onPress={() => Alert.alert('Website', s.website)}>
-                  <Ionicons name="globe-outline" size={14} color={colors.textSecondary} />
-                  <Text style={styles.secondaryBtnText}>Website</Text>
+                <TouchableOpacity style={styles.secondaryBtn} onPress={() => setSelectedPartner(s)}>
+                  <Ionicons name="star-outline" size={14} color={colors.textSecondary} />
+                  <Text style={styles.secondaryBtnText}>Reviews</Text>
                 </TouchableOpacity>
               </View>
             </View>
-          </View>
+          </TouchableOpacity>
         );
       })}
+
+      <PartnerDetailModal
+        partner={selectedPartner}
+        saved={selectedPartner ? savedPartners.includes(selectedPartner.id) : false}
+        onToggleSave={toggleSave}
+        onRequestMeeting={requestMeeting}
+        onClose={() => setSelectedPartner(null)}
+      />
     </ScrollView>
+  );
+}
+
+function PartnerDetailModal({
+  partner,
+  saved,
+  onToggleSave,
+  onRequestMeeting,
+  onClose,
+}: {
+  partner: Sponsor | null;
+  saved: boolean;
+  onToggleSave: (id: string, name: string) => void;
+  onRequestMeeting: (name: string) => void;
+  onClose: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  if (!partner) return null;
+  const s = partner;
+
+  return (
+    <Modal visible animationType="slide" onRequestClose={onClose} transparent={false}>
+      <View style={styles.modalRoot}>
+        <LinearGradient colors={[s.accentColor + '33', colors.bg]} style={[styles.modalHeader, { paddingTop: insets.top + spacing.md }]}>
+          <View style={styles.modalTopRow}>
+            <TouchableOpacity onPress={onClose} style={styles.backBtn} activeOpacity={0.7}>
+              <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => onToggleSave(s.id, s.name)} style={styles.iconBtn}>
+              <Ionicons name={saved ? 'bookmark' : 'bookmark-outline'} size={20} color={saved ? colors.primary : colors.textMuted} />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.modalHeaderContent}>
+            <View style={[styles.modalLogo, { backgroundColor: s.accentColor + '22', borderColor: s.accentColor + '44' }]}>
+              <Text style={[styles.modalLogoText, { color: s.accentColor }]}>
+                {s.name.split(' ').map((w) => w[0]).join('').slice(0, 2)}
+              </Text>
+            </View>
+            <Text style={styles.modalName}>{s.name}</Text>
+            <View style={styles.tierRow}>
+              <View style={[styles.tierDot, { backgroundColor: s.tierColor }]} />
+              <Text style={styles.tierText}>{s.tier} Sponsor</Text>
+              {!!s.boothNumber && <Text style={styles.boothNum}>Booth {s.boothNumber}</Text>}
+            </View>
+          </View>
+        </LinearGradient>
+
+        <ScrollView
+          style={styles.modalScroll}
+          contentContainerStyle={styles.modalContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {!!s.category && (
+            <Text style={styles.modalCategory}>{s.category}</Text>
+          )}
+          {!!(s.description || s.tagline) && (
+            <Text style={styles.modalTagline}>{s.description || s.tagline}</Text>
+          )}
+          {s.giveaway && (
+            <View style={styles.giveawayRow}>
+              <Ionicons name="gift" size={14} color="#f59e0b" />
+              <Text style={styles.giveawayText}>Giveaway: <Text style={styles.giveawayPrize}>{s.giveaway}</Text></Text>
+            </View>
+          )}
+
+          <View style={styles.actionRow}>
+            <TouchableOpacity style={styles.primaryBtn} onPress={() => onRequestMeeting(s.name)}>
+              <Ionicons name="calendar-outline" size={14} color="#fff" />
+              <Text style={styles.primaryBtnText}>Book Meeting</Text>
+            </TouchableOpacity>
+            {!!s.website && (
+              <TouchableOpacity style={styles.secondaryBtn} onPress={() => Alert.alert('Website', s.website)}>
+                <Ionicons name="globe-outline" size={14} color={colors.textSecondary} />
+                <Text style={styles.secondaryBtnText}>Website</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <View style={styles.modalDivider} />
+
+          <SponsorReviews companyId={s.id} companyName={s.name} />
+        </ScrollView>
+      </View>
+    </Modal>
   );
 }
 
@@ -282,4 +378,18 @@ const styles = StyleSheet.create({
   statusDot: { width: 5, height: 5, borderRadius: 3 },
   statusText: { fontSize: 10, fontWeight: '700' },
   contactBtn: { width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(124,58,237,0.12)', borderWidth: 1, borderColor: 'rgba(124,58,237,0.25)', alignItems: 'center', justifyContent: 'center' },
+
+  modalRoot: { flex: 1, backgroundColor: colors.bg },
+  modalHeader: { paddingHorizontal: spacing.xl, paddingBottom: spacing.xl },
+  modalTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  backBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' },
+  modalHeaderContent: { alignItems: 'center', marginTop: spacing.md, gap: spacing.sm },
+  modalLogo: { width: 72, height: 72, borderRadius: radius.xl, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  modalLogoText: { fontSize: 26, fontWeight: '800' },
+  modalName: { color: colors.textPrimary, fontSize: 20, fontWeight: '800', textAlign: 'center' },
+  modalScroll: { flex: 1 },
+  modalContent: { paddingHorizontal: spacing.xl, paddingBottom: 60, gap: spacing.md },
+  modalCategory: { alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 3, borderRadius: radius.full, backgroundColor: 'rgba(255,255,255,0.06)', color: colors.textMuted, fontSize: 11, fontWeight: '600' },
+  modalTagline: { color: colors.textSecondary, fontSize: 13, lineHeight: 20 },
+  modalDivider: { height: 1, backgroundColor: colors.border, marginVertical: spacing.sm },
 });

@@ -30,3 +30,9 @@ id = "fi30K5or4VmbBN7OmkXua"
 uri = "file://builds/cxo-events-v2.13-vc32.tar.gz"
 type = "unspecified"
 title = "CXO Events v2.13 (versionCode 32) — correct backend host fix"
+
+[[outputs]]
+id = "AaCEDKhv1wbYoDWTpDZYo"
+uri = "file://builds/cxo-events-v2.14-vc33.tar.gz"
+type = "unspecified"
+title = "CXO Events v2.14 (versionCode 33) — full web-app feature parity"

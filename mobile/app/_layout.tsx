@@ -9,6 +9,7 @@ import { useFonts, Inter_400Regular, Inter_500Medium, Inter_600SemiBold, Inter_7
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from '@/context/AuthContext';
 import { EventProvider } from '@/context/EventContext';
+import { MessagesProvider } from '@/context/MessagesContext';
 import { ThemeProvider } from '@/context/ThemeContext';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { AppSplashScreen } from '@/components/AppSplashScreen';
@@ -64,6 +65,7 @@ export default function RootLayout() {
             <ThemeProvider>
               <AuthProvider>
                 <EventProvider>
+                <MessagesProvider>
                 <BackgroundLeadSync />
                 <StatusBar style="light" />
                 <Stack
@@ -78,16 +80,20 @@ export default function RootLayout() {
                   <Stack.Screen name="(tabs)" />
                   <Stack.Screen name="profile" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
                   <Stack.Screen name="meetings" />
+                  <Stack.Screen name="messages" />
+                  <Stack.Screen name="leaderboard" />
                   <Stack.Screen name="qr-badge" />
                   <Stack.Screen name="events" options={{ animation: 'fade' }} />
                   <Stack.Screen name="switch-event" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
                   <Stack.Screen name="join" options={{ headerShown: false }} />
                   <Stack.Screen name="event-dashboard" />
+                  <Stack.Screen name="lead-detail" options={{ animation: 'slide_from_right' }} />
                   <Stack.Screen name="+not-found" />
                 </Stack>
                 {!splashDone && (
                   <AppSplashScreen onFinish={() => setSplashDone(true)} />
                 )}
+                </MessagesProvider>
                 </EventProvider>
               </AuthProvider>
             </ThemeProvider>

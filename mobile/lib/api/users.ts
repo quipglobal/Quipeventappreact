@@ -32,6 +32,7 @@ function normalizeLeaderboardEntry(raw: any, index: number): LeaderboardEntry {
     points: Number(raw.points ?? raw.total_points ?? raw.gamification_points ?? 0),
     tier,
     tierColor: raw.tier_color ?? raw.tierColor ?? TIER_COLORS[tier] ?? '#cd7f32',
+    company: raw.company_name ?? raw.companyName ?? (typeof raw.company === 'string' ? raw.company : raw.company?.name) ?? '',
   };
 }
 

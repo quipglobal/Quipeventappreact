@@ -12,8 +12,10 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
+import { useMessages } from '@/context/MessagesContext';
 import { useMeetings, useRespondToMeeting, useSendMeetingRequest } from '@/hooks/useMeetings';
 import { useAudience } from '@/hooks/useAudience';
 import { DataState } from '@/components/DataState';
@@ -51,6 +53,7 @@ const FALLBACK_ATTENDEES = [
 export default function ConnectsScreen() {
   const insets = useSafeAreaInsets();
   const { showToast } = useAuth();
+  const { unreadTotal } = useMessages();
   const [tab, setTab] = useState<'all' | 'incoming' | 'outgoing'>('all');
   const [requestVisible, setRequestVisible] = useState(false);
   const [reqAttendeeId, setReqAttendeeId] = useState<string | null>(null);
@@ -177,9 +180,19 @@ export default function ConnectsScreen() {
           <Text style={styles.headerTitle}>My Connects</Text>
           <Text style={styles.headerSub}>{meetings.length} connection{meetings.length !== 1 ? 's' : ''}{pendingCount > 0 ? ` · ${pendingCount} pending` : ''}</Text>
         </View>
-        <TouchableOpacity style={styles.fab} onPress={() => setRequestVisible(true)}>
-          <Ionicons name="add" size={20} color="#fff" />
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity style={styles.msgBtn} onPress={() => router.push('/messages')}>
+            <Ionicons name="chatbubbles-outline" size={20} color={colors.textPrimary} />
+            {unreadTotal > 0 && (
+              <View style={styles.msgBadge}>
+                <Text style={styles.msgBadgeText}>{unreadTotal > 9 ? '9+' : unreadTotal}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.fab} onPress={() => setRequestVisible(true)}>
+            <Ionicons name="add" size={20} color="#fff" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.tabRow}>
@@ -310,6 +323,30 @@ const styles = StyleSheet.create({
   },
   headerTitle: { color: colors.textPrimary, fontSize: 22, fontWeight: '800' },
   headerSub: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  msgBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.bgCard,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  msgBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  msgBadgeText: { color: '#fff', fontSize: 9, fontWeight: '800' },
   fab: {
     width: 40,
     height: 40,

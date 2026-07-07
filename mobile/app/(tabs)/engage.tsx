@@ -18,15 +18,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
 import { useEvent } from '@/context/EventContext';
-import { useChallenges, useCompleteChallenge, usePolls, useVotePoll, useSurveys, useGetSurveyDetail, useSubmitSurvey, useGiveaways } from '@/hooks/useEngage';
+import { useChallenges, useCompleteChallenge, usePolls, useVotePoll, useSurveys, useGetSurveyDetail, useSubmitSurvey, useGiveaways, useCreateGiveaway, useUpdateGiveaway, useRemoveGiveaway, useRecordGiveawayWinner } from '@/hooks/useEngage';
 import { useLeaderboard } from '@/hooks/useAudience';
 import { useLeads, useLuckyDraw, useSubmitScan, leadsQueryKey } from '@/hooks/useLeads';
 import { DataState } from '@/components/DataState';
 import { BadgeCameraScanner } from '@/components/BadgeCameraScanner';
 import { colors, spacing, radius } from '@/constants/theme';
 import { submitScan } from '@/lib/api/leads';
-import { saveGiveawayWinner } from '@/lib/api/engage';
-import type { ApiResponse, LeaderboardEntry, Lead, Giveaway, Survey, SurveyQuestion } from '@/lib/api/types';
+import type { ApiResponse, LeaderboardEntry, Lead, Giveaway, GiveawayWinner, Survey, SurveyQuestion } from '@/lib/api/types';
 
 function BadgeScanPanel({ onScanPress }: { onScanPress: () => void }) {
   return (
@@ -714,6 +713,11 @@ function AttendeeEngage() {
 
       {activeTab === 'leaderboard' && (
         <>
+          <TouchableOpacity style={styles.fullLeaderboardBtn} onPress={() => router.push('/leaderboard')} activeOpacity={0.85}>
+            <Ionicons name="trophy" size={16} color={colors.primary} />
+            <Text style={styles.fullLeaderboardBtnText}>View full leaderboard</Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+          </TouchableOpacity>
           {leaderboard.map((l: LeaderboardEntry) => (
             <View key={l.rank} style={[styles.rankRow, l.rank <= 3 && styles.rankRowTop]}>
               <View style={styles.rankNum}>
@@ -839,42 +843,285 @@ function AttendeeEngage() {
   );
 }
 
+function GiveawaysManager({
+  sponsorName,
+  sponsorId,
+  onBack,
+}: {
+  sponsorName: string;
+  sponsorId: string;
+  onBack: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const { data: giveaways = [], isLoading, isError, refetch } = useGiveaways();
+  const { mutate: createGiveaway } = useCreateGiveaway();
+  const { mutate: updateGiveaway } = useUpdateGiveaway();
+  const { mutate: removeGiveaway } = useRemoveGiveaway();
+
+  const [title, setTitle] = useState('');
+  const [items, setItems] = useState('1');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editItems, setEditItems] = useState('1');
+
+  const handleCreate = () => {
+    const trimmed = title.trim();
+    const count = parseInt(items, 10);
+    if (!trimmed) {
+      Alert.alert('Missing title', 'Enter a name for the giveaway prize.');
+      return;
+    }
+    createGiveaway({
+      title: trimmed,
+      numberOfItems: Number.isFinite(count) && count > 0 ? count : 1,
+      image: '',
+      sponsorName,
+      sponsorId,
+    });
+    setTitle('');
+    setItems('1');
+  };
+
+  const startEdit = (g: Giveaway) => {
+    setEditingId(g.id);
+    setEditTitle(g.title);
+    setEditItems(String(g.numberOfItems ?? 1));
+  };
+
+  const saveEdit = (id: string) => {
+    const trimmed = editTitle.trim();
+    const count = parseInt(editItems, 10);
+    if (!trimmed) {
+      Alert.alert('Missing title', 'Giveaway title cannot be empty.');
+      return;
+    }
+    updateGiveaway({
+      id,
+      updates: {
+        title: trimmed,
+        numberOfItems: Number.isFinite(count) && count > 0 ? count : 1,
+      },
+    });
+    setEditingId(null);
+  };
+
+  const confirmDelete = (g: Giveaway) => {
+    Alert.alert('Delete giveaway', `Remove "${g.title}"?`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => removeGiveaway(g.id) },
+    ]);
+  };
+
+  return (
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.xl }]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <TouchableOpacity style={styles.backBtn} onPress={onBack}>
+          <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
+          <Text style={styles.backText}>Back</Text>
+        </TouchableOpacity>
+
+        <Text style={styles.pageTitle}>Manage Giveaways</Text>
+        <Text style={styles.pageSubtitle}>Create prizes for your lucky draw</Text>
+
+        {/* Create form */}
+        <View style={styles.gmForm}>
+          <Text style={styles.gmLabel}>Prize title</Text>
+          <TextInput
+            style={styles.gmInput}
+            value={title}
+            onChangeText={setTitle}
+            placeholder="e.g. AirPods Pro"
+            placeholderTextColor={colors.textMuted}
+            returnKeyType="done"
+          />
+          <Text style={styles.gmLabel}>Number of items</Text>
+          <TextInput
+            style={styles.gmInput}
+            value={items}
+            onChangeText={(t) => setItems(t.replace(/[^0-9]/g, ''))}
+            placeholder="1"
+            placeholderTextColor={colors.textMuted}
+            keyboardType="number-pad"
+          />
+          <TouchableOpacity style={styles.gmAddBtn} onPress={handleCreate}>
+            <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.gmAddBtnGrad}>
+              <Ionicons name="add" size={18} color="#fff" />
+              <Text style={styles.gmAddBtnText}>Add Giveaway</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+
+        <DataState loading={isLoading} error={isError ? 'Failed to load giveaways.' : null} onRetry={refetch} />
+
+        {!isLoading && giveaways.length === 0 && (
+          <View style={styles.emptyLeads}>
+            <Ionicons name="gift-outline" size={28} color={colors.textMuted} />
+            <Text style={styles.emptyLeadsText}>No giveaways yet</Text>
+            <Text style={styles.emptyLeadsSub}>Add a prize above to get started</Text>
+          </View>
+        )}
+
+        {giveaways.map((g) => (
+          <View key={g.id} style={styles.gmCard}>
+            {editingId === g.id ? (
+              <>
+                <TextInput
+                  style={styles.gmInput}
+                  value={editTitle}
+                  onChangeText={setEditTitle}
+                  placeholder="Prize title"
+                  placeholderTextColor={colors.textMuted}
+                />
+                <TextInput
+                  style={styles.gmInput}
+                  value={editItems}
+                  onChangeText={(t) => setEditItems(t.replace(/[^0-9]/g, ''))}
+                  placeholder="1"
+                  placeholderTextColor={colors.textMuted}
+                  keyboardType="number-pad"
+                />
+                <View style={styles.gmEditRow}>
+                  <TouchableOpacity style={styles.gmGhostBtn} onPress={() => setEditingId(null)}>
+                    <Text style={styles.gmGhostBtnText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.gmSaveBtn} onPress={() => saveEdit(g.id)}>
+                    <Text style={styles.gmSaveBtnText}>Save</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : (
+              <>
+                <View style={styles.gmCardHeader}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.gmCardTitle}>{g.title}</Text>
+                    <Text style={styles.gmCardMeta}>
+                      {(g.numberOfItems ?? 1)} item{(g.numberOfItems ?? 1) !== 1 ? 's' : ''}
+                      {g.sponsor ? ` · by ${g.sponsor}` : ''}
+                    </Text>
+                  </View>
+                  <TouchableOpacity style={styles.gmIconBtn} onPress={() => startEdit(g)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <Ionicons name="create-outline" size={18} color={colors.textSecondary} />
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.gmIconBtn} onPress={() => confirmDelete(g)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <Ionicons name="trash-outline" size={18} color="#ef4444" />
+                  </TouchableOpacity>
+                </View>
+                {!!g.winners && g.winners.length > 0 && (
+                  <View style={styles.gmWinners}>
+                    <Text style={styles.gmWinnersLabel}>
+                      Winner{g.winners.length !== 1 ? 's' : ''}
+                    </Text>
+                    {g.winners.map((w, i) => (
+                      <View key={`${w.id}-${i}`} style={styles.gmWinnerRow}>
+                        <Ionicons name="trophy" size={13} color="#ffd700" />
+                        <Text style={styles.gmWinnerName} numberOfLines={1}>
+                          {w.name}{w.company ? ` · ${w.company}` : ''}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </>
+            )}
+          </View>
+        ))}
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+}
+
 function SponsorEngage() {
   const insets = useSafeAreaInsets();
-  const [mode, setMode] = useState<'tools' | 'scanner' | 'leads' | 'draw'>('tools');
+  const { user } = useAuth();
+  const [mode, setMode] = useState<'tools' | 'scanner' | 'leads' | 'draw' | 'giveaways'>('tools');
   const [drawWinner, setDrawWinner] = useState<{ id: string; name: string; company?: string; title?: string; avatar?: string } | null>(null);
   const [selectedGiveaway, setSelectedGiveaway] = useState<Giveaway | null>(null);
   const [showGiveawayPicker, setShowGiveawayPicker] = useState(false);
+  const [drawShuffling, setDrawShuffling] = useState(false);
 
   const { data: leadsData = [], refetch: refetchLeads } = useLeads();
   const { data: giveawaysForDraw = [] } = useGiveaways();
   const { mutate: triggerDraw, isPending: drawPending } = useLuckyDraw();
+  const recordWinner = useRecordGiveawayWinner();
   const leads = leadsData;
 
-  const runDraw = () => {
-    triggerDraw(selectedGiveaway?.id, {
-      onSuccess: (res) => {
-        const w = res.data?.winner;
-        if (!w) return;
-        const winner = { id: String(w.id), name: w.name ?? 'Unknown', company: w.company, title: w.title, avatar: undefined as string | undefined };
+  const drawBusy = drawPending || drawShuffling;
+
+  // Reveal a winner: brief shuffle animation cycling through candidate
+  // names, then settle on the chosen winner and persist the result.
+  const revealWinner = (
+    winner: { id: string; name: string; company?: string; title?: string; avatar?: string },
+    pool: Lead[],
+  ) => {
+    const candidates = pool.length > 0 ? pool : [{ id: winner.id, name: winner.name } as Lead];
+    setDrawShuffling(true);
+    let ticks = 0;
+    const maxTicks = 12;
+    const interval = setInterval(() => {
+      ticks += 1;
+      const rand = candidates[Math.floor(Math.random() * candidates.length)];
+      setDrawWinner({ id: String(rand.id), name: rand.name ?? 'Picking…' });
+      if (ticks >= maxTicks) {
+        clearInterval(interval);
         setDrawWinner(winner);
-        // POST the winner to the backend against the selected giveaway so the
-        // result appears in GET giveaways for web, mobile, and back-office.
+        setDrawShuffling(false);
         if (selectedGiveaway) {
-          saveGiveawayWinner(selectedGiveaway.id, {
+          const gw: GiveawayWinner = {
             id: winner.id,
             name: winner.name,
             company: winner.company,
             title: winner.title,
+            avatar: winner.avatar,
             drawnAt: new Date().toISOString(),
-          }).then(r => {
-            if (__DEV__ && !r.success) console.warn('[SponsorEngage] saveGiveawayWinner failed:', r.error);
-          }).catch(err => {
-            if (__DEV__) console.warn('[SponsorEngage] saveGiveawayWinner threw:', err);
-          });
+          };
+          void recordWinner(selectedGiveaway.id, gw);
         }
+      }
+    }, 80);
+  };
+
+  // Client-side fallback pick used when the backend `/leads/draw`
+  // route isn't deployed (NOT_IMPLEMENTED) — mirrors the web
+  // SponsorDrawPage fallback of choosing a random eligible lead.
+  const pickLocalWinner = () => {
+    const pool = leads;
+    if (pool.length === 0) {
+      Alert.alert('No participants', 'Scan some leads before running a draw.');
+      return;
+    }
+    const chosen = pool[Math.floor(Math.random() * pool.length)];
+    revealWinner(
+      { id: String(chosen.id), name: chosen.name ?? 'Unknown', company: chosen.company, title: chosen.title },
+      pool,
+    );
+  };
+
+  const runDraw = () => {
+    if (drawBusy) return;
+    triggerDraw(selectedGiveaway?.id, {
+      onSuccess: (res) => {
+        const w = res.data?.winner;
+        if (res.success && w) {
+          revealWinner(
+            { id: String(w.id), name: w.name ?? 'Unknown', company: w.company, title: w.title },
+            leads,
+          );
+          return;
+        }
+        // Backend route missing (NOT_IMPLEMENTED) or a not-found style
+        // failure — fall back to a client-side random pick from the
+        // captured leads so the draw still works offline / pre-deploy.
+        pickLocalWinner();
       },
-      onError: () => Alert.alert('Draw Failed', 'Could not pick a winner. Try again.'),
+      onError: () => pickLocalWinner(),
     });
   };
 
@@ -889,6 +1136,16 @@ function SponsorEngage() {
 
   if (mode === 'leads') {
     return <LeadsView leads={leads} onBack={() => setMode('tools')} />;
+  }
+
+  if (mode === 'giveaways') {
+    return (
+      <GiveawaysManager
+        sponsorName={user?.company || user?.name || ''}
+        sponsorId={user?.id ?? ''}
+        onBack={() => setMode('tools')}
+      />
+    );
   }
 
   if (mode === 'draw') {
@@ -951,13 +1208,13 @@ function SponsorEngage() {
           </LinearGradient>
 
           <TouchableOpacity
-            style={[styles.drawBtn, drawPending && { opacity: 0.6 }]}
+            style={[styles.drawBtn, drawBusy && { opacity: 0.6 }]}
             onPress={runDraw}
-            disabled={drawPending}
+            disabled={drawBusy}
           >
             <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.drawBtnGrad}>
               <Ionicons name="shuffle" size={18} color="#fff" />
-              <Text style={styles.drawBtnText}>{drawPending ? 'Picking...' : drawWinner ? 'Draw Again' : 'Pick Winner'}</Text>
+              <Text style={styles.drawBtnText}>{drawBusy ? 'Picking...' : drawWinner ? 'Draw Again' : 'Pick Winner'}</Text>
             </LinearGradient>
           </TouchableOpacity>
         </View>
@@ -1008,6 +1265,14 @@ function SponsorEngage() {
           </View>
           <Text style={styles.toolTitle}>Lucky Draw</Text>
           <Text style={styles.toolSub}>Pick winner</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.toolCard} onPress={() => setMode('giveaways')}>
+          <View style={[styles.toolIcon, { backgroundColor: 'rgba(236,72,153,0.15)' }]}>
+            <Ionicons name="gift" size={22} color="#ec4899" />
+          </View>
+          <Text style={styles.toolTitle}>Giveaways</Text>
+          <Text style={styles.toolSub}>{giveawaysForDraw.length} active</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.toolCard} onPress={() => Alert.alert('Analytics', 'Full analytics coming soon.')}>
@@ -1149,6 +1414,8 @@ const styles = StyleSheet.create({
 
   rankRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginHorizontal: spacing.xl, marginBottom: spacing.sm, padding: spacing.lg, borderRadius: radius.xl, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border },
   rankRowTop: { borderColor: 'rgba(255,215,0,0.2)', backgroundColor: 'rgba(255,215,0,0.04)' },
+  fullLeaderboardBtn: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginHorizontal: spacing.xl, marginBottom: spacing.md, paddingVertical: spacing.md, paddingHorizontal: spacing.lg, borderRadius: radius.lg, backgroundColor: 'rgba(124,58,237,0.1)', borderWidth: 1, borderColor: 'rgba(124,58,237,0.25)' },
+  fullLeaderboardBtnText: { flex: 1, color: colors.textPrimary, fontSize: 14, fontWeight: '600' },
   rankNum: { width: 32, alignItems: 'center' },
   rankEmoji: { fontSize: 22 },
   rankText: { color: colors.textMuted, fontSize: 14, fontWeight: '700' },
@@ -1298,6 +1565,40 @@ const styles = StyleSheet.create({
   drawBtn: { width: '100%', borderRadius: radius.xl, overflow: 'hidden' },
   drawBtnGrad: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, padding: spacing.xl },
   drawBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+
+  gmForm: {
+    backgroundColor: colors.bgCard, borderRadius: radius.xl, borderWidth: 1,
+    borderColor: colors.border, padding: spacing.lg, marginBottom: spacing.lg,
+  },
+  gmLabel: { color: colors.textMuted, fontSize: 11, fontWeight: '700', letterSpacing: 0.5, marginBottom: spacing.xs, marginTop: spacing.sm },
+  gmInput: {
+    color: colors.textPrimary, fontSize: 14, backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border,
+    paddingHorizontal: spacing.md, paddingVertical: spacing.md, marginBottom: spacing.xs,
+  },
+  gmAddBtn: { borderRadius: radius.lg, overflow: 'hidden', marginTop: spacing.md },
+  gmAddBtnGrad: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingVertical: spacing.md },
+  gmAddBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  gmCard: {
+    backgroundColor: colors.bgCard, borderRadius: radius.xl, borderWidth: 1,
+    borderColor: colors.border, padding: spacing.lg, marginBottom: spacing.md,
+  },
+  gmCardHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  gmCardTitle: { color: colors.textPrimary, fontSize: 15, fontWeight: '700' },
+  gmCardMeta: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+  gmIconBtn: {
+    width: 34, height: 34, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: colors.border,
+  },
+  gmEditRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
+  gmGhostBtn: { flex: 1, alignItems: 'center', paddingVertical: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border },
+  gmGhostBtnText: { color: colors.textSecondary, fontSize: 14, fontWeight: '600' },
+  gmSaveBtn: { flex: 1, alignItems: 'center', paddingVertical: spacing.md, borderRadius: radius.lg, backgroundColor: colors.primary },
+  gmSaveBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  gmWinners: { marginTop: spacing.md, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border, gap: spacing.xs },
+  gmWinnersLabel: { color: colors.textMuted, fontSize: 10, fontWeight: '800', letterSpacing: 1, marginBottom: spacing.xs },
+  gmWinnerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  gmWinnerName: { flex: 1, color: colors.textSecondary, fontSize: 13, fontWeight: '600' },
 
   badgePanel: { flexDirection: 'row', gap: spacing.md, marginHorizontal: spacing.xl, marginBottom: spacing.lg },
   badgePanelBtn: { flex: 1, borderRadius: radius.xl, overflow: 'hidden' },

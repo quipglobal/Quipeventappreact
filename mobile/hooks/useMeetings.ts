@@ -5,6 +5,7 @@ import { listMeetings, sendMeetingRequest, respondToMeeting } from '@/lib/api/me
 import type { SendMeetingRequest } from '@/lib/api/meetings';
 import { useAuthedQuery } from '@/hooks/useAuthedQuery';
 import { useAuth } from '@/context/AuthContext';
+import { useEvent } from '@/context/EventContext';
 
 export function useMeetings() {
   // Auth-gated by `useAuthedQuery` — the wrapper AND-merges its
@@ -26,6 +27,7 @@ export function useMeetings() {
   // foreground-gating pattern in `useReconcilePendingLeadsBackground`.
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const { currentEventId } = useEvent();
   const currentUserId = user?.id != null ? String(user.id) : undefined;
   const [appActive, setAppActive] = useState(AppState.currentState === 'active');
   useEffect(() => {
@@ -45,12 +47,15 @@ export function useMeetings() {
   }, [queryClient]);
 
   return useAuthedQuery({
-    queryKey: ['meetings'],
+    // Event-scoped key: without `currentEventId` here, React Query serves
+    // Event A's accepted meetings to Event B on switch, which the messaging
+    // seed path would then persist under the wrong event (cross-event leak).
+    queryKey: ['meetings', currentEventId],
     queryFn: () => listMeetings(currentUserId),
     select: (res) => res.data ?? [],
     staleTime: 0,
     refetchInterval: 30_000,
-    enabled: appActive,
+    enabled: appActive && !!currentEventId,
   });
 }
 

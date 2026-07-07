@@ -19,6 +19,7 @@ import { useVideoFeeds, useMarkVideoWatched } from '@/hooks/useFeed';
 import { usePolls, useVotePoll, useSurveys, useGiveaways } from '@/hooks/useEngage';
 import { DataState } from '@/components/DataState';
 import { ArticlesTab } from '@/components/ArticlesTab';
+import { StoriesRail } from '@/components/StoriesRail';
 import { colors, spacing, radius, typography } from '@/constants/theme';
 import type { FeedVideo, Poll } from '@/lib/api/types';
 
@@ -415,6 +416,9 @@ export default function FeedScreen() {
         <ArticlesTab />
       ) : (
         <>
+          {/* Story-style rail — always visible at the top of the feed. */}
+          <StoriesRail />
+
           {/* Shortcut cards are ALWAYS visible — not gated on video/poll loading */}
           <View style={styles.shortcutsOuter}>
             {shortcutSection}

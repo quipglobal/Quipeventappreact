@@ -178,6 +178,16 @@ export interface Giveaway {
   ends: string;
   color: string;
   entered: boolean;
+  /** Number of prize items available. Parsed from the backend's
+   *  number_of_items/quantity fields; used by the sponsor manage UI. */
+  numberOfItems?: number;
+  /** Optional prize image (data-URL or remote URL). Optional on mobile —
+   *  the create form only requires a title + item count. */
+  image?: string;
+  /** Owner sponsor id, when the backend attributes the giveaway. */
+  sponsorId?: string;
+  /** ISO 8601 creation timestamp, when the backend returns it. */
+  createdAt?: string;
   winners?: GiveawayWinner[];
 }
 
@@ -228,6 +238,7 @@ export interface LeaderboardEntry {
   points: number;
   tier: string;
   tierColor: string;
+  company?: string;
 }
 
 export interface ArticleCategory {

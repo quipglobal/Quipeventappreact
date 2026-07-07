@@ -8,3 +8,4 @@ builds/cxo-events-v2.12-vc31.aab filter=lfs diff=lfs merge=lfs -text
 builds/cxo-events-v2.12-vc31.tar.gz filter=lfs diff=lfs merge=lfs -text
 builds/cxo-events-v2.13-vc32.aab filter=lfs diff=lfs merge=lfs -text
 builds/cxo-events-v2.13-vc32.tar.gz filter=lfs diff=lfs merge=lfs -text
+builds/cxo-events-v2.14-vc33.tar.gz filter=lfs diff=lfs merge=lfs -text

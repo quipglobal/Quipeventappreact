@@ -203,6 +203,12 @@ export async function listGiveaways(): Promise<ApiResponse<Giveaway[]>> {
         };
       })
       .filter((w): w is GiveawayWinner => w !== null);
+    const numberOfItems = Number(
+      g.number_of_items ?? g.numberOfItems ?? g.quantity ?? g.total ?? g.total_available ?? 0,
+    );
+    const image = g.image ?? g.image_url ?? g.imageUrl ?? g.photo ?? g.photo_url ?? '';
+    const sponsorId = String(g.sponsor_id ?? g.sponsorId ?? g.sponsor?.id ?? g.user_id ?? g.created_by ?? '');
+    const createdSrc = g.created_at ?? g.createdAt ?? g.created;
     return {
       id: String(g.id ?? g.giveaway_id ?? g.uuid ?? `g-${i}`),
       title: g.title ?? g.name ?? g.prize ?? g.label ?? '',
@@ -217,6 +223,10 @@ export async function listGiveaways(): Promise<ApiResponse<Giveaway[]>> {
       ends: g.ends_at ? new Date(g.ends_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : g.ends ?? '',
       color: g.color ?? COLORS[i % COLORS.length],
       entered: Boolean(g.entered ?? g.has_entered ?? false),
+      ...(numberOfItems > 0 ? { numberOfItems } : {}),
+      ...(image ? { image } : {}),
+      ...(sponsorId ? { sponsorId } : {}),
+      ...(createdSrc ? { createdAt: new Date(createdSrc).toISOString() } : {}),
       ...(winners.length > 0 ? { winners } : {}),
     };
   });
@@ -288,9 +298,76 @@ export interface CreateGiveawayPayload {
   sponsorId: string;
 }
 
+/**
+ * Session-scoped short-circuit flags mirroring the web `giveawaysClient`.
+ * Once the backend confirms a giveaway CRUD route isn't deployed
+ * (404/405), we stop round-tripping for the rest of the session and
+ * surface a typed NOT_IMPLEMENTED so callers can keep the optimistic
+ * local row instead of rolling it back. Reset on event switch via
+ * `resetGiveawaysEndpointMissing`.
+ */
+let createEndpointMissing = false;
+let updateEndpointMissing = false;
+let deleteEndpointMissing = false;
+
+export function resetGiveawaysEndpointMissing(): void {
+  createEndpointMissing = false;
+  updateEndpointMissing = false;
+  deleteEndpointMissing = false;
+}
+
+/**
+ * The mobile `request()` collapses HTTP status into a generic
+ * REQUEST_FAILED code but preserves the server message. A Laravel
+ * "route could not be found" (404) or "method is not supported" (405)
+ * both mean the endpoint isn't deployed, so we sniff the message to
+ * decide whether to degrade to local-only rather than surface a hard
+ * error to the sponsor.
+ */
+function isRouteMissing(error?: { code?: string; message?: string }): boolean {
+  if (!error) return false;
+  const code = String(error.code ?? '');
+  if (code === '404' || code === '405' || code === 'NOT_IMPLEMENTED') return true;
+  const msg = String(error.message ?? '').toLowerCase();
+  return (
+    msg.includes('could not be found') ||
+    msg.includes('not be found') ||
+    msg.includes('not supported') ||
+    msg.includes('not found') ||
+    msg.includes('404') ||
+    msg.includes('405')
+  );
+}
+
+function mapGiveawayRow(raw: any, fallbackTitle = '', fallbackSponsor = ''): Giveaway {
+  const COLORS = ['#7c3aed', '#06b6d4', '#10b981', '#f59e0b', '#ec4899'];
+  const numberOfItems = Number(
+    raw?.number_of_items ?? raw?.numberOfItems ?? raw?.quantity ?? raw?.total ?? 0,
+  );
+  const image = raw?.image ?? raw?.image_url ?? raw?.imageUrl ?? '';
+  const sponsorId = String(raw?.sponsor_id ?? raw?.sponsorId ?? raw?.sponsor?.id ?? raw?.user_id ?? '');
+  const createdSrc = raw?.created_at ?? raw?.createdAt ?? raw?.created;
+  return {
+    id: String(raw?.id ?? raw?.giveaway_id ?? raw?.uuid ?? ''),
+    title: raw?.title ?? raw?.name ?? raw?.prize ?? fallbackTitle,
+    sponsor: raw?.sponsor ?? raw?.sponsor_name ?? raw?.sponsorName ?? fallbackSponsor,
+    entries: Number(raw?.entries ?? raw?.entry_count ?? 0),
+    ends: raw?.ends_at ? new Date(raw.ends_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : raw?.ends ?? '',
+    color: raw?.color ?? COLORS[0],
+    entered: Boolean(raw?.entered ?? raw?.has_entered ?? false),
+    ...(numberOfItems > 0 ? { numberOfItems } : {}),
+    ...(image ? { image } : {}),
+    ...(sponsorId ? { sponsorId } : {}),
+    ...(createdSrc ? { createdAt: new Date(createdSrc).toISOString() } : {}),
+  };
+}
+
 export async function createGiveaway(payload: CreateGiveawayPayload): Promise<ApiResponse<Giveaway>> {
   const eventId = getEventId();
   if (!eventId) return { success: false, error: { code: 'NO_EVENT', message: 'No active event' } };
+  if (createEndpointMissing) {
+    return { success: false, error: { code: 'NOT_IMPLEMENTED', message: 'Giveaway create endpoint not deployed.' } };
+  }
   const body = {
     title: payload.title,
     number_of_items: payload.numberOfItems,
@@ -307,27 +384,83 @@ export async function createGiveaway(payload: CreateGiveawayPayload): Promise<Ap
     method: 'POST',
     body: JSON.stringify(body),
   });
-  if (!res.success) return res as ApiResponse<Giveaway>;
+  if (!res.success) {
+    if (isRouteMissing(res.error)) {
+      createEndpointMissing = true;
+      return { success: false, error: { code: 'NOT_IMPLEMENTED', message: 'Giveaway create endpoint not deployed.' } };
+    }
+    return res as ApiResponse<Giveaway>;
+  }
   const raw = res.data?.data ?? res.data;
-  const COLORS = ['#7c3aed', '#06b6d4', '#10b981', '#f59e0b', '#ec4899'];
-  const giveaway: Giveaway = {
-    id: String(raw?.id ?? ''),
-    title: raw?.title ?? raw?.name ?? raw?.prize ?? payload.title,
-    sponsor: raw?.sponsor ?? raw?.sponsor_name ?? payload.sponsorName,
-    entries: Number(raw?.entries ?? raw?.entry_count ?? 0),
-    ends: raw?.ends_at ? new Date(raw.ends_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : raw?.ends ?? '',
-    color: raw?.color ?? COLORS[0],
-    entered: Boolean(raw?.entered ?? raw?.has_entered ?? false),
-  };
-  return { success: true, data: giveaway };
+  return { success: true, data: mapGiveawayRow(raw, payload.title, payload.sponsorName) };
+}
+
+export interface UpdateGiveawayPayload {
+  title?: string;
+  numberOfItems?: number;
+  image?: string;
+}
+
+/**
+ * PUT /api/v1/events/:eventId/giveaways/:giveawayId
+ *
+ * Mirrors the web `giveawaysClient.updateGiveaway`: the Laravel route is
+ * registered with PUT (a PATCH gets a 405), and we send both camelCase
+ * and snake_case field variants so either backend convention works.
+ * Synthetic ids (`giveaway-<ts>`) never round-tripped through the backend,
+ * so we short-circuit to NOT_IMPLEMENTED and let the caller keep the
+ * local-only edit.
+ */
+export async function updateGiveaway(
+  giveawayId: string,
+  payload: UpdateGiveawayPayload,
+): Promise<ApiResponse<Giveaway>> {
+  const eventId = getEventId();
+  if (!eventId) return { success: false, error: { code: 'NO_EVENT', message: 'No active event' } };
+  if (updateEndpointMissing || giveawayId.startsWith('giveaway-')) {
+    return { success: false, error: { code: 'NOT_IMPLEMENTED', message: 'Giveaway update endpoint not deployed.' } };
+  }
+  const body: Record<string, unknown> = {};
+  if (payload.title !== undefined) body.title = payload.title;
+  if (payload.numberOfItems !== undefined) {
+    body.number_of_items = payload.numberOfItems;
+    body.numberOfItems = payload.numberOfItems;
+    body.quantity = payload.numberOfItems;
+  }
+  if (payload.image !== undefined) {
+    body.image = payload.image;
+    body.image_url = payload.image;
+  }
+  const res = await request<any>(`/api/v1/events/${eventId}/giveaways/${giveawayId}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+  if (!res.success) {
+    if (isRouteMissing(res.error)) {
+      updateEndpointMissing = true;
+      return { success: false, error: { code: 'NOT_IMPLEMENTED', message: 'Giveaway update endpoint not deployed.' } };
+    }
+    return res as ApiResponse<Giveaway>;
+  }
+  const raw = res.data?.data ?? res.data;
+  return { success: true, data: mapGiveawayRow(raw, payload.title ?? '') };
 }
 
 export async function removeGiveaway(giveawayId: string): Promise<ApiResponse<true>> {
   const eventId = getEventId();
   if (!eventId) return { success: false, error: { code: 'NO_EVENT', message: 'No active event' } };
+  if (deleteEndpointMissing || giveawayId.startsWith('giveaway-')) {
+    return { success: false, error: { code: 'NOT_IMPLEMENTED', message: 'Giveaway delete endpoint not deployed.' } };
+  }
   const res = await request<any>(`/api/v1/events/${eventId}/giveaways/${giveawayId}`, {
     method: 'DELETE',
   });
-  if (!res.success) return res as ApiResponse<true>;
+  if (!res.success) {
+    if (isRouteMissing(res.error)) {
+      deleteEndpointMissing = true;
+      return { success: false, error: { code: 'NOT_IMPLEMENTED', message: 'Giveaway delete endpoint not deployed.' } };
+    }
+    return res as ApiResponse<true>;
+  }
   return { success: true, data: true };
 }

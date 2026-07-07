@@ -392,6 +392,64 @@ export async function updateLeadStatus(leadId: string, status: Lead['status']): 
 }
 
 /**
+ * Session-scoped short-circuit mirroring the `leadsListEndpointMissing`
+ * pattern: once the backend confirms the PUT `/leads/:id` update route
+ * isn't deployed (404/405), we stop round-tripping for the rest of the
+ * session. The local optimistic edit + AsyncStorage overlay in
+ * `useUpdateLead` keeps the user's change regardless, so short-circuiting
+ * here just avoids pestering the backend. Reset on event switch via
+ * `resetLeadsUpdateEndpointMissing`.
+ */
+let leadsUpdateEndpointMissing = false;
+
+export function resetLeadsUpdateEndpointMissing(): void {
+  leadsUpdateEndpointMissing = false;
+}
+
+export interface LeadEdits {
+  notes?: string;
+  tags?: string[];
+  priority?: 'hot' | 'warm' | 'cold';
+}
+
+/**
+ * PUT /api/v1/events/:eventId/leads/:id
+ * Updates notes, tags, and/or priority for an existing lead. `priority`
+ * and `status` are mirrors on the v1 leads endpoints, so we send both so
+ * the change round-trips regardless of which field the backend reads.
+ *
+ * Callers persist the edit optimistically and to the AsyncStorage overlay
+ * independently, so a NOT_IMPLEMENTED response here does NOT lose the
+ * user's change — it just means it won't sync cross-device yet.
+ */
+export async function updateLead(leadId: string, updates: LeadEdits): Promise<ApiResponse<Lead>> {
+  const eventId = getEventId();
+  if (!eventId) return { success: false, error: { code: 'NO_EVENT', message: 'No active event' } };
+  if (leadsUpdateEndpointMissing) {
+    return { success: false, error: { code: 'NOT_IMPLEMENTED', message: 'Lead update endpoint not deployed.' } };
+  }
+  const body: Record<string, unknown> = {};
+  if (updates.notes !== undefined) body.notes = updates.notes;
+  if (updates.tags !== undefined) body.tags = updates.tags;
+  if (updates.priority !== undefined) {
+    body.priority = updates.priority;
+    body.status = updates.priority;
+  }
+  const res = await request<Lead>(`/api/v1/events/${eventId}/leads/${leadId}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+  if (!res.success) {
+    const msg = res.error?.message ?? '';
+    if (/could not be found|not found|404|405|not supported/i.test(msg)) {
+      leadsUpdateEndpointMissing = true;
+      return { success: false, error: { code: 'NOT_IMPLEMENTED', message: 'Lead update endpoint not deployed.' } };
+    }
+  }
+  return res;
+}
+
+/**
  * POST /api/v1/events/:eventId/leads/draw
  * Picks a random winner from the current event's leads (optional giveawayId scopes the pool).
  * Matches BACKEND_SCAN_ENDPOINTS.md §5.
