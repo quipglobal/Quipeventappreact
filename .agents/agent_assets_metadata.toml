@@ -12,3 +12,9 @@ id = "_dNQRofcDO-rfGnzoUxS1"
 uri = "file://builds/cxo-events-v2.10-vc29.tar.gz"
 type = "unspecified"
 title = "CXO Events v2.10 (versionCode 29) — signed Android AAB with network diagnostics"
+
+[[outputs]]
+id = "YIEUWWkE0Gw3te5ruKKuB"
+uri = "file://builds/cxo-events-v2.11-vc30.tar.gz"
+type = "unspecified"
+title = "CXO Events v2.11 (versionCode 30) — signed AAB with embedded certificate trust fix"

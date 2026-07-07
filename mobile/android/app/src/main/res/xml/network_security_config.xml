@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The backend (app.cxocollaborate.com) serves a brand-new Let's Encrypt
+  chain (leaf <- YE2 <- Root YE <- ISRG Root X2 <- ISRG Root X1; "Root YE"
+  and the X2 cross-sign were issued 2026-05-13). Browsers ship their own
+  root stores and already trust it, but many Android system trust stores
+  do not yet — so on real devices every fetch() to the backend died with
+  a generic "Network request failed" while Chrome on the same phone
+  loaded the site fine.
+
+  Embedding the ISRG roots (public certificates, safe to ship) as
+  additional trust anchors makes certificate validation independent of
+  the device's system store. System anchors are kept so every other
+  host (avatars, Google probes, etc.) keeps working unchanged.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="@raw/isrg_root_x1" />
+            <certificates src="@raw/isrg_root_x2" />
+            <certificates src="@raw/isrg_root_x2_cross" />
+            <certificates src="@raw/isrg_root_ye" />
+            <certificates src="@raw/le_ye2" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
