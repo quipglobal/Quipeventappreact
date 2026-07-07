@@ -101,8 +101,8 @@ android {
         applicationId 'com.apexevents.meet'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 30
-        versionName "2.11"
+        versionCode 31
+        versionName "2.12"
     }
     signingConfigs {
         debug {

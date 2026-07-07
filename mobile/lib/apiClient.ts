@@ -323,9 +323,56 @@ async function probeUrl(url: string, timeoutMs = 6000): Promise<boolean> {
   }
 }
 
+/**
+ * Probe a URL with a raw XMLHttpRequest and capture the NATIVE error text.
+ *
+ * React Native's fetch() polyfill (whatwg-fetch) collapses every native
+ * failure — DNS, TCP, TLS trust, proxy, firewall — into the same generic
+ * "TypeError: Network request failed", which makes on-device diagnosis
+ * impossible. But RN's underlying XMLHttpRequest keeps the real Android/iOS
+ * error string (e.g. "java.security.cert.CertPathValidatorException: Trust
+ * anchor for certification path not found" or "Unable to resolve host
+ * app.cxocollaborate.com") in its internal `_response` field on error.
+ * Reading it is the only JS-side way to see WHICH layer actually failed.
+ */
+function probeXhr(
+  url: string,
+  timeoutMs = 8000,
+): Promise<{ ok: boolean; detail: string }> {
+  return new Promise((resolve) => {
+    try {
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', url);
+      xhr.timeout = timeoutMs;
+      xhr.onload = () =>
+        resolve({ ok: true, detail: `http ${xhr.status}` });
+      xhr.onerror = () => {
+        const native = (xhr as any)._response;
+        resolve({
+          ok: false,
+          detail: typeof native === 'string' && native
+            ? native.slice(0, 300)
+            : 'error (no native detail)',
+        });
+      };
+      xhr.ontimeout = () => resolve({ ok: false, detail: 'timeout' });
+      xhr.send();
+    } catch (e) {
+      resolve({
+        ok: false,
+        detail: e instanceof Error ? `${e.name}: ${e.message}` : String(e),
+      });
+    }
+  });
+}
+
 interface NetworkDiagnosis {
   internetOk: boolean;
   serverOk: boolean;
+  /** Raw native error from the backend probe (or "http NNN" when reachable). */
+  serverDetail: string;
+  /** DNS-over-HTTPS answer for the backend hostname via dns.google. */
+  dohDetail: string;
 }
 
 /**
@@ -333,19 +380,32 @@ interface NetworkDiagnosis {
  * WHICH leg is broken so the user gets an accurate message instead of a
  * blanket (and often wrong) "No internet connection":
  *   • internet probe — a highly-available Google 204 endpoint
- *   • server probe   — our own backend origin
+ *   • server probe   — our own backend origin, via raw XHR so the native
+ *     error text (TLS? DNS? refused?) is captured verbatim
+ *   • DoH probe      — resolves the backend hostname through dns.google,
+ *     bypassing the device/carrier resolver. If this returns the right IP
+ *     while the direct probe fails with "Unable to resolve host", the
+ *     carrier's DNS is the culprit (Chrome works because it uses its own
+ *     built-in secure DNS).
  * Native only: on web these cross-origin probes would fail on CORS even
  * with a healthy network, which would poison the diagnosis.
  */
 async function diagnoseNetwork(): Promise<NetworkDiagnosis | null> {
   if (Platform.OS === 'web') return null;
-  const [internetOk, serverOk] = await Promise.all([
+  const host = (BASE_URL || PRODUCTION_API_URL).replace(/^https?:\/\//, '');
+  const [internetOk, server, doh] = await Promise.all([
     probeUrl('https://clients3.google.com/generate_204').then(
       (ok) => ok || probeUrl('https://www.gstatic.com/generate_204'),
     ),
-    probeUrl(`${BASE_URL || PRODUCTION_API_URL}/api/v1/health`),
+    probeXhr(`${BASE_URL || PRODUCTION_API_URL}/api/v1/health`),
+    probeXhr(`https://dns.google/resolve?name=${encodeURIComponent(host)}&type=A`),
   ]);
-  return { internetOk, serverOk };
+  return {
+    internetOk,
+    serverOk: server.ok,
+    serverDetail: server.detail,
+    dohDetail: doh.ok ? 'reachable' : doh.detail,
+  };
 }
 
 const NETWORK_RETRY_DELAY_MS = 1200;
@@ -397,7 +457,7 @@ export async function request<T>(
   const detail = res.error?.detail;
   if (AUTH_DEBUG) {
     console.log(
-      `[AUTH-DEBUG] ${path} network diagnosis: internetOk=${diag?.internetOk} serverOk=${diag?.serverOk} rawError="${detail ?? ''}"`,
+      `[AUTH-DEBUG] ${path} network diagnosis: internetOk=${diag?.internetOk} serverOk=${diag?.serverOk} serverDetail="${diag?.serverDetail ?? ''}" doh="${diag?.dohDetail ?? ''}" rawError="${detail ?? ''}"`,
     );
   }
 
@@ -412,7 +472,17 @@ export async function request<T>(
     message = 'No internet connection. Please check your network and try again.';
   }
   if (AUTH_DEBUG && detail) {
-    message += `\n[diag: ${detail}${diag ? ` | internet=${diag.internetOk ? 'ok' : 'fail'} server=${diag.serverOk ? 'ok' : 'fail'}` : ''}]`;
+    const osInfo =
+      Platform.OS === 'android'
+        ? `android-api=${Platform.Version}`
+        : `${Platform.OS}=${Platform.Version}`;
+    message += `\n[diag: ${detail}${
+      diag
+        ? ` | internet=${diag.internetOk ? 'ok' : 'fail'} server=${
+            diag.serverOk ? 'ok' : 'fail'
+          } | native="${diag.serverDetail}" | doh=${diag.dohDetail} | ${osInfo}`
+        : ''
+    }]`;
   }
 
   return {
