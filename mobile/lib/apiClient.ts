@@ -59,7 +59,7 @@ export async function clearToken(): Promise<void> {
 export interface ApiResponse<T> {
   success: boolean;
   data?: T;
-  error?: { code: string; message: string };
+  error?: { code: string; message: string; detail?: string };
 }
 
 /**
@@ -101,7 +101,7 @@ function redactSensitive(text: string): string {
     .replace(/("(?:code|otp)"\s*:\s*")\d{4,8}(")/gi, '$1[REDACTED]$2');
 }
 
-export async function request<T>(
+async function requestOnce<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<ApiResponse<T>> {
@@ -221,11 +221,7 @@ export async function request<T>(
       console.warn(`[API] ${method} ${path} threw after ${Date.now() - startMs}ms:`, err);
     }
 
-    // Our own AbortController fires after REQUEST_TIMEOUT_MS — this means
-    // the request reached the network stack fine but the server never
-    // responded in time. This is NOT the same as "no internet": the device
-    // is connected, the backend is just slow/hung. Telling the user to
-    // "check their network" here sends them chasing the wrong problem.
+    // Raw error identity, captured engine-agnostically.
     //
     // IMPORTANT: never reference `DOMException` here. Hermes (the native
     // JS engine) does not define it as a global, so `err instanceof
@@ -233,16 +229,29 @@ export async function request<T>(
     // escaped this catch block entirely and surfaced as the generic
     // "Something went wrong" in the UI for EVERY network-level failure on
     // Android/iOS. Checking `.name` is engine- and realm-agnostic.
-    const errName = (err as { name?: unknown } | null | undefined)?.name;
-    const rawMsg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+    const errName = String((err as { name?: unknown } | null | undefined)?.name ?? '');
+    const rawMsg = err instanceof Error ? err.message : String(err);
+    const detail = `${errName || 'Error'}: ${rawMsg}`.slice(0, 300);
+    const msg = rawMsg.toLowerCase();
+
+    // Our own AbortController fires after REQUEST_TIMEOUT_MS — this means
+    // the request reached the network stack fine but the server never
+    // responded in time. This is NOT the same as "no internet": the device
+    // is connected, the backend is just slow/hung. Detect OUR timeout
+    // precisely via controller.signal.aborted rather than message sniffing,
+    // because genuine network errors like "Software caused connection
+    // abort" also contain the word "abort" and must NOT be swallowed here.
     const isTimeout =
-      errName === 'AbortError' || rawMsg.includes('abort');
+      controller.signal.aborted ||
+      errName === 'AbortError' ||
+      msg === 'aborted';
     if (isTimeout) {
       return {
         success: false,
         error: {
           code: 'TIMEOUT',
           message: 'The server is taking longer than usual to respond. Please try again in a moment.',
+          detail,
         },
       };
     }
@@ -259,9 +268,8 @@ export async function request<T>(
     // failure, connection refused, TLS errors, etc.) as TypeErrors with
     // varied messages — but native layers (OkHttp/NSURLSession) can also
     // surface them as plain Errors, so match on any Error, not just
-    // TypeError. Timeouts are handled above via AbortError, so what's left
-    // genuinely points at a connectivity/DNS/TLS problem, not a slow server.
-    const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+    // TypeError. Timeouts are handled above, so what's left genuinely
+    // points at a connectivity/DNS/TLS problem, not a slow server.
     const isNetworkError =
       deviceOffline ||
       (err instanceof Error &&
@@ -271,9 +279,15 @@ export async function request<T>(
           msg.includes('unable to resolve host') ||
           msg.includes('connection refused') ||
           msg.includes('econnrefused') ||
+          msg.includes('timed out') ||
+          msg.includes('timeout') ||
+          msg.includes('abort') ||
+          msg.includes('reset') ||
           msg.includes('socket') ||
           msg.includes('ssl') ||
+          msg.includes('handshake') ||
           msg.includes('certificate') ||
+          msg.includes('trust anchor') ||
           msg.includes('only absolute urls') ||
           msg.includes('net::')));
     return {
@@ -283,11 +297,128 @@ export async function request<T>(
         message: isNetworkError
           ? 'No internet connection. Please check your network and try again.'
           : 'Something went wrong. Please try again.',
+        detail,
       },
     };
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+/**
+ * Probe a URL and report whether ANY HTTP response came back. A 404 still
+ * counts as reachable — we only care whether the network path (DNS → TCP →
+ * TLS → HTTP) works, not what the server says.
+ */
+async function probeUrl(url: string, timeoutMs = 6000): Promise<boolean> {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), timeoutMs);
+  try {
+    await fetch(url, { method: 'GET', headers: { Accept: '*/*' }, signal: c.signal });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+interface NetworkDiagnosis {
+  internetOk: boolean;
+  serverOk: boolean;
+}
+
+/**
+ * When a request fails at the network level on a real device, work out
+ * WHICH leg is broken so the user gets an accurate message instead of a
+ * blanket (and often wrong) "No internet connection":
+ *   • internet probe — a highly-available Google 204 endpoint
+ *   • server probe   — our own backend origin
+ * Native only: on web these cross-origin probes would fail on CORS even
+ * with a healthy network, which would poison the diagnosis.
+ */
+async function diagnoseNetwork(): Promise<NetworkDiagnosis | null> {
+  if (Platform.OS === 'web') return null;
+  const [internetOk, serverOk] = await Promise.all([
+    probeUrl('https://clients3.google.com/generate_204').then(
+      (ok) => ok || probeUrl('https://www.gstatic.com/generate_204'),
+    ),
+    probeUrl(`${BASE_URL || PRODUCTION_API_URL}/api/v1/health`),
+  ]);
+  return { internetOk, serverOk };
+}
+
+const NETWORK_RETRY_DELAY_MS = 1200;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Public request entry point. Wraps `requestOnce` with:
+ *  1. ONE automatic retry after a short delay when the first attempt dies
+ *     at the network level (transient radio/DNS blips on mobile networks
+ *     routinely succeed on immediate retry).
+ *  2. A connectivity diagnosis when the retry also fails, so the final
+ *     error message states which leg is actually broken — device offline
+ *     vs. backend unreachable — instead of always blaming the user's WiFi.
+ *  3. When AUTH_DEBUG is baked into the build, the raw underlying error
+ *     (e.g. "TypeError: SSLHandshakeException: …") is appended to the
+ *     message so a single user screenshot identifies the root cause.
+ */
+/**
+ * Retry is limited to requests where a duplicate submission is harmless:
+ * all GET/HEAD, plus send-otp (re-sending a code is benign — the newest
+ * code simply supersedes the old one). verify-otp and register are NEVER
+ * retried automatically: in the rare "server processed it but the response
+ * got lost" case, a blind retry would consume the code twice or create a
+ * duplicate account attempt.
+ */
+function isRetrySafe(path: string, method: string): boolean {
+  if (method === 'GET' || method === 'HEAD') return true;
+  return path === '/api/v1/auth/send-otp';
+}
+
+export async function request<T>(
+  path: string,
+  options: RequestInit = {}
+): Promise<ApiResponse<T>> {
+  const method = (options.method ?? 'GET').toUpperCase();
+  let res = await requestOnce<T>(path, options);
+  if (res.success || res.error?.code !== 'NETWORK_ERROR') return res;
+
+  if (isRetrySafe(path, method)) {
+    await sleep(NETWORK_RETRY_DELAY_MS);
+    res = await requestOnce<T>(path, options);
+    if (res.success || res.error?.code !== 'NETWORK_ERROR') return res;
+  }
+
+  const diag = await diagnoseNetwork();
+  const detail = res.error?.detail;
+  if (AUTH_DEBUG) {
+    console.log(
+      `[AUTH-DEBUG] ${path} network diagnosis: internetOk=${diag?.internetOk} serverOk=${diag?.serverOk} rawError="${detail ?? ''}"`,
+    );
+  }
+
+  let message: string;
+  if (diag && diag.internetOk && !diag.serverOk) {
+    message =
+      'Your internet is working, but the event server cannot be reached from your device right now. Please try again in a few minutes.';
+  } else if (diag && diag.internetOk && diag.serverOk) {
+    message =
+      'A temporary network issue interrupted the connection. Please try again.';
+  } else {
+    message = 'No internet connection. Please check your network and try again.';
+  }
+  if (AUTH_DEBUG && detail) {
+    message += `\n[diag: ${detail}${diag ? ` | internet=${diag.internetOk ? 'ok' : 'fail'} server=${diag.serverOk ? 'ok' : 'fail'}` : ''}]`;
+  }
+
+  return {
+    success: false,
+    error: { code: 'NETWORK_ERROR', message, detail },
+  };
 }
 
 export interface AuthUser {
