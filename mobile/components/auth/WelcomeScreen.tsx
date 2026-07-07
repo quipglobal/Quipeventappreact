@@ -219,14 +219,16 @@ export function WelcomeScreen() {
     try {
       const res = await sendOtp(identifier);
       if (!res.success) { setPhoneError(res.error?.message ?? 'Failed to send code.'); return; }
+      setPhoneIdentifier(identifier);
+      Keyboard.dismiss();
       if (!res.data?.otpSent) {
-        setPhoneError("We couldn't find an account for that email. Please check the address and try again.");
+        // Email not found — route to registration form instead of dead-end error
+        setCreateForm((p) => ({ ...p, email: identifier }));
+        setView('create-account');
         return;
       }
-      setPhoneIdentifier(identifier);
       setOtpValue('');
       setOtpError('');
-      Keyboard.dismiss();
       setView('otp');
       startResendCountdown();
     } catch {
