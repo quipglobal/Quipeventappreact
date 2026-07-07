@@ -18,19 +18,19 @@ interface TabConfig {
 }
 
 const ATTENDEE_TABS: TabConfig[] = [
-  { name: 'feed',     title: 'Home',     icon: 'home-outline',        iconFocused: 'home' },
+  { name: 'feed',     title: 'Home',     icon: 'play-outline',        iconFocused: 'play' },
   { name: 'audience', title: 'Audience', icon: 'people-outline',      iconFocused: 'people' },
   { name: 'engage',   title: 'Engage',   icon: 'flash-outline',       iconFocused: 'flash' },
   { name: 'partners', title: 'Partners', icon: 'briefcase-outline',   iconFocused: 'briefcase' },
-  { name: 'more',     title: 'More',     icon: 'grid-outline',        iconFocused: 'grid' },
+  { name: 'more',     title: 'More',     icon: 'ellipsis-horizontal-outline', iconFocused: 'ellipsis-horizontal' },
 ];
 
 const SPONSOR_TABS: TabConfig[] = [
-  { name: 'feed',     title: 'Home',       icon: 'home-outline',          iconFocused: 'home' },
+  { name: 'feed',     title: 'Home',       icon: 'play-outline',          iconFocused: 'play' },
   { name: 'audience', title: 'Audience',   icon: 'people-outline',        iconFocused: 'people' },
-  { name: 'scan',     title: 'Scan Badge', icon: 'scan-outline',          iconFocused: 'scan' },
-  { name: 'leads',    title: 'My Leads',   icon: 'people-circle-outline', iconFocused: 'people-circle' },
-  { name: 'more',     title: 'More',       icon: 'grid-outline',          iconFocused: 'grid' },
+  { name: 'engage',   title: 'Engage',     icon: 'flash-outline',         iconFocused: 'flash' },
+  { name: 'leads',    title: 'Leads',      icon: 'people-circle-outline', iconFocused: 'people-circle' },
+  { name: 'more',     title: 'More',       icon: 'ellipsis-horizontal-outline', iconFocused: 'ellipsis-horizontal' },
 ];
 
 // Every file that lives in (tabs)/ — must be listed here so Expo Router

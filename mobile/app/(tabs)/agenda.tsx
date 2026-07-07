@@ -162,15 +162,22 @@ export default function AgendaScreen() {
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trackFilters}>
-          {TRACK_FILTERS.map((t) => (
-            <TouchableOpacity
-              key={t}
-              style={[styles.trackChip, trackFilter === t && styles.trackChipActive]}
-              onPress={() => setTrackFilter(t)}
-            >
-              <Text style={[styles.trackChipText, trackFilter === t && styles.trackChipTextActive]}>{t}</Text>
-            </TouchableOpacity>
-          ))}
+          {TRACK_FILTERS.map((t) => {
+            const isActive = trackFilter === t;
+            // Map tracks to colors if we want dots, otherwise just show label
+            return (
+              <TouchableOpacity
+                key={t}
+                style={[styles.trackChip, isActive && styles.trackChipActive]}
+                onPress={() => setTrackFilter(t)}
+              >
+                {t !== 'All' && (
+                  <View style={[styles.trackChipDot, { backgroundColor: colors.primary }]} />
+                )}
+                <Text style={[styles.trackChipText, isActive && styles.trackChipTextActive]}>{t}</Text>
+              </TouchableOpacity>
+            );
+          })}
         </ScrollView>
       </View>
 
@@ -289,10 +296,11 @@ const styles = StyleSheet.create({
   dayTabTextActive: { color: '#fff' },
 
   trackFilters: { gap: spacing.sm, paddingBottom: spacing.md },
-  trackChip: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: radius.full, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border },
-  trackChipActive: { backgroundColor: 'rgba(124,58,237,0.18)', borderColor: colors.primary },
+  trackChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.full, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  trackChipActive: { backgroundColor: colors.primary + '20', borderColor: colors.primary },
   trackChipText: { color: colors.textSecondary, fontSize: 11, fontWeight: '600' },
   trackChipTextActive: { color: colors.primary },
+  trackChipDot: { width: 6, height: 6, borderRadius: 3 },
 
   list: { paddingHorizontal: spacing.xl, paddingBottom: 100, gap: spacing.md },
   sessionCard: { flexDirection: 'row', borderRadius: radius.xl, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },

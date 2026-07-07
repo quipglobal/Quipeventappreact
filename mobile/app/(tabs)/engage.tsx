@@ -279,7 +279,7 @@ function SurveyDetailView({ survey, alreadyDone, onBack }: SurveyDetailViewProps
   const handleSubmit = () => {
     const missing = questions.filter((q) => q.required && !answers[q.id]?.trim());
     if (missing.length > 0) {
-      showToast(`Please answer: ${missing[0].text}`);
+      showToast?.(`Please answer: ${missing[0].text}`);
       return;
     }
 
@@ -290,14 +290,15 @@ function SurveyDetailView({ survey, alreadyDone, onBack }: SurveyDetailViewProps
           const firstTime = !alreadyDone;
           markSurveyDone(survey.id);
           const pts = res.data?.points ?? survey.points;
-          showToast(firstTime ? `Survey submitted! +${pts} pts` : 'Answers updated!', firstTime ? pts : undefined);
+          showToast?.(firstTime ? `Survey submitted! +${pts} pts` : 'Answers updated!', firstTime ? pts : undefined);
           setSubmitted(true);
           setTimeout(() => onBack(), 1200);
         },
         onError: () => {
+          // Fallback for demo mode/offline
           markSurveyDone(survey.id);
           const firstTime = !alreadyDone;
-          showToast(firstTime ? `Saved! +${survey.points} pts` : 'Answers updated!', firstTime ? survey.points : undefined);
+          showToast?.(firstTime ? `Saved! +${survey.points} pts` : 'Answers updated!', firstTime ? survey.points : undefined);
           setSubmitted(true);
           setTimeout(() => onBack(), 1200);
         },
@@ -539,18 +540,32 @@ function AttendeeEngage() {
     >
       <BadgeScanPanel onScanPress={() => setScanMode('scanner')} />
 
-      <View style={styles.pointsCard}>
-        <LinearGradient colors={['#3b1d8a', '#1e3a5f']} style={styles.pointsGrad}>
-          <View style={styles.pointsRow}>
-            <View>
-              <Text style={styles.pointsLabel}>Your Points</Text>
-              <Text style={styles.pointsValue}>{user?.points ?? 0}</Text>
+      {/* Stats card */}
+      <View style={styles.statsOuter}>
+        <View style={styles.pointsCard}>
+          <LinearGradient colors={['#3b1d8a', '#1e3a5f']} style={styles.pointsGrad}>
+            <View style={styles.pointsRow}>
+              <View>
+                <Text style={styles.pointsLabel}>Your Points</Text>
+                <Text style={styles.pointsValue}>{user?.points ?? 0}</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.pointsHistoryBtn}
+                onPress={() => router.push('/leaderboard')}
+              >
+                <Text style={styles.pointsHistoryText}>Leaderboard</Text>
+                <Ionicons name="chevron-forward" size={12} color="#fff" />
+              </TouchableOpacity>
             </View>
-          </View>
-          <View style={styles.progressBarBg}>
-            <View style={[styles.progressBarFill, { width: `${Math.min(((user?.points ?? 0) / 500) * 100, 100)}%` }]} />
-          </View>
-        </LinearGradient>
+            <View style={styles.progressBarBg}>
+              <View style={[styles.progressBarFill, { width: `${Math.min(((user?.points ?? 0) / 500) * 100, 100)}%` }]} />
+            </View>
+            <View style={styles.pointsFooter}>
+              <Text style={styles.pointsFooterText}>Rank #{myRank} of {leaderboard.length}</Text>
+              <Text style={styles.pointsFooterText}>{user?.tier ?? 'Bronze'} Tier</Text>
+            </View>
+          </LinearGradient>
+        </View>
       </View>
 
       {/* ── Surveys & Polls section ── */}
@@ -1313,9 +1328,14 @@ const styles = StyleSheet.create({
   pointsGrad: { padding: spacing.xl },
   pointsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: spacing.md },
   pointsLabel: { color: 'rgba(255,255,255,0.6)', fontSize: 12, fontWeight: '600' },
-  pointsValue: { color: '#fff', fontSize: 36, fontWeight: '800' },
-  progressBarBg: { height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.15)', marginBottom: spacing.sm },
-  progressBarFill: { height: 4, borderRadius: 2, backgroundColor: '#ffd700' },
+  pointsValue: { color: '#fff', fontSize: 32, fontWeight: '800' },
+  pointsHistoryBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.full, backgroundColor: 'rgba(255,255,255,0.1)' },
+  pointsHistoryText: { color: '#fff', fontSize: 11, fontWeight: '600' },
+  progressBarBg: { height: 6, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 3, marginTop: spacing.md },
+  progressBarFill: { height: '100%', backgroundColor: colors.primary, borderRadius: 3 },
+  pointsFooter: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 },
+  pointsFooterText: { color: 'rgba(255,255,255,0.6)', fontSize: 11, fontWeight: '500' },
+  statsOuter: { paddingHorizontal: spacing.xl, marginBottom: spacing.xl },
 
   tabRow: { flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.xl, marginBottom: spacing.lg },
   tabScrollRow: { marginBottom: spacing.lg },

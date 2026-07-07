@@ -36,3 +36,9 @@ id = "AaCEDKhv1wbYoDWTpDZYo"
 uri = "file://builds/cxo-events-v2.14-vc33.tar.gz"
 type = "unspecified"
 title = "CXO Events v2.14 (versionCode 33) — full web-app feature parity"
+
+[[outputs]]
+id = "IQDhJ-Gy99X1mGwThC3kQ"
+uri = "file://builds/cxo-events-v2.15-vc34.tar.gz"
+type = "unspecified"
+title = "CXO Events v2.15 (versionCode 34) — registration flow, welcome tabs, full attendee module"

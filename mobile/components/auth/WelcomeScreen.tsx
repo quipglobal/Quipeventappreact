@@ -25,12 +25,23 @@ import { OtpInput } from './OtpInput';
 import { sendOtp, verifyOtp, register, loginWithPassword, AuthUser, USE_MOCK_AUTH } from '@/lib/apiClient';
 import { useAuth } from '@/context/AuthContext';
 import { colors, spacing, radius, typography } from '@/constants/theme';
+import {
+  fetchGlobalVideoFeeds,
+  fetchGlobalArticles,
+  fetchVideoCategories,
+  fetchArticleCategories,
+  GlobalVideoFeed,
+  GlobalArticle,
+  Category,
+} from '@/lib/api/globalFeeds';
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 const SHEET_HEIGHT = Math.min(SCREEN_HEIGHT * 0.75, 600);
 
 type View_ = 'phone' | 'otp' | 'profile-review' | 'create-account';
 type LoginMode = 'phone' | 'email';
+type TopTab = 'feeds' | 'events' | null;
+type FeedSubTab = 'podcast' | 'articles';
 
 interface Country {
   flag: string;
@@ -172,7 +183,50 @@ export function WelcomeScreen() {
     }
   }, [login]);
 
+  const [activeTab, setActiveTab] = useState<TopTab>(null);
+  const [feedSubTab, setFeedSubTab] = useState<FeedSubTab>('podcast');
+
+  const [videos, setVideos] = useState<GlobalVideoFeed[]>([]);
+  const [articles, setArticles] = useState<GlobalArticle[]>([]);
+  const [videoCats, setVideoCats] = useState<Category[]>([]);
+  const [articleCats, setArticleCats] = useState<Category[]>([]);
+  const [selectedVideoCat, setSelectedVideoCat] = useState<string | null>(null);
+  const [selectedArticleCat, setSelectedArticleCat] = useState<string | null>(null);
+  const [feedsLoading, setFeedsLoading] = useState(false);
+
+  useEffect(() => {
+    if (activeTab === 'feeds') {
+      loadFeeds();
+    }
+  }, [activeTab, feedSubTab, selectedVideoCat, selectedArticleCat]);
+
+  const loadFeeds = async () => {
+    setFeedsLoading(true);
+    try {
+      if (feedSubTab === 'podcast') {
+        const [vRes, cRes] = await Promise.all([
+          fetchGlobalVideoFeeds({ category: selectedVideoCat || undefined }),
+          videoCats.length ? Promise.resolve(null) : fetchVideoCategories(),
+        ]);
+        if (vRes.success && vRes.data) setVideos(vRes.data.data);
+        if (cRes?.success && cRes.data) setVideoCats(cRes.data);
+      } else {
+        const [aRes, cRes] = await Promise.all([
+          fetchGlobalArticles({ category: selectedArticleCat || undefined }),
+          articleCats.length ? Promise.resolve(null) : fetchArticleCategories(),
+        ]);
+        if (aRes.success && aRes.data) setArticles(aRes.data.data);
+        if (cRes?.success && cRes.data) setArticleCats(cRes.data);
+      }
+    } catch (e) {
+      console.warn('Failed to load feeds', e);
+    } finally {
+      setFeedsLoading(false);
+    }
+  };
+
   const openSheet = () => {
+    setActiveTab('events');
     setSheetOpen(true);
     Animated.spring(sheetAnim, { toValue: 1, useNativeDriver: true, damping: 20, stiffness: 180 }).start();
   };
@@ -181,6 +235,7 @@ export function WelcomeScreen() {
     Keyboard.dismiss();
     Animated.timing(sheetAnim, { toValue: 0, duration: 280, useNativeDriver: true }).start(() => {
       setSheetOpen(false);
+      setActiveTab(null);
       setView('phone');
       setLoginMode('email');
       setPhoneDigits('');
@@ -338,87 +393,185 @@ export function WelcomeScreen() {
       />
 
       <View style={[styles.topBar, { paddingTop: insets.top + spacing.md }]}>
-        <Image source={require('@/assets/cxo-logo.png')} style={styles.logo} resizeMode="contain" />
+        <TouchableOpacity onPress={() => setActiveTab(null)}>
+          <Image source={require('@/assets/cxo-logo.png')} style={styles.logo} resizeMode="contain" />
+        </TouchableOpacity>
+
+        <View style={styles.topTabs}>
+          <TouchableOpacity
+            style={[styles.topTab, activeTab === 'feeds' && styles.topTabActive]}
+            onPress={() => setActiveTab('feeds')}
+          >
+            <Text style={[styles.topTabText, activeTab === 'feeds' && styles.topTabTextActive]}>CXO Feeds</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.topTab, activeTab === 'events' && styles.topTabActive]}
+            onPress={openSheet}
+          >
+            <Text style={[styles.topTabText, activeTab === 'events' && styles.topTabTextActive]}>Events</Text>
+          </TouchableOpacity>
+        </View>
+
         <View style={styles.liveBadge}>
           <View style={styles.liveDot} />
           <Text style={styles.liveText}>LIVE</Text>
         </View>
       </View>
 
-      <View style={styles.spacer} />
-
-      <View style={styles.chips}>
-        {[
-          { emoji: '⚡', label: 'Live Polls' },
-          { emoji: '🏆', label: 'Leaderboard' },
-          { emoji: '🤝', label: 'Networking' },
-          { emoji: '📊', label: 'Surveys' },
-          { emoji: '🎯', label: 'Challenges' },
-        ].map(({ emoji, label }) => (
-          <View key={label} style={styles.chip}>
-            <Text style={styles.chipEmoji}>{emoji}</Text>
-            <Text style={styles.chipLabel}>{label}</Text>
+      {activeTab === 'feeds' ? (
+        <View style={styles.feedsContainer}>
+          <View style={styles.subTabs}>
+            <TouchableOpacity
+              style={[styles.subTab, feedSubTab === 'podcast' && styles.subTabActive]}
+              onPress={() => setFeedSubTab('podcast')}
+            >
+              <Text style={[styles.subTabText, feedSubTab === 'podcast' && styles.subTabTextActive]}>Podcast</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.subTab, feedSubTab === 'articles' && styles.subTabActive]}
+              onPress={() => setFeedSubTab('articles')}
+            >
+              <Text style={[styles.subTabText, feedSubTab === 'articles' && styles.subTabTextActive]}>Articles</Text>
+            </TouchableOpacity>
           </View>
-        ))}
-      </View>
 
-      <View style={[styles.hero, { paddingBottom: insets.bottom + spacing.xl }]}>
-        <Text style={styles.heroTitle}>
-          Where the{'\n'}
-          <Text style={styles.heroGradientText}>Future Connects</Text>
-        </Text>
-        <Text style={styles.heroSub}>
-          Engage with leaders, earn points, climb the leaderboard — your event experience, fully gamified.
-        </Text>
+          <View style={styles.filterContainer}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
+              <TouchableOpacity
+                style={[styles.filterChip, (feedSubTab === 'podcast' ? !selectedVideoCat : !selectedArticleCat) && styles.filterChipActive]}
+                onPress={() => feedSubTab === 'podcast' ? setSelectedVideoCat(null) : setSelectedArticleCat(null)}
+              >
+                <Text style={[styles.filterChipText, (feedSubTab === 'podcast' ? !selectedVideoCat : !selectedArticleCat) && styles.filterChipTextActive]}>All</Text>
+              </TouchableOpacity>
+              {(feedSubTab === 'podcast' ? videoCats : articleCats).map(cat => (
+                <TouchableOpacity
+                  key={cat.id}
+                  style={[styles.filterChip, (feedSubTab === 'podcast' ? selectedVideoCat === cat.slug : selectedArticleCat === cat.slug) && styles.filterChipActive]}
+                  onPress={() => feedSubTab === 'podcast' ? setSelectedVideoCat(cat.slug) : setSelectedArticleCat(cat.slug)}
+                >
+                  <Text style={[styles.filterChipText, (feedSubTab === 'podcast' ? selectedVideoCat === cat.slug : selectedArticleCat === cat.slug) && styles.filterChipTextActive]}>{cat.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
 
-        <TouchableOpacity style={styles.ctaButton} onPress={openSheet} activeOpacity={0.85}>
-          <LinearGradient
-            colors={['#7c3aed', '#4f46e5', '#0ea5e9']}
-            style={StyleSheet.absoluteFill}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-          />
-          <Text style={styles.ctaText}>Start Networking</Text>
-        </TouchableOpacity>
+          {feedsLoading ? (
+            <View style={styles.centered}>
+              <ActivityIndicator color={colors.primary} />
+            </View>
+          ) : (
+            <FlatList
+              data={(feedSubTab === 'podcast' ? videos : articles) as any[]}
+              keyExtractor={item => item.id}
+              contentContainerStyle={styles.feedList}
+              renderItem={({ item }) => (
+                <View style={styles.feedCard}>
+                  <Image source={{ uri: item.thumbnail }} style={styles.cardThumb} />
+                  <View style={styles.cardContent}>
+                    <View style={styles.cardHeader}>
+                      <View style={styles.cardCategory}>
+                        <Text style={styles.cardCategoryText}>{item.category}</Text>
+                      </View>
+                      {item.duration && (
+                        <Text style={styles.cardDuration}>{item.duration}</Text>
+                      )}
+                      {item.read_time && (
+                        <Text style={styles.cardDuration}>{String(item.read_time)}</Text>
+                      )}
+                    </View>
+                    <Text style={styles.cardTitle} numberOfLines={2}>{String(item.title)}</Text>
+                    {item.excerpt && (
+                      <Text style={styles.cardExcerpt} numberOfLines={2}>{String(item.excerpt)}</Text>
+                    )}
+                  </View>
+                </View>
+              )}
+              ListEmptyComponent={
+                <View style={styles.centered}>
+                  <Text style={styles.emptyText}>No content found.</Text>
+                </View>
+              }
+            />
+          )}
+        </View>
+      ) : (
+        <>
+          <View style={styles.spacer} />
 
-        <Text style={styles.ctaSub}>Sign in to your account to get started</Text>
+          <View style={styles.chips}>
+            {[
+              { emoji: '⚡', label: 'Live Polls' },
+              { emoji: '🏆', label: 'Leaderboard' },
+              { emoji: '🤝', label: 'Networking' },
+              { emoji: '📊', label: 'Surveys' },
+              { emoji: '🎯', label: 'Challenges' },
+            ].map(({ emoji, label }) => (
+              <View key={label} style={styles.chip}>
+                <Text style={styles.chipEmoji}>{emoji}</Text>
+                <Text style={styles.chipLabel}>{label}</Text>
+              </View>
+            ))}
+          </View>
 
-        {__DEV__ && (
-          <View style={{ marginTop: spacing.lg, gap: spacing.xs }}>
-            <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10, textAlign: 'center', marginBottom: 4 }}>
-              DEV ONLY — Quick Login
+          <View style={[styles.hero, { paddingBottom: insets.bottom + spacing.xl }]}>
+            <Text style={styles.heroTitle}>
+              Where the{'\n'}
+              <Text style={styles.heroGradientText}>Future Connects</Text>
             </Text>
-            <TouchableOpacity
-              style={{ backgroundColor: 'rgba(124,58,237,0.25)', borderWidth: 1, borderColor: 'rgba(124,58,237,0.5)', borderRadius: radius.md, paddingVertical: 10, paddingHorizontal: 20, alignItems: 'center' }}
-              onPress={() => handleDevLogin('testuser@cxoinc.com', 'Test1234!')}
-              disabled={devLoading}
-              activeOpacity={0.75}
-            >
-              {devLoading ? (
-                <ActivityIndicator color="#7c3aed" size="small" />
-              ) : (
-                <Text style={{ color: '#a78bfa', fontSize: 12, fontWeight: '600' }}>
-                  Login as Attendee (testuser@cxoinc.com)
-                </Text>
-              )}
+            <Text style={styles.heroSub}>
+              Engage with leaders, earn points, climb the leaderboard — your event experience, fully gamified.
+            </Text>
+
+            <TouchableOpacity style={styles.ctaButton} onPress={openSheet} activeOpacity={0.85}>
+              <LinearGradient
+                colors={['#7c3aed', '#4f46e5', '#0ea5e9']}
+                style={StyleSheet.absoluteFill}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+              />
+              <Text style={styles.ctaText}>Start Networking</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={{ backgroundColor: 'rgba(6,182,212,0.15)', borderWidth: 1, borderColor: 'rgba(6,182,212,0.4)', borderRadius: radius.md, paddingVertical: 10, paddingHorizontal: 20, alignItems: 'center' }}
-              onPress={() => handleDevLogin('testsponsor@cxoinc.com', 'Test1234!')}
-              disabled={devLoading}
-              activeOpacity={0.75}
-            >
-              {devLoading ? (
-                <ActivityIndicator color="#06b6d4" size="small" />
-              ) : (
-                <Text style={{ color: '#67e8f9', fontSize: 12, fontWeight: '600' }}>
-                  Login as Sponsor (testsponsor@cxoinc.com)
+
+            <Text style={styles.ctaSub}>Sign in to your account to get started</Text>
+
+            {__DEV__ && (
+              <View style={{ marginTop: spacing.lg, gap: spacing.xs }}>
+                <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10, textAlign: 'center', marginBottom: 4 }}>
+                  DEV ONLY — Quick Login
                 </Text>
-              )}
-            </TouchableOpacity>
+                <TouchableOpacity
+                  style={{ backgroundColor: 'rgba(124,58,237,0.25)', borderWidth: 1, borderColor: 'rgba(124,58,237,0.5)', borderRadius: radius.md, paddingVertical: 10, paddingHorizontal: 20, alignItems: 'center' }}
+                  onPress={() => handleDevLogin('testuser@cxoinc.com', 'Test1234!')}
+                  disabled={devLoading}
+                  activeOpacity={0.75}
+                >
+                  {devLoading ? (
+                    <ActivityIndicator color="#7c3aed" size="small" />
+                  ) : (
+                    <Text style={{ color: '#a78bfa', fontSize: 12, fontWeight: '600' }}>
+                      Login as Attendee (testuser@cxoinc.com)
+                    </Text>
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{ backgroundColor: 'rgba(6,182,212,0.15)', borderWidth: 1, borderColor: 'rgba(6,182,212,0.4)', borderRadius: radius.md, paddingVertical: 10, paddingHorizontal: 20, alignItems: 'center' }}
+                  onPress={() => handleDevLogin('testsponsor@cxoinc.com', 'Test1234!')}
+                  disabled={devLoading}
+                  activeOpacity={0.75}
+                >
+                  {devLoading ? (
+                    <ActivityIndicator color="#06b6d4" size="small" />
+                  ) : (
+                    <Text style={{ color: '#67e8f9', fontSize: 12, fontWeight: '600' }}>
+                      Login as Sponsor (testsponsor@cxoinc.com)
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
-        )}
-      </View>
+        </>
+      )}
 
       {sheetOpen && (
         <Animated.View
@@ -601,32 +754,63 @@ function PhoneView({
   phoneLoading: boolean;
   onContinue: () => void;
   onDemoFill: (d: string) => void;
-  onDevLogin?: (email: string, password: string) => void;
-  devLoading?: boolean;
+  onDevLogin: (e: string, p: string) => void;
+  devLoading: boolean;
 }) {
   return (
     <View style={sheetStyles.section}>
       <View style={sheetStyles.iconBox}>
-        <Text style={{ fontSize: 22 }}>✉️</Text>
+        <Text style={{ fontSize: 24 }}>👋</Text>
       </View>
-      <Text style={sheetStyles.title}>Log in</Text>
-      <Text style={sheetStyles.subtitle}>Enter your email to continue</Text>
+      <Text style={sheetStyles.title}>Welcome back</Text>
+      <Text style={sheetStyles.subtitle}>Enter your details to join the event community.</Text>
 
-      <View style={{ height: spacing.lg }} />
+      <View style={sheetStyles.modeToggle}>
+        <TouchableOpacity
+          style={[sheetStyles.modeTab, loginMode === 'email' && sheetStyles.modeTabActive]}
+          onPress={() => onSetLoginMode('email')}
+        >
+          <Text style={[sheetStyles.modeTabText, loginMode === 'email' && sheetStyles.modeTabTextActive]}>Email</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[sheetStyles.modeTab, loginMode === 'phone' && sheetStyles.modeTabActive]}
+          onPress={() => onSetLoginMode('phone')}
+        >
+          <Text style={[sheetStyles.modeTabText, loginMode === 'phone' && sheetStyles.modeTabTextActive]}>Phone</Text>
+        </TouchableOpacity>
+      </View>
 
-      <Text style={sheetStyles.fieldLabel}>EMAIL ADDRESS</Text>
-      <TextInput
-        style={sheetStyles.textInput}
-        value={emailInput}
-        onChangeText={setEmailInput}
-        keyboardType="email-address"
-        autoCapitalize="none"
-        autoCorrect={false}
-        placeholder="you@company.com"
-        placeholderTextColor="rgba(255,255,255,0.25)"
-        returnKeyType="done"
-        onSubmitEditing={onContinue}
-      />
+      <Text style={sheetStyles.fieldLabel}>{loginMode === 'email' ? 'EMAIL ADDRESS' : 'PHONE NUMBER'}</Text>
+
+      {loginMode === 'email' ? (
+        <TextInput
+          style={sheetStyles.textInput}
+          value={emailInput}
+          onChangeText={setEmailInput}
+          placeholder="name@company.com"
+          placeholderTextColor="rgba(255,255,255,0.2)"
+          keyboardType="email-address"
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+      ) : (
+        <View style={sheetStyles.phoneRow}>
+          <TouchableOpacity style={sheetStyles.countryCode} onPress={onOpenPicker}>
+            <Text style={sheetStyles.flag}>{country.flag}</Text>
+            <Text style={sheetStyles.countryNum}>{country.dialCode}</Text>
+            <Text style={sheetStyles.countryChevron}>▼</Text>
+          </TouchableOpacity>
+          <TextInput
+            style={sheetStyles.phoneInput}
+            value={formatPhone(country, phoneDigits)}
+            onChangeText={(v) => setPhoneDigits(cleanPhone(v))}
+            placeholder="000 000 0000"
+            placeholderTextColor="rgba(255,255,255,0.2)"
+            keyboardType="phone-pad"
+            maxLength={16}
+          />
+        </View>
+      )}
 
       {!!phoneError && <Text style={sheetStyles.errorText}>{phoneError}</Text>}
 
@@ -634,58 +818,21 @@ function PhoneView({
         style={[sheetStyles.btn, phoneLoading && sheetStyles.btnDisabled]}
         onPress={onContinue}
         disabled={phoneLoading}
-        activeOpacity={0.85}
       >
-        {phoneLoading
-          ? <ActivityIndicator color="#fff" />
-          : <Text style={sheetStyles.btnText}>Send Code →</Text>
-        }
+        {phoneLoading ? <ActivityIndicator color="#fff" /> : <Text style={sheetStyles.btnText}>Continue</Text>}
       </TouchableOpacity>
 
-      {USE_MOCK_AUTH && loginMode === 'phone' && (
-        <>
-          <Text style={[sheetStyles.subtitle, { marginTop: spacing.xl, marginBottom: spacing.sm }]}>
-            Demo shortcuts:
-          </Text>
-          <View style={{ gap: spacing.sm }}>
-            {DEMO_PHONES.map(({ label, phone }) => (
-              <TouchableOpacity key={phone} style={sheetStyles.demoBtn} onPress={() => onDemoFill(phone)}>
-                <Text style={sheetStyles.demoBtnText}>{label} — {formatUsPhone(phone)}</Text>
+      {USE_MOCK_AUTH && (
+        <View style={{ marginTop: spacing.xl, gap: spacing.sm }}>
+          <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10, textAlign: 'center' }}>DEMO ACCOUNTS (TAP TO FILL)</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, justifyContent: 'center' }}>
+            {DEMO_PHONES.map((d) => (
+              <TouchableOpacity key={d.label} style={sheetStyles.demoBtn} onPress={() => onDemoFill(d.phone)}>
+                <Text style={sheetStyles.demoBtnText}>{d.label}</Text>
               </TouchableOpacity>
             ))}
           </View>
-        </>
-      )}
-
-      {__DEV__ && !!onDevLogin && (
-        <>
-          <View style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.08)', marginVertical: spacing.lg }} />
-          <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10, textAlign: 'center', marginBottom: spacing.sm, letterSpacing: 1 }}>
-            DEV — SKIP OTP
-          </Text>
-          <TouchableOpacity
-            style={[sheetStyles.demoBtn, { borderColor: 'rgba(124,58,237,0.5)', backgroundColor: 'rgba(124,58,237,0.15)' }]}
-            onPress={() => onDevLogin('testuser@cxoinc.com', 'Test1234!')}
-            disabled={devLoading}
-            activeOpacity={0.75}
-          >
-            {devLoading
-              ? <ActivityIndicator color="#a78bfa" size="small" />
-              : <Text style={[sheetStyles.demoBtnText, { color: '#c4b5fd' }]}>Attendee — testuser@cxoinc.com</Text>
-            }
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[sheetStyles.demoBtn, { borderColor: 'rgba(6,182,212,0.4)', backgroundColor: 'rgba(6,182,212,0.1)', marginTop: spacing.xs }]}
-            onPress={() => onDevLogin('testsponsor@cxoinc.com', 'Test1234!')}
-            disabled={devLoading}
-            activeOpacity={0.75}
-          >
-            {devLoading
-              ? <ActivityIndicator color="#67e8f9" size="small" />
-              : <Text style={[sheetStyles.demoBtnText, { color: '#67e8f9' }]}>Sponsor — testsponsor@cxoinc.com</Text>
-            }
-          </TouchableOpacity>
-        </>
+        </View>
       )}
     </View>
   );
@@ -708,267 +855,124 @@ function OtpView({
       <TouchableOpacity style={sheetStyles.backBtn} onPress={onBack}>
         <Text style={sheetStyles.backBtnText}>← Back</Text>
       </TouchableOpacity>
-      <View style={sheetStyles.iconBox}>
-        <Text style={{ fontSize: 22 }}>🔐</Text>
-      </View>
-      <Text style={sheetStyles.title}>Verify Code</Text>
+      <Text style={sheetStyles.title}>Verify it's you</Text>
       <Text style={sheetStyles.subtitle}>
-        {displayPhone.includes('@') ? 'We emailed a 6-digit code to' : 'We texted a 6-digit code to'}
-      </Text>
-      <Text style={[sheetStyles.subtitle, { color: colors.textPrimary, fontWeight: '700', marginTop: 2 }]}>
-        {displayPhone}
+        Enter the 6-digit code sent to{'\n'}
+        <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>{displayPhone}</Text>
       </Text>
 
-      <View style={{ marginVertical: spacing.xl }}>
+      <View style={{ marginTop: spacing.xl }}>
         <OtpInput value={otpValue} onChange={setOtpValue} hasError={!!otpError} />
       </View>
 
       {!!otpError && <Text style={[sheetStyles.errorText, { textAlign: 'center' }]}>{otpError}</Text>}
-      {otpLoading && <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.md }} />}
 
-      <TouchableOpacity onPress={onResend} disabled={resendCountdown > 0} style={{ marginTop: spacing.lg }}>
-        <Text style={[sheetStyles.subtitle, { textAlign: 'center', color: resendCountdown > 0 ? colors.textMuted : colors.primary }]}>
-          {resendCountdown > 0 ? `Resend in ${resendCountdown}s` : 'Resend code'}
+      <TouchableOpacity
+        style={[sheetStyles.btn, (otpValue.length < 6 || otpLoading) && sheetStyles.btnDisabled]}
+        disabled={otpValue.length < 6 || otpLoading}
+      >
+        {otpLoading ? <ActivityIndicator color="#fff" /> : <Text style={sheetStyles.btnText}>Verify Code</Text>}
+      </TouchableOpacity>
+
+      <TouchableOpacity style={{ marginTop: spacing.lg, alignSelf: 'center' }} onPress={onResend} disabled={resendCountdown > 0}>
+        <Text style={{ color: resendCountdown > 0 ? colors.textMuted : colors.primary, fontSize: 13, fontWeight: '600' }}>
+          {resendCountdown > 0 ? `Resend code in ${resendCountdown}s` : 'Resend code'}
         </Text>
       </TouchableOpacity>
     </View>
   );
 }
 
-function ProfileReview({ user, onConfirm, onBack }: { user: AuthUser; onConfirm: () => void; onBack: () => void }) {
+function ProfileReview({ user, onConfirm, onBack }: { user: AuthUser, onConfirm: () => void, onBack: () => void }) {
   return (
     <View style={sheetStyles.section}>
       <TouchableOpacity style={sheetStyles.backBtn} onPress={onBack}>
         <Text style={sheetStyles.backBtnText}>← Back</Text>
       </TouchableOpacity>
-      <Text style={sheetStyles.title}>Welcome back!</Text>
-      <Text style={sheetStyles.subtitle}>Confirm your profile to continue</Text>
+      <Text style={sheetStyles.title}>Account Found</Text>
+      <Text style={sheetStyles.subtitle}>Is this you? Confirm to continue to the events list.</Text>
 
       <View style={sheetStyles.profileCard}>
-        <Image
-          source={{ uri: user.avatar }}
-          style={sheetStyles.profileAvatar}
-        />
-        <View style={{ flex: 1 }}>
+        <Image source={{ uri: user.avatar }} style={sheetStyles.profileAvatar} />
+        <View style={sheetStyles.profileInfo}>
           <Text style={sheetStyles.profileName}>{user.name}</Text>
-          <Text style={sheetStyles.profileRole}>{user.title} · {user.company}</Text>
+          <Text style={sheetStyles.profileRole}>{user.title} at {user.company}</Text>
           <View style={[sheetStyles.roleBadge, user.role === 'sponsor' && sheetStyles.roleBadgeSponsor]}>
-            <Text style={sheetStyles.roleBadgeText}>
-              {user.role === 'sponsor' ? 'Sponsor' : 'Attendee'}
-            </Text>
+            <Text style={sheetStyles.roleBadgeText}>{user.role.toUpperCase()}</Text>
           </View>
         </View>
       </View>
 
-      <TouchableOpacity style={sheetStyles.btn} onPress={onConfirm} activeOpacity={0.85}>
-        <Text style={sheetStyles.btnText}>This is me — Continue →</Text>
+      <TouchableOpacity style={sheetStyles.btn} onPress={onConfirm}>
+        <Text style={sheetStyles.btnText}>Yes, that's me</Text>
       </TouchableOpacity>
     </View>
   );
 }
 
-function CreateAccount({ form, setForm, error, loading, onSubmit, onBack }: {
+function CreateAccount({
+  form, setForm, error, loading, onSubmit, onBack,
+}: {
   form: { name: string; email: string; title: string; company: string };
-  setForm: React.Dispatch<React.SetStateAction<typeof form>>;
+  setForm: React.Dispatch<React.SetStateAction<{ name: string; email: string; title: string; company: string }>>;
   error: string;
   loading: boolean;
   onSubmit: () => void;
   onBack: () => void;
 }) {
-  const fields: Array<{ key: keyof typeof form; label: string; placeholder: string; keyboard?: KeyboardTypeOptions }> = [
-    { key: 'name', label: 'FULL NAME', placeholder: 'Jane Doe' },
-    { key: 'email', label: 'EMAIL', placeholder: 'jane@company.com', keyboard: 'email-address' },
-    { key: 'title', label: 'JOB TITLE', placeholder: 'Product Manager' },
-    { key: 'company', label: 'COMPANY', placeholder: 'Acme Corp' },
-  ];
-
   return (
     <View style={sheetStyles.section}>
       <TouchableOpacity style={sheetStyles.backBtn} onPress={onBack}>
         <Text style={sheetStyles.backBtnText}>← Back</Text>
       </TouchableOpacity>
       <Text style={sheetStyles.title}>Create Account</Text>
-      <Text style={sheetStyles.subtitle}>Just a few details to get you set up</Text>
+      <Text style={sheetStyles.subtitle}>Join our community to access events and features.</Text>
 
-      <View style={{ gap: spacing.md, marginTop: spacing.lg }}>
-        {fields.map(({ key, label, placeholder, keyboard }) => (
-          <View key={key}>
-            <Text style={sheetStyles.fieldLabel}>{label}</Text>
-            <TextInput
-              style={sheetStyles.textInput}
-              value={form[key]}
-              onChangeText={(t) => setForm((p) => ({ ...p, [key]: t }))}
-              placeholder={placeholder}
-              placeholderTextColor="rgba(255,255,255,0.25)"
-              keyboardType={keyboard}
-              returnKeyType="next"
-              autoCapitalize={key === 'email' ? 'none' : 'words'}
-            />
-          </View>
-        ))}
+      <View style={{ gap: spacing.lg, marginTop: spacing.xl }}>
+        <View>
+          <Text style={sheetStyles.fieldLabel}>FULL NAME</Text>
+          <TextInput
+            style={sheetStyles.textInput}
+            value={form.name}
+            onChangeText={(v) => setForm((p) => ({ ...p, name: v }))}
+            placeholder="John Doe"
+            placeholderTextColor="rgba(255,255,255,0.2)"
+          />
+        </View>
+        <View>
+          <Text style={sheetStyles.fieldLabel}>JOB TITLE</Text>
+          <TextInput
+            style={sheetStyles.textInput}
+            value={form.title}
+            onChangeText={(v) => setForm((p) => ({ ...p, title: v }))}
+            placeholder="Chief Executive Officer"
+            placeholderTextColor="rgba(255,255,255,0.2)"
+          />
+        </View>
+        <View>
+          <Text style={sheetStyles.fieldLabel}>COMPANY</Text>
+          <TextInput
+            style={sheetStyles.textInput}
+            value={form.company}
+            onChangeText={(v) => setForm((p) => ({ ...p, company: v }))}
+            placeholder="Acme Inc."
+            placeholderTextColor="rgba(255,255,255,0.2)"
+          />
+        </View>
       </View>
 
-      {!!error && <Text style={[sheetStyles.errorText, { marginTop: spacing.md }]}>{error}</Text>}
+      {!!error && <Text style={sheetStyles.errorText}>{error}</Text>}
 
       <TouchableOpacity
-        style={[sheetStyles.btn, { marginTop: spacing.xl }, loading && sheetStyles.btnDisabled]}
+        style={[sheetStyles.btn, loading && sheetStyles.btnDisabled]}
         onPress={onSubmit}
         disabled={loading}
-        activeOpacity={0.85}
       >
-        {loading
-          ? <ActivityIndicator color="#fff" />
-          : <Text style={sheetStyles.btnText}>Join the Event →</Text>
-        }
+        {loading ? <ActivityIndicator color="#fff" /> : <Text style={sheetStyles.btnText}>Create & Continue</Text>}
       </TouchableOpacity>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.xxl,
-    paddingBottom: spacing.md,
-  },
-  logo: {
-    height: 40,
-    width: 120,
-  },
-  liveBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: radius.full,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.14)',
-  },
-  liveDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#34d399',
-  },
-  liveText: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 1.2,
-  },
-  spacer: { flex: 1 },
-  chips: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    paddingHorizontal: spacing.xxl,
-    marginBottom: spacing.xl,
-  },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: radius.full,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    borderWidth: 1,
-    borderColor: 'rgba(124,58,237,0.5)',
-  },
-  chipEmoji: { fontSize: 12 },
-  chipLabel: { color: '#fff', fontSize: 11, fontWeight: '600' },
-  hero: {
-    paddingHorizontal: spacing.xxl,
-  },
-  heroTitle: {
-    color: '#fff',
-    fontSize: 38,
-    fontWeight: '900',
-    letterSpacing: -1.5,
-    lineHeight: 44,
-    marginBottom: 10,
-  },
-  heroGradientText: {
-    color: '#c4b5fd',
-  },
-  heroSub: {
-    color: 'rgba(255,255,255,0.5)',
-    fontSize: 14,
-    lineHeight: 21,
-    marginBottom: spacing.xl,
-  },
-  ctaButton: {
-    height: 56,
-    borderRadius: radius.xl,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-    marginBottom: spacing.md,
-  },
-  ctaText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '800',
-    letterSpacing: -0.2,
-  },
-  ctaSub: {
-    color: 'rgba(255,255,255,0.4)',
-    fontSize: 12,
-    textAlign: 'center',
-  },
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    zIndex: 10,
-  },
-  sheet: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(10,10,20,0.98)',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
-    zIndex: 20,
-    maxHeight: SCREEN_HEIGHT * 0.9,
-  },
-  sheetHandle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    alignSelf: 'center',
-    marginTop: 12,
-    marginBottom: 4,
-  },
-  sheetClose: {
-    position: 'absolute',
-    top: 14,
-    right: 16,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 10,
-  },
-  sheetCloseX: {
-    color: 'rgba(255,255,255,0.55)',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-});
 
 const sheetStyles = StyleSheet.create({
   section: {
@@ -1152,6 +1156,9 @@ const sheetStyles = StyleSheet.create({
     fontSize: 12,
     marginBottom: 6,
   },
+  profileInfo: {
+    flex: 1,
+  },
   roleBadge: {
     alignSelf: 'flex-start',
     paddingHorizontal: 8,
@@ -1262,5 +1269,292 @@ const pickerStyles = StyleSheet.create({
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.05)',
     marginHorizontal: 20,
+  },
+});
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: colors.bg,
+  },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.xl,
+    paddingBottom: spacing.md,
+    zIndex: 10,
+  },
+  logo: {
+    height: 32,
+    width: 100,
+  },
+  topTabs: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: radius.full,
+    padding: 3,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  topTab: {
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: radius.full,
+  },
+  topTabActive: {
+    backgroundColor: colors.primary,
+  },
+  topTabText: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  topTabTextActive: {
+    color: '#fff',
+  },
+  feedsContainer: {
+    flex: 1,
+  },
+  subTabs: {
+    flexDirection: 'row',
+    paddingHorizontal: spacing.xl,
+    gap: spacing.lg,
+    marginTop: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  subTab: {
+    paddingBottom: 8,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  subTabActive: {
+    borderBottomColor: colors.primary,
+  },
+  subTabText: {
+    color: colors.textSecondary,
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  subTabTextActive: {
+    color: colors.primary,
+  },
+  filterContainer: {
+    marginBottom: spacing.md,
+  },
+  filterScroll: {
+    paddingHorizontal: spacing.xl,
+    gap: spacing.sm,
+  },
+  filterChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: radius.full,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  filterChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  filterChipText: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  filterChipTextActive: {
+    color: '#fff',
+  },
+  feedList: {
+    paddingHorizontal: spacing.xl,
+    paddingBottom: 100,
+  },
+  feedCard: {
+    backgroundColor: colors.bgCard,
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+    marginBottom: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  cardThumb: {
+    width: '100%',
+    height: 180,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
+  cardContent: {
+    padding: spacing.md,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  cardCategory: {
+    backgroundColor: 'rgba(124,58,237,0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radius.sm,
+  },
+  cardCategoryText: {
+    color: colors.primaryLight,
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+  cardDuration: {
+    color: colors.textMuted,
+    fontSize: 11,
+  },
+  cardTitle: {
+    color: colors.textPrimary,
+    fontSize: 16,
+    fontWeight: '700',
+    lineHeight: 22,
+    marginBottom: 6,
+  },
+  cardExcerpt: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  centered: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.xxxl,
+  },
+  emptyText: {
+    color: colors.textMuted,
+    fontSize: 14,
+  },
+  liveBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radius.full,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+  },
+  liveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#34d399',
+  },
+  liveText: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+  },
+  spacer: { flex: 1 },
+  chips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingHorizontal: spacing.xxl,
+    marginBottom: spacing.xl,
+  },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: radius.full,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderWidth: 1,
+    borderColor: 'rgba(124,58,237,0.5)',
+  },
+  chipEmoji: { fontSize: 12 },
+  chipLabel: { color: '#fff', fontSize: 11, fontWeight: '600' },
+  hero: {
+    paddingHorizontal: spacing.xxl,
+  },
+  heroTitle: {
+    color: '#fff',
+    fontSize: 38,
+    fontWeight: '900',
+    letterSpacing: -1.5,
+    lineHeight: 44,
+    marginBottom: 10,
+  },
+  heroGradientText: {
+    color: '#c4b5fd',
+  },
+  heroSub: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 14,
+    lineHeight: 21,
+    marginBottom: spacing.xl,
+  },
+  ctaButton: {
+    height: 56,
+    borderRadius: radius.xl,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    marginBottom: spacing.md,
+  },
+  ctaText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+  },
+  ctaSub: {
+    color: 'rgba(255,255,255,0.4)',
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    zIndex: 10,
+  },
+  sheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(10,10,20,0.98)',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    zIndex: 20,
+    maxHeight: SCREEN_HEIGHT * 0.9,
+  },
+  sheetHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignSelf: 'center',
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  sheetClose: {
+    position: 'absolute',
+    top: 14,
+    right: 16,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
+  sheetCloseX: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

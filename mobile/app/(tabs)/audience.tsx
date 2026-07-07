@@ -179,6 +179,12 @@ export default function AudienceScreen() {
               </View>
 
               <View style={styles.sheetActions}>
+                <TouchableOpacity style={styles.sheetActionBtn}>
+                  <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.sheetActionGrad}>
+                    <Ionicons name="person-add" size={16} color="#fff" />
+                    <Text style={styles.sheetActionText}>Connect</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
                 <TouchableOpacity style={styles.sheetIconBtn}>
                   <Ionicons name="mail-outline" size={18} color={colors.textSecondary} />
                 </TouchableOpacity>
@@ -239,6 +245,9 @@ const styles = StyleSheet.create({
   interests: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.xl },
   interest: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: radius.full, backgroundColor: 'rgba(124,58,237,0.12)', borderWidth: 1, borderColor: 'rgba(124,58,237,0.25)' },
   interestText: { color: colors.primary, fontSize: 12, fontWeight: '600' },
-  sheetActions: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
+  sheetActions: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md, alignItems: 'center' },
+  sheetActionBtn: { flex: 1, height: 48, borderRadius: radius.xl, overflow: 'hidden' },
+  sheetActionGrad: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  sheetActionText: { color: '#fff', fontSize: 14, fontWeight: '700' },
   sheetIconBtn: { width: 48, height: 48, borderRadius: radius.xl, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
 });

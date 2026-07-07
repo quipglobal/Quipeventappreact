@@ -17,7 +17,7 @@ type IoniconsName = React.ComponentProps<typeof Ionicons>['name'];
 
 interface MenuItem {
   label: string;
-  icon: IoniconsName;
+  icon: any;
   color: string;
   bg: string;
   onPress: () => void;
@@ -34,74 +34,7 @@ export default function MoreScreen() {
   const { user, logout } = useAuth();
   const isSponsor = user?.role === 'sponsor';
 
-  const sponsorSections: MenuSection[] = [
-    {
-      title: 'Sponsor Tools',
-      items: [
-        {
-          label: 'Manage Giveaways',
-          icon: 'gift-outline',
-          color: '#f59e0b',
-          bg: 'rgba(245,158,11,0.12)',
-          onPress: () => router.push('/(tabs)/engage' as any),
-        },
-        {
-          label: 'Lucky Draw',
-          icon: 'trophy-outline',
-          color: '#ffd700',
-          bg: 'rgba(255,215,0,0.10)',
-          onPress: () => router.push('/(tabs)/engage' as any),
-        },
-        {
-          label: 'Partners',
-          icon: 'briefcase-outline',
-          color: '#06b6d4',
-          bg: 'rgba(6,182,212,0.12)',
-          onPress: () => router.push('/(tabs)/partners' as any),
-        },
-        {
-          label: 'Agenda',
-          icon: 'calendar-outline',
-          color: '#10b981',
-          bg: 'rgba(16,185,129,0.12)',
-          onPress: () => router.push('/(tabs)/agenda' as any),
-        },
-      ],
-    },
-    {
-      title: 'My Account',
-      items: [
-        {
-          label: 'My Badge',
-          icon: 'qr-code-outline',
-          color: colors.primary,
-          bg: 'rgba(124,58,237,0.12)',
-          onPress: () => router.push('/qr-badge'),
-        },
-        {
-          label: 'Settings',
-          icon: 'settings-outline',
-          color: '#94a3b8',
-          bg: 'rgba(148,163,184,0.12)',
-          onPress: () => router.push('/profile'),
-        },
-      ],
-    },
-    {
-      title: 'Events',
-      items: [
-        {
-          label: 'Switch Events',
-          icon: 'swap-horizontal-outline',
-          color: '#7c3aed',
-          bg: 'rgba(124,58,237,0.12)',
-          onPress: () => router.push('/events'),
-        },
-      ],
-    },
-  ];
-
-  const attendeeSections: MenuSection[] = [
+  const sections: MenuSection[] = [
     {
       title: 'Event',
       items: [
@@ -113,31 +46,61 @@ export default function MoreScreen() {
           onPress: () => router.push('/(tabs)/agenda' as any),
         },
         {
-          label: 'Leaderboard',
-          icon: 'trophy-outline',
-          color: '#ffd700',
-          bg: 'rgba(255,215,0,0.10)',
-          onPress: () => router.push('/event-dashboard' as any),
+          label: 'Speakers',
+          icon: 'mic-outline',
+          color: '#3b82f6',
+          bg: 'rgba(59,130,246,0.12)',
+          onPress: () => router.push('/(tabs)/audience' as any), // Speakers are usually in Audience or separate
         },
-        {
-          label: 'My Connects',
-          icon: 'git-network-outline',
-          color: '#a78bfa',
-          bg: 'rgba(167,139,250,0.12)',
-          onPress: () => router.push('/(tabs)/connects' as any),
-        },
-      ],
-    },
-    {
-      title: 'My Account',
-      items: [
         {
           label: 'My Badge',
-          icon: 'qr-code-outline',
+          icon: 'id-card-outline',
           color: colors.primary,
           bg: 'rgba(124,58,237,0.12)',
           onPress: () => router.push('/qr-badge'),
         },
+        {
+          label: 'Scan Badge',
+          icon: 'scan-outline',
+          color: '#06b6d4',
+          bg: 'rgba(6,182,212,0.12)',
+          onPress: () => router.push('/(tabs)/scan' as any),
+        },
+        {
+          label: 'My Connects',
+          icon: 'people-outline',
+          color: '#a78bfa',
+          bg: 'rgba(167,139,250,0.12)',
+          onPress: () => router.push('/(tabs)/leads' as any),
+        },
+        {
+          label: 'Leaderboard',
+          icon: 'trophy-outline',
+          color: '#ffd700',
+          bg: 'rgba(255,215,0,0.10)',
+          onPress: () => router.push('/leaderboard'),
+        },
+        {
+          label: 'Giveaways & Draw',
+          icon: 'gift-outline',
+          color: '#f59e0b',
+          bg: 'rgba(245,158,11,0.12)',
+          onPress: () => router.push('/(tabs)/engage' as any),
+        },
+        ...(isSponsor ? [
+          {
+            label: 'Manage Giveaways',
+            icon: 'sparkles-outline',
+            color: colors.primary,
+            bg: 'rgba(124,58,237,0.12)',
+            onPress: () => router.push('/(tabs)/engage' as any),
+          }
+        ] : []),
+      ],
+    },
+    {
+      title: 'System',
+      items: [
         {
           label: 'Settings',
           icon: 'settings-outline',
@@ -145,11 +108,6 @@ export default function MoreScreen() {
           bg: 'rgba(148,163,184,0.12)',
           onPress: () => router.push('/profile'),
         },
-      ],
-    },
-    {
-      title: 'Events',
-      items: [
         {
           label: 'Switch Events',
           icon: 'swap-horizontal-outline',
@@ -160,8 +118,6 @@ export default function MoreScreen() {
       ],
     },
   ];
-
-  const sections = isSponsor ? sponsorSections : attendeeSections;
 
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
