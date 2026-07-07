@@ -24,3 +24,9 @@ id = "VjNp2Hqs4IcezpdSKgZX8"
 uri = "file://builds/cxo-events-v2.12-vc31.tar.gz"
 type = "unspecified"
 title = "CXO Events v2.12 (versionCode 31) — domain-config + full native error diagnostics"
+
+[[outputs]]
+id = "fi30K5or4VmbBN7OmkXua"
+uri = "file://builds/cxo-events-v2.13-vc32.tar.gz"
+type = "unspecified"
+title = "CXO Events v2.13 (versionCode 32) — correct backend host fix"
