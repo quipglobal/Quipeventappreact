@@ -79,15 +79,26 @@ export interface FeedPage {
 
 export interface Attendee {
   id: string;
+  userId: string;
+  memberId: string;
   name: string;
+  firstName: string | null;
+  lastName: string | null;
   title: string;
   company: string;
-  role: 'attendee' | 'sponsor';
+  industry: string | null;
+  role: string;
   points: number;
   tier: string;
   interests: string[];
-  avatar?: string;
-  bio?: string;
+  interestedTopics: string[];
+  avatar: string | null;
+  bio: string | null;
+  isCheckedIn: boolean;
+  status: string;
+  badgeCode: string | null;
+  linkedinUrl: string | null;
+  socialLinks: Record<string, string>;
 }
 
 export interface Sponsor {

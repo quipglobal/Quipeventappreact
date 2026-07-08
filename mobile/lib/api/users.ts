@@ -9,17 +9,72 @@ const TIER_COLORS: Record<string, string> = {
   Bronze: '#cd7f32',
 };
 
-function normalizeAttendee(a: any): Attendee {
+const ROLE_MAP: Record<string, string> = {
+  attendee: 'Attendee', speaker: 'Speaker', sponsor: 'Sponsor',
+  sponsor_rep: 'Sponsor', exhibitor: 'Sponsor', organizer: 'Organizer',
+  vip: 'VIP', staff: 'Staff', moderator: 'Moderator', member: 'Attendee',
+};
+
+function normalizeRole(roles: string[]): string {
+  if (!roles?.length) return 'Attendee';
+  const normalized = roles.map(
+    r => ROLE_MAP[r?.toLowerCase()] ?? (r ? r[0].toUpperCase() + r.slice(1) : 'Attendee'),
+  );
+  return normalized.find(r => r !== 'Attendee') ?? 'Attendee';
+}
+
+function normalizeAttendee(raw: any): Attendee {
+  const fullName = (raw.name ?? `${raw.first_name ?? ''} ${raw.last_name ?? ''}`.trim()) || 'Unknown';
+  const nameParts = fullName.trim().split(/\s+/);
+  const firstName = raw.first_name ?? nameParts[0] ?? null;
+  const lastName = raw.last_name ?? (nameParts.length > 1 ? nameParts.slice(1).join(' ') : null);
+
+  const company =
+    (typeof raw.company_name === 'string' ? raw.company_name : null) ||
+    (raw.company && typeof raw.company === 'object' ? (raw.company as any).name : null) ||
+    (typeof raw.company === 'string' ? raw.company : null) ||
+    (raw.organization ?? '');
+
+  const roles: string[] = Array.isArray(raw.roles) ? raw.roles : raw.role ? [raw.role] : [];
+  const isCheckedIn = Boolean(raw.joined_at) || (raw.status ?? '').toUpperCase() === 'ACTIVE';
+  const avatar = raw.avatar_url || raw.profile_image || raw.avatar || null;
+
+  const interestedTopics: string[] = Array.isArray(raw.interested_topics)
+    ? raw.interested_topics.filter((t: any) => typeof t === 'string' && t)
+    : [];
+
+  const socialLinks: Record<string, string> = (() => {
+    const sl = raw.social_links;
+    if (!sl || Array.isArray(sl) || typeof sl !== 'object') return {};
+    return Object.fromEntries(
+      Object.entries(sl as Record<string, unknown>)
+        .map(([k, v]) => [k, typeof v === 'string' ? v : ''])
+        .filter(([, v]) => v),
+    );
+  })();
+
   return {
-    id: String(a.id),
-    name: a.name ?? `${a.first_name ?? ''} ${a.last_name ?? ''}`.trim(),
-    title: a.title ?? a.job_title ?? a.position ?? '',
-    company: a.company ?? a.organization ?? '',
-    role: a.role === 'sponsor' ? 'sponsor' : 'attendee',
-    points: Number(a.points ?? a.gamification_points ?? 0),
-    tier: a.tier ?? a.membership_tier ?? 'Bronze',
-    interests: Array.isArray(a.interests) ? a.interests : [],
-    bio: a.bio ?? a.about ?? '',
+    id: String(raw.membership_id ?? raw.id ?? ''),
+    userId: String(raw.id ?? raw.user_id ?? ''),
+    memberId: String(raw.membership_id ?? raw.id ?? ''),
+    name: fullName,
+    firstName,
+    lastName,
+    title: raw.title ?? raw.job_title ?? raw.position ?? '',
+    company,
+    industry: raw.industry ?? null,
+    role: normalizeRole(roles),
+    points: Number(raw.points ?? raw.gamification_points ?? 0),
+    tier: raw.tier ?? raw.membership_tier ?? 'Bronze',
+    interests: Array.isArray(raw.interests) ? raw.interests : [],
+    interestedTopics,
+    avatar,
+    bio: raw.bio ?? raw.about ?? null,
+    isCheckedIn,
+    status: raw.status ?? '',
+    badgeCode: raw.badge_code ?? null,
+    linkedinUrl: raw.linkedin_url ?? null,
+    socialLinks,
   };
 }
 
@@ -41,18 +96,26 @@ export async function listAttendees(filters?: { tier?: string; search?: string }
   if (__DEV__) console.log(`[Users] listAttendees eventId=${eventId} filters=`, filters);
   if (!eventId) return { success: true, data: [] };
   const params = new URLSearchParams();
+  params.set('per_page', '200');
+  params.set('checked_in_only', 'false');
   if (filters?.tier) params.set('tier', filters.tier);
   if (filters?.search) params.set('search', filters.search);
-  const query = params.toString() ? `?${params.toString()}` : '';
-  const res = await request<any>(`/api/v1/events/${eventId}/attendees${query}`);
+  const res = await request<any>(`/api/v1/events/${eventId}/members?${params.toString()}`);
   if (!res.success) return res as ApiResponse<Attendee[]>;
-  const raw: any[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? res.data?.attendees ?? []);
+  const body = res.data as any;
+  const paginator = body?.data ?? body;
+  const raw: any[] = Array.isArray(paginator?.data) ? paginator.data
+    : Array.isArray(body?.data) ? body.data
+    : Array.isArray(res.data) ? res.data
+    : [];
   return { success: true, data: raw.map(normalizeAttendee) };
 }
 
 export async function getAttendee(id: string): Promise<ApiResponse<Attendee>> {
-  if (__DEV__) console.log(`[Users] getAttendee(${id}) — live`);
-  const res = await request<any>(`/api/v1/attendees/${id}`);
+  const eventId = getEventId();
+  if (__DEV__) console.log(`[Users] getAttendee(${id}) eventId=${eventId}`);
+  if (!eventId) return { success: false, error: { code: 'NO_EVENT', message: 'No active event' } };
+  const res = await request<any>(`/api/v1/events/${eventId}/members/${id}`);
   if (!res.success) return res as ApiResponse<Attendee>;
   const raw = res.data?.data ?? res.data;
   return { success: true, data: normalizeAttendee(raw) };

@@ -8,246 +8,465 @@ import {
   TextInput,
   Modal,
   ScrollView,
-  Dimensions,
-  Animated,
+  Image,
+  ImageBackground,
+  StatusBar,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
+import { useEvent } from '@/context/EventContext';
+import { useEvents } from '@/hooks/useEvents';
 import { useAudience } from '@/hooks/useAudience';
-import { DataState } from '@/components/DataState';
-import { colors, spacing, radius, typography } from '@/constants/theme';
+import { colors, spacing, radius } from '@/constants/theme';
 import type { Attendee } from '@/lib/api/types';
 
-const { height: SH } = Dimensions.get('window');
+const AVATAR_COLORS = [
+  '#6366f1', '#8b5cf6', '#ec4899', '#10b981',
+  '#f59e0b', '#06b6d4', '#7c3aed', '#f43f5e',
+  '#34d399', '#a78bfa', '#fb7185', '#38bdf8',
+];
 
-const FILTER_TIERS = ['All', 'Platinum', 'Gold', 'Silver', 'Bronze'];
-const TIER_COLORS: Record<string, string> = { Bronze: '#cd7f32', Silver: '#c0c0c0', Gold: '#ffd700', Platinum: '#e5e4e2' };
-
-const AVATAR_COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#10b981', '#f59e0b', '#06b6d4', '#7c3aed', '#f43f5e', '#34d399', '#a78bfa'];
 function getAvatarColor(id: string): string {
   let hash = 0;
-  for (let i = 0; i < id.length; i++) hash += id.charCodeAt(i);
+  for (let i = 0; i < id.length; i++) hash = (hash + id.charCodeAt(i)) & 0xffff;
   return AVATAR_COLORS[hash % AVATAR_COLORS.length];
+}
+
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0][0]?.toUpperCase() ?? '?';
+  return ((parts[0][0] ?? '') + (parts[parts.length - 1][0] ?? '')).toUpperCase();
+}
+
+const ROLE_BADGE: Record<string, { bg: string; text: string; label: string }> = {
+  Sponsor:   { bg: '#00b861', text: '#fff', label: 'SPONSOR' },
+  Speaker:   { bg: '#7c3aed', text: '#fff', label: 'SPEAKER' },
+  VIP:       { bg: '#f59e0b', text: '#fff', label: 'VIP' },
+  Organizer: { bg: '#06b6d4', text: '#fff', label: 'ORGANIZER' },
+  Staff:     { bg: '#64748b', text: '#fff', label: 'STAFF' },
+};
+
+const ROLE_FILTERS = ['All roles', 'Attendee', 'Sponsor', 'Speaker', 'VIP'];
+
+type StatusFilter = 'All' | 'Checked In';
+
+function AvatarView({ name, id, size }: { name: string; id: string; size: number }) {
+  const bg = getAvatarColor(id);
+  const initials = getInitials(name);
+  const fontSize = size > 60 ? size * 0.34 : size * 0.38;
+  return (
+    <View style={[styles.avatarCircle, { width: size, height: size, borderRadius: size / 2, backgroundColor: bg + '22', borderColor: bg + '55' }]}>
+      <Text style={[styles.avatarText, { color: bg, fontSize }]}>{initials}</Text>
+    </View>
+  );
+}
+
+function DetailAvatarView({ name, id }: { name: string; id: string }) {
+  const bg = getAvatarColor(id);
+  return (
+    <View style={[styles.detailAvatar, { backgroundColor: bg + '30', borderColor: bg + '70' }]}>
+      <Text style={[styles.detailAvatarText, { color: bg }]}>{getInitials(name)}</Text>
+    </View>
+  );
+}
+
+function DetailRow({ icon, iconBg, label, value }: { icon: string; iconBg: string; label: string; value: string | null }) {
+  return (
+    <View style={styles.detailRow}>
+      <View style={[styles.detailRowIcon, { backgroundColor: iconBg + '22' }]}>
+        <Ionicons name={icon as any} size={16} color={iconBg} />
+      </View>
+      <View style={styles.detailRowContent}>
+        <Text style={styles.detailRowLabel}>{label}</Text>
+        <Text style={styles.detailRowValue}>{value || '—'}</Text>
+      </View>
+    </View>
+  );
 }
 
 export default function AudienceScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const [search, setSearch] = useState('');
-  const [filterTier, setFilterTier] = useState('All');
-  const [selected, setSelected] = useState<Attendee | null>(null);
-  const [sheetVisible, setSheetVisible] = useState(false);
+  const { currentEventId } = useEvent();
+  const { data: events = [] } = useEvents();
+  const currentEvent = events.find((e) => String(e.id) === String(currentEventId)) ?? null;
 
-  const { data: attendeesData = [], isLoading, isError, refetch } = useAudience();
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('All');
+  const [roleFilter, setRoleFilter] = useState('All roles');
+  const [selected, setSelected] = useState<Attendee | null>(null);
+  const [detailVisible, setDetailVisible] = useState(false);
+
+  const { data: members = [], isLoading, isError, refetch } = useAudience();
+
+  const checkedInCount = useMemo(() => members.filter((m) => m.isCheckedIn).length, [members]);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    return attendeesData.filter((a) => {
+    return members.filter((m) => {
       const matchSearch =
-        a.name.toLowerCase().includes(q) ||
-        a.company.toLowerCase().includes(q) ||
-        a.title.toLowerCase().includes(q);
-      const matchTier = filterTier === 'All' || a.tier === filterTier;
-      return matchSearch && matchTier;
+        !q ||
+        m.name.toLowerCase().includes(q) ||
+        m.company.toLowerCase().includes(q) ||
+        (m.title ?? '').toLowerCase().includes(q);
+      const matchStatus = statusFilter === 'All' || (statusFilter === 'Checked In' && m.isCheckedIn);
+      const matchRole = roleFilter === 'All roles' || m.role === roleFilter;
+      return matchSearch && matchStatus && matchRole;
     });
-  }, [search, filterTier, attendeesData]);
+  }, [search, statusFilter, roleFilter, members]);
 
   const openProfile = useCallback((a: Attendee) => {
     setSelected(a);
-    setSheetVisible(true);
+    setDetailVisible(true);
   }, []);
 
-  const closeSheet = useCallback(() => {
-    setSheetVisible(false);
-    setTimeout(() => setSelected(null), 300);
+  const closeDetail = useCallback(() => {
+    setDetailVisible(false);
+    setTimeout(() => setSelected(null), 350);
   }, []);
+
+  const ListHeader = useMemo(() => (
+    <View>
+      <ImageBackground
+        source={currentEvent?.bannerUrl ? { uri: currentEvent.bannerUrl } : require('../../assets/splash.png')}
+        style={styles.bannerBg}
+        resizeMode="cover"
+      >
+        <LinearGradient
+          colors={['rgba(7,7,15,0.2)', 'rgba(7,7,15,0.5)', 'rgba(7,7,15,0.85)']}
+          style={styles.bannerGrad}
+        >
+          <View style={[styles.bannerContent, { paddingTop: insets.top + 16 }]}>
+            <View style={styles.bannerLabel}>
+              <Ionicons name="people-outline" size={14} color="rgba(255,255,255,0.7)" />
+              <Text style={styles.bannerLabelText}>EVENT AUDIENCE</Text>
+            </View>
+            <Text style={styles.bannerTitle} numberOfLines={2}>
+              {currentEvent?.name ?? 'Event Attendees'}
+            </Text>
+            <Text style={styles.bannerSubtitle}>Attendees at this event</Text>
+            <View style={styles.statsRow}>
+              <View style={styles.statPill}>
+                <Ionicons name="checkmark-circle" size={14} color="#00c97a" />
+                <Text style={[styles.statNum, { color: '#00c97a' }]}>{checkedInCount}</Text>
+                <Text style={styles.statLabel}>checked in</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statPill}>
+                <Ionicons name="people-outline" size={14} color="rgba(255,255,255,0.7)" />
+                <Text style={styles.statNum}>{members.length}</Text>
+                <Text style={styles.statLabel}>registered</Text>
+              </View>
+            </View>
+          </View>
+        </LinearGradient>
+      </ImageBackground>
+
+      <View style={styles.controls}>
+        <View style={styles.searchWrap}>
+          <Ionicons name="search-outline" size={16} color={colors.textMuted} style={{ marginRight: spacing.sm }} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search by name, company, or role..."
+            placeholderTextColor={colors.textMuted}
+            value={search}
+            onChangeText={setSearch}
+            autoCorrect={false}
+          />
+          {search.length > 0 && (
+            <TouchableOpacity onPress={() => setSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="close-circle" size={16} color={colors.textMuted} />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterRow}
+        >
+          {(['All', 'Checked In'] as StatusFilter[]).map((s) => (
+            <TouchableOpacity
+              key={s}
+              style={[styles.chip, statusFilter === s && styles.chipActive]}
+              onPress={() => setStatusFilter(s)}
+            >
+              {s === 'Checked In' && (
+                <Ionicons name="checkmark-circle-outline" size={12} color={statusFilter === s ? colors.primary : colors.textMuted} />
+              )}
+              {s === 'All' && (
+                <Ionicons name="list-outline" size={12} color={statusFilter === s ? colors.primary : colors.textMuted} />
+              )}
+              <Text style={[styles.chipText, statusFilter === s && styles.chipTextActive]}>
+                {s === 'All' ? 'All Registrations' : s}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterRow}
+        >
+          {ROLE_FILTERS.map((r) => (
+            <TouchableOpacity
+              key={r}
+              style={[styles.chip, roleFilter === r && styles.chipActive]}
+              onPress={() => setRoleFilter(r)}
+            >
+              <Text style={[styles.chipText, roleFilter === r && styles.chipTextActive]}>{r}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
+        <Text style={styles.countLabel}>{filtered.length} registered attendees</Text>
+      </View>
+    </View>
+  ), [currentEvent, insets.top, checkedInCount, members.length, search, statusFilter, roleFilter, filtered.length]);
 
   const renderItem = useCallback(({ item }: { item: Attendee }) => {
+    const badge = ROLE_BADGE[item.role];
     return (
       <TouchableOpacity style={styles.card} onPress={() => openProfile(item)} activeOpacity={0.75}>
-        <View style={[styles.avatar, { backgroundColor: getAvatarColor(item.id) + '25', borderColor: getAvatarColor(item.id) + '55' }]}>
-          <Text style={[styles.avatarText, { color: getAvatarColor(item.id) }]}>{item.name[0]}</Text>
+        <AvatarView name={item.name} id={item.id} size={46} />
+        <View style={styles.cardInfo}>
+          <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
+          {item.title ? <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text> : null}
+          {item.company ? (
+            <View style={styles.cardCompanyRow}>
+              <Ionicons name="business-outline" size={11} color={colors.textMuted} />
+              <Text style={styles.cardCompany} numberOfLines={1}>{item.company}</Text>
+            </View>
+          ) : null}
+          {item.isCheckedIn && (
+            <View style={styles.checkedInBadge}>
+              <Ionicons name="checkmark-circle" size={11} color="#00c97a" />
+              <Text style={styles.checkedInText}>Checked in</Text>
+            </View>
+          )}
         </View>
-        <View style={styles.info}>
-          <View style={styles.nameRow}>
-            <Text style={styles.name}>{item.name}</Text>
-            <View style={[styles.tierDot, { backgroundColor: TIER_COLORS[item.tier] ?? colors.textMuted }]} />
-          </View>
-          <Text style={styles.role}>{item.title}</Text>
-          <Text style={styles.company}>{item.company}</Text>
+        <View style={styles.cardRight}>
+          {badge ? (
+            <View style={[styles.roleBadge, { backgroundColor: badge.bg }]}>
+              <Text style={[styles.roleBadgeText, { color: badge.text }]}>{badge.label}</Text>
+            </View>
+          ) : null}
+          <Ionicons name="chevron-forward" size={16} color={colors.textMuted} style={{ marginTop: badge ? 6 : 0 }} />
         </View>
       </TouchableOpacity>
     );
   }, [openProfile]);
 
   return (
-    <View style={[styles.root, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
-        <Text style={styles.pageTitle}>Audience</Text>
-        <Text style={styles.subtitle}>{attendeesData.length > 0 ? `${attendeesData.length} attendees at this event` : 'Event Attendees'}</Text>
-      </View>
-
-      <View style={styles.searchWrap}>
-        <Ionicons name="search-outline" size={16} color={colors.textMuted} style={{ marginRight: spacing.sm }} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search by name, company or title…"
-          placeholderTextColor={colors.textMuted}
-          value={search}
-          onChangeText={setSearch}
-          autoCorrect={false}
-        />
-        {search.length > 0 && (
-          <TouchableOpacity onPress={() => setSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Ionicons name="close-circle" size={16} color={colors.textMuted} />
+    <View style={styles.root}>
+      {isError && !isLoading && (
+        <View style={styles.errorBar}>
+          <Text style={styles.errorText}>Failed to load attendees</Text>
+          <TouchableOpacity onPress={() => refetch()}>
+            <Text style={styles.retryText}>Retry</Text>
           </TouchableOpacity>
-        )}
-      </View>
-
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.filterRow}
-      >
-        {FILTER_TIERS.map((t) => (
-          <TouchableOpacity
-            key={t}
-            style={[styles.filterChip, filterTier === t && styles.filterChipActive]}
-            onPress={() => setFilterTier(t)}
-          >
-            {t !== 'All' && <View style={[styles.chipDot, { backgroundColor: TIER_COLORS[t] }]} />}
-            <Text style={[styles.filterChipText, filterTier === t && styles.filterChipTextActive]}>{t}</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      <DataState
-        loading={isLoading}
-        error={isError ? 'Failed to load attendees. Check your connection.' : null}
-        onRetry={refetch}
-      />
+        </View>
+      )}
 
       <FlatList
         data={filtered}
         keyExtractor={(i) => i.id}
         renderItem={renderItem}
-        contentContainerStyle={styles.list}
+        ListHeaderComponent={ListHeader}
+        contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 100 }]}
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
-          <View style={styles.empty}>
-            <Ionicons name="people-outline" size={40} color={colors.textMuted} />
-            <Text style={styles.emptyText}>No attendees found</Text>
-          </View>
+          isLoading ? (
+            <View style={styles.empty}>
+              <Text style={styles.emptyText}>Loading attendees…</Text>
+            </View>
+          ) : (
+            <View style={styles.empty}>
+              <Ionicons name="people-outline" size={40} color={colors.textMuted} />
+              <Text style={styles.emptyText}>No attendees found</Text>
+            </View>
+          )
         }
         keyboardShouldPersistTaps="handled"
       />
 
       <Modal
-        visible={sheetVisible}
+        visible={detailVisible}
         animationType="slide"
-        transparent
-        onRequestClose={closeSheet}
+        presentationStyle="fullScreen"
+        onRequestClose={closeDetail}
       >
-        <TouchableOpacity style={styles.backdrop} onPress={closeSheet} activeOpacity={1} />
-        {selected && (
-          <View style={[styles.sheet, { paddingBottom: insets.bottom + 24 }]}>
-            <View style={styles.sheetHandle} />
-
-            <LinearGradient colors={['#1a0d2e', '#0d1a2e']} style={styles.sheetHero}>
-              <View style={[styles.sheetAvatar, { backgroundColor: getAvatarColor(selected.id) + '30', borderColor: getAvatarColor(selected.id) + '80' }]}>
-                <Text style={[styles.sheetAvatarText, { color: getAvatarColor(selected.id) }]}>{selected.name[0]}</Text>
-              </View>
-              <Text style={styles.sheetName}>{selected.name}</Text>
-              <Text style={styles.sheetTitle}>{selected.title} · {selected.company}</Text>
-              <View style={[styles.tierBadge, { borderColor: TIER_COLORS[selected.tier] + '60', backgroundColor: TIER_COLORS[selected.tier] + '15' }]}>
-                <Text style={[styles.tierBadgeText, { color: TIER_COLORS[selected.tier] }]}>{selected.tier} Member</Text>
-              </View>
-            </LinearGradient>
-
-            <ScrollView style={styles.sheetBody} showsVerticalScrollIndicator={false}>
-              <Text style={styles.sheetBio}>{selected.bio}</Text>
-
-              <Text style={styles.sheetSectionTitle}>INTERESTS</Text>
-              <View style={styles.interests}>
-                {selected.interests.map((i) => (
-                  <View key={i} style={styles.interest}>
-                    <Text style={styles.interestText}>{i}</Text>
-                  </View>
-                ))}
-              </View>
-
-              <View style={styles.sheetActions}>
-                <TouchableOpacity style={styles.sheetActionBtn}>
-                  <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.sheetActionGrad}>
-                    <Ionicons name="person-add" size={16} color="#fff" />
-                    <Text style={styles.sheetActionText}>Connect</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.sheetIconBtn}>
-                  <Ionicons name="mail-outline" size={18} color={colors.textSecondary} />
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.sheetIconBtn}>
-                  <Ionicons name="calendar-outline" size={18} color={colors.textSecondary} />
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-          </View>
-        )}
+        <StatusBar barStyle="light-content" />
+        {selected && <AttendeeDetailView attendee={selected} onBack={closeDetail} insets={insets} />}
       </Modal>
+    </View>
+  );
+}
+
+function AttendeeDetailView({ attendee, onBack, insets }: {
+  attendee: Attendee;
+  onBack: () => void;
+  insets: ReturnType<typeof import('react-native-safe-area-context').useSafeAreaInsets>;
+}) {
+  const bg = getAvatarColor(attendee.id);
+  const roleBadge = ROLE_BADGE[attendee.role];
+
+  return (
+    <View style={styles.detailRoot}>
+      <LinearGradient
+        colors={['#4C1D95', '#6D28D9', '#7C3AED']}
+        style={[styles.detailHeader, { paddingTop: insets.top + 12 }]}
+      >
+        <TouchableOpacity style={styles.backBtn} onPress={onBack} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+          <Ionicons name="arrow-back" size={18} color="#fff" />
+          <Text style={styles.backText}>Audience</Text>
+        </TouchableOpacity>
+
+        <View style={styles.detailHero}>
+          <DetailAvatarView name={attendee.name} id={attendee.id} />
+          <Text style={styles.detailName}>{attendee.name}</Text>
+          <Text style={styles.detailTitle}>{attendee.title || attendee.role}</Text>
+          {roleBadge && (
+            <View style={[styles.detailRoleBadge, { backgroundColor: roleBadge.bg + '30', borderColor: roleBadge.bg + '80' }]}>
+              <Text style={[styles.detailRoleBadgeText, { color: roleBadge.text }]}>{roleBadge.label}</Text>
+            </View>
+          )}
+        </View>
+      </LinearGradient>
+
+      <ScrollView style={styles.detailBody} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}>
+        <Text style={styles.sectionTitle}>Profile Details</Text>
+        <View style={styles.detailCard}>
+          <DetailRow icon="person-outline" iconBg="#4F81FF" label="First Name" value={attendee.firstName} />
+          <View style={styles.rowDivider} />
+          <DetailRow icon="person-outline" iconBg="#4F81FF" label="Last Name" value={attendee.lastName} />
+          <View style={styles.rowDivider} />
+          <DetailRow icon="briefcase-outline" iconBg="#F97316" label="Job Title" value={attendee.title} />
+          <View style={styles.rowDivider} />
+          <DetailRow icon="business-outline" iconBg="#F97316" label="Company" value={attendee.company} />
+          <View style={styles.rowDivider} />
+          <DetailRow icon="globe-outline" iconBg="#4F81FF" label="Company Industry" value={attendee.industry} />
+        </View>
+
+        <Text style={styles.sectionTitle}>Introduction</Text>
+        <View style={styles.detailCard}>
+          <Text style={styles.bioText}>{attendee.bio || '—'}</Text>
+        </View>
+
+        {(attendee.interestedTopics.length > 0 || attendee.interests.length > 0) && (
+          <>
+            <Text style={styles.sectionTitle}>Interested Topics</Text>
+            <View style={styles.topicsWrap}>
+              {[...new Set([...attendee.interestedTopics, ...attendee.interests])].map((t) => (
+                <View key={t} style={styles.topicPill}>
+                  <Text style={styles.topicText}>{t}</Text>
+                </View>
+              ))}
+            </View>
+          </>
+        )}
+
+        {(attendee.linkedinUrl || Object.keys(attendee.socialLinks).length > 0) && (
+          <>
+            <Text style={styles.sectionTitle}>Social Links</Text>
+            <View style={styles.detailCard}>
+              {attendee.linkedinUrl ? (
+                <View style={styles.socialRow}>
+                  <Ionicons name="logo-linkedin" size={18} color="#0A66C2" />
+                  <Text style={styles.socialLabel} numberOfLines={1}>{attendee.linkedinUrl}</Text>
+                </View>
+              ) : null}
+              {Object.entries(attendee.socialLinks).map(([k, v]) => (
+                <View key={k} style={styles.socialRow}>
+                  <Ionicons name="globe-outline" size={18} color={colors.textSecondary} />
+                  <Text style={styles.socialLabel} numberOfLines={1}>{v}</Text>
+                </View>
+              ))}
+            </View>
+          </>
+        )}
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
-  header: { paddingHorizontal: spacing.xl, paddingTop: spacing.lg, paddingBottom: spacing.md },
-  pageTitle: { color: colors.textPrimary, fontSize: 26, fontWeight: '800' },
-  subtitle: { color: colors.textMuted, fontSize: 12, marginTop: 4 },
 
-  searchWrap: { flexDirection: 'row', alignItems: 'center', marginHorizontal: spacing.xl, paddingHorizontal: spacing.lg, paddingVertical: spacing.md, borderRadius: radius.xl, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.md },
+  errorBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.xl, paddingVertical: spacing.sm, backgroundColor: '#2d0a0a' },
+  errorText: { color: '#f87171', fontSize: 13 },
+  retryText: { color: colors.primary, fontSize: 13, fontWeight: '600' },
+
+  bannerBg: { width: '100%', height: 220 },
+  bannerGrad: { flex: 1 },
+  bannerContent: { flex: 1, paddingHorizontal: spacing.xl, paddingBottom: spacing.xl, justifyContent: 'flex-end' },
+  bannerLabel: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
+  bannerLabelText: { color: 'rgba(255,255,255,0.7)', fontSize: 11, fontWeight: '700', letterSpacing: 1.4 },
+  bannerTitle: { color: '#fff', fontSize: 24, fontWeight: '800', marginBottom: 4 },
+  bannerSubtitle: { color: 'rgba(255,255,255,0.6)', fontSize: 12, marginBottom: 12 },
+  statsRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  statPill: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  statNum: { color: '#fff', fontSize: 16, fontWeight: '800' },
+  statLabel: { color: 'rgba(255,255,255,0.6)', fontSize: 12 },
+  statDivider: { width: 1, height: 14, backgroundColor: 'rgba(255,255,255,0.2)' },
+
+  controls: { paddingTop: spacing.lg },
+  searchWrap: { flexDirection: 'row', alignItems: 'center', marginHorizontal: spacing.xl, paddingHorizontal: spacing.lg, paddingVertical: 11, borderRadius: radius.xl, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.md },
   searchInput: { flex: 1, color: colors.textPrimary, fontSize: 14, paddingVertical: 0 },
+  filterRow: { paddingHorizontal: spacing.xl, gap: spacing.sm, paddingBottom: spacing.sm },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 13, paddingVertical: 7, borderRadius: radius.full, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border },
+  chipActive: { backgroundColor: colors.primary + '20', borderColor: colors.primary },
+  chipText: { color: colors.textSecondary, fontSize: 12, fontWeight: '600' },
+  chipTextActive: { color: colors.primary },
+  countLabel: { color: colors.textMuted, fontSize: 12, paddingHorizontal: spacing.xl, paddingTop: spacing.sm, paddingBottom: spacing.md },
 
-  filterRow: { paddingHorizontal: spacing.xl, gap: spacing.sm, paddingBottom: spacing.md },
-  filterChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 14, paddingVertical: 7, borderRadius: radius.full, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border },
-  filterChipActive: { backgroundColor: colors.primary + '20', borderColor: colors.primary },
-  filterChipText: { color: colors.textSecondary, fontSize: 12, fontWeight: '600' },
-  filterChipTextActive: { color: colors.primary },
-  chipDot: { width: 6, height: 6, borderRadius: 3 },
+  listContent: { gap: 0 },
+  card: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: spacing.lg, backgroundColor: colors.bgCard, borderBottomWidth: 1, borderBottomColor: colors.border },
+  avatarCircle: { borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { fontWeight: '700' },
+  cardInfo: { flex: 1, minWidth: 0 },
+  cardName: { color: colors.textPrimary, fontSize: 14, fontWeight: '700', marginBottom: 2 },
+  cardTitle: { color: colors.textSecondary, fontSize: 12, marginBottom: 2 },
+  cardCompanyRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 3 },
+  cardCompany: { color: colors.textMuted, fontSize: 11, flex: 1 },
+  checkedInBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 },
+  checkedInText: { color: '#00c97a', fontSize: 11, fontWeight: '600' },
+  cardRight: { alignItems: 'flex-end', justifyContent: 'center', gap: 4, minWidth: 24 },
+  roleBadge: { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 4 },
+  roleBadgeText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
 
-  list: { paddingHorizontal: spacing.xl, paddingBottom: 100, gap: spacing.sm },
-  card: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.lg, borderRadius: radius.xl, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border },
-  avatar: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
-  avatarText: { fontSize: 18, fontWeight: '700' },
-  info: { flex: 1 },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  name: { color: colors.textPrimary, fontSize: 14, fontWeight: '600' },
-  tierDot: { width: 7, height: 7, borderRadius: 3.5 },
-  role: { color: colors.textSecondary, fontSize: 12, marginTop: 2 },
-  company: { color: colors.textMuted, fontSize: 11, marginTop: 1 },
   empty: { alignItems: 'center', paddingVertical: 64, gap: spacing.md },
   emptyText: { color: colors.textMuted, fontSize: 14 },
 
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)' },
-  sheet: { backgroundColor: '#0e0e1a', borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: SH * 0.82 },
-  sheetHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.2)', alignSelf: 'center', marginTop: 12, marginBottom: 4 },
-  sheetHero: { padding: spacing.xl, alignItems: 'center', borderTopLeftRadius: 24, borderTopRightRadius: 24 },
-  sheetAvatar: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center', borderWidth: 2, marginBottom: spacing.md },
-  sheetAvatarText: { fontSize: 28, fontWeight: '800' },
-  sheetName: { color: colors.textPrimary, fontSize: 20, fontWeight: '800', marginBottom: 4 },
-  sheetTitle: { color: colors.textSecondary, fontSize: 13, marginBottom: spacing.md },
-  tierBadge: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: radius.full, borderWidth: 1 },
-  tierBadgeText: { fontSize: 12, fontWeight: '700' },
-  sheetBody: { padding: spacing.xl },
-  sheetBio: { color: colors.textSecondary, fontSize: 14, lineHeight: 21, marginBottom: spacing.xl },
-  sheetSectionTitle: { color: colors.textMuted, fontSize: 10, fontWeight: '700', letterSpacing: 1.2, marginBottom: spacing.sm },
-  interests: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.xl },
-  interest: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: radius.full, backgroundColor: 'rgba(124,58,237,0.12)', borderWidth: 1, borderColor: 'rgba(124,58,237,0.25)' },
-  interestText: { color: colors.primary, fontSize: 12, fontWeight: '600' },
-  sheetActions: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md, alignItems: 'center' },
-  sheetActionBtn: { flex: 1, height: 48, borderRadius: radius.xl, overflow: 'hidden' },
-  sheetActionGrad: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  sheetActionText: { color: '#fff', fontSize: 14, fontWeight: '700' },
-  sheetIconBtn: { width: 48, height: 48, borderRadius: radius.xl, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  detailRoot: { flex: 1, backgroundColor: colors.bg },
+  detailHeader: { paddingHorizontal: spacing.xl, paddingBottom: spacing.xl },
+  backBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.lg },
+  backText: { color: '#fff', fontSize: 15, fontWeight: '600' },
+  detailHero: { alignItems: 'center', gap: 8 },
+  detailAvatar: { width: 84, height: 84, borderRadius: 16, alignItems: 'center', justifyContent: 'center', borderWidth: 2, marginBottom: 4 },
+  detailAvatarText: { fontSize: 30, fontWeight: '800' },
+  detailName: { color: '#fff', fontSize: 22, fontWeight: '800', textAlign: 'center' },
+  detailTitle: { color: 'rgba(255,255,255,0.75)', fontSize: 14, textAlign: 'center' },
+  detailRoleBadge: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: radius.full, borderWidth: 1 },
+  detailRoleBadgeText: { fontSize: 11, fontWeight: '700' },
+
+  detailBody: { flex: 1 },
+  sectionTitle: { color: colors.textPrimary, fontSize: 15, fontWeight: '700', marginHorizontal: spacing.xl, marginTop: spacing.xl, marginBottom: spacing.sm },
+  detailCard: { marginHorizontal: spacing.xl, borderRadius: radius.xl, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
+  detailRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: spacing.lg, paddingVertical: 14 },
+  detailRowIcon: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+  detailRowContent: { flex: 1 },
+  detailRowLabel: { color: colors.textMuted, fontSize: 11, marginBottom: 2 },
+  detailRowValue: { color: colors.textPrimary, fontSize: 14, fontWeight: '600' },
+  rowDivider: { height: 1, backgroundColor: colors.border, marginLeft: spacing.lg + 34 + 12 },
+  bioText: { color: colors.textSecondary, fontSize: 14, lineHeight: 21, padding: spacing.lg },
+  topicsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, paddingHorizontal: spacing.xl },
+  topicPill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.full, backgroundColor: colors.primary + '15', borderWidth: 1, borderColor: colors.primary + '30' },
+  topicText: { color: colors.primary, fontSize: 12, fontWeight: '600' },
+  socialRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: spacing.lg, paddingVertical: 12 },
+  socialLabel: { color: colors.textSecondary, fontSize: 13, flex: 1 },
 });
