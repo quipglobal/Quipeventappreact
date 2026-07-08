@@ -37,6 +37,8 @@ export interface Article {
   estimatedReadMinutes: number;
   publishedAt: string;
   updatedAt: string;
+  /** URL to the attached PDF/document file, if any */
+  pdfUrl: string | null;
 }
 
 /** Payload for POST /api/v1/mobile/reader/analytics/read-session */
@@ -132,6 +134,61 @@ function normalizeArticle(raw: any): Article {
   const estimatedReadMinutes =
     rawReadTime !== null ? Number(rawReadTime) : estimateReadTime(raw.content ?? raw.body ?? '');
 
+  // Extract PDF/document file URL — mirrors mobile resolveFileUrl logic
+  const pdfUrl: string | null = (() => {
+    // 1. Direct string fields
+    const direct = [
+      'pdf_url', 'file_url', 'document_url', 'attachment_url',
+      'pdf_link', 'download_url', 'media_url', 'resource_url',
+      'pdf_path', 'file_path', 'document_path',
+    ];
+    for (const f of direct) {
+      const v = raw[f];
+      if (v && typeof v === 'string') return v;
+      if (v && typeof v === 'object' && !Array.isArray(v))
+        return v.url ?? v.original_url ?? v.path ?? null;
+    }
+    // 2. Spatie media[] array — prefer PDF mime type
+    if (Array.isArray(raw.media) && raw.media.length > 0) {
+      const item =
+        raw.media.find((m: any) =>
+          String(m.mime_type ?? '').includes('pdf') ||
+          String(m.collection_name ?? '').toLowerCase().includes('pdf') ||
+          String(m.collection_name ?? '').toLowerCase().includes('doc') ||
+          String(m.file_name ?? '').toLowerCase().endsWith('.pdf'),
+        ) ?? raw.media[0];
+      return item?.original_url ?? item?.url ?? item?.path ?? null;
+    }
+    // 3. Spatie media as single object
+    if (raw.media && typeof raw.media === 'object' && !Array.isArray(raw.media))
+      return raw.media.url ?? raw.media.original_url ?? raw.media.path ?? null;
+    // 4. attachments[] / files[] arrays
+    for (const arr of [raw.attachments, raw.files]) {
+      if (!Array.isArray(arr) || arr.length === 0) continue;
+      const item =
+        arr.find((a: any) =>
+          String(a.mime_type ?? '').includes('pdf') ||
+          String(a.name ?? a.file_name ?? '').toLowerCase().endsWith('.pdf'),
+        ) ?? arr[0];
+      return item?.url ?? item?.original_url ?? item?.path ?? (typeof item === 'string' ? item : null);
+    }
+    // 5. Nested object fields
+    for (const f of ['file', 'attachment', 'document', 'pdf']) {
+      const v = raw[f];
+      if (!v) continue;
+      if (typeof v === 'string') return v;
+      if (typeof v === 'object' && !Array.isArray(v))
+        return v.url ?? v.original_url ?? v.path ?? null;
+    }
+    // 6. Scan all string fields for PDF-like URLs
+    for (const [, v] of Object.entries(raw)) {
+      if (typeof v !== 'string') continue;
+      if (v.toLowerCase().endsWith('.pdf') || v.includes('/pdf/') || v.includes('/document'))
+        return v;
+    }
+    return null;
+  })();
+
   return {
     id: Number(raw.id),
     title: String(raw.title ?? raw.name ?? ''),
@@ -147,6 +204,7 @@ function normalizeArticle(raw: any): Article {
     estimatedReadMinutes,
     publishedAt: String(raw.published_at ?? raw.created_at ?? ''),
     updatedAt: String(raw.updated_at ?? raw.published_at ?? raw.created_at ?? ''),
+    pdfUrl: pdfUrl ? String(pdfUrl) : null,
   };
 }
 

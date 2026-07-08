@@ -3,7 +3,7 @@ import {
   Ticket, Calendar, MapPin, Users, ChevronRight, Clock,
   ArrowRight, Globe, Video, Hash, Loader2, Play, Tv2,
   LayoutGrid as GridIcon, RefreshCw, Lock, KeyRound, X, LogOut,
-  BookOpen, Clock as ClockIcon,
+  BookOpen, Clock as ClockIcon, FileText, ExternalLink, Download,
 } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
@@ -184,13 +184,12 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
     // Fire click immediately on card tap
     postAnalyticsEvent({ event_type: 'click', article_id: article.id });
 
+    // Show skeleton immediately then fetch full detail (pdfUrl + full content only on detail endpoint)
     setReadingArticle(article);
-    if (!article.content) {
-      setReadingArticleLoading(true);
-      const res = await getArticle(article.id);
-      if (res.success && res.data) setReadingArticle(res.data);
-      setReadingArticleLoading(false);
-    }
+    setReadingArticleLoading(true);
+    const res = await getArticle(article.id);
+    if (res.success && res.data) setReadingArticle(res.data);
+    setReadingArticleLoading(false);
 
     // Fire open after the article is mounted and ready to read
     postAnalyticsEvent({ event_type: 'open', article_id: article.id });
@@ -412,6 +411,78 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
           </div>
         </div>
       </button>
+    );
+  };
+
+  // ── Inline PDF viewer sub-component (closes over t and isDark from parent) ──
+  const ArticlePdfViewer: React.FC<{
+    pdfUrl: string; title: string; excerpt: string; content: string;
+  }> = ({ pdfUrl, title, excerpt, content }) => {
+    const [iframeError, setIframeError] = useState(false);
+    const isPdf = /\.pdf(\?|$)/i.test(pdfUrl);
+
+    return (
+      <div className="flex flex-col">
+        {/* ── Embedded PDF viewer ── */}
+        {!iframeError && (
+          <div
+            className="w-full flex-shrink-0"
+            style={{ height: 'clamp(320px, 55vh, 640px)' }}
+          >
+            <iframe
+              key={pdfUrl}
+              src={isPdf ? `${pdfUrl}#view=FitH&toolbar=1&navpanes=0` : pdfUrl}
+              title={title}
+              className="w-full h-full"
+              style={{ border: 'none', display: 'block', background: isDark ? '#0d0d1a' : '#f3f4f6' }}
+              onError={() => setIframeError(true)}
+              allow="fullscreen"
+            />
+          </div>
+        )}
+
+        {/* ── Fallback CTA when iframe cannot render (common on mobile browsers) ── */}
+        {iframeError && (
+          <div className="flex flex-col items-center justify-center gap-4 py-10 px-5">
+            <div className="w-16 h-16 rounded-2xl flex items-center justify-center"
+              style={{ background: 'rgba(124,58,237,0.12)', border: '1.5px solid rgba(124,58,237,0.25)' }}>
+              <FileText size={28} color="#a78bfa" />
+            </div>
+            <div className="text-center">
+              <p style={{ color: t.text, fontWeight: 700, fontSize: 15, marginBottom: 4 }}>
+                Open document to read
+              </p>
+              <p style={{ color: t.textMuted, fontSize: 13 }}>
+                Your browser cannot preview this file inline.
+              </p>
+            </div>
+            <a
+              href={pdfUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 px-6 py-3 rounded-xl font-semibold"
+              style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', color: '#fff', textDecoration: 'none', fontSize: 14 }}
+            >
+              <Download size={16} />
+              Download / Open PDF
+            </a>
+          </div>
+        )}
+
+        {/* ── Article text below the PDF (excerpt or HTML summary) ── */}
+        {(content || excerpt) && (
+          <div className="px-5 py-5 border-t" style={{ borderColor: t.border }}>
+            <p style={{ color: t.textMuted, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>
+              Article Summary
+            </p>
+            {content ? (
+              <div className="article-body" dangerouslySetInnerHTML={{ __html: content }} />
+            ) : (
+              <p style={{ color: t.textSec, fontSize: 15, lineHeight: 1.75 }}>{excerpt}</p>
+            )}
+          </div>
+        )}
+      </div>
     );
   };
 
@@ -1088,11 +1159,31 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
                 </span>
               )}
             </div>
+
+            {/* View Article button — shown when a PDF is attached */}
+            {readingArticle.pdfUrl && !readingArticleLoading && (
+              <a
+                href={readingArticle.pdfUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-2 w-full mt-3 py-2.5 rounded-xl font-semibold"
+                style={{
+                  background: 'linear-gradient(135deg,#7c3aed,#4f46e5)',
+                  color: '#fff',
+                  fontSize: 14,
+                  textDecoration: 'none',
+                }}
+              >
+                <FileText size={16} />
+                View Article
+                <ExternalLink size={13} style={{ opacity: 0.75 }} />
+              </a>
+            )}
           </div>
 
           {/* Content */}
           <div
-            className="flex-1 overflow-y-auto px-5 py-5"
+            className="flex-1 overflow-y-auto"
             style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
             onScroll={handleArticleModalScroll}
           >
@@ -1100,13 +1191,24 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
               <div className="flex items-center justify-center py-20">
                 <RefreshCw size={28} style={{ color: '#7c3aed', animation: 'spin 1s linear infinite' }} />
               </div>
-            ) : readingArticle.content ? (
-              <div
-                className="article-body max-w-prose mx-auto"
-                dangerouslySetInnerHTML={{ __html: readingArticle.content }}
+            ) : readingArticle.pdfUrl ? (
+              <ArticlePdfViewer
+                pdfUrl={readingArticle.pdfUrl}
+                title={readingArticle.title}
+                excerpt={readingArticle.excerpt}
+                content={readingArticle.content}
               />
+            ) : readingArticle.content ? (
+              <div className="px-5 py-5">
+                <div
+                  className="article-body max-w-prose mx-auto"
+                  dangerouslySetInnerHTML={{ __html: readingArticle.content }}
+                />
+              </div>
             ) : readingArticle.excerpt ? (
-              <p style={{ color: t.textSec, fontSize: 15, lineHeight: 1.75 }}>{readingArticle.excerpt}</p>
+              <div className="px-5 py-5">
+                <p style={{ color: t.textSec, fontSize: 15, lineHeight: 1.75 }}>{readingArticle.excerpt}</p>
+              </div>
             ) : (
               <div className="text-center py-16">
                 <BookOpen size={36} style={{ color: t.emptyIcon, margin: '0 auto 8px' }} />
