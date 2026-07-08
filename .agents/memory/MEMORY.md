@@ -2,6 +2,7 @@
 - [EAS Build Kotlin/Swift Fixes](eas-build-kotlin-fixes.md) — iOS 26 @available doesn't protect compile-time types; singular Constant DSL missing from expo-modules-core@2.2.3 iOS; patch ordering & double-run behavior
 - [EAS iOS Credentials](eas-ios-credentials.md) — ASC API key + Apple App Identifier IDs for com.apexevents.meet; EAS auto-manages cert/profile
 - [EAS Android Credentials](eas-android-credentials.md) — PKCS12 keystore (alias key0), EAS IDs, SHA-1 fingerprint for com.apexevents.meet
+- [Home & Engage tab redesign](home-engage-redesign.md) — asset paths, SponsorReviews props, useSpeakers API, Android footer inset pattern
 - [Device network error diagnosis](device-network-error-diagnosis.md) — API client retries + probes to split offline vs backend-unreachable; server legs verified healthy; timeout detection must not sniff "abort"
 - [EAS Android Compose Resolution](eas-android-compose-resolution.md) — expo-dev-launcher releaseCompileOnly 1.9.0 vs runtime 1.7.x Gradle consistent-resolution conflict; fix: eachDependency + releaseRuntimeOnly
 - [EAS API Build Trigger](eas-api-build-trigger.md) — how to trigger EAS builds via GraphQL when EAS CLI hangs; tarball structure + GCS upload pattern

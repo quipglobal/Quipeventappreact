@@ -1,6 +1,7 @@
 import { Tabs, Redirect } from 'expo-router';
 import { Platform, View, StyleSheet } from 'react-native';
 import { useEffect } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
@@ -52,13 +53,18 @@ export default function TabsLayout() {
     }
   }, [currentEventId, refreshEventRole]);
 
+  const insets = useSafeAreaInsets();
+
   if (!user) return <Redirect href="/(auth)/welcome" />;
 
   const tabs = user.role === 'sponsor' ? SPONSOR_TABS : ATTENDEE_TABS;
   const activeNames = new Set(tabs.map((t) => t.name));
 
-  const tabBarHeight = Platform.OS === 'ios' ? 84 : 64;
-  const tabBarPaddingBottom = Platform.OS === 'ios' ? 28 : 8;
+  // On Android the tab bar must sit above both the OS navigation bar (gesture/button strip)
+  // and leave room for the labels. useSafeAreaInsets().bottom gives us the exact nav-bar height.
+  const bottomInset = insets.bottom;
+  const tabBarHeight = Platform.OS === 'ios' ? 49 + bottomInset : 56 + bottomInset;
+  const tabBarPaddingBottom = Platform.OS === 'ios' ? bottomInset : bottomInset + 4;
 
   return (
     <View style={styles.root}>

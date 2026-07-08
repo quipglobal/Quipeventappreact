@@ -23,6 +23,7 @@ import { useLeaderboard } from '@/hooks/useAudience';
 import { useLeads, useLuckyDraw, useSubmitScan, leadsQueryKey } from '@/hooks/useLeads';
 import { DataState } from '@/components/DataState';
 import { BadgeCameraScanner } from '@/components/BadgeCameraScanner';
+import { SponsorReviews } from '@/components/SponsorReviews';
 import { colors, spacing, radius } from '@/constants/theme';
 import { submitScan } from '@/lib/api/leads';
 import type { ApiResponse, LeaderboardEntry, Lead, Giveaway, GiveawayWinner, Survey, SurveyQuestion } from '@/lib/api/types';
@@ -472,20 +473,24 @@ function SurveyDetailView({ survey, alreadyDone, onBack }: SurveyDetailViewProps
   );
 }
 
+type EngageSection = 'hub' | 'polls' | 'surveys' | 'challenges' | 'leaderboard' | 'giveaways' | 'reviews';
+
 function AttendeeEngage() {
   const { user, completedChallenges, completeChallenge, votedPolls, markPollVoted, markSurveyDone, completedSurveys, showToast } = useAuth();
+  const insets = useSafeAreaInsets();
   const { tab: deepLinkTab } = useLocalSearchParams<{ tab?: string }>();
-  const [activeTab, setActiveTab] = useState<'challenges' | 'polls' | 'leaderboard' | 'giveaways'>('challenges');
+  const [section, setSection] = useState<EngageSection>('hub');
 
   useEffect(() => {
-    if (deepLinkTab === 'polls' || deepLinkTab === 'leaderboard' || deepLinkTab === 'giveaways') {
-      setActiveTab(deepLinkTab);
-    }
+    if (deepLinkTab === 'polls') setSection('polls');
+    else if (deepLinkTab === 'leaderboard') setSection('leaderboard');
+    else if (deepLinkTab === 'giveaways') setSection('giveaways');
   }, [deepLinkTab]);
 
   const [scanMode, setScanMode] = useState<'none' | 'scanner' | 'leads'>('none');
   const [pollVotes, setPollVotes] = useState<Record<string, string>>({});
   const [activeSurvey, setActiveSurvey] = useState<Survey | null>(null);
+  const [reviewsCompanyId, setReviewsCompanyId] = useState<string | null>(null);
 
   const { data: challengesData = [], isLoading: loadingChallenges, isError: errorChallenges, refetch: refetchChallenges } = useChallenges();
   const { data: pollsData = [], isLoading: loadingPolls, isError: errorPolls, refetch: refetchPolls } = usePolls();
@@ -508,6 +513,8 @@ function AttendeeEngage() {
   const leaderboard = leaderboardData;
 
   const myRank = leaderboard.findIndex((l: { name: string }) => l.name === user?.name) + 1;
+  const livePollsCount = polls.filter((p) => p.isLive).length;
+  const pendingSurveysCount = surveys.filter((s) => !completedSurveys.includes(s.id)).length;
 
   if (scanMode === 'scanner') {
     return (
@@ -532,328 +539,339 @@ function AttendeeEngage() {
     );
   }
 
-  return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}
-    >
-      <BadgeScanPanel onScanPress={() => setScanMode('scanner')} />
-
-      {/* Stats card */}
-      <View style={styles.statsOuter}>
-        <View style={styles.pointsCard}>
-          <LinearGradient colors={['#3b1d8a', '#1e3a5f']} style={styles.pointsGrad}>
-            <View style={styles.pointsRow}>
-              <View>
-                <Text style={styles.pointsLabel}>Your Points</Text>
-                <Text style={styles.pointsValue}>{user?.points ?? 0}</Text>
-              </View>
-              <TouchableOpacity
-                style={styles.pointsHistoryBtn}
-                onPress={() => router.push('/leaderboard')}
-              >
-                <Text style={styles.pointsHistoryText}>Leaderboard</Text>
-                <Ionicons name="chevron-forward" size={12} color="#fff" />
-              </TouchableOpacity>
-            </View>
-            <View style={styles.progressBarBg}>
-              <View style={[styles.progressBarFill, { width: `${Math.min(((user?.points ?? 0) / 500) * 100, 100)}%` }]} />
-            </View>
-            <View style={styles.pointsFooter}>
-              <Text style={styles.pointsFooterText}>Rank #{myRank} of {leaderboard.length}</Text>
-              <Text style={styles.pointsFooterText}>{user?.tier ?? 'Bronze'} Tier</Text>
-            </View>
-          </LinearGradient>
-        </View>
+  if (section === 'reviews' && reviewsCompanyId) {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <TouchableOpacity style={[styles.backBtn, { marginHorizontal: spacing.xl, marginBottom: spacing.lg }]} onPress={() => { setSection('hub'); setReviewsCompanyId(null); }}>
+          <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
+          <Text style={styles.backText}>Back</Text>
+        </TouchableOpacity>
+        <SponsorReviews companyId={reviewsCompanyId!} companyName={user?.company ?? ''} />
       </View>
+    );
+  }
 
-      {/* ── Surveys & Polls section ── */}
-      <View style={styles.spSection}>
-        <View style={styles.spSectionHeader}>
-          <View style={styles.spSectionTitleRow}>
-            <Ionicons name="bar-chart" size={16} color={colors.primary} />
-            <Text style={styles.spSectionTitle}>Surveys & Polls</Text>
-            {(polls.length + surveys.length) > 0 && (
-              <View style={styles.spCountBadge}>
-                <Text style={styles.spCountText}>{polls.length + surveys.length}</Text>
-              </View>
-            )}
+  if (section === 'polls') {
+    return (
+      <ScrollView style={styles.container} contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]} showsVerticalScrollIndicator={false}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => setSection('hub')}>
+          <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
+          <Text style={styles.backText}>Engage</Text>
+        </TouchableOpacity>
+        <Text style={styles.pageTitle}>Live Polls</Text>
+        <DataState loading={loadingPolls} error={errorPolls ? 'Failed to load polls.' : null} onRetry={refetchPolls} />
+        {polls.length === 0 && !loadingPolls && (
+          <View style={styles.emptyLeads}>
+            <Ionicons name="chatbubble-ellipses-outline" size={36} color={colors.textMuted} />
+            <Text style={styles.emptyLeadsText}>No live polls right now</Text>
+            <Text style={styles.emptyLeadsSub}>Check back during sessions</Text>
           </View>
-          <TouchableOpacity onPress={() => setActiveTab('polls')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Text style={styles.spViewAll}>View all</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Live poll preview — first live poll only */}
-        {polls.filter((p) => p.isLive).slice(0, 1).map((poll) => {
+        )}
+        {polls.map((poll) => {
           const voted = pollVotes[poll.id] || (votedPolls.includes(poll.id) ? poll.options[0]?.id : null);
           const totalVotes = poll.options.reduce((s, o) => s + o.votes, 0);
           return (
-            <View key={poll.id} style={styles.spPollPreview}>
-              <View style={styles.spPollHeader}>
-                <View style={styles.liveChip}>
-                  <View style={styles.liveDot} />
-                  <Text style={styles.liveText}>LIVE</Text>
-                </View>
-                <Text style={styles.spPollSession} numberOfLines={1}>{poll.session}</Text>
-                <View style={styles.pointsPill}>
-                  <Text style={styles.pointsPillText}>+{poll.points} pts</Text>
-                </View>
+            <View key={poll.id} style={styles.pollCard}>
+              <View style={styles.pollHeader}>
+                <View style={styles.liveChip}><View style={styles.liveDot} /><Text style={styles.liveText}>LIVE</Text></View>
+                <Text style={styles.pollSession}>{poll.session}</Text>
+                <View style={styles.pointsPill}><Text style={styles.pointsPillText}>+{poll.points} pts</Text></View>
               </View>
-              <Text style={styles.spPollQuestion} numberOfLines={2}>{poll.question}</Text>
-              {voted ? (
-                <View style={styles.spVotedRow}>
-                  <Ionicons name="checkmark-circle" size={15} color={colors.success} />
-                  <Text style={styles.spVotedMsg}>Vote counted · {totalVotes} total votes</Text>
-                </View>
-              ) : (
-                <View style={styles.spPollOptions}>
-                  {poll.options.slice(0, 3).map((opt) => (
+              <Text style={styles.pollQuestion}>{poll.question}</Text>
+              <View style={styles.pollOptions}>
+                {poll.options.map((opt) => {
+                  const pct = totalVotes > 0 ? (opt.votes / totalVotes) * 100 : 0;
+                  const isVoted = voted === opt.id;
+                  return (
                     <TouchableOpacity
                       key={opt.id}
-                      style={styles.spPollOption}
+                      style={[styles.pollOption, voted && isVoted && styles.pollOptionVoted, voted && !isVoted && styles.pollOptionDim]}
                       onPress={() => {
+                        if (voted) return;
                         setPollVotes((p) => ({ ...p, [poll.id]: opt.id }));
                         markPollVoted(poll.id);
                         votePollMutation({ pollId: poll.id, optionId: opt.id });
                         showToast(`Vote cast! +${poll.points} pts`, poll.points);
                       }}
+                      disabled={!!voted}
                     >
-                      <Text style={styles.spPollOptionText} numberOfLines={1}>{opt.text}</Text>
+                      <Text style={[styles.pollOptionText, isVoted && { color: colors.primary }]}>{opt.text}</Text>
+                      {voted && <View style={styles.pollBarBg}><View style={[styles.pollBarFill, { width: `${pct}%` as `${number}%`, backgroundColor: isVoted ? colors.primary : 'rgba(255,255,255,0.15)' }]} /></View>}
+                      {voted && <Text style={styles.pollPct}>{Math.round(pct)}%</Text>}
+                      {!voted && <Ionicons name="radio-button-off" size={18} color={colors.textMuted} />}
+                      {isVoted && <Ionicons name="checkmark-circle" size={18} color={colors.primary} />}
                     </TouchableOpacity>
-                  ))}
-                  {poll.options.length > 3 && (
-                    <TouchableOpacity onPress={() => setActiveTab('polls')}>
-                      <Text style={styles.spMoreOptions}>+{poll.options.length - 3} more options →</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              )}
+                  );
+                })}
+              </View>
             </View>
           );
         })}
+        <View style={{ height: 40 }} />
+      </ScrollView>
+    );
+  }
 
-        {/* Surveys preview — up to 2 */}
-        {surveys.slice(0, 2).map((sv) => {
+  if (section === 'surveys') {
+    return (
+      <ScrollView style={styles.container} contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]} showsVerticalScrollIndicator={false}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => setSection('hub')}>
+          <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
+          <Text style={styles.backText}>Engage</Text>
+        </TouchableOpacity>
+        <Text style={styles.pageTitle}>Surveys</Text>
+        {surveys.length === 0 && (
+          <View style={styles.emptyLeads}>
+            <Ionicons name="document-text-outline" size={36} color={colors.textMuted} />
+            <Text style={styles.emptyLeadsText}>No surveys yet</Text>
+            <Text style={styles.emptyLeadsSub}>Check back soon</Text>
+          </View>
+        )}
+        {surveys.map((sv) => {
           const done = completedSurveys.includes(sv.id);
           return (
-            <TouchableOpacity key={sv.id} style={styles.spSurveyRow} onPress={() => setActiveSurvey(sv)} activeOpacity={0.8}>
-              <View style={[styles.spSurveyIcon, done && { backgroundColor: 'rgba(16,185,129,0.12)' }]}>
-                <Ionicons
-                  name={done ? 'checkmark-circle' : 'document-text-outline'}
-                  size={18}
-                  color={done ? colors.success : colors.primary}
-                />
-              </View>
-              <View style={styles.spSurveyInfo}>
-                <Text style={styles.spSurveyTitle} numberOfLines={1}>{sv.title}</Text>
-                <Text style={styles.spSurveyMeta}>{sv.questions} question{sv.questions !== 1 ? 's' : ''} · +{sv.points} pts</Text>
-              </View>
-              {done ? (
-                <Text style={styles.spSurveyDone}>Update</Text>
-              ) : (
-                <View style={styles.spSurveyBtn}>
-                  <Text style={styles.spSurveyBtnText}>Start</Text>
+            <TouchableOpacity key={sv.id} style={styles.surveyCard} onPress={() => setActiveSurvey(sv)} activeOpacity={0.85}>
+              <View style={styles.surveyLeft}>
+                <View style={styles.surveyIcon}>
+                  <Ionicons name={done ? 'checkmark-circle' : 'document-text'} size={22} color={done ? colors.success : colors.primary} />
                 </View>
-              )}
+                <View style={styles.surveyBody}>
+                  <Text style={styles.surveyTitle}>{sv.title}</Text>
+                  <Text style={styles.surveyDesc} numberOfLines={2}>{sv.desc}</Text>
+                  <Text style={styles.surveyMeta}>{sv.questions} question{sv.questions !== 1 ? 's' : ''} · +{sv.points} pts</Text>
+                </View>
+              </View>
+              <View style={[styles.surveyBtn, done && styles.surveyBtnDone]}>
+                <Text style={[styles.surveyBtnText, done && styles.surveyBtnTextDone]}>{done ? 'Update' : 'Start'}</Text>
+              </View>
             </TouchableOpacity>
           );
         })}
+        <View style={{ height: 40 }} />
+      </ScrollView>
+    );
+  }
 
-        {/* Empty state */}
-        {polls.length === 0 && surveys.length === 0 && !loadingPolls && (
-          <View style={styles.spEmpty}>
-            <Ionicons name="chatbubble-ellipses-outline" size={28} color={colors.textMuted} />
-            <Text style={styles.spEmptyText}>No active polls or surveys</Text>
-            <Text style={styles.spEmptySub}>Check back during sessions</Text>
+  if (section === 'challenges') {
+    return (
+      <ScrollView style={styles.container} contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]} showsVerticalScrollIndicator={false}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => setSection('hub')}>
+          <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
+          <Text style={styles.backText}>Engage</Text>
+        </TouchableOpacity>
+        <Text style={styles.pageTitle}>Challenges</Text>
+        <DataState loading={loadingChallenges} error={errorChallenges ? 'Failed to load challenges.' : null} onRetry={refetchChallenges} />
+        {challenges.map((c) => {
+          const done = completedChallenges.includes(c.id);
+          const pct = Math.min((c.progress / c.total) * 100, 100);
+          return (
+            <View key={c.id} style={[styles.challengeCard, done && styles.challengeDone]}>
+              <View style={styles.challengeLeft}><Text style={styles.challengeEmoji}>{c.emoji}</Text></View>
+              <View style={styles.challengeBody}>
+                <View style={styles.challengeHeader}>
+                  <Text style={styles.challengeTitle}>{c.title}</Text>
+                  <View style={styles.pointsPill}><Text style={styles.pointsPillText}>+{c.points} pts</Text></View>
+                </View>
+                <Text style={styles.challengeDesc}>{c.desc}</Text>
+                <View style={styles.challengeProgress}>
+                  <View style={styles.challengeProgressBg}><View style={[styles.challengeProgressFill, { width: `${pct}%` }]} /></View>
+                  <Text style={styles.challengeProgressText}>{c.progress}/{c.total}</Text>
+                </View>
+              </View>
+              {!done && c.progress === c.total && (
+                <TouchableOpacity style={styles.claimBtn} onPress={() => { completeChallenge(c.id); completeChallengeMutation(c.id); }}>
+                  <Text style={styles.claimBtnText}>Claim</Text>
+                </TouchableOpacity>
+              )}
+              {done && <Ionicons name="checkmark-circle" size={24} color={colors.success} />}
+            </View>
+          );
+        })}
+        <View style={{ height: 40 }} />
+      </ScrollView>
+    );
+  }
+
+  if (section === 'leaderboard') {
+    return (
+      <ScrollView style={styles.container} contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]} showsVerticalScrollIndicator={false}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => setSection('hub')}>
+          <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
+          <Text style={styles.backText}>Engage</Text>
+        </TouchableOpacity>
+        <Text style={styles.pageTitle}>Leaderboard</Text>
+        <TouchableOpacity style={styles.fullLeaderboardBtn} onPress={() => router.push('/leaderboard')} activeOpacity={0.85}>
+          <Ionicons name="trophy" size={16} color={colors.primary} />
+          <Text style={styles.fullLeaderboardBtnText}>View full leaderboard</Text>
+          <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+        </TouchableOpacity>
+        {leaderboard.map((l: LeaderboardEntry) => (
+          <View key={l.rank} style={[styles.rankRow, l.rank <= 3 && styles.rankRowTop]}>
+            <View style={styles.rankNum}>
+              {l.rank === 1 ? <Text style={styles.rankEmoji}>🥇</Text> : l.rank === 2 ? <Text style={styles.rankEmoji}>🥈</Text> : l.rank === 3 ? <Text style={styles.rankEmoji}>🥉</Text> : <Text style={styles.rankText}>{l.rank}</Text>}
+            </View>
+            <View style={[styles.rankAvatar, { borderColor: (l.tierColor ?? colors.primary) + '66' }]}>
+              <Text style={styles.rankAvatarText}>{l.name[0]}</Text>
+            </View>
+            <View style={styles.rankInfo}>
+              <Text style={styles.rankName}>{l.name}</Text>
+              <Text style={styles.rankTier}>{l.tier}</Text>
+            </View>
+            <Text style={styles.rankPoints}>{l.points} pts</Text>
+          </View>
+        ))}
+        <View style={styles.myRankCard}>
+          <Text style={styles.myRankLabel}>Your rank</Text>
+          <Text style={styles.myRankValue}>#{myRank > 0 ? myRank : '—'}</Text>
+        </View>
+        <View style={{ height: 40 }} />
+      </ScrollView>
+    );
+  }
+
+  if (section === 'giveaways') {
+    return (
+      <ScrollView style={styles.container} contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md }]} showsVerticalScrollIndicator={false}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => setSection('hub')}>
+          <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
+          <Text style={styles.backText}>Engage</Text>
+        </TouchableOpacity>
+        <Text style={styles.pageTitle}>Giveaways</Text>
+        {giveaways.length === 0 && (
+          <View style={styles.emptyLeads}>
+            <Ionicons name="gift-outline" size={36} color={colors.textMuted} />
+            <Text style={styles.emptyLeadsText}>No active giveaways</Text>
           </View>
         )}
+        {giveaways.map((g) => (
+          <View key={g.id} style={styles.giveawayCard}>
+            <LinearGradient colors={[g.color + '22', colors.bgCard]} style={styles.giveawayGrad}>
+              <View style={styles.giveawayHeader}>
+                <Text style={styles.giveawayTitle}>{g.title}</Text>
+                {!!g.ends && <Text style={styles.giveawayEnds}>Ends {g.ends}</Text>}
+              </View>
+              <Text style={styles.giveawaySponsor}>by {g.sponsor}</Text>
+              <View style={styles.giveawayHowToRow}>
+                <Text style={styles.giveawayHowToText}>Visit the booth and have your badge scanned to enter the draw.</Text>
+              </View>
+            </LinearGradient>
+          </View>
+        ))}
+        <View style={{ height: 40 }} />
+      </ScrollView>
+    );
+  }
+
+  // ── HUB (main engage screen) ──
+  return (
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.md, paddingBottom: 100 }]}
+      showsVerticalScrollIndicator={false}
+    >
+      <Text style={styles.pageTitle}>Engage</Text>
+      <Text style={styles.pageSubtitle}>Your activity at this event</Text>
+
+      {/* Points card */}
+      <View style={styles.pointsCard}>
+        <LinearGradient colors={['#3b1d8a', '#1e3a5f']} style={styles.pointsGrad}>
+          <View style={styles.pointsRow}>
+            <View>
+              <Text style={styles.pointsLabel}>Your Points</Text>
+              <Text style={styles.pointsValue}>{user?.points ?? 0}</Text>
+            </View>
+            <TouchableOpacity style={styles.pointsHistoryBtn} onPress={() => setSection('leaderboard')}>
+              <Text style={styles.pointsHistoryText}>Leaderboard</Text>
+              <Ionicons name="chevron-forward" size={12} color="#fff" />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.progressBarBg}>
+            <View style={[styles.progressBarFill, { width: `${Math.min(((user?.points ?? 0) / 500) * 100, 100)}%` }]} />
+          </View>
+          <View style={styles.pointsFooter}>
+            <Text style={styles.pointsFooterText}>Rank #{myRank > 0 ? myRank : '—'} of {leaderboard.length}</Text>
+            <Text style={styles.pointsFooterText}>{user?.tier ?? 'Bronze'} Tier</Text>
+          </View>
+        </LinearGradient>
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabScrollRow} contentContainerStyle={styles.tabScrollContent}>
-        {(['challenges', 'polls', 'leaderboard', 'giveaways'] as const).map((t) => (
-          <TouchableOpacity
-            key={t}
-            style={[styles.tab, activeTab === t && styles.tabActive]}
-            onPress={() => setActiveTab(t)}
-          >
-            <Text style={[styles.tabText, activeTab === t && styles.tabTextActive]}>
-              {t === 'challenges' ? 'Challenges' : t === 'polls' ? 'Polls & Surveys' : t === 'leaderboard' ? 'Leaderboard' : 'Giveaways'}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+      {/* Engagement hub cards */}
+      <Text style={styles.hubSectionLabel}>ENGAGEMENT HUB</Text>
 
-      <DataState loading={isLoading} error={isError ? 'Failed to load content.' : null} onRetry={refetch} />
-
-      {activeTab === 'challenges' && challenges.map((c) => {
-        const done = completedChallenges.includes(c.id);
-        const pct = Math.min((c.progress / c.total) * 100, 100);
-        return (
-          <View key={c.id} style={[styles.challengeCard, done && styles.challengeDone]}>
-            <View style={styles.challengeLeft}>
-              <Text style={styles.challengeEmoji}>{c.emoji}</Text>
-            </View>
-            <View style={styles.challengeBody}>
-              <View style={styles.challengeHeader}>
-                <Text style={styles.challengeTitle}>{c.title}</Text>
-                <View style={styles.pointsPill}>
-                  <Text style={styles.pointsPillText}>+{c.points} pts</Text>
-                </View>
-              </View>
-              <Text style={styles.challengeDesc}>{c.desc}</Text>
-              <View style={styles.challengeProgress}>
-                <View style={styles.challengeProgressBg}>
-                  <View style={[styles.challengeProgressFill, { width: `${pct}%` }]} />
-                </View>
-                <Text style={styles.challengeProgressText}>{c.progress}/{c.total}</Text>
-              </View>
-            </View>
-            {!done && c.progress === c.total && (
-              <TouchableOpacity
-                style={styles.claimBtn}
-                onPress={() => {
-                  completeChallenge(c.id);
-                  completeChallengeMutation(c.id);
-                }}
-              >
-                <Text style={styles.claimBtnText}>Claim</Text>
-              </TouchableOpacity>
-            )}
-            {done && <Ionicons name="checkmark-circle" size={24} color={colors.success} />}
-          </View>
-        );
-      })}
-
-      {activeTab === 'leaderboard' && (
-        <>
-          <TouchableOpacity style={styles.fullLeaderboardBtn} onPress={() => router.push('/leaderboard')} activeOpacity={0.85}>
-            <Ionicons name="trophy" size={16} color={colors.primary} />
-            <Text style={styles.fullLeaderboardBtnText}>View full leaderboard</Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
-          </TouchableOpacity>
-          {leaderboard.map((l: LeaderboardEntry) => (
-            <View key={l.rank} style={[styles.rankRow, l.rank <= 3 && styles.rankRowTop]}>
-              <View style={styles.rankNum}>
-                {l.rank === 1 ? <Text style={styles.rankEmoji}>🥇</Text> :
-                 l.rank === 2 ? <Text style={styles.rankEmoji}>🥈</Text> :
-                 l.rank === 3 ? <Text style={styles.rankEmoji}>🥉</Text> :
-                 <Text style={styles.rankText}>{l.rank}</Text>}
-              </View>
-              <View style={[styles.rankAvatar, { borderColor: (l.tierColor ?? colors.primary) + '66' }]}>
-                <Text style={styles.rankAvatarText}>{l.name[0]}</Text>
-              </View>
-              <View style={styles.rankInfo}>
-                <Text style={styles.rankName}>{l.name}</Text>
-                <Text style={styles.rankTier}>{l.tier}</Text>
-              </View>
-              <Text style={styles.rankPoints}>{l.points} pts</Text>
-            </View>
-          ))}
-          <View style={styles.myRankCard}>
-            <Text style={styles.myRankLabel}>Your rank</Text>
-            <Text style={styles.myRankValue}>#{myRank > 0 ? myRank : '—'}</Text>
-          </View>
-        </>
-      )}
-
-      {activeTab === 'polls' && (
-        <>
-          <Text style={styles.pollSectionLabel}>LIVE POLLS</Text>
-          {polls.map((poll) => {
-            const voted = pollVotes[poll.id];
-            const totalVotes = poll.options.reduce((s, o) => s + o.votes, 0);
-            return (
-              <View key={poll.id} style={styles.pollCard}>
-                <View style={styles.pollHeader}>
-                  <View style={styles.liveChip}>
-                    <View style={styles.liveDot} />
-                    <Text style={styles.liveText}>LIVE</Text>
-                  </View>
-                  <Text style={styles.pollSession}>{poll.session}</Text>
-                  <View style={styles.pointsPill}>
-                    <Text style={styles.pointsPillText}>+{poll.points} pts</Text>
-                  </View>
-                </View>
-                <Text style={styles.pollQuestion}>{poll.question}</Text>
-                <View style={styles.pollOptions}>
-                  {poll.options.map((opt) => {
-                    const pct = totalVotes > 0 ? (opt.votes / totalVotes) * 100 : 0;
-                    const isVoted = voted === opt.id;
-                    return (
-                      <TouchableOpacity
-                        key={opt.id}
-                        style={[styles.pollOption, voted && isVoted && styles.pollOptionVoted, voted && !isVoted && styles.pollOptionDim]}
-                        onPress={() => {
-                          if (voted) return;
-                          setPollVotes((p) => ({ ...p, [poll.id]: opt.id }));
-                          markPollVoted(poll.id);
-                          votePollMutation({ pollId: poll.id, optionId: opt.id });
-                          showToast(`Vote cast! +${poll.points} pts`, poll.points);
-                        }}
-                        disabled={!!voted}
-                      >
-                        <Text style={[styles.pollOptionText, isVoted && { color: colors.primary }]}>{opt.text}</Text>
-                        {voted && (
-                          <View style={styles.pollBarBg}>
-                            <View style={[styles.pollBarFill, { width: `${pct}%` as `${number}%`, backgroundColor: isVoted ? colors.primary : 'rgba(255,255,255,0.15)' }]} />
-                          </View>
-                        )}
-                        {voted && <Text style={styles.pollPct}>{Math.round(pct)}%</Text>}
-                        {!voted && <Ionicons name="radio-button-off" size={18} color={colors.textMuted} />}
-                        {isVoted && <Ionicons name="checkmark-circle" size={18} color={colors.primary} />}
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </View>
-            );
-          })}
-
-          <Text style={styles.pollSectionLabel}>SURVEYS</Text>
-          {surveys.map((sv) => {
-            const done = completedSurveys.includes(sv.id);
-            return (
-              <TouchableOpacity key={sv.id} style={styles.surveyCard} onPress={() => setActiveSurvey(sv)} activeOpacity={0.85}>
-                <View style={styles.surveyLeft}>
-                  <View style={styles.surveyIcon}>
-                    <Ionicons name={done ? 'checkmark-circle' : 'document-text'} size={22} color={done ? colors.success : colors.primary} />
-                  </View>
-                  <View style={styles.surveyBody}>
-                    <Text style={styles.surveyTitle}>{sv.title}</Text>
-                    <Text style={styles.surveyDesc} numberOfLines={2}>{sv.desc}</Text>
-                    <Text style={styles.surveyMeta}>{sv.questions} question{sv.questions !== 1 ? 's' : ''} · +{sv.points} pts</Text>
-                  </View>
-                </View>
-                <View style={[styles.surveyBtn, done && styles.surveyBtnDone]}>
-                  <Text style={[styles.surveyBtnText, done && styles.surveyBtnTextDone]}>{done ? 'Update' : 'Start'}</Text>
-                </View>
-              </TouchableOpacity>
-            );
-          })}
-        </>
-      )}
-
-      {activeTab === 'giveaways' && giveaways.map((g) => (
-        <View key={g.id} style={styles.giveawayCard}>
-          <LinearGradient
-            colors={[g.color + '22', colors.bgCard]}
-            style={styles.giveawayGrad}
-          >
-            <View style={styles.giveawayHeader}>
-              <Text style={styles.giveawayTitle}>{g.title}</Text>
-              {!!g.ends && <Text style={styles.giveawayEnds}>Ends {g.ends}</Text>}
-            </View>
-            <Text style={styles.giveawaySponsor}>by {g.sponsor}</Text>
-            <View style={styles.giveawayHowToRow}>
-              <Text style={styles.giveawayHowToText}>
-                Visit the booth and have your badge scanned to enter the draw.
-              </Text>
-            </View>
-          </LinearGradient>
+      {/* Live Polls card */}
+      <TouchableOpacity style={styles.hubCard} onPress={() => setSection('polls')} activeOpacity={0.85}>
+        <View style={[styles.hubCardIcon, { backgroundColor: 'rgba(239,68,68,0.12)' }]}>
+          <Ionicons name="bar-chart" size={22} color="#ef4444" />
         </View>
-      ))}
+        <View style={styles.hubCardBody}>
+          <Text style={styles.hubCardTitle}>Live Polls</Text>
+          <Text style={styles.hubCardSub}>{livePollsCount > 0 ? `${livePollsCount} active` : 'No active polls'}</Text>
+        </View>
+        {livePollsCount > 0 && (
+          <View style={styles.hubLiveBadge}>
+            <View style={styles.hubLiveDot} />
+            <Text style={styles.hubLiveText}>LIVE</Text>
+          </View>
+        )}
+        <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+      </TouchableOpacity>
+
+      {/* Surveys card */}
+      <TouchableOpacity style={styles.hubCard} onPress={() => setSection('surveys')} activeOpacity={0.85}>
+        <View style={[styles.hubCardIcon, { backgroundColor: 'rgba(124,58,237,0.12)' }]}>
+          <Ionicons name="document-text" size={22} color={colors.primary} />
+        </View>
+        <View style={styles.hubCardBody}>
+          <Text style={styles.hubCardTitle}>Surveys</Text>
+          <Text style={styles.hubCardSub}>{pendingSurveysCount > 0 ? `${pendingSurveysCount} to complete` : surveys.length > 0 ? 'All done!' : 'No surveys yet'}</Text>
+        </View>
+        {pendingSurveysCount > 0 && (
+          <View style={[styles.hubBadge, { backgroundColor: colors.primary }]}>
+            <Text style={styles.hubBadgeText}>{pendingSurveysCount}</Text>
+          </View>
+        )}
+        <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+      </TouchableOpacity>
+
+      {/* Sponsor Reviews card */}
+      <TouchableOpacity style={styles.hubCard} onPress={() => { setReviewsCompanyId(user?.id ?? 'default'); setSection('reviews'); }} activeOpacity={0.85}>
+        <View style={[styles.hubCardIcon, { backgroundColor: 'rgba(245,158,11,0.12)' }]}>
+          <Ionicons name="star" size={22} color={colors.warning} />
+        </View>
+        <View style={styles.hubCardBody}>
+          <Text style={styles.hubCardTitle}>Sponsor Reviews</Text>
+          <Text style={styles.hubCardSub}>Rate the sponsors you visited</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+      </TouchableOpacity>
+
+      {/* Challenges card */}
+      <TouchableOpacity style={styles.hubCard} onPress={() => setSection('challenges')} activeOpacity={0.85}>
+        <View style={[styles.hubCardIcon, { backgroundColor: 'rgba(16,185,129,0.12)' }]}>
+          <Ionicons name="flash" size={22} color={colors.success} />
+        </View>
+        <View style={styles.hubCardBody}>
+          <Text style={styles.hubCardTitle}>Challenges</Text>
+          <Text style={styles.hubCardSub}>{challenges.length > 0 ? `${challenges.length} challenge${challenges.length !== 1 ? 's' : ''}` : 'Complete tasks, earn pts'}</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+      </TouchableOpacity>
+
+      {/* Giveaways card */}
+      <TouchableOpacity style={styles.hubCard} onPress={() => setSection('giveaways')} activeOpacity={0.85}>
+        <View style={[styles.hubCardIcon, { backgroundColor: 'rgba(236,72,153,0.12)' }]}>
+          <Ionicons name="gift" size={22} color="#ec4899" />
+        </View>
+        <View style={styles.hubCardBody}>
+          <Text style={styles.hubCardTitle}>Giveaways</Text>
+          <Text style={styles.hubCardSub}>{giveaways.length > 0 ? `${giveaways.length} active` : 'No active giveaways'}</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+      </TouchableOpacity>
+
+      {/* Badge scan quick actions */}
+      <Text style={styles.hubSectionLabel}>QUICK ACTIONS</Text>
+      <BadgeScanPanel onScanPress={() => setScanMode('scanner')} />
     </ScrollView>
   );
 }
@@ -1728,5 +1746,18 @@ const styles = StyleSheet.create({
   },
   spEmptyText: { color: colors.textSecondary, fontSize: 13, fontWeight: '600' },
   spEmptySub: { color: colors.textMuted, fontSize: 11 },
+
+  // Hub section
+  hubSectionLabel: { color: colors.textMuted, fontSize: 10, fontWeight: '800', letterSpacing: 1.2, marginTop: spacing.lg, marginBottom: spacing.sm },
+  hubCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.bgCard, borderRadius: radius.xl, padding: spacing.lg, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.sm, gap: spacing.md },
+  hubCardIcon: { width: 46, height: 46, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  hubCardBody: { flex: 1 },
+  hubCardTitle: { color: colors.textPrimary, fontSize: 15, fontWeight: '700' },
+  hubCardSub: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+  hubLiveBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(239,68,68,0.12)', borderRadius: radius.full, paddingHorizontal: 8, paddingVertical: 3 },
+  hubLiveDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#ef4444' },
+  hubLiveText: { color: '#ef4444', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
+  hubBadge: { width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  hubBadgeText: { color: '#fff', fontSize: 11, fontWeight: '800' },
 
 });

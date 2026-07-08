@@ -1,6 +1,6 @@
 import { useAuthedQuery } from '@/hooks/useAuthedQuery';
 import { useEvent } from '@/context/EventContext';
-import { listAttendees, getLeaderboard } from '@/lib/api/users';
+import { listAttendees, getLeaderboard, listSpeakers } from '@/lib/api/users';
 
 export function useAudience(filters?: { tier?: string; search?: string }) {
   const { currentEventId } = useEvent();
@@ -19,5 +19,16 @@ export function useLeaderboard() {
     queryFn: getLeaderboard,
     select: (res) => res.data ?? [],
     enabled: !!currentEventId,
+  });
+}
+
+export function useSpeakers() {
+  const { currentEventId } = useEvent();
+  return useAuthedQuery({
+    queryKey: ['speakers', currentEventId],
+    queryFn: listSpeakers,
+    select: (res) => res.data ?? [],
+    enabled: !!currentEventId,
+    staleTime: 5 * 60 * 1000,
   });
 }
