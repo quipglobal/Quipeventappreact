@@ -602,7 +602,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
                   <p style={{ color: 'rgba(167,139,250,0.6)', fontSize: 11 }}>
                     Demo OTP: <span style={{ color: '#fbbf24', fontFamily: 'monospace', fontSize: 15, fontWeight: 700 }}>123456</span>
                   </p>
-                </div>
+                </div>*/}
               </div>
             )}
 
