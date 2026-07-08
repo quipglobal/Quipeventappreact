@@ -22,6 +22,7 @@ import {
   getEventSpeakersApi,
   type EventMember,
 } from "@/app/api/audienceClient";
+import { getCached, setCached } from "@/app/lib/pageCache";
 import type { Session, Speaker } from "@/app/types/config";
 
 interface HomePageProps {
@@ -80,9 +81,15 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   } = useApp();
   const { t, isDark } = useTheme();
 
-  const [sessions, setSessions] = useState<Session[]>([]);
+  const [sessions, setSessions] = useState<Session[]>(() => getCached<Session[]>('sessions', eventConfig.eventId ?? '') ?? []);
   const [, setLoadingSessions] = useState(false);
-  const [audienceSpeakers, setAudienceSpeakers] = useState<EventMember[]>([]);
+  const [audienceSpeakers, setAudienceSpeakers] = useState<EventMember[]>(() => {
+    // Prefer the home-page-specific cache; fall back to slicing the full preloaded set
+    const home = getCached<EventMember[]>('speakers:home', eventConfig.eventId ?? '');
+    if (home) return home;
+    const full = getCached<EventMember[]>('speakers', eventConfig.eventId ?? '');
+    return full ? full.slice(0, 24) : [];
+  });
 
   useEffect(() => {
     if (!eventConfig?.eventId) return;
@@ -90,7 +97,10 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
     setLoadingSessions(true);
     listSessionsApi(eventConfig.eventId)
       .then((res) => {
-        if (!cancelled && res.success && res.data) setSessions(res.data);
+        if (!cancelled && res.success && res.data) {
+          setSessions(res.data);
+          setCached('sessions', eventConfig.eventId, res.data);
+        }
       })
       .catch(() => {
         /* silent */
@@ -106,9 +116,10 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   // Pull the actual people in the event with the SPEAKER role so we can show
   // them on the home page even if the agenda doesn't link to user profiles.
   useEffect(() => {
-    // Reset on every event change so stale speakers from a previous event
-    // never linger and incorrectly suppress the agenda fallback.
-    setAudienceSpeakers([]);
+    // Only clear speakers when there is no cached data for this event to avoid a flash
+    const hasCached = getCached<EventMember[]>('speakers:home', eventConfig.eventId ?? '') !== null
+                   || getCached<EventMember[]>('speakers', eventConfig.eventId ?? '') !== null;
+    if (!hasCached) setAudienceSpeakers([]);
     if (!eventConfig?.eventId) return;
     const targetEventId = eventConfig.eventId;
     let cancelled = false;
@@ -117,7 +128,10 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         // Guard against stale async races if the user switched events
         // before this request resolved.
         if (cancelled || targetEventId !== eventConfig.eventId) return;
-        if (res.success && res.data) setAudienceSpeakers(res.data);
+        if (res.success && res.data) {
+          setAudienceSpeakers(res.data);
+          setCached('speakers:home', targetEventId, res.data);
+        }
       })
       .catch(() => {
         /* silent */

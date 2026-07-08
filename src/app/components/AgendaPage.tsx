@@ -4,6 +4,7 @@ import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import { Session } from '@/app/types/config';
 import { listSessionsApi } from '@/app/api/agendaClient';
+import { getCached, setCached } from '@/app/lib/pageCache';
 import { DataState } from '@/app/components/ui/DataState';
 
 function formatDayLabel(dateStr: string): string {
@@ -28,12 +29,16 @@ export const AgendaPage: React.FC = () => {
   const { bookmarkedSessions, toggleBookmark, eventConfig } = useApp();
   const { t } = useTheme();
 
-  const [sessions, setSessions]       = useState<Session[]>([]);
-  const [loading, setLoading]         = useState(true);
+  const [sessions, setSessions]       = useState<Session[]>(() => getCached<Session[]>('sessions', eventConfig.eventId ?? '') ?? []);
+  const [loading, setLoading]         = useState<boolean>(() => !getCached<Session[]>('sessions', eventConfig.eventId ?? ''));
   const [error, setError]             = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode]       = useState<'all' | 'bookmarked'>('all');
-  const [selectedDay, setSelectedDay] = useState<string>('');
+  const [selectedDay, setSelectedDay] = useState<string>(() => {
+    const c = getCached<Session[]>('sessions', eventConfig.eventId ?? '');
+    if (!c?.length) return '';
+    return (Array.from(new Set(c.map(s => s.date).filter(Boolean))).sort() as string[])[0] ?? '';
+  });
 
   const fetchSessions = useCallback(async () => {
     try {
@@ -41,8 +46,9 @@ export const AgendaPage: React.FC = () => {
       const res = await listSessionsApi(eventConfig.eventId);
       if (!res.success || !res.data) throw new Error(res.error?.message ?? 'Failed to load sessions');
       setSessions(res.data);
+      setCached('sessions', eventConfig.eventId, res.data);
       const dates = Array.from(new Set(res.data.map(s => s.date).filter(Boolean))).sort();
-      setSelectedDay(dates[0] ?? '');
+      setSelectedDay(prev => prev || (dates[0] ?? ''));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load sessions');
     } finally {
@@ -51,11 +57,14 @@ export const AgendaPage: React.FC = () => {
   }, [eventConfig.eventId]);
 
   useEffect(() => {
-    setLoading(true);
-    setSessions([]);
-    setSelectedDay('');
-    fetchSessions();
-  }, [fetchSessions]);
+    const hasCached = getCached<Session[]>('sessions', eventConfig.eventId ?? '') !== null;
+    if (!hasCached) {
+      setLoading(true);
+      setSessions([]);
+      setSelectedDay('');
+    }
+    void fetchSessions();
+  }, [fetchSessions]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const uniqueDays  = Array.from(new Set(sessions.map(s => s.date).filter(Boolean))).sort();
   const isMultiDay  = uniqueDays.length > 1;

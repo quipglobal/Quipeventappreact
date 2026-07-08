@@ -597,7 +597,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
                   </button>
                 </div>
 
-                {/* Demo hint */}
+                {/* Demo hint 
                 <div className="mt-6 px-4 py-3 rounded-xl text-center" style={{ background: 'rgba(124,58,237,0.08)', border: '1px solid rgba(124,58,237,0.2)' }}>
                   <p style={{ color: 'rgba(167,139,250,0.6)', fontSize: 11 }}>
                     Demo OTP: <span style={{ color: '#fbbf24', fontFamily: 'monospace', fontSize: 15, fontWeight: 700 }}>123456</span>

@@ -14,6 +14,7 @@ import {
   type Company,
   type CompanyRep,
 } from '@/app/api/companiesClient';
+import { getCached, setCached } from '@/app/lib/pageCache';
 import {
   submitSponsorReviewApi,
   getSponsorReviewsApi,
@@ -780,8 +781,8 @@ export const SponsorsListPage: React.FC<SponsorsListPageProps> = ({ onBack, vari
   const { eventConfig } = useApp();
   const { t, isDark } = useTheme();
 
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [companies, setCompanies] = useState<Company[]>(() => getCached<Company[]>('companies', eventConfig.eventId ?? '') ?? []);
+  const [loading, setLoading] = useState<boolean>(() => !getCached<Company[]>('companies', eventConfig.eventId ?? ''));
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Company | null>(null);
@@ -792,6 +793,7 @@ export const SponsorsListPage: React.FC<SponsorsListPageProps> = ({ onBack, vari
     const res = await getEventCompaniesApi(eventConfig.eventId);
     if (res.success && res.data) {
       setCompanies(res.data);
+      setCached('companies', eventConfig.eventId, res.data);
     } else {
       setError(res.error?.message ?? 'Failed to load companies');
     }
@@ -799,9 +801,10 @@ export const SponsorsListPage: React.FC<SponsorsListPageProps> = ({ onBack, vari
   }, [eventConfig?.eventId]);
 
   useEffect(() => {
-    setLoading(true);
-    fetchCompanies();
-  }, [fetchCompanies]);
+    const hasCached = getCached<Company[]>('companies', eventConfig.eventId ?? '') !== null;
+    if (!hasCached) setLoading(true);
+    void fetchCompanies();
+  }, [fetchCompanies]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const filtered = companies.filter(c =>
     !search || c.name.toLowerCase().includes(search.toLowerCase())

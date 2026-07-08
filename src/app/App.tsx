@@ -1,5 +1,6 @@
 import React, { useState, Component, ErrorInfo, ReactNode } from 'react';
 import { AppProvider, useApp } from '@/app/context/AppContext';
+import { usePreloader } from '@/app/hooks/usePreloader';
 import { ThemeProvider, useTheme } from '@/app/context/ThemeContext';
 import { SplashScreen } from '@/app/components/SplashScreen';
 import { WelcomeScreen } from '@/app/components/WelcomeScreen';
@@ -73,7 +74,8 @@ function AppContent() {
   const [screen, setScreen] = useState<Screen>('splash');
   const [activePage, setActivePage] = useState<Page>('home');
   const [moreOpen, setMoreOpen] = useState(false);
-  const { user, sessionRestored, hasJoinedEvent, connectionRequests, conversations } = useApp();
+  const { user, sessionRestored, hasJoinedEvent, connectionRequests, conversations, eventConfig } = useApp();
+  usePreloader(eventConfig?.eventId, hasJoinedEvent);
   const { t, isDark } = useTheme();
 
   React.useEffect(() => {

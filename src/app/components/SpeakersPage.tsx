@@ -3,6 +3,7 @@ import { Mic, Search, Loader2, AlertCircle, Building2, Linkedin } from 'lucide-r
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import { getEventSpeakersApi, getMemberDetailApi, type EventMember, type MemberDetail } from '@/app/api/audienceClient';
+import { getCached, setCached } from '@/app/lib/pageCache';
 
 function getInitials(name: string): string {
   return name.split(' ').filter(Boolean).slice(0, 2).map(n => n[0].toUpperCase()).join('');
@@ -51,8 +52,8 @@ export const SpeakersPage: React.FC = () => {
   const { eventConfig } = useApp();
   const { t, isDark } = useTheme();
 
-  const [speakers, setSpeakers] = useState<EventMember[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [speakers, setSpeakers] = useState<EventMember[]>(() => getCached<EventMember[]>('speakers', eventConfig.eventId ?? '') ?? []);
+  const [loading, setLoading] = useState<boolean>(() => !getCached<EventMember[]>('speakers', eventConfig.eventId ?? ''));
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<EventMember | null>(null);
@@ -63,13 +64,15 @@ export const SpeakersPage: React.FC = () => {
     if (!eventConfig?.eventId) return;
     const targetId = eventConfig.eventId;
     let cancelled = false;
-    setLoading(true);
+    const hasCached = getCached<EventMember[]>('speakers', targetId) !== null;
+    if (!hasCached) setLoading(true);
     setError(null);
     getEventSpeakersApi(targetId, 200)
       .then(res => {
         if (cancelled || targetId !== eventConfig.eventId) return;
         if (res.success && res.data) {
           setSpeakers(res.data);
+          setCached('speakers', targetId, res.data);
         } else {
           setError(res.error?.message ?? 'Could not load speakers.');
         }

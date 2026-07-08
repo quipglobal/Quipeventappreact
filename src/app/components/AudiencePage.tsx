@@ -10,6 +10,7 @@ import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { getEventMembersApi, getMemberDetailApi, getMeProfileApi, EventMember, MemberDetail } from '@/app/api/audienceClient';
+import { getCached, setCached } from '@/app/lib/pageCache';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -538,9 +539,12 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
   const { eventConfig, addPoints, sendConnectionRequest } = useApp();
   const { t, isDark } = useTheme();
 
-  const [members, setMembers] = useState<EventMember[]>([]);
-  const [checkedInIds, setCheckedInIds] = useState<Set<number>>(new Set());
-  const [loading, setLoading] = useState(true);
+  const [members, setMembers] = useState<EventMember[]>(() => getCached<EventMember[]>('members', eventConfig.eventId ?? '') ?? []);
+  const [checkedInIds, setCheckedInIds] = useState<Set<number>>(() => {
+    const c = getCached<EventMember[]>('members:checkedIn', eventConfig.eventId ?? '');
+    return c ? new Set(c.map(m => m.userId)) : new Set();
+  });
+  const [loading, setLoading] = useState<boolean>(() => !getCached<EventMember[]>('members', eventConfig.eventId ?? ''));
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
@@ -564,7 +568,8 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
 
   const fetchMembers = useCallback(async () => {
     if (!eventId) { setLoading(false); return; }
-    setLoading(true);
+    const hasCached = getCached<EventMember[]>('members', eventId) !== null;
+    if (!hasCached) setLoading(true);
     setError(null);
     // The list endpoint with checked_in_only=false returns ACTIVE registrations
     // even if the user hasn't physically checked in. Get the *true* checked-in
@@ -575,11 +580,13 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
     ]);
     if (listRes.success && listRes.data) {
       setMembers(listRes.data);
+      if (!checkedInOnly) setCached('members', eventId, listRes.data);
     } else {
       setError(listRes.error?.message ?? 'Failed to load audience');
     }
     if (checkedInRes.success && checkedInRes.data) {
       setCheckedInIds(new Set(checkedInRes.data.map(m => m.userId)));
+      setCached('members:checkedIn', eventId, checkedInRes.data);
     } else {
       setCheckedInIds(new Set());
     }
