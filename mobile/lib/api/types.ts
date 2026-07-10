@@ -134,6 +134,8 @@ export interface Poll {
   points: number;
   totalVotes: number;
   isLive: boolean;
+  /** Option ID the current user voted for, if returned by the backend. */
+  userVotedOptionId?: string;
 }
 
 export interface Survey {

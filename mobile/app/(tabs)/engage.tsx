@@ -568,7 +568,7 @@ function AttendeeEngage() {
           </View>
         )}
         {polls.map((poll) => {
-          const voted = pollVotes[poll.id] || (votedPolls.includes(poll.id) ? poll.options[0]?.id : null);
+          const voted = pollVotes[poll.id] || votedPolls[poll.id] || poll.userVotedOptionId || null;
           const totalVotes = poll.options.reduce((s, o) => s + o.votes, 0);
           return (
             <View key={poll.id} style={styles.pollCard}>
@@ -589,7 +589,7 @@ function AttendeeEngage() {
                       onPress={() => {
                         if (voted) return;
                         setPollVotes((p) => ({ ...p, [poll.id]: opt.id }));
-                        markPollVoted(poll.id);
+                        markPollVoted(poll.id, opt.id);
                         votePollMutation({ pollId: poll.id, optionId: opt.id });
                         showToast(`Vote cast! +${poll.points} pts`, poll.points);
                       }}

@@ -22,18 +22,18 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       retry: 2,
-      // staleTime: 0 (default) means data is considered stale the
-      // moment it lands. Combined with `useAuthedQuery`'s focus
-      // listener, this makes "navigate back to a screen" always pull
-      // the latest backend state without forcing the user to sign out
-      // and back in. Per-hook overrides still apply if a specific
-      // dataset truly is stable for longer.
-      staleTime: 0,
-      // Force a refetch every time a query consumer mounts. With
-      // staleTime: 0 above this is the same effect, but being
-      // explicit keeps the behaviour intentional even if a future
-      // edit raises staleTime.
-      refetchOnMount: 'always',
+      // 30-second stale window: data fetched within the last 30s is
+      // served from cache without a network round-trip. The
+      // useAuthedQuery focus listener still invalidates+refetches
+      // when the user navigates back to a screen after 30s, keeping
+      // the "always see fresh data" contract without hammering the
+      // API on every single tab tap.
+      staleTime: 30_000,
+      // true (default) = only refetch on mount when data is stale.
+      // 'always' would bypass staleTime and refetch unconditionally,
+      // which negated the 30s cache entirely. Per-hook overrides still
+      // apply (e.g. survey detail uses 5 min staleTime).
+      refetchOnMount: true,
       refetchOnReconnect: 'always',
     },
     mutations: { retry: 0 },

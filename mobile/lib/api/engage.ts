@@ -48,6 +48,10 @@ export async function listPolls(): Promise<ApiResponse<Poll[]>> {
       : p.active !== undefined ? Boolean(p.active)
       : CLOSED.includes(rawStatus) ? false
       : true;
+    const rawUserVote =
+      p.user_vote ?? p.voted_option_id ?? p.my_vote ?? p.user_answer ??
+      p.user_voted_option ?? p.selected_option_id ?? null;
+    const userVotedOptionId = rawUserVote != null ? String(rawUserVote) : undefined;
     return {
       id: String(p.id),
       question: p.question ?? p.title ?? '',
@@ -60,6 +64,7 @@ export async function listPolls(): Promise<ApiResponse<Poll[]>> {
         text: o.text ?? o.answer ?? o.label ?? '',
         votes: Number(o.votes ?? o.vote_count ?? 0),
       })),
+      ...(userVotedOptionId !== undefined ? { userVotedOptionId } : {}),
     };
   });
   return { success: true, data: polls };

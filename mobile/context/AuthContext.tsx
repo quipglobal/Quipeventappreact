@@ -19,13 +19,14 @@ interface AppContextValue {
   completeChallenge: (id: string) => void;
   bookmarkedSessions: string[];
   toggleBookmark: (id: string) => void;
-  votedPolls: string[];
-  markPollVoted: (id: string) => void;
+  /** Map of pollId → optionId the user voted for. Survives navigation within a session. */
+  votedPolls: Record<string, string>;
+  markPollVoted: (id: string, optionId: string) => void;
   completedSurveys: string[];
   markSurveyDone: (id: string) => void;
-  /** Event IDs for which the user has already received check-in points this session. */
+  /** Event IDs for which the user has already received check-in points. Persisted across app restarts. */
   checkedInEvents: string[];
-  /** Award check-in points once per event per session. No-op if already checked in. */
+  /** Award check-in points once per event, ever. No-op if already checked in. */
   markEventCheckedIn: (eventId: string) => void;
   addPoints: (pts: number, reason: string) => void;
   toast: { message: string; points?: number } | null;
@@ -42,6 +43,7 @@ export function useAuth(): AppContextValue {
 
 const TOKEN_KEY = 'cxo_auth_token';
 const CACHED_USER_KEY = 'cxo_cached_user';
+const CHECKED_IN_EVENTS_KEY = 'cxo_checked_in_events';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
@@ -66,7 +68,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isOffline, setIsOffline] = useState(false);
   const [completedChallenges, setCompletedChallenges] = useState<string[]>([]);
   const [bookmarkedSessions, setBookmarkedSessions] = useState<string[]>([]);
-  const [votedPolls, setVotedPolls] = useState<string[]>([]);
+  const [votedPolls, setVotedPolls] = useState<Record<string, string>>({});
   const [completedSurveys, setCompletedSurveys] = useState<string[]>([]);
   const [checkedInEvents, setCheckedInEvents] = useState<string[]>([]);
   const [toast, setToast] = useState<{ message: string; points?: number } | null>(null);
@@ -89,7 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUserState(null);
       setCompletedChallenges([]);
       setBookmarkedSessions([]);
-      setVotedPolls([]);
+      setVotedPolls({});
       setCompletedSurveys([]);
       setCheckedInEvents([]);
       AsyncStorage.multiRemove([TOKEN_KEY, CACHED_USER_KEY]).catch(() => {});
@@ -100,6 +102,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function restoreSession() {
     try {
+      // Restore persisted check-in events so the user never gets duplicate
+      // join-points if they close and reopen the app.
+      const storedCheckedIn = await AsyncStorage.getItem(CHECKED_IN_EVENTS_KEY);
+      if (storedCheckedIn) {
+        try { setCheckedInEvents(JSON.parse(storedCheckedIn)); } catch {}
+      }
+
       const storedToken = await AsyncStorage.getItem(TOKEN_KEY);
       if (!storedToken) {
         setIsLoading(false);
@@ -186,9 +195,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUserState(null);
     setCompletedChallenges([]);
     setBookmarkedSessions([]);
-    setVotedPolls([]);
+    setVotedPolls({});
     setCompletedSurveys([]);
     setCheckedInEvents([]);
+    // Note: intentionally keep CHECKED_IN_EVENTS_KEY on logout so the
+    // same user logging back in doesn't get duplicate check-in points.
   }, []);
 
   const setUser = useCallback((u: AuthUser) => {
@@ -248,11 +259,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     );
   }, []);
 
-  const markPollVoted = useCallback((id: string) => {
+  const markPollVoted = useCallback((id: string, optionId: string) => {
     setVotedPolls((prev) => {
-      if (prev.includes(id)) return prev;
+      if (prev[id] !== undefined) return prev; // already voted, no duplicate points
       addPoints(10, 'Poll voted!');
-      return [...prev, id];
+      return { ...prev, [id]: optionId };
     });
   }, [addPoints]);
 
@@ -268,7 +279,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setCheckedInEvents((prev) => {
       if (prev.includes(eventId)) return prev;
       addPoints(50, 'Event check-in! Welcome!');
-      return [...prev, eventId];
+      const next = [...prev, eventId];
+      // Persist so app restarts don't re-award the same check-in points.
+      AsyncStorage.setItem(CHECKED_IN_EVENTS_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
     });
   }, [addPoints]);
 

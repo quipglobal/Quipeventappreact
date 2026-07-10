@@ -2,6 +2,46 @@ import { request } from '@/lib/apiClient';
 import { getEventId } from '@/lib/eventStore';
 import type { ApiResponse, Event, Session } from '@/lib/api/types';
 
+/**
+ * Format a raw backend time value to a human-readable "h:mm AM/PM" string.
+ *
+ * The backend may send:
+ *   - Full ISO datetime  → "2026-01-16T09:30:00Z" (parse + local tz)
+ *   - Bare time string   → "09:30:00" or "14:30" (treat as event-local, just reformat)
+ *   - Already formatted  → "9:30 AM" (pass through)
+ */
+function formatSessionTime(raw: string): string {
+  if (!raw) return '';
+  // Full ISO datetime — convert to device local time
+  if (raw.includes('T') || (raw.endsWith('Z') && raw.length > 8)) {
+    try {
+      const d = new Date(raw);
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+        });
+      }
+    } catch {}
+  }
+  // Bare HH:mm:ss or HH:mm — assume event-local time, just reformat
+  const parts = raw.split(':');
+  if (parts.length >= 2) {
+    try {
+      const h = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10);
+      if (!isNaN(h) && !isNaN(m) && h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+        const period = h >= 12 ? 'PM' : 'AM';
+        const h12 = h % 12 || 12;
+        return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+      }
+    } catch {}
+  }
+  // Already a readable string — pass through
+  return raw;
+}
+
 function normalizeSession(raw: any): Session {
   const rawAud =
     (Array.isArray(raw.assigned_audience) && raw.assigned_audience) ||
@@ -40,8 +80,8 @@ function normalizeSession(raw: any): Session {
     track: raw.track ?? raw.category ?? '',
     room: raw.room ?? raw.location ?? raw.venue ?? '',
     day: Number(raw.day ?? raw.day_number ?? 1),
-    startTime: raw.start_time ?? raw.startTime ?? '',
-    endTime: raw.end_time ?? raw.endTime ?? '',
+    startTime: formatSessionTime(raw.start_time ?? raw.startTime ?? ''),
+    endTime: formatSessionTime(raw.end_time ?? raw.endTime ?? ''),
     accentColor: raw.accent_color ?? raw.accentColor ?? '#7c3aed',
     description: raw.description ?? '',
     tags: Array.isArray(raw.tags) ? raw.tags : [],

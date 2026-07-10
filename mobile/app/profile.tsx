@@ -18,13 +18,6 @@ import { useAuth } from '@/context/AuthContext';
 import { useUserPoints } from '@/hooks/useEvents';
 import { colors, spacing, radius } from '@/constants/theme';
 
-const TIER_COLORS: Record<string, string> = {
-  Bronze: '#cd7f32',
-  Silver: '#c0c0c0',
-  Gold: '#ffd700',
-  Platinum: '#e5e4e2',
-};
-
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { user, logout, bookmarkedSessions, completedChallenges, votedPolls } = useAuth();
@@ -33,8 +26,6 @@ export default function ProfileScreen() {
 
   const { data: pointsData } = useUserPoints();
   const livePoints = pointsData?.points ?? user?.points ?? 0;
-  const liveTier = pointsData?.tier ?? user?.tier ?? 'Bronze';
-  const tierColor = TIER_COLORS[liveTier] ?? colors.primary;
   const qrData = JSON.stringify({ id: user?.id, name: user?.name, event: 'cxo-summit-2026' });
 
   const handleLogout = () => {
@@ -61,7 +52,7 @@ export default function ProfileScreen() {
       </View>
 
       <LinearGradient colors={['#1a0d2e', '#0d1a2e']} style={styles.profileCard}>
-        <View style={[styles.avatarRing, { borderColor: tierColor }]}>
+        <View style={[styles.avatarRing, { borderColor: colors.primary }]}>
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>{user?.name?.[0] ?? '?'}</Text>
           </View>
@@ -94,15 +85,11 @@ export default function ProfileScreen() {
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
-            <Text style={styles.statValue}>{votedPolls.length}</Text>
+            <Text style={styles.statValue}>{Object.keys(votedPolls).length}</Text>
             <Text style={styles.statLabel}>Polls</Text>
           </View>
         </View>
 
-        <View style={[styles.tierPill, { borderColor: tierColor + '44', backgroundColor: tierColor + '15' }]}>
-          <View style={[styles.tierDot, { backgroundColor: tierColor }]} />
-          <Text style={[styles.tierText, { color: tierColor }]}>{liveTier} Tier</Text>
-        </View>
       </LinearGradient>
 
       <Text style={styles.sectionTitle}>My Badge</Text>
