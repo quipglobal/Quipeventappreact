@@ -10,7 +10,7 @@ const PORT = process.env.PORT || 5000;
 
 const BACKEND =
   process.env.VITE_API_BASE_URL ||
-  'https://bef44c34-7df5-4c09-93a2-5684b5888527-00-3s6pvdiz19h8o.spock.replit.dev';
+  'https://app.cxocollaborate.com';
 
 const backendUrl = new URL(BACKEND);
 
