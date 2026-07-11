@@ -39,17 +39,48 @@ export interface BookmarkResponse {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function formatTime(iso: string): string {
-  if (!iso) return '';
+/**
+ * Format a backend time value → "h:mm AM/PM" for display.
+ *
+ * Three cases the backend may send:
+ *  1. Bare time string "HH:mm:ss" or "HH:mm"  → reformat directly (no tz conversion)
+ *  2. ISO datetime WITHOUT tz offset "2026-05-15T08:30:00" → extract time component
+ *     directly from the string. Do NOT use new Date() here: JS treats no-offset
+ *     ISO strings as LOCAL time, so running toLocaleTimeString with timeZone:'UTC'
+ *     would shift the value by the device's UTC offset (e.g. IST → -5:30 hrs).
+ *  3. ISO datetime WITH explicit UTC offset "…T08:30:00Z" or "…+05:30" → parse
+ *     and display in device local time so the user sees their own clock's equivalent.
+ */
+function formatTime(raw: string): string {
+  if (!raw) return '';
   try {
-    return new Date(iso).toLocaleTimeString('en-US', {
+    const hasT = raw.includes('T');
+
+    // Case 1 & 2: no timezone indicator — extract HH:mm directly from the string.
+    // This preserves the intended event-local time regardless of the device timezone.
+    if (!hasT || (hasT && !raw.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(raw))) {
+      // Find the HH:mm portion: after 'T' for ISO strings, or the whole string for bare times.
+      const timePart = hasT ? raw.split('T')[1] : raw;
+      const parts = timePart.split(':');
+      if (parts.length >= 2) {
+        const h = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10);
+        if (!isNaN(h) && !isNaN(m) && h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+          const period = h >= 12 ? 'PM' : 'AM';
+          const h12 = h % 12 || 12;
+          return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+        }
+      }
+    }
+
+    // Case 3: explicit UTC offset present — convert to device local time.
+    return new Date(raw).toLocaleTimeString('en-US', {
       hour: 'numeric',
       minute: '2-digit',
       hour12: true,
-      timeZone: 'UTC',
     });
   } catch {
-    return iso;
+    return raw;
   }
 }
 

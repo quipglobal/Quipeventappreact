@@ -5,40 +5,53 @@ import type { ApiResponse, Event, Session } from '@/lib/api/types';
 /**
  * Format a raw backend time value to a human-readable "h:mm AM/PM" string.
  *
- * The backend may send:
- *   - Full ISO datetime  → "2026-01-16T09:30:00Z" (parse + local tz)
- *   - Bare time string   → "09:30:00" or "14:30" (treat as event-local, just reformat)
- *   - Already formatted  → "9:30 AM" (pass through)
+ * Three cases the backend may send:
+ *  1. Bare time "HH:mm:ss" / "HH:mm"            → reformat directly (no tz conversion)
+ *  2. ISO without tz offset "2026-05-15T08:30:00" → extract HH:mm from the string.
+ *     IMPORTANT: do NOT use new Date() here. On Hermes (React Native) AND on
+ *     most strict ECMAScript implementations, no-offset ISO date-time strings are
+ *     treated as UTC — so new Date("…T08:30:00") gives 8:30 AM UTC, and
+ *     toLocaleTimeString() then shifts it to device-local time, producing the
+ *     wrong displayed value (e.g. "2:30 AM" instead of "8:30 AM" for an IST device).
+ *  3. ISO WITH explicit UTC offset "…T08:30:00Z" or "…+05:30" → parse with Date
+ *     and convert to device local time — the UTC moment is well-defined here.
  */
 function formatSessionTime(raw: string): string {
   if (!raw) return '';
-  // Full ISO datetime — convert to device local time
-  if (raw.includes('T') || (raw.endsWith('Z') && raw.length > 8)) {
-    try {
-      const d = new Date(raw);
-      if (!isNaN(d.getTime())) {
-        return d.toLocaleTimeString('en-US', {
-          hour: 'numeric',
-          minute: '2-digit',
-          hour12: true,
-        });
-      }
-    } catch {}
+
+  const hasT = raw.includes('T');
+  const hasExplicitOffset = raw.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(raw);
+
+  // Cases 1 & 2: no explicit timezone → extract HH:mm directly from the string.
+  if (!hasExplicitOffset) {
+    const timePart = hasT ? raw.split('T')[1] : raw;
+    const parts = timePart.split(':');
+    if (parts.length >= 2) {
+      try {
+        const h = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10);
+        if (!isNaN(h) && !isNaN(m) && h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+          const period = h >= 12 ? 'PM' : 'AM';
+          const h12 = h % 12 || 12;
+          return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+        }
+      } catch {}
+    }
+    return raw; // unrecognised format — pass through
   }
-  // Bare HH:mm:ss or HH:mm — assume event-local time, just reformat
-  const parts = raw.split(':');
-  if (parts.length >= 2) {
-    try {
-      const h = parseInt(parts[0], 10);
-      const m = parseInt(parts[1], 10);
-      if (!isNaN(h) && !isNaN(m) && h >= 0 && h <= 23 && m >= 0 && m <= 59) {
-        const period = h >= 12 ? 'PM' : 'AM';
-        const h12 = h % 12 || 12;
-        return `${h12}:${String(m).padStart(2, '0')} ${period}`;
-      }
-    } catch {}
-  }
-  // Already a readable string — pass through
+
+  // Case 3: explicit UTC offset — convert to device local time.
+  try {
+    const d = new Date(raw);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      });
+    }
+  } catch {}
+
   return raw;
 }
 
