@@ -251,6 +251,11 @@
   animation: pulse-glow 2s ease-in-out infinite;
 }
 
+@keyframes scanLine {
+  0%   { top: 0%; }
+  100% { top: 100%; }
+}
+
 /* Glassmorphism utility */
 .glass {
   background: rgba(255, 255, 255, 0.7);
