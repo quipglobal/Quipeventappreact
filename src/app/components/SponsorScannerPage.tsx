@@ -78,12 +78,37 @@ export const SponsorScannerPage: React.FC = () => {
     const trimmed = code.trim();
     if (!trimmed) return;
 
+    // The badge QR encodes either a plain badge code string (legacy) or a
+    // structured JSON payload per BACKEND_SCAN_ENDPOINTS.md §QR format:
+    //   { "id": "<userId>", "badge_code": "<code>", "event": "<eventCode>" }
+    // Extract badge_code from JSON when present; fall back to the raw string.
+    let badgeCode = trimmed;
+    let scannedUserId: string | undefined;
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const p = parsed as Record<string, unknown>;
+        if (typeof p.badge_code === 'string' && p.badge_code.trim()) {
+          badgeCode = p.badge_code.trim();
+        } else if (typeof p.code === 'string' && p.code.trim()) {
+          badgeCode = p.code.trim();
+        }
+        if (typeof p.id === 'string') scannedUserId = p.id;
+      }
+    } catch {
+      // Not JSON — raw string is already the badge code.
+    }
+    if (!badgeCode) return;
+
     setResolving(true);
     try {
       // 1. Backend-first resolution. The scan endpoint resolves the attendee
       //    profile, may auto check-in the attendee, and returns the lead row
       //    that the backend created for this scan.
-      const scan = await scanBadgeLead(eventId, { code: trimmed });
+      const scan = await scanBadgeLead(eventId, {
+        code: badgeCode,
+        ...(scannedUserId ? { scanned_user_id: scannedUserId } : {}),
+      } as Parameters<typeof scanBadgeLead>[1]);
 
       // Treat the scan as resolved only when the server actually returned a
       // recognizable attendee. A successful HTTP shape with no canonical
@@ -100,11 +125,11 @@ export const SponsorScannerPage: React.FC = () => {
       if (resolvedByBackend && scan.data) {
         const d = scan.data;
         const attendee: ScannedAttendee = {
-          code: d.code || trimmed,
+          code: d.code || badgeCode,
           name: d.name || 'Unknown Attendee',
           title: d.title || '',
           company: d.company || '',
-          avatar: d.avatar || avatarFor(d.name || trimmed, '6366f1'),
+          avatar: d.avatar || avatarFor(d.name || badgeCode, '6366f1'),
           memberId: d.memberId,
           leadId: d.id,
           isCheckedIn: d.checkedIn === true ? true : undefined,
@@ -179,7 +204,7 @@ export const SponsorScannerPage: React.FC = () => {
 
       // 2. Backend could not resolve the code — fall back to the audience
       //    members list and (if found) call the check-in endpoint directly.
-      const member = await findMemberByBadgeCodeApi(eventId, trimmed);
+      const member = await findMemberByBadgeCodeApi(eventId, badgeCode);
       if (member) {
         const attendee = attendeeFromMember(member);
         setScannedData(attendee);
@@ -195,11 +220,11 @@ export const SponsorScannerPage: React.FC = () => {
         // 3. Truly unknown code — keep the form alive so a sponsor can still
         //    capture notes; lead will be created on Save.
         setScannedData({
-          code: trimmed,
+          code: badgeCode,
           name: 'Unknown Attendee',
           title: 'Event Attendee',
           company: '',
-          avatar: avatarFor(trimmed),
+          avatar: avatarFor(badgeCode),
           unrecognized: true,
         });
       }

@@ -94,12 +94,18 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({
   return (
     <div className="w-full max-w-xs aspect-square rounded-3xl border-2 relative overflow-hidden mb-8"
       style={{ borderColor: 'rgba(255,255,255,0.15)', background: '#000' }}>
+      {/* autoPlay is required — without it mobile browsers attach the
+          camera stream but never start playback, producing a black frame.
+          Visibility is controlled via opacity (not display:none) so the
+          element always has layout dimensions; display:none collapses the
+          video to 0×0 which prevents qr-scanner from rendering frames. */}
       <video
         ref={videoRef}
         className="absolute inset-0 w-full h-full object-cover"
         playsInline
+        autoPlay
         muted
-        style={{ display: state === 'streaming' ? 'block' : 'none' }}
+        style={{ opacity: state === 'streaming' ? 1 : 0 }}
       />
 
       {state === 'requesting' && (
