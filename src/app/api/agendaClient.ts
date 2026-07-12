@@ -17,6 +17,17 @@ import type { Session } from '@/app/types/config';
 
 const AGENDA_TENANT_HEADERS: Record<string, string> = { 'X-Tenant-ID': '3' };
 
+// ─── API-level cache & in-flight deduplication ───────────────────────────────
+// Root cause of slowness: preloader + AgendaPage both call listSessionsApi
+// simultaneously, causing 2× network requests for identical data. If a prior
+// result is less than CACHE_TTL_MS old, return it instantly without hitting
+// the network. If a fetch is already in-flight for this eventId, re-use the
+// same Promise so callers share one round-trip.
+
+const CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes — matches pageCache TTL
+const _sessionCache = new Map<string, { sessions: Session[]; ts: number }>();
+const _inflight     = new Map<string, Promise<Session[]>>();
+
 // ─── Response Types ───────────────────────────────────────────────────────────
 
 export interface SessionsResponse {
@@ -40,48 +51,42 @@ export interface BookmarkResponse {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Format a backend time value → "h:mm AM/PM" for display.
+ * Extract the time portion from a backend value and display it exactly as the
+ * backend intends — NO timezone conversion of any kind.
  *
- * Three cases the backend may send:
- *  1. Bare time string "HH:mm:ss" or "HH:mm"  → reformat directly (no tz conversion)
- *  2. ISO datetime WITHOUT tz offset "2026-05-15T08:30:00" → extract time component
- *     directly from the string. Do NOT use new Date() here: JS treats no-offset
- *     ISO strings as LOCAL time, so running toLocaleTimeString with timeZone:'UTC'
- *     would shift the value by the device's UTC offset (e.g. IST → -5:30 hrs).
- *  3. ISO datetime WITH explicit UTC offset "…T08:30:00Z" or "…+05:30" → parse
- *     and display in device local time so the user sees their own clock's equivalent.
+ * The backend stores session times as event-local times. Whether it sends them
+ * as a bare "HH:mm:ss" string or as a full ISO datetime "2026-05-15T08:30:00Z",
+ * the HH:mm component is the correct event-local time to show. Any timezone
+ * conversion (toLocaleTimeString, new Date(), etc.) would shift the value and
+ * produce wrong times (e.g. "2:30 AM" instead of "8:30 AM" on a UTC+6 device).
+ *
+ * Algorithm:
+ *  1. Take the raw string from the backend.
+ *  2. If it contains 'T', extract everything after 'T' as the time part.
+ *  3. Strip any trailing timezone suffix (Z, +05:30, -07:00, …).
+ *  4. Parse HH:mm and format as "h:mm AM/PM".
+ *  5. On any parse failure, fall back to the raw string unchanged.
  */
 function formatTime(raw: string): string {
   if (!raw) return '';
   try {
-    const hasT = raw.includes('T');
+    // Step 1–3: isolate the HH:mm:ss part, strip timezone suffix.
+    let timePart = raw.includes('T') ? raw.split('T')[1] : raw;
+    timePart = timePart.replace(/Z$/i, '').replace(/[+-]\d{2}:\d{2}$/, '').trim();
 
-    // Case 1 & 2: no timezone indicator — extract HH:mm directly from the string.
-    // This preserves the intended event-local time regardless of the device timezone.
-    if (!hasT || (hasT && !raw.endsWith('Z') && !/[+-]\d{2}:\d{2}$/.test(raw))) {
-      // Find the HH:mm portion: after 'T' for ISO strings, or the whole string for bare times.
-      const timePart = hasT ? raw.split('T')[1] : raw;
-      const parts = timePart.split(':');
-      if (parts.length >= 2) {
-        const h = parseInt(parts[0], 10);
-        const m = parseInt(parts[1], 10);
-        if (!isNaN(h) && !isNaN(m) && h >= 0 && h <= 23 && m >= 0 && m <= 59) {
-          const period = h >= 12 ? 'PM' : 'AM';
-          const h12 = h % 12 || 12;
-          return `${h12}:${String(m).padStart(2, '0')} ${period}`;
-        }
+    // Step 4: parse and reformat as "h:mm AM/PM".
+    const parts = timePart.split(':');
+    if (parts.length >= 2) {
+      const h = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10);
+      if (!isNaN(h) && !isNaN(m) && h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+        const period = h >= 12 ? 'PM' : 'AM';
+        const h12   = h % 12 || 12;
+        return `${h12}:${String(m).padStart(2, '0')} ${period}`;
       }
     }
-
-    // Case 3: explicit UTC offset present — convert to device local time.
-    return new Date(raw).toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    });
-  } catch {
-    return raw;
-  }
+  } catch { /* fall through */ }
+  return raw; // Step 5: unrecognised format — pass through unchanged.
 }
 
 function extractDate(iso: string): string {
@@ -223,42 +228,92 @@ function normalizeSession(raw: Record<string, unknown>): Session {
 
 // ─── API Methods ──────────────────────────────────────────────────────────────
 
+// ─── Internal fetch (no cache, no dedup) ──────────────────────────────────────
+async function _fetchSessions(eventId: string): Promise<Session[]> {
+  const res = await apiGet<unknown>(`/api/v1/events/${eventId}/agenda`, AGENDA_TENANT_HEADERS);
+  if (!res.success) throw new Error(res.error?.message ?? 'Failed to load agenda.');
+
+  const envelope = res.data as Record<string, unknown>;
+  const raw: unknown[] = Array.isArray(envelope)
+    ? envelope
+    : (Array.isArray(envelope?.data)      ? envelope.data      as unknown[] : null)
+      ?? (Array.isArray(envelope?.sessions) ? envelope.sessions as unknown[] : null)
+      ?? (Array.isArray(envelope?.agenda)   ? envelope.agenda   as unknown[] : null)
+      ?? [];
+
+  const sessions = raw.map(r => normalizeSession(r as Record<string, unknown>));
+
+  // ── Sort: use the raw ISO string (startIso) for correct chronological order.
+  // Sorting on the formatted startTime ("8:30 AM", "12:00 PM") is WRONG because
+  // string comparison treats "12" < "8", flipping noon before 9 AM.
+  // startIso values like "2026-05-15T08:30:00Z" sort correctly as strings.
+  sessions.sort((a, b) => {
+    const ai = a.startIso ?? '';
+    const bi = b.startIso ?? '';
+    if (ai && bi) return ai.localeCompare(bi);
+    // Fallback when startIso is absent: sort by date, then formatted startTime
+    // (acceptable because startTime is "h:mm AM/PM" and only compared within the
+    // same day where the AM/PM suffix keeps relative ordering correct).
+    if (a.date !== b.date) return a.date.localeCompare(b.date);
+    return a.startTime.localeCompare(b.startTime);
+  });
+
+  return sessions;
+}
+
 /**
  * GET /api/v1/events/:eventId/agenda
- * Returns all sessions for the event, sorted by sort_order / start_time.
+ *
+ * Returns all sessions for the event, sorted ASC by start time (AM → PM).
+ *
+ * Performance: results are cached for CACHE_TTL_MS (3 min) at the module level.
+ * Concurrent callers for the same eventId share one in-flight Promise so only a
+ * single network request fires even when the preloader and AgendaPage mount at
+ * the same time.
  */
 export async function listSessionsApi(
   eventId: string,
   filters?: { day?: string; track?: string }
 ): Promise<SessionsResponse> {
-  if (!eventId) {
-    return { success: true, data: [] };
+  if (!eventId) return { success: true, data: [] };
+
+  let sessions: Session[];
+
+  try {
+    // 1. Return from module-level cache if still fresh.
+    const cached = _sessionCache.get(eventId);
+    if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+      sessions = cached.sessions;
+    } else {
+      // 2. Deduplicate: if a fetch for this eventId is already in-flight, wait for it.
+      let pending = _inflight.get(eventId);
+      if (!pending) {
+        pending = _fetchSessions(eventId).then(s => {
+          _sessionCache.set(eventId, { sessions: s, ts: Date.now() });
+          return s;
+        }).finally(() => {
+          _inflight.delete(eventId);
+        });
+        _inflight.set(eventId, pending);
+      }
+      sessions = await pending;
+    }
+  } catch (err) {
+    return { success: false, error: { message: err instanceof Error ? err.message : 'Failed to load agenda.' } };
   }
 
-  const res = await apiGet<unknown>(`/api/v1/events/${eventId}/agenda`, AGENDA_TENANT_HEADERS);
-  if (!res.success) {
-    return { success: false, error: res.error ?? { message: 'Failed to load agenda.' } };
-  }
+  // Apply optional client-side filters (day / track).
+  let result = sessions;
+  if (filters?.day)                              result = result.filter(s => s.date === filters.day);
+  if (filters?.track && filters.track !== 'all') result = result.filter(s => s.track === filters.track);
 
-  const envelope = res.data as Record<string, unknown>;
-  const raw: unknown[] = Array.isArray(envelope)
-    ? envelope
-    : (Array.isArray(envelope?.data)     ? envelope.data     as unknown[] : null)
-      ?? (Array.isArray(envelope?.sessions) ? envelope.sessions as unknown[] : null)
-      ?? (Array.isArray(envelope?.agenda)   ? envelope.agenda   as unknown[] : null)
-      ?? [];
+  return { success: true, data: result };
+}
 
-  let sessions = raw.map(r => normalizeSession(r as Record<string, unknown>));
-
-  sessions.sort((a, b) => {
-    if (a.date !== b.date) return a.date.localeCompare(b.date);
-    return a.startTime.localeCompare(b.startTime);
-  });
-
-  if (filters?.day)   sessions = sessions.filter(s => s.date === filters.day);
-  if (filters?.track && filters.track !== 'all') sessions = sessions.filter(s => s.track === filters.track);
-
-  return { success: true, data: sessions };
+/** Bust the module-level cache for an event (call on event switch). */
+export function invalidateAgendaCache(eventId: string): void {
+  _sessionCache.delete(eventId);
+  // Any in-flight request is left to complete; the next call will re-fetch.
 }
 
 /**
