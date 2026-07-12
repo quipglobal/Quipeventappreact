@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, radius } from '@/constants/theme';
 
 type Mode = 'scan' | 'manual';
+type CameraState = 'loading' | 'ready' | 'error';
 
 interface Props {
   onCodeDetected: (code: string) => void;
@@ -22,13 +23,10 @@ interface Props {
 function extractBadgeCode(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed) return '';
-  // QR may encode either a plain badge code or a JSON envelope created by the
-  // mobile My Badge screen: {id, name, badge, role}. Prefer the embedded
-  // badge code when present, fall back to the id, otherwise use the raw value.
   if (trimmed.startsWith('{')) {
     try {
       const obj = JSON.parse(trimmed);
-      const candidate = obj?.badge ?? obj?.badgeCode ?? obj?.code ?? obj?.id;
+      const candidate = obj?.badge ?? obj?.badgeCode ?? obj?.badge_code ?? obj?.code ?? obj?.id;
       if (candidate && typeof candidate === 'string') return candidate.trim();
     } catch {
       // not JSON — fall through
@@ -42,31 +40,50 @@ export function BadgeCameraScanner({ onCodeDetected, busy }: Props) {
   const [mode, setMode] = useState<Mode>('scan');
   const [manualCode, setManualCode] = useState('');
   const [torchOn, setTorchOn] = useState(false);
+  const [cameraState, setCameraState] = useState<CameraState>('loading');
+  const [cameraKey, setCameraKey] = useState(0);
   const lockedRef = useRef(false);
+  const readyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Torch is a hardware feature only available on native platforms via
-  // expo-camera. Hide the toggle on web where it isn't supported.
   const torchSupported = Platform.OS !== 'web';
 
-  // Reset torch when leaving scan mode (manual entry / permission denied) so
-  // it never lingers on after the camera is hidden. Unmount is handled by
-  // CameraView itself — tearing down the view releases the torch.
   useEffect(() => {
     if (mode !== 'scan') setTorchOn(false);
   }, [mode]);
 
-  // Reset the one-shot lock whenever the parent finishes processing a scan
-  // so the next QR can be detected.
   useEffect(() => {
     if (!busy) lockedRef.current = false;
   }, [busy]);
 
-  // Auto-prompt for permission once on first mount in scan mode.
   useEffect(() => {
     if (mode === 'scan' && permission && !permission.granted && permission.canAskAgain) {
       requestPermission();
     }
   }, [mode, permission, requestPermission]);
+
+  // Start a 5-second timeout each time the CameraView mounts (permission
+  // granted or after a retry). If onCameraReady doesn't fire in time we
+  // flip to 'error' so the user can tap Retry instead of staring at white.
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    if (mode !== 'scan' || !permission?.granted) return;
+    setCameraState('loading');
+    readyTimeoutRef.current = setTimeout(() => {
+      setCameraState((prev) => (prev === 'loading' ? 'error' : prev));
+    }, 5000);
+    return () => {
+      if (readyTimeoutRef.current) clearTimeout(readyTimeoutRef.current);
+    };
+  }, [mode, permission?.granted, cameraKey]);
+
+  const handleCameraReady = () => {
+    if (readyTimeoutRef.current) clearTimeout(readyTimeoutRef.current);
+    setCameraState('ready');
+  };
+
+  const handleRetry = () => {
+    setCameraKey((k) => k + 1);
+  };
 
   const handleBarcodeScanned = ({ data }: { data: string }) => {
     if (lockedRef.current || busy) return;
@@ -82,6 +99,28 @@ export function BadgeCameraScanner({ onCodeDetected, busy }: Props) {
     onCodeDetected(code.toUpperCase());
   };
 
+  // ── Web: CameraView is native-only ──────────────────────────────────────
+  // In the Expo web preview the camera stream cannot be accessed. Offer
+  // manual entry immediately rather than a silent white/blank view.
+  if (Platform.OS === 'web' && mode === 'scan') {
+    return (
+      <View style={styles.frame}>
+        <View style={styles.statePanel}>
+          <Ionicons name="phone-portrait-outline" size={42} color={colors.textMuted} />
+          <Text style={styles.stateTitle}>Camera requires the mobile app</Text>
+          <Text style={styles.stateSub}>
+            Open this app on your iOS or Android device to scan badges with the camera.
+          </Text>
+          <TouchableOpacity style={styles.primaryBtn} onPress={() => setMode('manual')}>
+            <Ionicons name="keypad-outline" size={14} color="#fff" />
+            <Text style={styles.primaryBtnText}>Enter Code Manually</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  // ── Manual entry ────────────────────────────────────────────────────────
   if (mode === 'manual') {
     return (
       <View style={styles.frame}>
@@ -122,7 +161,7 @@ export function BadgeCameraScanner({ onCodeDetected, busy }: Props) {
     );
   }
 
-  // Permission still loading
+  // ── Permission loading ──────────────────────────────────────────────────
   if (!permission) {
     return (
       <View style={styles.frame}>
@@ -134,6 +173,7 @@ export function BadgeCameraScanner({ onCodeDetected, busy }: Props) {
     );
   }
 
+  // ── Permission denied ───────────────────────────────────────────────────
   if (!permission.granted) {
     return (
       <View style={styles.frame}>
@@ -143,7 +183,7 @@ export function BadgeCameraScanner({ onCodeDetected, busy }: Props) {
           <Text style={styles.stateSub}>
             {permission.canAskAgain
               ? 'Allow camera access to scan attendee badge QR codes.'
-              : `Enable camera access for CXO Events in ${Platform.OS === 'ios' ? 'Settings → Privacy → Camera' : 'Settings → Apps → CXO Events → Permissions'} to scan badges.`}
+              : `Enable camera access in ${Platform.OS === 'ios' ? 'Settings → Privacy → Camera' : 'Settings → Apps → CXO Events → Permissions'}.`}
           </Text>
           <View style={styles.btnRow}>
             {permission.canAskAgain && (
@@ -161,42 +201,85 @@ export function BadgeCameraScanner({ onCodeDetected, busy }: Props) {
     );
   }
 
+  // ── Camera failed to start ──────────────────────────────────────────────
+  if (cameraState === 'error') {
+    return (
+      <View style={styles.frame}>
+        <View style={styles.statePanel}>
+          <Ionicons name="camera-outline" size={36} color="#f59e0b" />
+          <Text style={styles.stateTitle}>Camera didn&apos;t start</Text>
+          <Text style={styles.stateSub}>
+            The camera session failed to initialize. Tap Retry or enter the code manually.
+          </Text>
+          <View style={styles.btnRow}>
+            <TouchableOpacity style={styles.primaryBtn} onPress={handleRetry}>
+              <Ionicons name="refresh" size={14} color="#fff" />
+              <Text style={styles.primaryBtnText}>Retry</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.secondaryBtn} onPress={() => setMode('manual')}>
+              <Ionicons name="keypad-outline" size={14} color="#fff" />
+              <Text style={styles.secondaryBtnText}>Manual Entry</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    );
+  }
+
+  // ── Camera live ─────────────────────────────────────────────────────────
   return (
     <View style={styles.frame}>
       <CameraView
+        key={cameraKey}
         style={StyleSheet.absoluteFillObject}
         facing="back"
         enableTorch={torchSupported && torchOn}
         onBarcodeScanned={busy ? undefined : handleBarcodeScanned}
         barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+        onCameraReady={handleCameraReady}
       />
-      {/* Scan overlay */}
-      <View style={styles.overlay} pointerEvents="none">
-        <View style={styles.qrCorners}>
-          <View style={[styles.corner, styles.cornerTL]} />
-          <View style={[styles.corner, styles.cornerTR]} />
-          <View style={[styles.corner, styles.cornerBL]} />
-          <View style={[styles.corner, styles.cornerBR]} />
+
+      {/* Loading shimmer shown until onCameraReady fires */}
+      {cameraState === 'loading' && (
+        <View style={styles.cameraLoadingOverlay} pointerEvents="none">
+          <ActivityIndicator color="rgba(255,255,255,0.7)" />
+          <Text style={styles.cameraLoadingText}>Starting camera…</Text>
         </View>
-        <Text style={styles.hint}>{busy ? 'Looking up attendee…' : 'Align QR code within the frame'}</Text>
-      </View>
-      <TouchableOpacity style={styles.manualLinkOverlay} onPress={() => setMode('manual')}>
-        <Ionicons name="keypad-outline" size={14} color="#fff" />
-        <Text style={styles.manualLinkText}>Enter code manually</Text>
-      </TouchableOpacity>
-      {torchSupported && (
-        <TouchableOpacity
-          style={[styles.torchBtn, torchOn && styles.torchBtnOn]}
-          onPress={() => setTorchOn(v => !v)}
-          accessibilityRole="button"
-          accessibilityLabel={torchOn ? 'Turn flashlight off' : 'Turn flashlight on'}
-        >
-          <Ionicons
-            name={torchOn ? 'flashlight' : 'flashlight-outline'}
-            size={18}
-            color={torchOn ? '#0d0d18' : '#fff'}
-          />
-        </TouchableOpacity>
+      )}
+
+      {/* Scan UI shown only after camera stream is confirmed live */}
+      {cameraState === 'ready' && (
+        <>
+          <View style={styles.overlay} pointerEvents="none">
+            <View style={styles.qrCorners}>
+              <View style={[styles.corner, styles.cornerTL]} />
+              <View style={[styles.corner, styles.cornerTR]} />
+              <View style={[styles.corner, styles.cornerBL]} />
+              <View style={[styles.corner, styles.cornerBR]} />
+            </View>
+            <Text style={styles.hint}>
+              {busy ? 'Looking up attendee…' : 'Align QR code within the frame'}
+            </Text>
+          </View>
+          <TouchableOpacity style={styles.manualLinkOverlay} onPress={() => setMode('manual')}>
+            <Ionicons name="keypad-outline" size={14} color="#fff" />
+            <Text style={styles.manualLinkText}>Enter code manually</Text>
+          </TouchableOpacity>
+          {torchSupported && (
+            <TouchableOpacity
+              style={[styles.torchBtn, torchOn && styles.torchBtnOn]}
+              onPress={() => setTorchOn((v) => !v)}
+              accessibilityRole="button"
+              accessibilityLabel={torchOn ? 'Turn flashlight off' : 'Turn flashlight on'}
+            >
+              <Ionicons
+                name={torchOn ? 'flashlight' : 'flashlight-outline'}
+                size={18}
+                color={torchOn ? '#0d0d18' : '#fff'}
+              />
+            </TouchableOpacity>
+          )}
+        </>
       )}
     </View>
   );
@@ -211,7 +294,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#0d0d18',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
-    position: 'relative',
+  },
+
+  // ── Camera overlays ────────────────────────────────────────────────────
+  cameraLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    backgroundColor: '#0d0d18',
+  },
+  cameraLoadingText: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 13,
+    fontWeight: '600',
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
@@ -273,6 +369,7 @@ const styles = StyleSheet.create({
     borderColor: '#fbbf24',
   },
 
+  // ── Shared state panels ────────────────────────────────────────────────
   statePanel: {
     flex: 1,
     alignItems: 'center',
@@ -281,23 +378,25 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   stateLabel: { color: colors.textSecondary, fontSize: 13 },
-  stateTitle: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  stateTitle: { color: '#fff', fontSize: 15, fontWeight: '700', textAlign: 'center' },
   stateSub: {
     color: 'rgba(255,255,255,0.7)',
     fontSize: 12,
     textAlign: 'center',
     lineHeight: 18,
   },
-  btnRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
+  btnRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, flexWrap: 'wrap', justifyContent: 'center' },
 
   primaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     backgroundColor: colors.primary,
     paddingHorizontal: spacing.lg,
     paddingVertical: 10,
     borderRadius: radius.full,
-    alignItems: 'center',
     justifyContent: 'center',
-    minWidth: 140,
+    minWidth: 130,
   },
   primaryBtnDisabled: { opacity: 0.55 },
   primaryBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
@@ -314,6 +413,7 @@ const styles = StyleSheet.create({
   },
   secondaryBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
 
+  // ── Manual entry panel ─────────────────────────────────────────────────
   manualPanel: {
     flex: 1,
     alignItems: 'center',
@@ -333,7 +433,12 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   manualTitle: { color: '#fff', fontSize: 16, fontWeight: '800' },
-  manualSub: { color: 'rgba(255,255,255,0.6)', fontSize: 12, textAlign: 'center', marginBottom: spacing.md },
+  manualSub: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 12,
+    textAlign: 'center',
+    marginBottom: spacing.md,
+  },
   manualInput: {
     width: '100%',
     height: 48,
@@ -346,7 +451,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'center',
     letterSpacing: 2,
-    fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' }),
+    fontFamily: Platform.select({
+      ios: 'Menlo',
+      android: 'monospace',
+      default: 'monospace',
+    }),
     marginBottom: spacing.md,
   },
   linkBtn: {
