@@ -51,32 +51,56 @@ export interface BookmarkResponse {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Extract the time portion from a backend value and display it exactly as the
- * backend intends — NO timezone conversion of any kind.
+ * Convert a raw backend time value to a human-readable "h:mm AM/PM" string.
  *
- * The backend stores session times as event-local times. Whether it sends them
- * as a bare "HH:mm:ss" string or as a full ISO datetime "2026-05-15T08:30:00Z",
- * the HH:mm component is the correct event-local time to show. Any timezone
- * conversion (toLocaleTimeString, new Date(), etc.) would shift the value and
- * produce wrong times (e.g. "2:30 AM" instead of "8:30 AM" on a UTC+6 device).
+ * ROOT CAUSE HISTORY (why this logic exists):
+ *  The backend (Laravel) stores all session datetimes in UTC and sends them
+ *  as ISO 8601 strings with an explicit Z suffix, e.g.:
+ *    "2026-07-29T02:30:00.000000Z"   ← 2:30 AM UTC = 9:30 PM EST
+ *  The admin panel converts UTC→event-local for display, so an organiser in
+ *  EST sees "9:30 PM". The app must do the same conversion so attendees see
+ *  the correct local-equivalent time.
  *
- * Algorithm:
- *  1. Take the raw string from the backend.
- *  2. If it contains 'T', extract everything after 'T' as the time part.
- *  3. Strip any trailing timezone suffix (Z, +05:30, -07:00, …).
- *  4. Parse HH:mm and format as "h:mm AM/PM".
- *  5. On any parse failure, fall back to the raw string unchanged.
+ * Two paths:
+ *
+ *  PATH A — explicit UTC offset present (Z or ±HH:MM):
+ *    Use new Date() + toLocaleTimeString() so the browser converts UTC to the
+ *    user's device-local timezone.  A user whose device is set to the event's
+ *    timezone (e.g. EST) will see "9:30 PM" — matching the admin panel.
+ *    DO NOT strip the Z and extract raw digits: that always shows UTC and is
+ *    always wrong for users outside UTC.
+ *
+ *  PATH B — no explicit timezone (bare "HH:mm:ss" or no-offset ISO):
+ *    Extract HH:mm directly from the string WITHOUT parsing through Date.
+ *    Reason: JS engines (and PHP's json_encode) treat no-offset ISO strings
+ *    as LOCAL time when constructing Date objects; calling toLocaleTimeString
+ *    on that double-shifts the value (local→UTC→local) and produces garbage.
  */
 function formatTime(raw: string): string {
   if (!raw) return '';
-  try {
-    // Step 1–3: isolate the HH:mm:ss part, strip timezone suffix.
-    let timePart = raw.includes('T') ? raw.split('T')[1] : raw;
-    timePart = timePart.replace(/Z$/i, '').replace(/[+-]\d{2}:\d{2}$/, '').trim();
 
-    // Step 4: parse and reformat as "h:mm AM/PM".
-    const parts = timePart.split(':');
-    if (parts.length >= 2) {
+  const hasT               = raw.includes('T');
+  const hasExplicitOffset  = raw.endsWith('Z') || raw.endsWith('z') || /[+-]\d{2}:\d{2}$/.test(raw);
+
+  // PATH A: explicit UTC offset → convert to device-local time via Date.
+  if (hasExplicitOffset) {
+    try {
+      const d = new Date(raw);
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+        });
+      }
+    } catch { /* fall through */ }
+  }
+
+  // PATH B: no explicit timezone → extract HH:mm directly (no conversion).
+  const timePart = hasT ? raw.split('T')[1] : raw;
+  const parts    = timePart.split(':');
+  if (parts.length >= 2) {
+    try {
       const h = parseInt(parts[0], 10);
       const m = parseInt(parts[1], 10);
       if (!isNaN(h) && !isNaN(m) && h >= 0 && h <= 23 && m >= 0 && m <= 59) {
@@ -84,9 +108,10 @@ function formatTime(raw: string): string {
         const h12   = h % 12 || 12;
         return `${h12}:${String(m).padStart(2, '0')} ${period}`;
       }
-    }
-  } catch { /* fall through */ }
-  return raw; // Step 5: unrecognised format — pass through unchanged.
+    } catch { /* fall through */ }
+  }
+
+  return raw; // unrecognised format — pass through unchanged
 }
 
 function extractDate(iso: string): string {
