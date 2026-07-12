@@ -118,13 +118,13 @@ export default function EventDashboardScreen() {
   // and the list under "Happening Now" stay in sync with the backend.
   const now = Date.now();
   const liveSessions = sessionsData.filter((s) => {
-    const start = s.startTime ? new Date(s.startTime).getTime() : NaN;
-    const end = s.endTime ? new Date(s.endTime).getTime() : NaN;
+    const start = s.startIso ? new Date(s.startIso).getTime() : NaN;
+    const end   = s.endIso   ? new Date(s.endIso).getTime()   : NaN;
     if (Number.isNaN(start) || Number.isNaN(end)) return false;
     return start <= now && now <= end;
   });
   const upcomingSessions = sessionsData.filter((s) => {
-    const start = s.startTime ? new Date(s.startTime).getTime() : NaN;
+    const start = s.startIso ? new Date(s.startIso).getTime() : NaN;
     return !Number.isNaN(start) && start > now;
   });
 
@@ -310,8 +310,8 @@ export default function EventDashboardScreen() {
               {showing.slice(0, 3).map((s, idx) => {
                 const color = s.accentColor || SESSION_COLORS[idx % SESSION_COLORS.length];
                 const isLive = liveSessions.includes(s);
-                const endMins = minutesUntil(s.endTime);
-                const startMins = minutesUntil(s.startTime);
+                const endMins = minutesUntil(s.endIso ?? '');
+                const startMins = minutesUntil(s.startIso ?? '');
                 const remaining = isLive
                   ? endMins != null ? `${endMins} min left` : ''
                   : startMins != null ? `in ${startMins} min` : '';

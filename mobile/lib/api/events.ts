@@ -3,59 +3,75 @@ import { getEventId } from '@/lib/eventStore';
 import type { ApiResponse, Event, Session } from '@/lib/api/types';
 
 /**
- * Format a raw backend time value to a human-readable "h:mm AM/PM" string.
+ * Derive a short timezone abbreviation (e.g. "CST") from an IANA timezone
+ * identifier (e.g. "America/Chicago") using Intl.DateTimeFormat.
+ * Falls back to an empty string if the identifier is unrecognised or Intl
+ * is unavailable (shouldn't happen on Hermes 0.76+ with ICU, but guarded).
+ */
+function tzAbbrFromIANA(ianaName: string): string {
+  if (!ianaName) return '';
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: ianaName,
+      timeZoneName: 'short',
+    }).formatToParts(new Date());
+    return parts.find((p) => p.type === 'timeZoneName')?.value ?? '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Format a raw backend time value to a human-readable "h:mm AM/PM [TZ]" string
+ * using venue wall-clock time — never device-local time.
  *
  * Three cases the backend may send:
- *  1. Bare time "HH:mm:ss" / "HH:mm"            → reformat directly (no tz conversion)
+ *  1. Bare time "HH:mm:ss" / "HH:mm"             → reformat directly.
  *  2. ISO without tz offset "2026-05-15T08:30:00" → extract HH:mm from the string.
- *     IMPORTANT: do NOT use new Date() here. On Hermes (React Native) AND on
- *     most strict ECMAScript implementations, no-offset ISO date-time strings are
- *     treated as UTC — so new Date("…T08:30:00") gives 8:30 AM UTC, and
- *     toLocaleTimeString() then shifts it to device-local time, producing the
- *     wrong displayed value (e.g. "2:30 AM" instead of "8:30 AM" for an IST device).
- *  3. ISO WITH explicit UTC offset "…T08:30:00Z" or "…+05:30" → parse with Date
- *     and convert to device local time — the UTC moment is well-defined here.
+ *     IMPORTANT: do NOT call new Date() — Hermes treats no-offset ISO strings as
+ *     UTC, so toLocaleTimeString() would shift to device-local time.
+ *  3. ISO WITH explicit offset "…T09:00:00-05:00" → extract the HH:mm that sit
+ *     between 'T' and the offset. Those digits ARE the venue wall-clock time.
+ *     Do NOT convert via new Date() / toLocaleTimeString().
+ *
+ * @param tzAbbr optional short abbreviation appended to the result ("CST", …)
  */
-function formatSessionTime(raw: string): string {
+function formatSessionTime(raw: string, tzAbbr?: string): string {
   if (!raw) return '';
 
   const hasT = raw.includes('T');
   const hasExplicitOffset = raw.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(raw);
 
-  // Cases 1 & 2: no explicit timezone → extract HH:mm directly from the string.
+  let h: number, m: number;
+
   if (!hasExplicitOffset) {
+    // Cases 1 & 2: naive string — extract HH:mm directly.
     const timePart = hasT ? raw.split('T')[1] : raw;
     const parts = timePart.split(':');
-    if (parts.length >= 2) {
-      try {
-        const h = parseInt(parts[0], 10);
-        const m = parseInt(parts[1], 10);
-        if (!isNaN(h) && !isNaN(m) && h >= 0 && h <= 23 && m >= 0 && m <= 59) {
-          const period = h >= 12 ? 'PM' : 'AM';
-          const h12 = h % 12 || 12;
-          return `${h12}:${String(m).padStart(2, '0')} ${period}`;
-        }
-      } catch {}
-    }
-    return raw; // unrecognised format — pass through
+    h = parseInt(parts[0], 10);
+    m = parseInt(parts[1], 10);
+  } else if (hasT) {
+    // Case 3: offset-aware ISO — strip offset/Z to reveal venue wall-clock HH:mm.
+    // e.g. "2026-07-15T09:00:00-05:00" → timePart="09:00:00-05:00" → clean="09:00:00"
+    const timePart = raw.split('T')[1];
+    const cleanTime = timePart.replace(/Z$/, '').replace(/[+-]\d{2}:\d{2}$/, '');
+    const parts = cleanTime.split(':');
+    h = parseInt(parts[0], 10);
+    m = parseInt(parts[1], 10);
+  } else {
+    // "Z" only, no 'T' — unusual, pass through unchanged.
+    return raw;
   }
 
-  // Case 3: explicit UTC offset — convert to device local time.
-  try {
-    const d = new Date(raw);
-    if (!isNaN(d.getTime())) {
-      return d.toLocaleTimeString('en-US', {
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true,
-      });
-    }
-  } catch {}
+  if (isNaN(h) || isNaN(m) || h < 0 || h > 23 || m < 0 || m > 59) return raw;
 
-  return raw;
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  const base = `${h12}:${String(m).padStart(2, '0')} ${period}`;
+  return tzAbbr ? `${base} ${tzAbbr}` : base;
 }
 
-function normalizeSession(raw: any): Session {
+function normalizeSession(raw: any, eventTimezone?: string): Session {
   const rawAud =
     (Array.isArray(raw.assigned_audience) && raw.assigned_audience) ||
     (Array.isArray(raw.assignedAudience) && raw.assignedAudience) ||
@@ -84,6 +100,13 @@ function normalizeSession(raw: any): Session {
     })
     .filter((m) => m.id && m.name);
 
+  // Resolve timezone: per-item field takes precedence over the response-level default.
+  const tzIana: string = raw.event_timezone ?? eventTimezone ?? '';
+  const tzAbbr: string = tzIana ? tzAbbrFromIANA(tzIana) : '';
+
+  const rawStart = raw.start_time ?? raw.startTime ?? '';
+  const rawEnd   = raw.end_time   ?? raw.endTime   ?? '';
+
   return {
     id: String(raw.id),
     title: raw.title ?? raw.name ?? '',
@@ -93,8 +116,11 @@ function normalizeSession(raw: any): Session {
     track: raw.track ?? raw.category ?? '',
     room: raw.room ?? raw.location ?? raw.venue ?? '',
     day: Number(raw.day ?? raw.day_number ?? 1),
-    startTime: formatSessionTime(raw.start_time ?? raw.startTime ?? ''),
-    endTime: formatSessionTime(raw.end_time ?? raw.endTime ?? ''),
+    startTime: formatSessionTime(rawStart, tzAbbr || undefined),
+    endTime:   formatSessionTime(rawEnd,   tzAbbr || undefined),
+    startIso:  rawStart || undefined,
+    endIso:    rawEnd   || undefined,
+    tzAbbr:    tzAbbr   || undefined,
     accentColor: raw.accent_color ?? raw.accentColor ?? '#7c3aed',
     description: raw.description ?? '',
     tags: Array.isArray(raw.tags) ? raw.tags : [],
@@ -206,8 +232,13 @@ export async function listSessions(filters?: { day?: number; track?: string }): 
   const query = params.toString() ? `?${params.toString()}` : '';
   const res = await request<any>(`/api/v1/events/${eventId}/mobile-agenda${query}`);
   if (!res.success) return res as ApiResponse<Session[]>;
+  // Extract the top-level event_timezone from the response envelope so it can
+  // be threaded into each session even if the per-item field is absent.
+  const eventTz: string = Array.isArray(res.data)
+    ? ''
+    : (res.data?.event_timezone ?? res.data?.data?.event_timezone ?? '');
   const raw: any[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? res.data?.agenda ?? []);
-  return { success: true, data: raw.map(normalizeSession) };
+  return { success: true, data: raw.map((item) => normalizeSession(item, eventTz)) };
 }
 
 export async function getSession(id: string): Promise<ApiResponse<Session>> {

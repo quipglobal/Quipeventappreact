@@ -1,0 +1,52 @@
+Task: Timezone-aware agenda display
+
+The event management backend has been updated so all agenda times are now stored and returned in the event's local timezone (not UTC). Every API consumer must be updated to display times correctly.
+
+What changed in the API
+GET /events/{id}/agenda and GET /events/{id}/mobile-agenda
+
+Each agenda item now includes an event_timezone field, and start_time / end_time are returned as ISO 8601 strings with the event timezone's UTC offset (e.g., "2026-07-15T09:00:00-05:00" for a CST event, "2026-07-15T09:00:00+01:00" for a BST event).
+
+{
+  "id": 42,
+  "title": "Opening Keynote",
+  "start_time": "2026-07-15T09:00:00-05:00",
+  "end_time":   "2026-07-15T10:00:00-05:00",
+  "event_timezone": "America/Chicago",
+  ...
+}
+
+The response wrapper also includes "event_timezone" at the top level:
+
+{
+  "success": true,
+  "data": {
+    "agenda": [...],
+    "total": 5,
+    "event_timezone": "America/Chicago"
+  }
+}
+
+GET /events/{id}/feed — The posted_at field on AGENDA-type items is also now offset-aware (event timezone).
+
+Required mobile changes
+Parse start_time / end_time as timezone-aware ISO strings. Do NOT treat them as UTC. Most date libraries (Swift ISO8601DateFormatter, Kotlin/Android OffsetDateTime.parse, Dart DateTime.parse, JS new Date()) handle the offset automatically.
+
+Display times in the event's timezone, NOT the user's device timezone. The correct time to show is the wall-clock time at the event venue.
+
+Use the offset already embedded in the ISO string: 2026-07-15T09:00:00-05:00 → display as 9:00 AM
+Do NOT convert to device local time
+Show the timezone label next to the time so attendees know what timezone it refers to. Use event_timezone from the response (e.g., "America/Chicago") to derive a short abbreviation:
+
+iOS: TimeZone(identifier: eventTimezone) → abbreviation() → "CST"
+Android: ZoneId.of(eventTimezone) → getDisplayName(TextStyle.SHORT, ...)
+Dart: Use the timezone package to get the abbreviation
+Example display: 9:00 AM CST
+Date filter parameter (?date=YYYY-MM-DD): the date is now interpreted server-side in the event's timezone. Pass the date as seen at the event venue, not the user's local date.
+
+"Today's sessions" in the feed: The server already filters "today" using the event timezone. No change needed on the mobile side — just parse and display posted_at using the offset in the string.
+
+No changes needed to POST/PATCH calls — the mobile app currently sends times as naive strings (e.g., "2026-07-15T09:00"), and the backend now correctly interprets those as event-local time. Behavior is unchanged from the mobile side when creating/editing agenda items.
+
+Summary of the design decision
+All agenda times are event-venue local time. A "9:00 AM" session in Chicago is 9:00 AM CST for everyone — whether the attendee is in New York, London, or Mumbai. The offset in the ISO string tells you exactly what UTC it maps to; just display the hour/minute from the string as-is.

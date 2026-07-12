@@ -31,8 +31,16 @@ export interface Session {
   track: string;
   room: string;
   day: number;
+  /** Human-readable display time — venue wall-clock, e.g. "9:00 AM CST" */
   startTime: string;
+  /** Human-readable display time — venue wall-clock, e.g. "10:00 AM CST" */
   endTime: string;
+  /** Raw ISO 8601 string from the backend for machine-readable comparisons */
+  startIso?: string;
+  /** Raw ISO 8601 string from the backend for machine-readable comparisons */
+  endIso?: string;
+  /** Short timezone abbreviation derived from event_timezone, e.g. "CST" */
+  tzAbbr?: string;
   description?: string;
   tags?: string[];
   capacity?: number;

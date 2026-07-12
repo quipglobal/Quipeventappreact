@@ -34,36 +34,38 @@ function initials(name: string) {
   return parts.length >= 2 ? `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase() : (parts[0]?.[0] ?? '?').toUpperCase();
 }
 
-function parseTime(t: string): Date | null {
-  if (!t) return null;
-  const now = new Date();
-  const [h, m] = t.split(':').map(Number);
-  if (isNaN(h) || isNaN(m)) return null;
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m);
+/**
+ * Parse a session's ISO start/end string into a Date for comparisons.
+ * Offset-aware ISO strings (e.g. "2026-07-15T09:00:00-05:00") are parsed
+ * correctly by new Date() — the UTC moment is well-defined and compares
+ * accurately against the device's current time (also UTC internally).
+ */
+function parseIso(iso: string | undefined): Date | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? null : d;
 }
 
 function isCurrentSession(s: Session): boolean {
-  const start = parseTime(s.startTime);
-  const end = parseTime(s.endTime);
+  const start = parseIso(s.startIso);
+  const end   = parseIso(s.endIso);
   if (!start || !end) return false;
-  const now = new Date();
-  return now >= start && now <= end;
+  const now = Date.now();
+  return start.getTime() <= now && now <= end.getTime();
 }
 
 function isUpcomingSession(s: Session): boolean {
-  const start = parseTime(s.startTime);
+  const start = parseIso(s.startIso);
   if (!start) return false;
-  const now = new Date();
-  return start > now;
+  return start.getTime() > Date.now();
 }
 
+/**
+ * startTime / endTime are already formatted display strings (e.g. "9:00 AM CST").
+ * Return them as-is; kept as a function for call-site consistency.
+ */
 function formatTime(t: string): string {
-  if (!t) return '';
-  const [h, m] = t.split(':').map(Number);
-  if (isNaN(h)) return t;
-  const ampm = h >= 12 ? 'PM' : 'AM';
-  const hour = h % 12 || 12;
-  return `${hour}:${String(m).padStart(2, '0')} ${ampm}`;
+  return t ?? '';
 }
 
 function SpeakerCard({ speaker }: { speaker: Speaker }) {
