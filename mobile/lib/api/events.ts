@@ -238,8 +238,8 @@ export async function joinByCode(
   const upper = code.trim().toUpperCase();
   if (__DEV__) console.log(`[Events] joinByCode(${upper}) — POST join-by-code`);
 
-  const res = await request<any>('/api/v1/events/join-by-code', {
-    method: 'PUT',
+  const res = await request<any>('/api/v1/events/join', {
+    method: 'POST',
     body: JSON.stringify({ code: upper }),
   });
 

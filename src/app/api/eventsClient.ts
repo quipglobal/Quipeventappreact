@@ -180,8 +180,8 @@ export async function getEventApi(id: string): Promise<EventDetailResponse> {
  */
 export async function joinEventByCodeApi(code: string): Promise<JoinEventResponse> {
   const normalizedCode = code.trim().toUpperCase();
-  const res = await apiPut<unknown>(
-    '/api/v1/events/join-by-code',
+  const res = await apiPost<unknown>(
+    '/api/v1/events/join',
     { code: normalizedCode },
     EVENTS_TENANT_HEADERS,
   );
@@ -216,8 +216,8 @@ export async function checkEventAccess(eventId: string): Promise<EventAccessResp
  * Backend auto-creates a checkin record — no separate check-in step needed.
  */
 export async function joinEventWithCode(eventCode: string): Promise<JoinEventResponse> {
-  const res = await apiPut<unknown>(
-    '/api/v1/events/join-by-code',
+  const res = await apiPost<unknown>(
+    '/api/v1/events/join',
     { code: eventCode.trim().toUpperCase() },
     EVENTS_TENANT_HEADERS,
   );
