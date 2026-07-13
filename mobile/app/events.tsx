@@ -22,9 +22,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useMutation } from '@tanstack/react-query';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '@/context/AuthContext';
 import { useEvent } from '@/context/EventContext';
 import { listEventsByTenant, findEventByCode, joinByCode } from '@/lib/api/events';
+import { checkInMember, getMyMembershipId } from '@/lib/api/audience';
 import {
   fetchGlobalVideoFeeds,
   fetchGlobalArticles,
@@ -38,6 +40,7 @@ import { colors, spacing, radius } from '@/constants/theme';
 import type { Event } from '@/lib/api/types';
 
 const TENANT_ID = '3';
+const JOINED_EVENTS_KEY = 'cxo:joined_events:v1';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 function formatDate(start: string, end: string) {
@@ -189,7 +192,7 @@ type FeedSubTab = 'videos' | 'articles';
 
 export default function EventsScreen() {
   const insets = useSafeAreaInsets();
-  const { user, logout, refreshEventRole } = useAuth();
+  const { user, logout, refreshEventRole, markEventCheckedIn } = useAuth();
   const { setCurrentEventId } = useEvent();
 
   const [topTab, setTopTab] = useState<TopTab>('feeds');
@@ -209,6 +212,14 @@ export default function EventsScreen() {
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [popupCode, setPopupCode] = useState('');
   const [eventsTab, setEventsTab] = useState<'upcoming' | 'past'>('upcoming');
+  const [joinedEventIds, setJoinedEventIds] = useState<string[]>([]);
+
+  // Load persisted joined-event IDs so card taps skip the code gate
+  useEffect(() => {
+    AsyncStorage.getItem(JOINED_EVENTS_KEY).then((raw) => {
+      if (raw) { try { setJoinedEventIds(JSON.parse(raw)); } catch {} }
+    });
+  }, []);
 
   const firstName = user?.name?.split(' ')[0] ?? 'there';
 
@@ -280,6 +291,21 @@ export default function EventsScreen() {
 
   const goToFeed = useCallback(() => router.replace('/(tabs)/feed'), []);
 
+  // Persist membership, award check-in points, and fire-and-forget backend check-in.
+  const saveJoinedEvent = useCallback(async (eventId: string) => {
+    markEventCheckedIn(eventId);
+    setJoinedEventIds((prev) => {
+      if (prev.includes(eventId)) return prev;
+      const next = [...prev, eventId];
+      AsyncStorage.setItem(JOINED_EVENTS_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+    // Best-effort: register the check-in on the backend audience tab.
+    getMyMembershipId(eventId, user?.badgeCode).then((memberId) => {
+      if (memberId) checkInMember(eventId, memberId).catch(() => {});
+    }).catch(() => {});
+  }, [markEventCheckedIn, user?.badgeCode]);
+
   const handleJoin = useCallback(async (code: string) => {
     const c = code.trim().toUpperCase();
     if (!c) { Alert.alert('Enter a code', 'Please type an event code first.'); return; }
@@ -288,18 +314,23 @@ export default function EventsScreen() {
       setSelectedEvent(null);
       setCurrentEventId(local.id);
       await refreshEventRole(local.id);
+      await saveJoinedEvent(local.id);
       Alert.alert('Joined!', `You've joined "${local.name}".`, [{ text: 'Enter Event', onPress: goToFeed }]);
       return;
     }
     findAndJoin(c, {
       onSuccess: async (ev) => {
         setSelectedEvent(null);
-        if (ev.id) { setCurrentEventId(ev.id); await refreshEventRole(ev.id); }
+        if (ev.id) {
+          setCurrentEventId(ev.id);
+          await refreshEventRole(ev.id);
+          await saveJoinedEvent(ev.id);
+        }
         Alert.alert('Joined!', `You've joined "${ev.name}".`, [{ text: 'Enter Event', onPress: goToFeed }]);
       },
       onError: (err) => Alert.alert('Not Found', err instanceof Error ? err.message : `No event found for "${c}".`),
     });
-  }, [allEvents, findAndJoin, setCurrentEventId, goToFeed, refreshEventRole]);
+  }, [allEvents, findAndJoin, setCurrentEventId, goToFeed, refreshEventRole, saveJoinedEvent]);
 
   const activeCats = feedSubTab === 'videos' ? videoCats : articleCats;
   const activeCat = feedSubTab === 'videos' ? selectedVideoCat : selectedArticleCat;
@@ -553,7 +584,16 @@ export default function EventsScreen() {
                     key={ev.id}
                     event={ev}
                     index={idx}
-                    onPress={() => { setSelectedEvent(ev); setPopupCode(ev.code ?? ''); }}
+                    onPress={() => {
+                      if (joinedEventIds.includes(String(ev.id))) {
+                        setCurrentEventId(ev.id);
+                        refreshEventRole(ev.id);
+                        router.replace('/(tabs)/feed');
+                      } else {
+                        setSelectedEvent(ev);
+                        setPopupCode(ev.code ?? '');
+                      }
+                    }}
                   />
                 ))}
               </View>
@@ -577,7 +617,16 @@ export default function EventsScreen() {
                       key={ev.id}
                       event={ev}
                       index={idx}
-                      onPress={() => { setSelectedEvent(ev); setPopupCode(ev.code ?? ''); }}
+                      onPress={() => {
+                        if (joinedEventIds.includes(String(ev.id))) {
+                          setCurrentEventId(ev.id);
+                          refreshEventRole(ev.id);
+                          router.replace('/(tabs)/feed');
+                        } else {
+                          setSelectedEvent(ev);
+                          setPopupCode(ev.code ?? '');
+                        }
+                      }}
                     />
                   ))}
                 </View>
