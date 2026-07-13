@@ -127,7 +127,7 @@ const MemberDetailPage: React.FC<{
     setDetailLoading(true);
     const isOwnProfile = !!user?.email && user.email.toLowerCase() === member.email.toLowerCase();
 
-    const memberDetailPromise = getMemberDetailApi(eventId, member.memberId);
+    const memberDetailPromise = getMemberDetailApi(eventId, member.userId);
     // If viewing own profile, also fetch rich me/profile data
     const meProfilePromise = isOwnProfile ? getMeProfileApi() : Promise.resolve({ success: false as const });
 

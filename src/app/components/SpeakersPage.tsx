@@ -98,13 +98,13 @@ export const SpeakersPage: React.FC = () => {
     setSelected(sp);
     setDetail(null);
     if (!eventConfig?.eventId) return;
-    const targetMemberId = sp.memberId;
+    const targetUserId = sp.userId;
     setDetailLoading(true);
-    getMemberDetailApi(eventConfig.eventId, targetMemberId)
+    getMemberDetailApi(eventConfig.eventId, targetUserId)
       .then(res => {
         // Guard against late responses overwriting the currently-open speaker
         // if the user tapped through several rows quickly.
-        if (res.success && res.data && res.data.memberId === targetMemberId) {
+        if (res.success && res.data && res.data.userId === targetUserId) {
           setDetail(res.data);
         }
       })

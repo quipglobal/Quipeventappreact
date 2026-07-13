@@ -3,8 +3,13 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * Backend v2 API — flat member+user shape (no nested `user` object):
  *
- * GET /api/v1/events/:id/members → paginated list, full profile data included
- * GET /api/v1/events/:id/members/:memberId → single member full profile
+ * Audience display (role-filtered: Attendee / Speaker / Moderator / Sponsor):
+ *   GET /api/v1/events/:id/attendees              → paginated list
+ *   GET /api/v1/events/:id/attendees/:userId      → single attendee detail
+ *
+ * Admin / role-lookup (all roles including Organizer/Staff):
+ *   GET /api/v1/events/:id/members                → still used for role detection
+ *   GET /api/v1/events/:id/members/:memberId      → check-in & role scan only
  *
  * Response shape per member (v2):
  * {
@@ -16,6 +21,8 @@
  *
  * NOTE: checked_in / checked_in_at / networking_opt_in removed from v2 API.
  * isCheckedIn is inferred: joined_at != null OR status === 'ACTIVE'.
+ *
+ * NOTE: /attendees returns Cache-Control: no-store — always fetch fresh.
  */
 
 import { apiGet, apiPost } from './client';
@@ -316,18 +323,20 @@ export async function getMyEventRoleApi(
 // ─── API Methods ──────────────────────────────────────────────────────────────
 
 /**
- * GET /api/v1/events/:id/members?per_page=100&checked_in_only=<bool>
+ * GET /api/v1/events/:id/attendees?per_page=100&checked_in_only=<bool>
  *
- * Returns all event members with full profile data (v2 API).
- * checkedInOnly=false → all registrations
- * checkedInOnly=true  → checked-in members only
+ * Returns audience members (Attendee / Speaker / Moderator / Sponsor only).
+ * Server-side role filter — Organizers and Staff are excluded automatically.
+ * Backend returns Cache-Control: no-store; always call fresh, do not cache.
+ * checkedInOnly=false → all role-eligible registrations
+ * checkedInOnly=true  → checked-in subset only
  */
 export async function getEventMembersApi(
   eventId: string | number,
   checkedInOnly: boolean = false,
 ): Promise<EventMembersResponse> {
   const qs = `per_page=100&checked_in_only=${checkedInOnly}`;
-  const membersRes = await apiGet<unknown>(`/api/v1/events/${eventId}/members?${qs}`, HEADERS);
+  const membersRes = await apiGet<unknown>(`/api/v1/events/${eventId}/attendees?${qs}`, HEADERS);
 
   if (!membersRes.success) {
     return { success: false, error: membersRes.error ?? { message: 'Failed to fetch audience.' } };
@@ -351,9 +360,10 @@ export async function getEventMembersApi(
 }
 
 /**
- * GET /api/v1/events/:id/members?per_page=…  (paginated)
+ * GET /api/v1/events/:id/attendees?per_page=…  (paginated)
  * Returns just the members whose role is "Speaker". Useful for the
  * Speaker Spotlight on the home screen.
+ * Speakers are included in the server-side role filter on /attendees.
  */
 export async function getEventSpeakersApi(
   eventId: string | number,
@@ -365,7 +375,7 @@ export async function getEventSpeakersApi(
 
   for (let page = 1; page <= MAX_PAGES; page++) {
     const res = await apiGet<unknown>(
-      `/api/v1/events/${eventId}/members?per_page=${PAGE_SIZE}&page=${page}&checked_in_only=false`,
+      `/api/v1/events/${eventId}/attendees?per_page=${PAGE_SIZE}&page=${page}`,
       HEADERS,
     );
     if (!res.success) {
@@ -395,14 +405,15 @@ export async function getEventSpeakersApi(
 }
 
 /**
- * GET /api/v1/events/:eventId/members/:memberId
- * Returns a single member's full profile (same flat v2 shape).
+ * GET /api/v1/events/:eventId/attendees/:userId
+ * Returns a single attendee's full profile (same flat v2 shape).
+ * Pass the user's userId (raw.id), not membership_id.
  */
 export async function getMemberDetailApi(
   eventId: string | number,
-  memberId: number,
+  userId: number,
 ): Promise<MemberDetailResponse> {
-  const res = await apiGet<unknown>(`/api/v1/events/${eventId}/members/${memberId}`, HEADERS);
+  const res = await apiGet<unknown>(`/api/v1/events/${eventId}/attendees/${userId}`, HEADERS);
 
   if (!res.success) {
     return { success: false, error: res.error ?? { message: 'Failed to fetch member profile.' } };
@@ -417,7 +428,7 @@ export async function getMemberDetailApi(
 // ─── Badge code lookup + check-in ─────────────────────────────────────────────
 
 /**
- * GET /api/v1/events/:eventId/members?badge_code=...
+ * GET /api/v1/events/:eventId/attendees?per_page=…  (paginated)
  *
  * Convenience client-side fallback: scans the audience pages and returns the
  * first member whose `badgeCode` matches. Used when the scan endpoint cannot
@@ -434,7 +445,7 @@ export async function findMemberByBadgeCodeApi(
 
   for (let page = 1; page <= MAX_PAGES; page++) {
     const res = await apiGet<unknown>(
-      `/api/v1/events/${eventId}/members?per_page=${PAGE_SIZE}&page=${page}&checked_in_only=false`,
+      `/api/v1/events/${eventId}/attendees?per_page=${PAGE_SIZE}&page=${page}`,
       HEADERS,
     );
     if (!res.success) return null;

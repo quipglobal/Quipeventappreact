@@ -173,30 +173,24 @@ export async function getEventApi(id: string): Promise<EventDetailResponse> {
 }
 
 /**
- * POST /api/v1/events/join
+ * POST /api/v1/events/join-by-code
  * Join an event by access code (Globex tenant).
- * Falls back to list search if no dedicated join endpoint exists.
+ * Backend auto-creates a checkin record (auto_checked_in) so the attendee
+ * appears in the audience list immediately — no separate check-in step needed.
  */
 export async function joinEventByCodeApi(code: string): Promise<JoinEventResponse> {
-  const listRes = await listEventsApi();
-  if (!listRes.success) {
-    return { success: false, error: { code: 'LIST_FAILED', message: 'Failed to fetch events.' } };
-  }
   const normalizedCode = code.trim().toUpperCase();
-  const matched = (listRes.data ?? []).find(
-    e => (e.code ?? '').toUpperCase() === normalizedCode ||
-         e.title.toUpperCase().replace(/\s+/g, '').includes(normalizedCode)
+  const res = await apiPost<unknown>(
+    '/api/v1/events/join-by-code',
+    { code: normalizedCode },
+    EVENTS_TENANT_HEADERS,
   );
-  if (!matched) {
-    const res = await apiPost<unknown>('/api/v1/events/join', { code }, EVENTS_TENANT_HEADERS);
-    if (res.success && res.data) {
-      const raw = (res.data as Record<string, unknown>);
-      const eventId = String(raw.event_id ?? raw.eventId ?? raw.id ?? '');
-      return { success: true, data: { eventId, message: 'Successfully joined event!' } };
-    }
-    return { success: false, error: { code: 'INVALID_CODE', message: 'Event not found. Please check your code.' } };
+  if (res.success && res.data) {
+    const raw = res.data as Record<string, unknown>;
+    const eventId = String(raw.event_id ?? raw.eventId ?? raw.id ?? '');
+    return { success: true, data: { eventId, message: raw.message as string ?? 'Successfully joined event!' } };
   }
-  return { success: true, data: { eventId: matched.id, message: `Successfully joined ${matched.title}!` } };
+  return { success: false, error: { code: 'INVALID_CODE', message: 'Event not found. Please check your code.' } };
 }
 
 /**
@@ -215,21 +209,22 @@ export async function checkEventAccess(eventId: string): Promise<EventAccessResp
 }
 
 /**
- * POST /api/v1/events/join
- * Join event using an event code — the real API endpoint.
- * Body: { event_code: "XXXXX" }
- * 201 → newly joined; 200 → already a member (idempotent); 404 → invalid code
+ * POST /api/v1/events/join-by-code
+ * Join event using an attendee invite code.
+ * Body: { code: "ABC12" }
+ * 201 → newly joined (auto_checked_in: true); 200 → already a member (idempotent); 404 → invalid code
+ * Backend auto-creates a checkin record — no separate check-in step needed.
  */
 export async function joinEventWithCode(eventCode: string): Promise<JoinEventResponse> {
   const res = await apiPost<unknown>(
-    '/api/v1/events/join',
-    { event_code: eventCode.trim() },
+    '/api/v1/events/join-by-code',
+    { code: eventCode.trim().toUpperCase() },
     EVENTS_TENANT_HEADERS,
   );
   if (res.success && res.data) {
     const raw = res.data as Record<string, unknown>;
     const eventId = String(raw.event_id ?? raw.eventId ?? raw.id ?? '');
-    return { success: true, data: { eventId, message: 'Successfully joined event!' } };
+    return { success: true, data: { eventId, message: raw.message as string ?? 'Successfully joined event!' } };
   }
   const msg = (res.error?.message) ?? 'Invalid event key. Please try again.';
   return { success: false, error: { code: res.error?.code ?? 'INVALID_CODE', message: msg } };
