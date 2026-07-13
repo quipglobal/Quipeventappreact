@@ -1,0 +1,63 @@
+The backend has been updated to support four audience-related behaviours. Below is everything the mobile app needs to know.
+
+1. Always fetch fresh data — no local caching
+Both audience endpoints now return:
+
+Cache-Control: no-store, no-cache, must-revalidate
+
+The mobile layer must not cache responses from these endpoints. On every page load or pull-to-refresh, make a fresh network call:
+
+Action	Endpoint
+Audience list	GET /v1/events/{eventId}/attendees
+Attendee detail	GET /v1/events/{eventId}/attendees/{userId}
+2. Join via event code → auto-checked-in immediately
+POST /v1/events/join-by-code (body: { "code": "ABC12" })
+
+The user is now automatically checked in when they join via an event code. The response includes a new field:
+
+{
+  "message": "Successfully joined the event.",
+  "auto_checked_in": true,
+  "role": "attendee",
+  "badge_code": "6O2R8",
+  ...
+}
+
+auto_checked_in: true — checkin was created; the user will appear in the audience list immediately.
+auto_checked_in: false — checkin failed (rare, non-fatal); the user has joined but may not appear in checked_in_only mode until they self-check in.
+Do not show a separate "Check In" step after a successful event code join — the user is already in.
+
+3. Sponsor lead scan → scanned user auto-checked-in
+POST /v1/events/{eventId}/leads/scan (body: { "code": "<badge_code>" })
+
+When a sponsor scans an attendee badge, the scanned attendee is automatically checked in. The response includes:
+
+{
+  "success": true,
+  "auto_checked_in": true,
+  ...
+}
+
+The scanned attendee will appear in the audience list on next refresh. No extra action needed from the mobile side.
+
+4. Audience list — only shows these roles
+GET /v1/events/{eventId}/attendees
+
+The list is now filtered server-side to only return members in these categories:
+
+Role value (in roles[])	Label
+ATTENDEE	Attendee
+SPEAKER	Speaker
+MODERATOR	Moderator
+SPONSOR_REP	Sponsor Rep
+SPONSOR_ADMIN	Sponsor Admin
+Organizers, staff, and event managers are excluded — they will never appear in the mobile audience list regardless of filters applied on the client.
+
+The existing role filter query param (?role=SPEAKER) still works within this allowed set.
+
+Quick reference — affected endpoints
+Endpoint	Change
+POST /v1/events/join-by-code	Now auto-creates checkin; response has auto_checked_in
+POST /v1/events/{id}/leads/scan	Already auto-checkins scanned user (no change needed)
+GET /v1/events/{id}/attendees	Role-filtered (Attendee/Speaker/Moderator/Sponsor only); Cache-Control: no-store
+GET /v1/events/{id}/attendees/{userId}	Cache-Control: no-store

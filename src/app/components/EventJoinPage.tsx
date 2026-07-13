@@ -10,8 +10,8 @@ import { useTheme } from '@/app/context/ThemeContext';
 import { ImageWithFallback } from '@/app/components/figma/ImageWithFallback';
 import { EventConfig } from '@/app/types/config';
 import {
-  listEventsApi, OrganizerEvent,
-  checkEventAccess, joinEventWithCode,
+  listEventsApi, getEventApi, OrganizerEvent,
+  checkEventAccess, joinEventWithCode, joinEventByCodeApi,
 } from '@/app/api/eventsClient';
 import { getVideoFeedCategories, getVideoFeeds, VideoFeed } from '@/app/api/videoFeedsClient';
 import {
@@ -264,19 +264,53 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
     const code = eventCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (code.length < 4) { setCodeError('Please enter a valid event code'); return; }
     setIsJoining(true);
+
+    // Fast path: code matches a locally-cached event title/code string.
     const matched = events.find(ev =>
       (ev.code ?? '').toUpperCase() === code ||
       ev.title.toUpperCase().replace(/\s+/g, '').includes(code)
     );
-    if (!matched) {
-      setCodeError('Event not found. Please check your code and try again.');
+    if (matched) {
+      switchEvent(eventToConfig(matched));
+      joinEvent();
+      setIsJoining(false);
+      onJoinEvent();
+      return;
+    }
+
+    // Backend path: validate + join via the real join-by-code endpoint.
+    const res = await joinEventByCodeApi(code);
+    if (!res.success) {
+      setCodeError(res.error?.message ?? 'Event not found. Please check your code and try again.');
       setIsJoining(false);
       return;
     }
-    switchEvent(eventToConfig(matched));
-    joinEvent();
+
+    // Navigate to the joined event — use eventId from response if present,
+    // otherwise refresh the list and pick the first event (newly joined events
+    // appear at the top after a list refresh).
+    if (res.data?.eventId) {
+      const evRes = await getEventApi(res.data.eventId);
+      if (evRes.success && evRes.data) {
+        switchEvent(eventToConfig(evRes.data));
+        joinEvent();
+        setIsJoining(false);
+        onJoinEvent();
+        return;
+      }
+    }
+
+    // Fallback: refresh list and navigate to first available event.
+    const listRes = await listEventsApi();
+    const firstEv = listRes.data?.[0];
+    if (listRes.success && firstEv) {
+      switchEvent(eventToConfig(firstEv));
+      joinEvent();
+      onJoinEvent();
+    } else {
+      setCodeError('Joined successfully but could not load the event. Please refresh the page.');
+    }
     setIsJoining(false);
-    onJoinEvent();
   };
 
   const enterEvent = (ev: OrganizerEvent) => {
