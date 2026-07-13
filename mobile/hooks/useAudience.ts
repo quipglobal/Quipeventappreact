@@ -7,7 +7,14 @@ export function useAudience(filters?: { tier?: string; search?: string }) {
   return useAuthedQuery({
     queryKey: ['attendees', currentEventId, filters],
     queryFn: () => listAttendees(filters),
-    select: (res) => res.data ?? [],
+    select: (res) => {
+      // Surface backend errors (e.g. 403 "not a member") so isError becomes
+      // true and the audience screen can show a meaningful message + Retry.
+      if (!res.success) {
+        throw new Error(res.error?.message ?? 'Failed to load audience');
+      }
+      return res.data ?? [];
+    },
     enabled: !!currentEventId,
     // Backend returns Cache-Control: no-store — always fetch fresh.
     // staleTime:0 means data is immediately stale so React Query will always

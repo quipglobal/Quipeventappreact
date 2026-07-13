@@ -100,7 +100,7 @@ export default function AudienceScreen() {
   const [selected, setSelected] = useState<Attendee | null>(null);
   const [detailVisible, setDetailVisible] = useState(false);
 
-  const { data: members = [], isLoading, isError, refetch } = useAudience();
+  const { data: members = [], isLoading, isError, error, refetch } = useAudience();
 
   const checkedInCount = useMemo(() => members.filter((m) => m.isCheckedIn).length, [members]);
 
@@ -263,15 +263,6 @@ export default function AudienceScreen() {
 
   return (
     <View style={styles.root}>
-      {isError && !isLoading && (
-        <View style={styles.errorBar}>
-          <Text style={styles.errorText}>Failed to load attendees</Text>
-          <TouchableOpacity onPress={() => refetch()}>
-            <Text style={styles.retryText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
       <FlatList
         data={filtered}
         keyExtractor={(i) => i.id}
@@ -283,6 +274,20 @@ export default function AudienceScreen() {
           isLoading ? (
             <View style={styles.empty}>
               <Text style={styles.emptyText}>Loading attendees…</Text>
+            </View>
+          ) : isError ? (
+            <View style={styles.errorCard}>
+              <View style={styles.errorIconWrap}>
+                <Ionicons name="people-outline" size={44} color="#f87171" />
+              </View>
+              <Text style={styles.errorCardTitle}>Couldn't load audience</Text>
+              <Text style={styles.errorCardMsg}>
+                {(error as Error)?.message ?? 'Failed to load attendees. Please try again.'}
+              </Text>
+              <TouchableOpacity style={styles.retryBtn} onPress={() => refetch()} activeOpacity={0.8}>
+                <Ionicons name="refresh-outline" size={16} color="#fff" />
+                <Text style={styles.retryBtnText}>Retry</Text>
+              </TouchableOpacity>
             </View>
           ) : (
             <View style={styles.empty}>
@@ -397,9 +402,12 @@ function AttendeeDetailView({ attendee, onBack, insets }: {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
 
-  errorBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.xl, paddingVertical: spacing.sm, backgroundColor: '#2d0a0a' },
-  errorText: { color: '#f87171', fontSize: 13 },
-  retryText: { color: colors.primary, fontSize: 13, fontWeight: '600' },
+  errorCard: { alignItems: 'center', paddingVertical: 60, paddingHorizontal: spacing.xl, gap: spacing.md },
+  errorIconWrap: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#f8717120', alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
+  errorCardTitle: { color: colors.textPrimary, fontSize: 18, fontWeight: '800', textAlign: 'center' },
+  errorCardMsg: { color: colors.textSecondary, fontSize: 14, textAlign: 'center', lineHeight: 20, paddingHorizontal: spacing.lg },
+  retryBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: spacing.sm, paddingHorizontal: 24, paddingVertical: 13, borderRadius: radius.full, backgroundColor: colors.primary },
+  retryBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
 
   bannerBg: { width: '100%', height: 220 },
   bannerGrad: { flex: 1 },

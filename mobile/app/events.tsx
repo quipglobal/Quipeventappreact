@@ -292,7 +292,10 @@ export default function EventsScreen() {
   const goToFeed = useCallback(() => router.replace('/(tabs)/feed'), []);
 
   // Persist membership, award check-in points, and fire-and-forget backend check-in.
-  const saveJoinedEvent = useCallback(async (eventId: string) => {
+  // knownMemberId — pass directly from the join response to avoid a separate lookup
+  // (the badge-code member-search endpoint also requires membership, creating a
+  // chicken-and-egg problem if we haven't checked in yet).
+  const saveJoinedEvent = useCallback(async (eventId: string, knownMemberId?: number) => {
     markEventCheckedIn(eventId);
     setJoinedEventIds((prev) => {
       if (prev.includes(eventId)) return prev;
@@ -300,35 +303,44 @@ export default function EventsScreen() {
       AsyncStorage.setItem(JOINED_EVENTS_KEY, JSON.stringify(next)).catch(() => {});
       return next;
     });
-    // Best-effort: register the check-in on the backend audience tab.
-    getMyMembershipId(eventId, user?.badgeCode).then((memberId) => {
-      if (memberId) checkInMember(eventId, memberId).catch(() => {});
-    }).catch(() => {});
+    // Best-effort backend check-in — use the membership_id from the join
+    // response when available, otherwise fall back to badge-code lookup.
+    (async () => {
+      const memberId = knownMemberId ?? await getMyMembershipId(eventId, user?.badgeCode).catch(() => null);
+      if (memberId) await checkInMember(eventId, memberId).catch(() => {});
+    })().catch(() => {});
   }, [markEventCheckedIn, user?.badgeCode]);
 
   const handleJoin = useCallback(async (code: string) => {
     const c = code.trim().toUpperCase();
     if (!c) { Alert.alert('Enter a code', 'Please type an event code first.'); return; }
-    const local = allEvents.find((e) => (e.code ?? '').toUpperCase() === c || String(e.id) === c);
-    if (local) {
-      setSelectedEvent(null);
-      setCurrentEventId(local.id);
-      await refreshEventRole(local.id);
-      await saveJoinedEvent(local.id);
-      Alert.alert('Joined!', `You've joined "${local.name}".`, [{ text: 'Enter Event', onPress: goToFeed }]);
-      return;
-    }
+    // Always call the backend join endpoint — it returns membership_id which we
+    // use for the check-in step. It is idempotent for already-members.
     findAndJoin(c, {
       onSuccess: async (ev) => {
         setSelectedEvent(null);
         if (ev.id) {
           setCurrentEventId(ev.id);
           await refreshEventRole(ev.id);
-          await saveJoinedEvent(ev.id);
+          // Pass membership_id directly so check-in doesn't need a second API call.
+          await saveJoinedEvent(ev.id, ev.membershipId);
         }
         Alert.alert('Joined!', `You've joined "${ev.name}".`, [{ text: 'Enter Event', onPress: goToFeed }]);
       },
-      onError: (err) => Alert.alert('Not Found', err instanceof Error ? err.message : `No event found for "${c}".`),
+      onError: (err) => {
+        // If the join API fails (e.g. network), fall back to local event list
+        // so the user can still enter an event they were pre-registered for.
+        const local = allEvents.find((e) => (e.code ?? '').toUpperCase() === c || String(e.id) === c);
+        if (local) {
+          setSelectedEvent(null);
+          setCurrentEventId(local.id);
+          refreshEventRole(local.id);
+          saveJoinedEvent(local.id);
+          Alert.alert('Joined!', `You've joined "${local.name}".`, [{ text: 'Enter Event', onPress: goToFeed }]);
+        } else {
+          Alert.alert('Not Found', err instanceof Error ? err.message : `No event found for "${c}".`);
+        }
+      },
     });
   }, [allEvents, findAndJoin, setCurrentEventId, goToFeed, refreshEventRole, saveJoinedEvent]);
 

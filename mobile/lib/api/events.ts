@@ -234,7 +234,7 @@ export async function joinEventByCode(code: string): Promise<ApiResponse<Event>>
  */
 export async function joinByCode(
   code: string,
-): Promise<ApiResponse<Event & { autoCheckedIn: boolean }>> {
+): Promise<ApiResponse<Event & { autoCheckedIn: boolean; membershipId?: number }>> {
   const upper = code.trim().toUpperCase();
   if (__DEV__) console.log(`[Events] joinByCode(${upper}) — POST join-by-code`);
 
@@ -243,23 +243,29 @@ export async function joinByCode(
     body: JSON.stringify({ code: upper }),
   });
 
-  if (!res.success) return res as ApiResponse<Event & { autoCheckedIn: boolean }>;
+  if (!res.success) return res as ApiResponse<Event & { autoCheckedIn: boolean; membershipId?: number }>;
 
   const raw = res.data ?? {};
   const autoCheckedIn: boolean = Boolean(raw.auto_checked_in);
-  if (__DEV__) console.log(`[Events] joinByCode auto_checked_in=${autoCheckedIn}`);
+  // Extract membership_id from the join response so callers can check-in
+  // immediately without needing a separate member-lookup API call.
+  const membershipId: number | undefined =
+    typeof raw.membership_id === 'number' ? raw.membership_id :
+    typeof raw.member_id === 'number' ? raw.member_id :
+    undefined;
+  if (__DEV__) console.log(`[Events] joinByCode auto_checked_in=${autoCheckedIn} membershipId=${membershipId}`);
 
   // Resolve Event — try inline event object first, then event_id fetch, then code lookup.
   const inlineEvent = raw.event ?? raw.data?.event ?? null;
   if (inlineEvent) {
-    return { success: true, data: { ...normalizeEvent(inlineEvent), autoCheckedIn } };
+    return { success: true, data: { ...normalizeEvent(inlineEvent), autoCheckedIn, membershipId } };
   }
 
   const eventId = raw.event_id ?? raw.data?.event_id ?? null;
   if (eventId) {
     const evRes = await getEvent(String(eventId));
     if (evRes.success && evRes.data) {
-      return { success: true, data: { ...evRes.data, autoCheckedIn } };
+      return { success: true, data: { ...evRes.data, autoCheckedIn, membershipId } };
     }
   }
 
@@ -269,7 +275,7 @@ export async function joinByCode(
     const match = (listRes.data ?? []).find(
       (e) => (e.code ?? '').toUpperCase() === upper || String(e.id) === upper,
     );
-    if (match) return { success: true, data: { ...match, autoCheckedIn } };
+    if (match) return { success: true, data: { ...match, autoCheckedIn, membershipId } };
   }
 
   return {
