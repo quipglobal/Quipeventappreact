@@ -51,7 +51,7 @@ export interface EventDetailResponse {
 
 export interface JoinEventResponse {
   success: boolean;
-  data?: { eventId: string; message: string };
+  data?: { eventId: string; message: string; membershipId?: number };
   error?: { code: string; message: string };
 }
 
@@ -188,7 +188,11 @@ export async function joinEventByCodeApi(code: string): Promise<JoinEventRespons
   if (res.success && res.data) {
     const raw = res.data as Record<string, unknown>;
     const eventId = String(raw.event_id ?? raw.eventId ?? raw.id ?? '');
-    return { success: true, data: { eventId, message: raw.message as string ?? 'Successfully joined event!' } };
+    const membershipId: number | undefined =
+      typeof raw.membership_id === 'number' ? raw.membership_id :
+      typeof raw.member_id === 'number' ? raw.member_id :
+      undefined;
+    return { success: true, data: { eventId, message: String(raw.message ?? 'Successfully joined event!'), membershipId } };
   }
   return { success: false, error: { code: 'INVALID_CODE', message: 'Event not found. Please check your code.' } };
 }

@@ -13,6 +13,7 @@ import {
   listEventsApi, getEventApi, OrganizerEvent,
   checkEventAccess, joinEventWithCode, joinEventByCodeApi,
 } from '@/app/api/eventsClient';
+import { checkInMemberApi } from '@/app/api/audienceClient';
 import { getVideoFeedCategories, getVideoFeeds, VideoFeed } from '@/app/api/videoFeedsClient';
 import {
   getArticleCategories, getArticles, getArticle, postArticleAnalytics, postAnalyticsEvent,
@@ -265,25 +266,32 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
     if (code.length < 4) { setCodeError('Please enter a valid event code'); return; }
     setIsJoining(true);
 
-    // Fast path: code matches a locally-cached event title/code string.
-    const matched = events.find(ev =>
-      (ev.code ?? '').toUpperCase() === code ||
-      ev.title.toUpperCase().replace(/\s+/g, '').includes(code)
-    );
-    if (matched) {
-      switchEvent(eventToConfig(matched));
-      joinEvent();
-      setIsJoining(false);
-      onJoinEvent();
-      return;
-    }
-
-    // Backend path: validate + join via the real join-by-code endpoint.
+    // Always call the backend join endpoint — it is idempotent for already-members
+    // and returns membership_id needed to check in the user in the audience list.
     const res = await joinEventByCodeApi(code);
     if (!res.success) {
+      // Fallback: if API fails, check if it's a locally-known event so the user
+      // can still enter (same pattern as mobile app).
+      const matched = events.find(ev =>
+        (ev.code ?? '').toUpperCase() === code ||
+        ev.title.toUpperCase().replace(/\s+/g, '').includes(code)
+      );
+      if (matched) {
+        switchEvent(eventToConfig(matched));
+        joinEvent();
+        setIsJoining(false);
+        onJoinEvent();
+        return;
+      }
       setCodeError(res.error?.message ?? 'Event not found. Please check your code and try again.');
       setIsJoining(false);
       return;
+    }
+
+    // Fire-and-forget check-in so the user appears in the audience list immediately.
+    // Uses the membership_id returned by the join endpoint — no second lookup needed.
+    if (res.data?.eventId && res.data?.membershipId) {
+      checkInMemberApi(res.data.eventId, res.data.membershipId).catch(() => {});
     }
 
     // Navigate to the joined event — use eventId from response if present,
