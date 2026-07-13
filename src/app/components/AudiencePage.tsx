@@ -694,8 +694,8 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg"
                 style={{ background: 'rgba(255,255,255,0.1)' }}>
                 <Users style={{ width: 13, height: 13, color: 'rgba(255,255,255,0.7)' }} />
-                <span style={{ color: '#fff', fontSize: 12, fontWeight: 700 }}>{members.length}</span>
-                <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11 }}>registered</span>
+                {/* <span style={{ color: '#fff', fontSize: 12, fontWeight: 700 }}>{members.length}</span>
+                <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11 }}>registered</span> */}
               </div>
             </div>
           )}
@@ -740,10 +740,10 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
           {checkedInOnly ? 'Checked-in Only' : 'All Registrations'}
         </button>
 
-        {/* Divider */}
+        {/* Divider 
         {availableRoles.length > 1 && (
           <div className="w-px flex-shrink-0 self-stretch mx-0.5" style={{ background: t.divider }} />
-        )}
+        )} by RT 07132026*/}
 
         {/* All roles */}
         {availableRoles.length > 1 && (

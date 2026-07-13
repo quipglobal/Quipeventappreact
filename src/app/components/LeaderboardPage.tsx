@@ -91,7 +91,7 @@ export const LeaderboardPage: React.FC = () => {
             <p style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13 }}>Top performers at the event</p>
           </div>
         </div>
-        {/* Time filter */}
+        {/* Time filter 
         <div className="flex p-1 rounded-xl" style={{ background: 'rgba(255,255,255,0.2)' }}>
           {(['overall', 'today', 'week'] as const).map(f => (
             <button key={f} onClick={() => setTimeFilter(f)}
@@ -100,7 +100,7 @@ export const LeaderboardPage: React.FC = () => {
               {f === 'overall' ? 'Overall' : f === 'today' ? 'Today' : 'This Week'}
             </button>
           ))}
-        </div>
+        </div> By RT 07132026*/}
       </div>
 
       {/* Your Rank — only when the backend returned the current user
