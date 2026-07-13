@@ -222,6 +222,65 @@ export async function joinEventByCode(code: string): Promise<ApiResponse<Event>>
   return { success: true, data: match };
 }
 
+/**
+ * Join an event by attendee invite code using the backend's join-by-code
+ * endpoint. The server auto-creates a checkin record so the attendee appears
+ * in the audience list immediately — no separate check-in step is needed.
+ *
+ * Response shape (from backend):
+ *   { message, auto_checked_in, role, badge_code, event?: {...}, event_id? }
+ *
+ * Returns the resolved Event on success, or an error if the code is invalid.
+ */
+export async function joinByCode(
+  code: string,
+): Promise<ApiResponse<Event & { autoCheckedIn: boolean }>> {
+  const upper = code.trim().toUpperCase();
+  if (__DEV__) console.log(`[Events] joinByCode(${upper}) — POST join-by-code`);
+
+  const res = await request<any>('/api/v1/events/join-by-code', {
+    method: 'POST',
+    body: JSON.stringify({ code: upper }),
+  });
+
+  if (!res.success) return res as ApiResponse<Event & { autoCheckedIn: boolean }>;
+
+  const raw = res.data ?? {};
+  const autoCheckedIn: boolean = Boolean(raw.auto_checked_in);
+  if (__DEV__) console.log(`[Events] joinByCode auto_checked_in=${autoCheckedIn}`);
+
+  // Resolve Event — try inline event object first, then event_id fetch, then code lookup.
+  const inlineEvent = raw.event ?? raw.data?.event ?? null;
+  if (inlineEvent) {
+    return { success: true, data: { ...normalizeEvent(inlineEvent), autoCheckedIn } };
+  }
+
+  const eventId = raw.event_id ?? raw.data?.event_id ?? null;
+  if (eventId) {
+    const evRes = await getEvent(String(eventId));
+    if (evRes.success && evRes.data) {
+      return { success: true, data: { ...evRes.data, autoCheckedIn } };
+    }
+  }
+
+  // Last resort: find the event by code from the catalogue.
+  const listRes = await listEvents();
+  if (listRes.success) {
+    const match = (listRes.data ?? []).find(
+      (e) => (e.code ?? '').toUpperCase() === upper || String(e.id) === upper,
+    );
+    if (match) return { success: true, data: { ...match, autoCheckedIn } };
+  }
+
+  return {
+    success: false,
+    error: {
+      code: 'EVENT_NOT_FOUND',
+      message: `Joined but could not load event details for code "${upper}". Please refresh.`,
+    },
+  };
+}
+
 export async function listSessions(filters?: { day?: number; track?: string }): Promise<ApiResponse<Session[]>> {
   const eventId = getEventId();
   if (__DEV__) console.log(`[Events] listSessions eventId=${eventId} filters=`, filters);

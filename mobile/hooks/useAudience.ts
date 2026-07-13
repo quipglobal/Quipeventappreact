@@ -9,6 +9,13 @@ export function useAudience(filters?: { tier?: string; search?: string }) {
     queryFn: () => listAttendees(filters),
     select: (res) => res.data ?? [],
     enabled: !!currentEventId,
+    // Backend returns Cache-Control: no-store — always fetch fresh.
+    // staleTime:0 means data is immediately stale so React Query will always
+    // go to the network on mount / focus. gcTime:0 evicts the cache entry as
+    // soon as there are no active subscribers, preventing stale data from
+    // being served to a newly-mounted audience screen.
+    staleTime: 0,
+    gcTime: 0,
   });
 }
 

@@ -24,7 +24,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
 import { useEvent } from '@/context/EventContext';
-import { listEventsByTenant, findEventByCode } from '@/lib/api/events';
+import { listEventsByTenant, findEventByCode, joinByCode } from '@/lib/api/events';
 import {
   fetchGlobalVideoFeeds,
   fetchGlobalArticles,
@@ -270,7 +270,9 @@ export default function EventsScreen() {
   // ── Join ──
   const { mutate: findAndJoin, isPending: joining } = useMutation({
     mutationFn: async (code: string) => {
-      const res = await findEventByCode(code, TENANT_ID);
+      // Call the real join-by-code endpoint. The backend auto-creates a
+      // checkin record (auto_checked_in) so no separate check-in step is needed.
+      const res = await joinByCode(code);
       if (!res.success) throw new Error(res.error?.message ?? `No event found for "${code}".`);
       return res.data!;
     },

@@ -97,10 +97,10 @@ export async function listAttendees(filters?: { tier?: string; search?: string }
   if (!eventId) return { success: true, data: [] };
   const params = new URLSearchParams();
   params.set('per_page', '200');
-  params.set('checked_in_only', 'false');
   if (filters?.tier) params.set('tier', filters.tier);
   if (filters?.search) params.set('search', filters.search);
-  const res = await request<any>(`/api/v1/events/${eventId}/members?${params.toString()}`);
+  // Backend returns Cache-Control: no-store — always fetch fresh, no local cache.
+  const res = await request<any>(`/api/v1/events/${eventId}/attendees?${params.toString()}`);
   if (!res.success) return res as ApiResponse<Attendee[]>;
   const body = res.data as any;
   const paginator = body?.data ?? body;
@@ -111,11 +111,12 @@ export async function listAttendees(filters?: { tier?: string; search?: string }
   return { success: true, data: raw.map(normalizeAttendee) };
 }
 
-export async function getAttendee(id: string): Promise<ApiResponse<Attendee>> {
+export async function getAttendee(userId: string): Promise<ApiResponse<Attendee>> {
   const eventId = getEventId();
-  if (__DEV__) console.log(`[Users] getAttendee(${id}) eventId=${eventId}`);
+  if (__DEV__) console.log(`[Users] getAttendee(${userId}) eventId=${eventId}`);
   if (!eventId) return { success: false, error: { code: 'NO_EVENT', message: 'No active event' } };
-  const res = await request<any>(`/api/v1/events/${eventId}/members/${id}`);
+  // Backend returns Cache-Control: no-store — always fetch fresh.
+  const res = await request<any>(`/api/v1/events/${eventId}/attendees/${userId}`);
   if (!res.success) return res as ApiResponse<Attendee>;
   const raw = res.data?.data ?? res.data;
   return { success: true, data: normalizeAttendee(raw) };
