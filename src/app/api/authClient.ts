@@ -175,6 +175,7 @@ export async function registerUser(params: {
   phone?: string;
   title?: string;
   company?: string;
+  tenantId?: number;
 }): Promise<RegisterResponse> {
   const res = await apiPost<Record<string, unknown>>('/api/v1/auth/register', {
     email: params.email,

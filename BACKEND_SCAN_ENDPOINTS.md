@@ -603,6 +603,16 @@ will merge from its local overlay.
   "title": "MacBook Pro Raffle",
   "number_of_items": 3,
   "numberOfItems": 3,
+  "total_count": 3,
+  "totalCount": 3,
+  "prize_count": 3,
+  "prizeCount": 3,
+  "items_count": 3,
+  "itemsCount": 3,
+  "total_items": 3,
+  "totalItems": 3,
+  "quantity": 3,
+  "count": 3,
   "image": "https://...",
   "sponsor_name": "Acme Corp",
   "sponsorName": "Acme Corp",
@@ -610,6 +620,27 @@ will merge from its local overlay.
   "sponsorId": "17"
 }
 ```
+
+> **⚠️ BACKEND BUG — Gift count not persisting to DB.**
+> The frontend sends the giveaway item count under every common field
+> name listed above (`number_of_items`, `quantity`, `total_count`,
+> `count`, `prize_count`, `items_count`, `total_items` — both
+> snake_case and camelCase). Despite this, the field is saved as `0`
+> or `null` in the database, meaning the backend controller is NOT
+> mapping any of these keys to its DB column.
+>
+> **Backend action required:**
+> 1. Open the `GiveawayController@store` (and `@update`) method.
+> 2. Find the DB column that stores the prize quantity (commonly
+>    `number_of_items`, `quantity`, or `total_count` depending on the
+>    migration).
+> 3. Ensure that column is in the model's `$fillable` array.
+> 4. Add a `validated()` / `request()->input()` mapping from the
+>    request key to the column, e.g.:
+>    `$giveaway->number_of_items = $request->input('number_of_items', $request->input('quantity', 0));`
+> 5. Confirm the same field is returned in the `GET` response so the
+>    frontend normalizer can read it back (field name must be one of
+>    those listed in the GET response shape above).
 
 **POST response** (`201`): same shape as a single item in the GET
 array, including the server-issued `id`. The frontend swaps the

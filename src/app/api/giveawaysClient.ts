@@ -99,9 +99,18 @@ function normalizeGiveaway(raw: any): SponsorGiveaway {
     numberOfItems: pickNumber(
       raw?.numberOfItems,
       raw?.number_of_items,
+      raw?.totalCount,
+      raw?.total_count,
+      raw?.prizeCount,
+      raw?.prize_count,
+      raw?.itemsCount,
+      raw?.items_count,
+      raw?.totalItems,
+      raw?.total_items,
       raw?.total_available,
       raw?.totalAvailable,
       raw?.quantity,
+      raw?.count,
       raw?.total,
       raw?.entries_total,
     ),
@@ -191,11 +200,27 @@ export async function createGiveaway(
   if (createEndpointMissing) {
     return { success: false, error: { code: 'NOT_IMPLEMENTED', message: 'Giveaway create endpoint not deployed.' } };
   }
+  // Send every known field-name variant for the item count so the
+  // backend can accept whichever column name its migration defined
+  // (number_of_items, quantity, total_count, count, etc.).
+  const itemCount = payload.numberOfItems;
   const body = {
     title: payload.title,
-    number_of_items: payload.numberOfItems,
-    numberOfItems: payload.numberOfItems,
-    quantity: payload.numberOfItems,
+    // snake_case variants
+    number_of_items: itemCount,
+    total_count:     itemCount,
+    prize_count:     itemCount,
+    items_count:     itemCount,
+    total_items:     itemCount,
+    // camelCase variants
+    numberOfItems:   itemCount,
+    totalCount:      itemCount,
+    prizeCount:      itemCount,
+    itemsCount:      itemCount,
+    totalItems:      itemCount,
+    // bare "quantity" / "count" fallback
+    quantity:        itemCount,
+    count:           itemCount,
     image: payload.image,
     image_url: payload.image,
     sponsor_name: payload.sponsorName,
@@ -260,9 +285,19 @@ export async function updateGiveaway(
     body.title = payload.title;
   }
   if (payload.numberOfItems !== undefined) {
-    body.number_of_items = payload.numberOfItems;
-    body.numberOfItems = payload.numberOfItems;
-    body.quantity = payload.numberOfItems;
+    const n = payload.numberOfItems;
+    body.number_of_items = n;
+    body.numberOfItems   = n;
+    body.quantity        = n;
+    body.count           = n;
+    body.total_count     = n;
+    body.totalCount      = n;
+    body.prize_count     = n;
+    body.prizeCount      = n;
+    body.items_count     = n;
+    body.itemsCount      = n;
+    body.total_items     = n;
+    body.totalItems      = n;
   }
   if (payload.image !== undefined) {
     body.image = payload.image;
