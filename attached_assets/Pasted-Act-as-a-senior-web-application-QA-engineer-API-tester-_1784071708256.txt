@@ -1,0 +1,782 @@
+Act as a senior web application QA engineer, API tester, and performance analyst.
+
+The application is already developed and working. Perform a comprehensive quality test of the web application and all connected APIs.
+
+Do not test Android, iOS, Capacitor, native plugins, app-store builds, or mobile installation packages.
+
+## Primary objective
+
+Test and validate:
+
+* All web application screens
+* Navigation and routing
+* Buttons, links, menus, tabs, and interactive controls
+* Forms and validation
+* Authentication and session handling
+* Role-based access
+* API connectivity and responses
+* Loading, empty, success, and error states
+* Page-load speed
+* API response speed
+* Browser responsiveness
+* Console errors
+* Network errors
+* Security-sensitive frontend behavior
+* Cross-browser compatibility
+* Regression stability
+
+Create automated tests where practical and generate a detailed QA report.
+
+## Safety and execution rules
+
+1. Inspect the existing codebase before making changes.
+2. Detect the framework, routing system, API client, authentication method, package manager, environment variables, and existing test tools.
+3. Use the existing test framework where possible.
+4. Do not rewrite the application architecture.
+5. Do not change working business logic unless fixing a confirmed defect.
+6. Do not use destructive operations against production data.
+7. Prefer a staging or test environment.
+8. Do not expose API keys, tokens, credentials, or personal data in reports or logs.
+9. Do not mark a test as passed unless it was actually executed.
+10. Record every source-code, configuration, package, and test-file change.
+
+## Phase 1: Repository audit
+
+Inspect and document:
+
+* Frontend framework and version
+* Build tool
+* Package manager
+* Routing library
+* State-management library
+* API client
+* Authentication method
+* Environment configuration
+* API base URLs
+* Required request headers
+* User roles
+* Permission logic
+* Existing test framework
+* Existing linting and type-checking tools
+* Production build scripts
+* Browser-support configuration
+
+Run the existing commands for:
+
+* Dependency installation
+* Type checking
+* Linting
+* Unit tests
+* Production build
+* Dependency vulnerability scan
+
+Do not install additional test frameworks unless the current project lacks suitable tooling.
+
+Preferred tools:
+
+* Vitest or Jest for unit tests
+* Testing Library for component tests
+* Playwright for browser end-to-end tests
+* Lighthouse for page-performance testing
+* The project’s existing HTTP or API test tooling
+* Postman/Newman only if an existing collection is available or clearly useful
+
+## Phase 2: Application screen inventory
+
+Inspect the route configuration and create a complete inventory of application screens.
+
+For every route, document:
+
+* Screen name
+* Route URL
+* Authentication requirement
+* Required user role
+* Required permission
+* Primary buttons
+* Secondary actions
+* Forms
+* API dependencies
+* Expected loading state
+* Expected empty state
+* Expected error state
+* Expected navigation destinations
+
+Include:
+
+* Public routes
+* Authenticated routes
+* Admin routes
+* Role-specific routes
+* Permission-controlled routes
+* Hidden or conditional routes
+* Error pages
+* Not-found pages
+
+## Phase 3: Basic screen tests
+
+Test every accessible screen for:
+
+* Successful page rendering
+* No blank page
+* No broken component
+* No uncaught JavaScript exception
+* No unexpected console error
+* No failed required API request
+* No missing image or icon
+* No overlapping content
+* No clipped text
+* No horizontal overflow
+* Correct responsive layout
+* Correct header, sidebar, and footer behavior
+* Correct page title
+* Correct route access
+* Correct loading state
+* Correct empty state
+* Correct error state
+
+Capture screenshots for:
+
+* Initial load
+* Loaded state
+* Empty state
+* Validation-error state
+* API-error state
+* Important success states
+
+Test responsive layouts at minimum for:
+
+* 375×667
+* 390×844
+* 768×1024
+* 1366×768
+* 1440×900
+* 1920×1080
+
+## Phase 4: Click and interaction testing
+
+Identify and test every meaningful interactive element:
+
+* Buttons
+* Links
+* Navigation menus
+* Sidebar items
+* Tabs
+* Cards
+* Table rows
+* Dropdowns
+* Search fields
+* Filters
+* Pagination
+* Sort controls
+* Checkboxes
+* Radio buttons
+* Toggle switches
+* Date pickers
+* Modal dialogs
+* Confirmation dialogs
+* File upload controls
+* Download controls
+* Refresh buttons
+* Logout controls
+* Back navigation
+* Browser refresh
+* Browser history navigation
+
+For every interaction, verify:
+
+1. The element is visible.
+2. The element is enabled when expected.
+3. The click is registered.
+4. The correct action occurs.
+5. The correct route, modal, or state opens.
+6. Loading feedback appears where required.
+7. Success or error feedback appears.
+8. Duplicate clicks do not create duplicate requests.
+9. The element returns to a usable state.
+10. No crash, freeze, or permanent loading state occurs.
+
+Report:
+
+* Dead buttons
+* Broken links
+* Incorrect routes
+* Incorrect redirects
+* Broken browser-back behavior
+* Duplicate form submissions
+* Buttons blocked by overlays
+* Modals that cannot close
+* Controls that disappear unexpectedly
+* Elements that are inaccessible at smaller viewport sizes
+
+## Phase 5: Form testing
+
+Test every form for:
+
+* Valid submission
+* Required fields
+* Empty fields
+* Invalid email
+* Invalid phone number
+* Minimum and maximum lengths
+* Numeric limits
+* Invalid dates
+* Special characters
+* Leading and trailing spaces
+* Duplicate submissions
+* Server-side validation
+* Client-side validation
+* API validation errors
+* Form reset
+* Cancel behavior
+* Disabled submit state
+* Loading state
+* Success message
+* Error message
+* Data persistence after validation failure
+
+Verify that validation messages are:
+
+* Clear
+* Associated with the correct field
+* Visible
+* Accessible
+* Consistent
+
+## Phase 6: Authentication and session testing
+
+Test all available authentication flows:
+
+* Valid login
+* Invalid login
+* Empty login fields
+* Invalid email format
+* Incorrect password
+* OTP request, if applicable
+* Valid OTP
+* Invalid OTP
+* Expired OTP
+* Resend OTP
+* Forgot password
+* Reset password
+* Logout
+* Remember-me behavior
+* Session persistence after refresh
+* Session persistence after browser restart
+* Expired token
+* Refresh-token behavior
+* Unauthorized API response
+* Revoked session
+* Role-based redirect
+* Access to protected routes without authentication
+
+Verify that:
+
+* Protected routes cannot be opened without authentication.
+* Unauthorized roles cannot access restricted screens.
+* Tokens are handled according to the existing architecture.
+* Sensitive credentials are not printed in browser logs.
+* Authentication errors do not expose internal server details.
+* Logout clears the appropriate session data.
+
+## Phase 7: Role and permission testing
+
+Identify all supported roles and permissions.
+
+For each role, test:
+
+* Visible navigation
+* Hidden navigation
+* Accessible routes
+* Restricted routes
+* Read permissions
+* Create permissions
+* Update permissions
+* Delete permissions
+* Export permissions
+* Administrative actions
+
+Attempt direct URL access to restricted pages.
+
+Confirm that authorization is enforced by the API, not only by hiding frontend buttons.
+
+Report any case where:
+
+* A restricted screen is accessible
+* A restricted API call succeeds
+* A hidden action can be triggered manually
+* Role data is inconsistent
+* Permission changes do not take effect correctly
+
+## Phase 8: API inventory
+
+Inspect the frontend code and create an inventory of all API calls.
+
+For every endpoint, document:
+
+* HTTP method
+* Endpoint path
+* Calling screen or feature
+* Authentication requirement
+* Required headers
+* Path parameters
+* Query parameters
+* Request body
+* Expected success status
+* Expected response structure
+* Known error responses
+
+Include:
+
+* Authentication APIs
+* User/profile APIs
+* List APIs
+* Detail APIs
+* Create APIs
+* Update APIs
+* Delete APIs
+* Search APIs
+* Filter APIs
+* Pagination APIs
+* Upload APIs
+* Download APIs
+* Analytics APIs
+* Notification APIs
+* Configuration APIs
+
+## Phase 9: API functional testing
+
+Test every API used by the web application.
+
+For each endpoint, test where applicable:
+
+* Valid request
+* Missing authentication
+* Invalid authentication
+* Missing required headers
+* Invalid tenant or organization header
+* Missing parameters
+* Invalid parameters
+* Empty request body
+* Malformed request body
+* Invalid data type
+* Unauthorized role
+* Resource not found
+* Validation failure
+* Duplicate record
+* Pagination
+* Sorting
+* Filtering
+* Search
+* Large result set
+* Empty result set
+* Rate limiting
+* Timeout
+* Server error
+* Malformed response
+
+Verify status codes including:
+
+* 200
+* 201
+* 204
+* 400
+* 401
+* 403
+* 404
+* 409
+* 422
+* 429
+* 500
+
+Confirm that:
+
+* Status codes are appropriate.
+* Response schemas are consistent.
+* Error messages are safe and understandable.
+* Sensitive fields are not returned unnecessarily.
+* Pagination metadata is correct.
+* API data matches the UI.
+* Failed calls do not leave the UI permanently loading.
+* Retry behavior does not duplicate records.
+* Delete actions require appropriate confirmation.
+* Authorization is enforced server-side.
+
+## Phase 10: API contract validation
+
+Compare frontend expectations with actual API responses.
+
+Detect:
+
+* Missing properties
+* Renamed fields
+* Incorrect data types
+* Null-value handling issues
+* Incorrect date formats
+* Incorrect Boolean formats
+* Pagination mismatches
+* Inconsistent error structures
+* Response nesting inconsistencies
+* Incorrect role or permission fields
+
+Where practical, create reusable API schema or contract tests.
+
+## Phase 11: Network and failure testing
+
+Test the web application under:
+
+* Normal network
+* Slow 4G
+* High latency
+* Temporary offline mode
+* API timeout
+* Intermittent connection
+* Failed DNS or unreachable API
+* HTTP 500 response
+* HTTP 401 response
+* HTTP 403 response
+* HTTP 429 response
+* Connection recovery
+
+Verify:
+
+* Loading indicators appear.
+* Requests have reasonable timeouts.
+* Users receive useful error messages.
+* Retry controls work.
+* The application recovers after reconnecting.
+* Duplicate records are not created.
+* Forms do not lose data unnecessarily.
+* The interface does not remain frozen.
+
+## Phase 12: Page-load and API performance testing
+
+Measure performance for:
+
+* Login page
+* Main dashboard
+* Primary list pages
+* Detail pages
+* Search
+* Filters
+* Tab changes
+* Form submissions
+* Modal opening
+* Large tables
+* Image-heavy screens
+* Report or analytics pages
+* Initial authenticated application load
+
+Record:
+
+* Initial page-load time
+* Time to first visible content
+* Time to interactive
+* Largest Contentful Paint
+* Cumulative Layout Shift
+* Total Blocking Time
+* JavaScript bundle size
+* Number of initial network requests
+* Total transferred data
+* Slowest JavaScript resources
+* Slowest images
+* Slowest API requests
+* Duplicate API requests
+* Average API response time
+* Maximum API response time
+* Client rendering time after API response
+
+Use these baseline thresholds unless the project defines stricter targets:
+
+* Public page usable within 3 seconds on a normal connection
+* Authenticated dashboard usable within 4 seconds
+* Cached internal navigation within 1 second
+* API-backed navigation within 2.5 seconds
+* Button feedback within 200 milliseconds
+* No unexpected layout shift after load
+* No unnecessary duplicate API calls
+* No single non-report API call exceeding 3 seconds without explanation
+* No page remaining indefinitely in a loading state
+
+Run Lighthouse or equivalent performance testing for the main routes.
+
+Identify:
+
+* Oversized bundles
+* Unused JavaScript
+* Unoptimized images
+* Render-blocking resources
+* Excessive rerenders
+* Large tables rendered without pagination or virtualization
+* Duplicate network requests
+* Sequential API calls that could run in parallel
+* Missing caching
+* Slow backend endpoints
+* Excessive API payloads
+* Memory leaks
+* Long-running browser tasks
+
+Do not make performance changes until the bottleneck is measured.
+
+## Phase 13: Cross-browser testing
+
+Test critical flows in:
+
+* Chromium or Google Chrome
+* Firefox
+* WebKit or Safari-compatible browser
+
+At minimum verify:
+
+* Login
+* Dashboard
+* Primary navigation
+* Lists
+* Detail screens
+* Forms
+* Search
+* Filters
+* Modal dialogs
+* Downloads
+* Logout
+
+Document browser-specific failures.
+
+## Phase 14: Accessibility checks
+
+Test:
+
+* Keyboard-only navigation
+* Visible focus states
+* Logical tab order
+* Form labels
+* Button accessible names
+* Image alt text
+* Modal focus trapping
+* Color contrast
+* Error-message accessibility
+* Semantic headings
+* Table headers
+* Screen-reader labels
+* Touch-target size on mobile-width layouts
+
+Report icon-only controls without accessible labels.
+
+## Phase 15: Security-focused frontend and API checks
+
+Perform safe, non-destructive checks for:
+
+* Tokens exposed in logs
+* Secrets embedded in frontend source
+* Sensitive API responses
+* Unauthorized route access
+* Unauthorized API access
+* Missing server-side permission enforcement
+* Insecure direct object references
+* Excessive user data exposure
+* Unsafe error messages
+* Missing input validation
+* Cross-site scripting risks
+* Unsafe HTML rendering
+* Open redirects
+* Missing security headers
+* CORS misconfiguration
+* Insecure file upload validation
+* Sensitive caching
+* Personally identifiable information in URLs
+
+Do not perform destructive penetration testing.
+
+## Phase 16: Regression and reliability testing
+
+Create a critical smoke suite containing:
+
+* Open the application
+* Login
+* Load dashboard
+* Navigate through every primary menu
+* Open a list
+* Open a detail record
+* Search
+* Apply a filter
+* Submit one safe test form
+* Return using browser back
+* Refresh a protected route
+* Logout
+
+Run the smoke suite at least three consecutive times.
+
+Only mark the flow passed if all three runs succeed.
+
+## Defect reporting
+
+For every defect, document:
+
+* Defect ID
+* Title
+* Severity
+* Priority
+* Screen or API
+* Route or endpoint
+* Browser
+* Environment
+* Preconditions
+* Reproduction steps
+* Expected result
+* Actual result
+* Screenshot
+* Console log
+* Network request and response
+* Suspected root cause
+* Recommended fix
+* Retest status
+
+Use these severity levels:
+
+* Critical: application unavailable, login failure, data loss, security breach, core workflow blocked
+* High: major feature fails with no reasonable workaround
+* Medium: partial failure with a workaround
+* Low: cosmetic or minor usability issue
+
+Only fix issues automatically when they are:
+
+* Clearly reproducible
+* Low risk
+* Supported by a failing test
+* Compatible with the current architecture
+
+After each fix:
+
+1. Rerun the failing test.
+2. Run related regression tests.
+3. Run the critical smoke suite.
+4. Document files changed.
+5. Record before-and-after results.
+
+## Required test deliverables
+
+Create the following files:
+
+### `qa-reports/WEB_QA_EXECUTIVE_SUMMARY.md`
+
+Include:
+
+* Overall release recommendation
+* Total tests executed
+* Passed tests
+* Failed tests
+* Blocked tests
+* Critical defects
+* High defects
+* Browser compatibility status
+* API status
+* Performance status
+* Final GO, CONDITIONAL GO, or NO-GO recommendation
+
+### `qa-reports/WEB_TEST_REPORT.md`
+
+Include:
+
+* Test environment
+* Browser matrix
+* Screen-by-screen results
+* Navigation results
+* Form results
+* Authentication results
+* Role and permission results
+* Responsive results
+* Accessibility results
+* Defect summary
+
+### `qa-reports/API_TEST_REPORT.md`
+
+Include:
+
+* Complete API inventory
+* Endpoint-by-endpoint test results
+* Request and response validation
+* Authentication results
+* Authorization results
+* Error-response results
+* API contract issues
+* Slow endpoints
+* Failed endpoints
+* Security concerns
+
+Redact all credentials and sensitive data.
+
+### `qa-reports/PERFORMANCE_REPORT.md`
+
+Include:
+
+* Page-load metrics
+* Core Web Vitals
+* API response timings
+* Bundle-size findings
+* Network-request findings
+* Five slowest pages
+* Five slowest endpoints
+* Duplicate requests
+* Recommended improvements ranked by impact
+
+### `qa-reports/TEST_COVERAGE_MATRIX.md`
+
+Include columns for:
+
+* Feature
+* Screen
+* Route
+* Role
+* API endpoint
+* Screen test
+* Interaction test
+* API test
+* Performance test
+* Browser status
+* Defect reference
+
+### `qa-reports/DEFECTS.md`
+
+List all defects ordered by severity.
+
+## Automated test commands
+
+Create or update repeatable scripts such as:
+
+* `npm run test`
+* `npm run test:unit`
+* `npm run test:components`
+* `npm run test:e2e`
+* `npm run test:api`
+* `npm run test:performance`
+* `npm run test:smoke`
+* `npm run qa:web`
+
+Adapt the commands to the existing package manager and architecture.
+
+## Final response format
+
+At completion, provide:
+
+1. Release recommendation: GO, CONDITIONAL GO, or NO-GO
+2. Total passed, failed, and blocked tests
+3. Critical and high-priority defects
+4. Browser compatibility result
+5. Authentication and permission result
+6. API test result
+7. Five slowest pages
+8. Five slowest APIs
+9. Five highest-impact improvements
+10. Files changed
+11. Exact commands to rerun the tests
+12. Locations of reports, logs, screenshots, and videos
+
+Begin by auditing the repository and presenting:
+
+* Detected architecture
+* Existing test infrastructure
+* Screen inventory
+* API inventory
+* Proposed browser matrix
+* Proposed test execution matrix
+
+Then proceed with testing without waiting for further confirmation.
