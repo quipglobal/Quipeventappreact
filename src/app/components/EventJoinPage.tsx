@@ -456,73 +456,124 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
     );
   };
 
-  // ── Inline PDF viewer sub-component — fills the full remaining screen height ──
+  // ── Inline PDF viewer — uses Google Docs Viewer so it works in every browser
+  //    and WebView (iOS Safari, Android WebView, etc. cannot render PDFs natively
+  //    in <iframe> tags; GDV fetches the PDF server-side and serves it as HTML).
+  //    GCS signed URLs are accessible to Google's servers; expiry is not a concern
+  //    because we always fresh-fetch pdf_url before opening the reader.
   const ArticlePdfViewer: React.FC<{
     pdfUrl: string; title: string; excerpt: string; content: string;
   }> = ({ pdfUrl, title, excerpt, content }) => {
+    const [iframeLoaded, setIframeLoaded] = useState(false);
     const [iframeError, setIframeError] = useState(false);
-    // Signed GCS URLs contain ".pdf?" before query params — the regex handles both
-    // "file.pdf" (end of string) and "file.pdf?signature=…" patterns.
-    const isPdf = /\.pdf(\?|$)/i.test(pdfUrl);
 
-    if (iframeError) {
-      return (
-        <div className="flex-1 flex flex-col items-center justify-center gap-5 px-8">
-          <div className="w-16 h-16 rounded-2xl flex items-center justify-center"
-            style={{ background: 'rgba(124,58,237,0.12)', border: '1.5px solid rgba(124,58,237,0.25)' }}>
-            <FileText size={28} color="#a78bfa" />
-          </div>
-          <div className="text-center">
-            <p style={{ color: t.text, fontWeight: 700, fontSize: 15, marginBottom: 4 }}>
-              Open document to read
-            </p>
-            <p style={{ color: t.textMuted, fontSize: 13 }}>
-              Your browser cannot preview this file inline.
-            </p>
-          </div>
-          <a
-            href={pdfUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 px-6 py-3 rounded-xl font-semibold"
-            style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', color: '#fff', textDecoration: 'none', fontSize: 14 }}
-          >
-            <Download size={16} />
-            Open PDF
-          </a>
-          {(excerpt || content) && (
-            <div className="w-full mt-4 overflow-y-auto" style={{ maxHeight: '40vh' }}>
-              <p style={{ color: t.textMuted, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-                Summary
-              </p>
-              {content
-                ? <div className="article-body" dangerouslySetInnerHTML={{ __html: content }} />
-                : <p style={{ color: t.textSec, fontSize: 14, lineHeight: 1.7 }}>{excerpt}</p>}
-            </div>
-          )}
-        </div>
-      );
-    }
+    const gdvUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(pdfUrl)}&embedded=true`;
 
     return (
-      <>
-        {/* ── PDF iframe — flex-1 so it fills every pixel of remaining screen height ── */}
-        <iframe
-          key={pdfUrl}
-          src={isPdf ? `${pdfUrl}#view=FitH&toolbar=1&navpanes=0` : pdfUrl}
-          title={title}
-          className="flex-1 w-full min-h-0"
-          style={{ border: 'none', display: 'block', background: isDark ? '#0d0d1a' : '#f3f4f6' }}
-          onError={() => setIframeError(true)}
-          allow="fullscreen"
-        />
-        {/* ── Compact summary strip — only when text is available ── */}
-        {(content || excerpt) && (
+      <div className="flex-1 flex flex-col min-h-0">
+        {/* ── Main viewer area — takes all remaining height ── */}
+        <div className="flex-1 min-h-0 relative">
+
+          {/* Loading state — shown until GDV iframe fires onLoad */}
+          {!iframeLoaded && !iframeError && (
+            <div
+              className="absolute inset-0 flex flex-col items-center justify-center gap-3"
+              style={{ background: isDark ? '#07070f' : '#fff', zIndex: 1 }}
+            >
+              <RefreshCw size={28} style={{ color: '#7c3aed', animation: 'spin 1s linear infinite' }} />
+              <p style={{ color: t.textMuted, fontSize: 13 }}>Loading document…</p>
+              <a
+                href={pdfUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: '#a78bfa', fontSize: 12, fontWeight: 600, textDecoration: 'none', marginTop: 8 }}
+              >
+                Taking too long? Open directly →
+              </a>
+            </div>
+          )}
+
+          {/* Error fallback — shown when iframe itself fails to load */}
+          {iframeError && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 px-8">
+              <div className="w-16 h-16 rounded-2xl flex items-center justify-center"
+                style={{ background: 'rgba(124,58,237,0.12)', border: '1.5px solid rgba(124,58,237,0.25)' }}>
+                <FileText size={28} color="#a78bfa" />
+              </div>
+              <div className="text-center">
+                <p style={{ color: t.text, fontWeight: 700, fontSize: 15, marginBottom: 4 }}>
+                  Unable to preview document
+                </p>
+                <p style={{ color: t.textMuted, fontSize: 13 }}>Open the PDF directly in your browser.</p>
+              </div>
+              <a
+                href={pdfUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 px-6 py-3 rounded-xl font-semibold"
+                style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', color: '#fff', textDecoration: 'none', fontSize: 14 }}
+              >
+                <Download size={16} />
+                Open PDF
+              </a>
+              {(excerpt || content) && (
+                <div className="w-full mt-2 overflow-y-auto" style={{ maxHeight: '35vh' }}>
+                  <p style={{ color: t.textMuted, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Summary</p>
+                  {content
+                    ? <div className="article-body" dangerouslySetInnerHTML={{ __html: content }} />
+                    : <p style={{ color: t.textSec, fontSize: 13, lineHeight: 1.7 }}>{excerpt}</p>}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Google Docs Viewer iframe — renders PDF server-side; opacity-0 until ready */}
+          {!iframeError && (
+            <iframe
+              key={gdvUrl}
+              src={gdvUrl}
+              title={title}
+              className="w-full h-full"
+              style={{
+                border: 'none',
+                display: 'block',
+                opacity: iframeLoaded ? 1 : 0,
+                transition: 'opacity 0.25s ease',
+                background: '#f3f4f6',
+              }}
+              onLoad={() => setIframeLoaded(true)}
+              onError={() => setIframeError(true)}
+              allow="fullscreen"
+            />
+          )}
+        </div>
+
+        {/* ── Thin escape-hatch bar — always accessible ── */}
+        {iframeLoaded && (
+          <div
+            className="flex-shrink-0 flex items-center justify-center gap-2 py-2 border-t"
+            style={{ borderColor: t.border }}
+          >
+            <a
+              href={pdfUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5"
+              style={{ color: '#a78bfa', fontSize: 12, fontWeight: 600, textDecoration: 'none' }}
+            >
+              <ExternalLink size={11} />
+              Open in new tab
+            </a>
+          </div>
+        )}
+
+        {/* ── Summary strip — only when text content exists ── */}
+        {(content || excerpt) && iframeLoaded && (
           <div
             className="flex-shrink-0 border-t overflow-y-auto"
-            style={{ borderColor: t.border, maxHeight: '30vh', padding: '12px 20px 16px' }}
+            style={{ borderColor: t.border, maxHeight: '25vh', padding: '10px 20px 14px' }}
           >
-            <p style={{ color: t.textMuted, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+            <p style={{ color: t.textMuted, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
               Summary
             </p>
             {content
@@ -530,7 +581,7 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
               : <p style={{ color: t.textSec, fontSize: 13, lineHeight: 1.65 }}>{excerpt}</p>}
           </div>
         )}
-      </>
+      </div>
     );
   };
 
