@@ -139,14 +139,14 @@ test('Attendee: login → join → all core pages', async ({ page }) => {
 
   // ── A7: Leaderboard ──────────────────────────────────────────────────
   await page.getByRole('button', { name: /^Leaderboard$/i }).click();
-  await expect(page.getByText('Alice Tester')).toBeVisible({ timeout: 8_000 });
-  await expect(page.getByText('Bob Smith')).toBeVisible();
+  await expect(page.getByText('Alice Tester').first()).toBeVisible({ timeout: 8_000 });
+  await expect(page.getByText('Bob Smith').first()).toBeVisible();
 
   // ── A8: Speakers ─────────────────────────────────────────────────────
   await page.getByRole('button', { name: /^More$/i }).click();
   await page.getByRole('button', { name: /^Speakers$/i }).click();
-  await expect(page.getByText('Jane Doe')).toBeVisible({ timeout: 8_000 });
-  await expect(page.getByText(/Visionary Inc/i)).toBeVisible();
+  await expect(page.getByText('Jane Doe').first()).toBeVisible({ timeout: 8_000 });
+  await expect(page.getByText(/Visionary Inc/i).first()).toBeVisible();
 
   // ── A9: My Badge — header quick-access button (same nav target as SideMenu)
   // "My Badge" exists in BOTH header and SideMenu; use .first() to avoid strict mode
@@ -157,7 +157,7 @@ test('Attendee: login → join → all core pages', async ({ page }) => {
   await page.getByRole('button', { name: /^More$/i }).click();
   await page.getByRole('button', { name: /^Settings$/i }).click();
   await expect(page.getByText('Alice Tester').first()).toBeVisible({ timeout: 8_000 });
-  await expect(page.getByText('alice@cxo.com')).toBeVisible();
+  await expect(page.getByText('alice@cxo.com').first()).toBeVisible();
   await expect(page.getByRole('button', { name: /Edit Profile/i })).toBeVisible();
   await expect(page.getByRole('button', { name: /Sign Out/i })).toBeVisible();
 
