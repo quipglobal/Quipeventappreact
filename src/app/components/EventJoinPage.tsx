@@ -3,7 +3,7 @@ import {
   Ticket, Calendar, MapPin, Users, ChevronRight, Clock,
   ArrowRight, Globe, Video, Hash, Loader2, Play, Tv2,
   LayoutGrid as GridIcon, RefreshCw, Lock, KeyRound, X, LogOut,
-  BookOpen, Clock as ClockIcon, FileText, ExternalLink, Download,
+  BookOpen, Clock as ClockIcon, FileText, ExternalLink, Download, ChevronUp,
 } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
@@ -459,33 +459,36 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
   // ── Inline PDF viewer — uses Google Docs Viewer so it works in every browser
   //    and WebView (iOS Safari, Android WebView, etc. cannot render PDFs natively
   //    in <iframe> tags; GDV fetches the PDF server-side and serves it as HTML).
-  //    GCS signed URLs are accessible to Google's servers; expiry is not a concern
-  //    because we always fresh-fetch pdf_url before opening the reader.
+  //    Description/summary is a slide-up bottom sheet: peeks 48 px from the bottom
+  //    of the viewer area, slides fully up on tap, dismisses on backdrop tap.
   const ArticlePdfViewer: React.FC<{
     pdfUrl: string; title: string; excerpt: string; content: string;
   }> = ({ pdfUrl, title, excerpt, content }) => {
     const [iframeLoaded, setIframeLoaded] = useState(false);
     const [iframeError, setIframeError] = useState(false);
+    const [sheetOpen, setSheetOpen]     = useState(false);
+
+    const hasDescription = !!(excerpt || content);
+    const PEEK_PX = 48;
 
     const gdvUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(pdfUrl)}&embedded=true`;
 
     return (
       <div className="flex-1 flex flex-col min-h-0">
-        {/* ── Main viewer area — takes all remaining height ── */}
+
+        {/* ── Main viewer — takes all remaining height; sheet lives inside here ── */}
         <div className="flex-1 min-h-0 relative">
 
-          {/* Loading state — shown until GDV iframe fires onLoad */}
+          {/* Loading state */}
           {!iframeLoaded && !iframeError && (
             <div
               className="absolute inset-0 flex flex-col items-center justify-center gap-3"
-              style={{ background: isDark ? '#07070f' : '#fff', zIndex: 1 }}
+              style={{ background: isDark ? '#07070f' : '#fff', zIndex: 2 }}
             >
               <RefreshCw size={28} style={{ color: '#7c3aed', animation: 'spin 1s linear infinite' }} />
               <p style={{ color: t.textMuted, fontSize: 13 }}>Loading document…</p>
               <a
-                href={pdfUrl}
-                target="_blank"
-                rel="noopener noreferrer"
+                href={pdfUrl} target="_blank" rel="noopener noreferrer"
                 style={{ color: '#a78bfa', fontSize: 12, fontWeight: 600, textDecoration: 'none', marginTop: 8 }}
               >
                 Taking too long? Open directly →
@@ -493,30 +496,23 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
             </div>
           )}
 
-          {/* Error fallback — shown when iframe itself fails to load */}
+          {/* Error fallback */}
           {iframeError && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 px-8">
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 px-8" style={{ zIndex: 2 }}>
               <div className="w-16 h-16 rounded-2xl flex items-center justify-center"
                 style={{ background: 'rgba(124,58,237,0.12)', border: '1.5px solid rgba(124,58,237,0.25)' }}>
                 <FileText size={28} color="#a78bfa" />
               </div>
               <div className="text-center">
-                <p style={{ color: t.text, fontWeight: 700, fontSize: 15, marginBottom: 4 }}>
-                  Unable to preview document
-                </p>
+                <p style={{ color: t.text, fontWeight: 700, fontSize: 15, marginBottom: 4 }}>Unable to preview document</p>
                 <p style={{ color: t.textMuted, fontSize: 13 }}>Open the PDF directly in your browser.</p>
               </div>
-              <a
-                href={pdfUrl}
-                target="_blank"
-                rel="noopener noreferrer"
+              <a href={pdfUrl} target="_blank" rel="noopener noreferrer"
                 className="flex items-center gap-2 px-6 py-3 rounded-xl font-semibold"
-                style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', color: '#fff', textDecoration: 'none', fontSize: 14 }}
-              >
-                <Download size={16} />
-                Open PDF
+                style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', color: '#fff', textDecoration: 'none', fontSize: 14 }}>
+                <Download size={16} />Open PDF
               </a>
-              {(excerpt || content) && (
+              {hasDescription && (
                 <div className="w-full mt-2 overflow-y-auto" style={{ maxHeight: '35vh' }}>
                   <p style={{ color: t.textMuted, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Summary</p>
                   {content
@@ -527,60 +523,102 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
             </div>
           )}
 
-          {/* Google Docs Viewer iframe — renders PDF server-side; opacity-0 until ready */}
+          {/* Google Docs Viewer iframe */}
           {!iframeError && (
             <iframe
-              key={gdvUrl}
-              src={gdvUrl}
-              title={title}
+              key={gdvUrl} src={gdvUrl} title={title}
               className="w-full h-full"
-              style={{
-                border: 'none',
-                display: 'block',
-                opacity: iframeLoaded ? 1 : 0,
-                transition: 'opacity 0.25s ease',
-                background: '#f3f4f6',
-              }}
+              style={{ border: 'none', display: 'block', opacity: iframeLoaded ? 1 : 0, transition: 'opacity 0.25s ease', background: '#f3f4f6' }}
               onLoad={() => setIframeLoaded(true)}
               onError={() => setIframeError(true)}
               allow="fullscreen"
             />
           )}
+
+          {/* ── Description slide-up sheet (only when viewer is ready + text exists) ── */}
+          {hasDescription && iframeLoaded && (
+            <>
+              {/* Dim backdrop — tap outside to close */}
+              <div
+                className="absolute inset-0"
+                style={{
+                  zIndex: 10,
+                  background: 'rgba(0,0,0,0.35)',
+                  opacity: sheetOpen ? 1 : 0,
+                  pointerEvents: sheetOpen ? 'auto' : 'none',
+                  transition: 'opacity 0.3s ease',
+                }}
+                onClick={() => setSheetOpen(false)}
+              />
+
+              {/* Sheet */}
+              <div
+                className="absolute left-0 right-0 bottom-0 flex flex-col"
+                style={{
+                  zIndex: 20,
+                  maxHeight: '65%',
+                  borderRadius: '14px 14px 0 0',
+                  background: isDark ? '#13131f' : '#fff',
+                  borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+                  boxShadow: '0 -6px 40px rgba(0,0,0,0.22)',
+                  transform: sheetOpen ? 'translateY(0)' : `translateY(calc(100% - ${PEEK_PX}px))`,
+                  transition: 'transform 0.38s cubic-bezier(0.32, 0.72, 0, 1)',
+                  willChange: 'transform',
+                }}
+              >
+                {/* ── Handle + label row — always tappable ── */}
+                <div
+                  role="button"
+                  aria-expanded={sheetOpen}
+                  onClick={() => setSheetOpen(o => !o)}
+                  className="flex flex-col items-center flex-shrink-0 cursor-pointer select-none"
+                  style={{ paddingTop: 10, paddingBottom: 10, touchAction: 'none' }}
+                >
+                  {/* Drag pill */}
+                  <div
+                    className="w-9 h-1 rounded-full mb-2.5"
+                    style={{ background: isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.14)' }}
+                  />
+                  <div className="flex items-center justify-between w-full" style={{ paddingLeft: 18, paddingRight: 14 }}>
+                    <span style={{ color: t.textMuted, fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                      Summary
+                    </span>
+                    <div className="flex items-center gap-3">
+                      {/* "Open PDF" link visible in collapsed state only */}
+                      {!sheetOpen && (
+                        <a
+                          href={pdfUrl} target="_blank" rel="noopener noreferrer"
+                          onClick={e => e.stopPropagation()}
+                          className="flex items-center gap-1"
+                          style={{ color: '#a78bfa', fontSize: 11, fontWeight: 600, textDecoration: 'none' }}
+                        >
+                          <ExternalLink size={10} />
+                          Open PDF
+                        </a>
+                      )}
+                      <ChevronUp
+                        size={16}
+                        style={{
+                          color: t.textMuted,
+                          transform: sheetOpen ? 'rotate(180deg)' : 'none',
+                          transition: 'transform 0.3s',
+                          flexShrink: 0,
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Scrollable description text ── */}
+                <div className="overflow-y-auto flex-1" style={{ padding: '4px 20px 24px' }}>
+                  {content
+                    ? <div className="article-body" dangerouslySetInnerHTML={{ __html: content }} />
+                    : <p style={{ color: t.textSec, fontSize: 14, lineHeight: 1.78 }}>{excerpt}</p>}
+                </div>
+              </div>
+            </>
+          )}
         </div>
-
-        {/* ── Thin escape-hatch bar — always accessible ── */}
-        {iframeLoaded && (
-          <div
-            className="flex-shrink-0 flex items-center justify-center gap-2 py-2 border-t"
-            style={{ borderColor: t.border }}
-          >
-            <a
-              href={pdfUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5"
-              style={{ color: '#a78bfa', fontSize: 12, fontWeight: 600, textDecoration: 'none' }}
-            >
-              <ExternalLink size={11} />
-              Open in new tab
-            </a>
-          </div>
-        )}
-
-        {/* ── Summary strip — only when text content exists ── */}
-        {(content || excerpt) && iframeLoaded && (
-          <div
-            className="flex-shrink-0 border-t overflow-y-auto"
-            style={{ borderColor: t.border, maxHeight: '25vh', padding: '10px 20px 14px' }}
-          >
-            <p style={{ color: t.textMuted, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
-              Summary
-            </p>
-            {content
-              ? <div className="article-body" dangerouslySetInnerHTML={{ __html: content }} />
-              : <p style={{ color: t.textSec, fontSize: 13, lineHeight: 1.65 }}>{excerpt}</p>}
-          </div>
-        )}
       </div>
     );
   };
