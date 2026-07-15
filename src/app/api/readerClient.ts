@@ -2,7 +2,7 @@
  * Reader / Articles API Client
  * ─────────────────────────────────────────────────────────────────────────────
  *   GET  /api/v1/mobile/reader/categories                              → ArticleCategory[]
- *   GET  /api/v1/mobile/reader/documents[?category_id=&page=&search=] → Article[]
+ *   GET  /api/v1/mobile/reader/documents[?category=&page=&search=]    → Article[]
  *   GET  /api/v1/mobile/reader/documents/:id                          → Article
  *   POST /api/v1/mobile/reader/analytics/event                        → void  (impression/click/open)
  *   POST /api/v1/mobile/reader/analytics/read-session                 → void  (merged on server)
@@ -147,56 +147,28 @@ function normalizeArticle(raw: any): Article {
   // The backend always pre-resolves pdf_url before sending (signed GCS URL, legacy
   // storage URL, or external URL). Never attempt client-side path resolution.
   // pdf_url is null when no PDF is attached — the UI must handle this gracefully.
+  //
+  // Primary source: raw.pdf_url (canonical new backend field).
+  // Fallbacks kept for backward-compat with older response shapes.
   const pdfUrl: string | null = (() => {
-    // 1. Direct string fields — pdf_url is the canonical field from the new backend
-    const direct = [
-      'pdf_url', 'file_url', 'document_url', 'attachment_url',
-      'pdf_link', 'download_url', 'media_url', 'resource_url',
-      'pdf_path', 'file_path', 'document_path',
-    ];
-    for (const f of direct) {
+    // 1. Canonical field — new backend always sends this pre-resolved
+    if (raw.pdf_url && typeof raw.pdf_url === 'string') return raw.pdf_url;
+    // 2. Common legacy field aliases
+    for (const f of ['file_url', 'document_url', 'attachment_url', 'pdf_link', 'download_url']) {
       const v = raw[f];
       if (v && typeof v === 'string') return v;
       if (v && typeof v === 'object' && !Array.isArray(v))
         return v.url ?? v.original_url ?? v.path ?? null;
     }
-    // 2. Spatie media[] array — prefer PDF mime type
+    // 3. Spatie media[] — prefer PDF collection/mime type
     if (Array.isArray(raw.media) && raw.media.length > 0) {
       const item =
         raw.media.find((m: any) =>
           String(m.mime_type ?? '').includes('pdf') ||
           String(m.collection_name ?? '').toLowerCase().includes('pdf') ||
-          String(m.collection_name ?? '').toLowerCase().includes('doc') ||
           String(m.file_name ?? '').toLowerCase().endsWith('.pdf'),
         ) ?? raw.media[0];
       return item?.original_url ?? item?.url ?? item?.path ?? null;
-    }
-    // 3. Spatie media as single object
-    if (raw.media && typeof raw.media === 'object' && !Array.isArray(raw.media))
-      return raw.media.url ?? raw.media.original_url ?? raw.media.path ?? null;
-    // 4. attachments[] / files[] arrays
-    for (const arr of [raw.attachments, raw.files]) {
-      if (!Array.isArray(arr) || arr.length === 0) continue;
-      const item =
-        arr.find((a: any) =>
-          String(a.mime_type ?? '').includes('pdf') ||
-          String(a.name ?? a.file_name ?? '').toLowerCase().endsWith('.pdf'),
-        ) ?? arr[0];
-      return item?.url ?? item?.original_url ?? item?.path ?? (typeof item === 'string' ? item : null);
-    }
-    // 5. Nested object fields
-    for (const f of ['file', 'attachment', 'document', 'pdf']) {
-      const v = raw[f];
-      if (!v) continue;
-      if (typeof v === 'string') return v;
-      if (typeof v === 'object' && !Array.isArray(v))
-        return v.url ?? v.original_url ?? v.path ?? null;
-    }
-    // 6. Scan all string fields for PDF-like URLs
-    for (const [, v] of Object.entries(raw)) {
-      if (typeof v !== 'string') continue;
-      if (v.toLowerCase().endsWith('.pdf') || v.includes('/pdf/') || v.includes('/document'))
-        return v;
     }
     return null;
   })();
@@ -247,14 +219,15 @@ export async function getArticleCategories(): Promise<ArticleCategoriesResponse>
 }
 
 export async function getArticles(params?: {
-  category_id?: number | null;
+  /** Filter by category name string — backend accepts ?category=<name> */
+  category?: string | null;
   per_page?: number;
   page?: number;
   search?: string;
 }): Promise<ArticlesResponse> {
   if (articlesNotImplemented) return { success: true, data: [] };
   const qs = new URLSearchParams();
-  if (params?.category_id) qs.set('category_id', String(params.category_id));
+  if (params?.category?.trim()) qs.set('category', params.category.trim());
   qs.set('per_page', String(params?.per_page ?? 20));
   if (params?.page) qs.set('page', String(params.page));
   if (params?.search?.trim()) qs.set('search', params.search.trim());

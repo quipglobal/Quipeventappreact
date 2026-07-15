@@ -152,16 +152,16 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
   }, []);
 
   // ── Fetch articles ────────────────────────────────────────────────────────
-  const fetchArticles = useCallback(async (categoryId?: number) => {
+  const fetchArticles = useCallback(async (categoryName?: string) => {
     setArticlesLoading(true);
-    const res = await getArticles({ category_id: categoryId, per_page: 30 });
+    const res = await getArticles({ category: categoryName, per_page: 30 });
     if (res.success && res.data) setArticles(res.data);
     setArticlesLoading(false);
   }, []);
 
   useEffect(() => { fetchEvents(); fetchCategories(); fetchArticleCategories(); }, [fetchEvents, fetchCategories, fetchArticleCategories]);
   useEffect(() => { fetchFeeds(selectedCategory ?? undefined); }, [fetchFeeds, selectedCategory]);
-  useEffect(() => { if (feedSubTab === 'articles') fetchArticles(selectedArticleCategory?.id); }, [fetchArticles, feedSubTab, selectedArticleCategory]);
+  useEffect(() => { if (feedSubTab === 'articles') fetchArticles(selectedArticleCategory?.name); }, [fetchArticles, feedSubTab, selectedArticleCategory]);
 
   // ── Impression tracking ───────────────────────────────────────────────────
   useEffect(() => {
@@ -562,14 +562,32 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
                 </span>
               </div>
             )}
+            {article.pdfUrl && (
+              <div className="absolute top-2.5 right-2.5 flex items-center gap-1 px-1.5 py-1 rounded-md"
+                style={{ background: 'rgba(124,58,237,0.85)', backdropFilter: 'blur(6px)' }}>
+                <FileText style={{ width: 9, height: 9, color: '#fff' }} />
+                <span style={{ color: '#fff', fontSize: 9, fontWeight: 800, letterSpacing: '0.06em' }}>PDF</span>
+              </div>
+            )}
           </div>
         )}
         <div className="p-3.5">
-          {!article.thumbnailUrl && article.categoryName && (
-            <span className="inline-block px-2 py-0.5 rounded-md mb-2"
-              style={{ background: `${article.categoryColor}25`, color: article.categoryColor, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              {article.categoryName}
-            </span>
+          {!article.thumbnailUrl && (
+            <div className="flex items-center gap-2 mb-2 flex-wrap">
+              {article.categoryName && (
+                <span className="inline-block px-2 py-0.5 rounded-md"
+                  style={{ background: `${article.categoryColor}25`, color: article.categoryColor, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  {article.categoryName}
+                </span>
+              )}
+              {article.pdfUrl && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md"
+                  style={{ background: 'rgba(124,58,237,0.12)', border: '1px solid rgba(124,58,237,0.25)' }}>
+                  <FileText style={{ width: 9, height: 9, color: '#a78bfa' }} />
+                  <span style={{ color: '#a78bfa', fontSize: 9, fontWeight: 800, letterSpacing: '0.06em' }}>PDF</span>
+                </span>
+              )}
+            </div>
           )}
           <h3 style={{ color: t.text, fontSize: 15, fontWeight: 700, lineHeight: 1.4, marginBottom: 6 }}>
             {article.title}

@@ -1,0 +1,26 @@
+#40 - Reader/Article PDF backend update
+What & Why
+The backend article/reader module has shipped a new storage architecture. pdf_url is now always pre-resolved by the server (handles GCS signed URLs, legacy disk paths, and external URLs transparently). The web app's reader client and UI need to reflect the new flat response shape and the new behavioural rules for PDF access.
+
+Done looks like
+Article cards in the web app show a PDF indicator badge when a PDF is attached
+Tapping an article always re-fetches the document detail fresh before opening it, so signed GCS URLs (1-hour expiry) are never stale
+When pdf_url is null the reader still opens but shows a graceful "no PDF" state instead of a broken viewer
+Category filtering in the articles list uses ?category=<name> (string) — the correct backend query param — instead of ?category_id=<int>
+The Article type exposes pdfUrl: string | null; the normaliser reads raw.pdf_url directly as the primary source (no complex multi-field scan needed)
+Author name, excerpt, thumbnail and category are read from the new flat fields: author_name, short_description, cover_image_url, category (with fallbacks kept)
+Out of scope
+Mobile app changes (the backend pre-resolves pdf_url before sending; the mobile resolveFileUrl() helper already handles the field and needs no change per the backend doc)
+Any admin-facing upload or storage configuration UI
+Analytics schema changes
+Steps
+Update Article type and normalizeArticle — Add pdfUrl: string | null to the Article interface. In normalizeArticle, map pdfUrl directly from raw.pdf_url (null when absent). Promote raw.author_name, raw.short_description, raw.cover_image_url, and raw.category (flat string) as the primary source for authorName, excerpt, thumbnailUrl, and categoryName respectively, keeping existing fallbacks for backward compat.
+Fix category filter param — In getArticles(), change the query param key from category_id (int) to category (string name). Update the ArticleCategory normaliser so the id field stores the name string (since backend categories are plain strings). Update all call sites in EventJoinPage.tsx that pass selectedArticleCategory?.id to pass selectedArticleCategory?.name instead.
+Always re-fetch detail before opening — In handleOpenArticle, always call getArticle(article.id) to get a fresh pdf_url before showing the reader, not just when !article.content. Show a loading spinner during the fetch.
+PDF viewer in the reader modal — When readingArticle.pdfUrl is set, render an <iframe> (or an "Open PDF" button that opens the URL in a new tab for Capacitor WebView compat) in the reader modal body. When pdfUrl is null and content is also empty, show a "No document available" empty state instead of a broken view.
+PDF badge on article cards — Add a small "PDF" chip to ArticleCard when article.pdfUrl is non-null, so users know the article opens a PDF before they tap.
+Relevant files
+src/app/api/readerClient.ts
+src/app/components/EventJoinPage.tsx:97-242
+src/app/components/EventJoinPage.tsx:403-464
+src/app/components/EventJoinPage.tsx:1028-1103
