@@ -712,7 +712,9 @@ HTTP status codes: 401 (unauthenticated), 403 (forbidden), 404 (not found), 422 
 Used by both the web and mobile apps to display curated articles and track reading behaviour.
 
 **Authentication:** `Authorization: Bearer <token>` required on all routes.
-**Headers:** `Accept: application/json`, `X-Tenant-ID: 3`
+**Headers:** `Accept: application/json` — routes are tenant-scoped via the auth token; no `X-Tenant-ID` needed.
+
+> Only **PUBLISHED** documents are returned — drafts are invisible to these endpoints.
 
 ---
 
@@ -740,35 +742,45 @@ GET /api/v1/mobile/reader/categories
 #### 11b. List Articles (Documents)
 
 ```
-GET /api/v1/mobile/reader/documents?category_id=:id&page=:n&per_page=:n
+GET /api/v1/mobile/reader/documents?category_id=:id&page=:n&per_page=:n&search=:q
 ```
 
 All query params optional. Default `per_page`: 20.
 
-**Response `200`:**
+**Response `200` — canonical shape (new):**
 ```json
 {
   "success": true,
   "data": [
     {
-      "id": 42,
-      "title": "The Future of AI at Events",
-      "excerpt": "How machine learning is reshaping conference experiences.",
-      "content": "<p>Full HTML body…</p>",
-      "file_url": "https://cdn.example.com/docs/42.pdf",
-      "thumbnail_url": "https://cdn.example.com/articles/42.jpg",
-      "author": { "id": 7, "name": "Jane Smith", "avatar": "https://…" },
-      "category": { "id": 1, "name": "Technology", "slug": "technology", "color": "#06b6d4" },
-      "read_time": 5,
-      "published_at": "2026-05-01T09:00:00Z",
-      "updated_at": "2026-05-10T14:30:00Z"
+      "id": 12,
+      "title": "State of AI 2025",
+      "author_name": "Jane Smith",
+      "category": "Technology",
+      "short_description": "A deep dive into the trends shaping AI this year.",
+      "pdf_url": "https://storage.googleapis.com/...?X-Goog-Signature=...&Expires=...",
+      "cover_image_url": "https://cdn.example.com/articles/12.jpg",
+      "created_at": "2025-07-15T10:00:00+00:00",
+      "updated_at": "2025-07-15T10:00:00+00:00"
     }
   ],
   "meta": { "current_page": 1, "last_page": 3, "per_page": 20, "total": 52 }
 }
 ```
 
-> Field aliases: `body`/`text`/`html` → `content`, `cover_image`/`featured_image`/`image` → `thumbnail_url`, `reading_time`/`estimated_read_time` → `read_time`, `description`/`summary` → `excerpt`, `pdf_url`/`document_url`/`attachment_url`/`file`/`url` → `file_url`. `file_url` is `null` for HTML-only articles; present for PDF/binary documents — the mobile reader auto-opens it and shows a document card. Author may be a plain string or the nested object above.
+**`pdf_url` storage backends (resolved by backend before sending):**
+
+| Storage type | What's in DB | What `pdf_url` contains |
+|---|---|---|
+| Object Storage (new) | `objstore:reader-pdfs/t3_abc123.pdf` | Signed GCS URL, valid ~1 hour |
+| Legacy local disk | `reader-pdfs/t1_abc123.pdf` | Full `https://…/storage/reader-pdfs/…` URL |
+| External URL | `null` storage path, `pdf_url` column set | That URL directly |
+
+> **`pdf_url` is always pre-resolved by the backend** — clients must never attempt to resolve `objstore:` paths themselves. `pdf_url` is `null` when no PDF is attached (draft or HTML-only) — hide the "Read PDF" button in that case.
+>
+> **Signed URLs expire in ~1 hour.** Always fetch `GET /documents/:id` fresh immediately before opening the PDF viewer rather than reusing a cached `pdf_url`.
+
+> Legacy field aliases still accepted by the client normaliser: `file_url`/`document_url`/`attachment_url` → mapped to `pdfUrl`; `thumbnail_url`/`cover_image`/`featured_image` → mapped to `thumbnailUrl`; `excerpt`/`description`/`summary` → mapped to `excerpt`; `author` (object or string) → mapped to `authorName`; nested `category` object → `categoryName`.
 
 ---
 
@@ -778,7 +790,7 @@ All query params optional. Default `per_page`: 20.
 GET /api/v1/mobile/reader/documents/{id}
 ```
 
-Same resource shape as the list — `content` must be the **full** HTML body (the list may omit it for performance).
+Same resource shape as the list. The detail endpoint must return the **full** content body; the list response may omit it for performance.
 
 ---
 

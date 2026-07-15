@@ -1,11 +1,20 @@
 /**
  * Reader / Articles API Client
  * ─────────────────────────────────────────────────────────────────────────────
- *   GET  /api/v1/mobile/reader/categories                       → ArticleCategory[]
- *   GET  /api/v1/mobile/reader/documents[?category_id=&page=]  → Article[]
- *   GET  /api/v1/mobile/reader/documents/:id                   → Article
- *   POST /api/v1/mobile/reader/analytics/event                 → void  (impression/click/open)
- *   POST /api/v1/mobile/reader/analytics/read-session          → void  (merged on server)
+ *   GET  /api/v1/mobile/reader/categories                              → ArticleCategory[]
+ *   GET  /api/v1/mobile/reader/documents[?category_id=&page=&search=] → Article[]
+ *   GET  /api/v1/mobile/reader/documents/:id                          → Article
+ *   POST /api/v1/mobile/reader/analytics/event                        → void  (impression/click/open)
+ *   POST /api/v1/mobile/reader/analytics/read-session                 → void  (merged on server)
+ *
+ * Routes are tenant-scoped via the auth Bearer token — no X-Tenant-ID header needed.
+ * Only PUBLISHED documents are returned; drafts are invisible to this API.
+ *
+ * pdf_url behaviour (backend-resolved):
+ *   The backend always resolves pdf_url before sending — it may be a signed GCS URL
+ *   (expires in ~1 hour), a legacy storage URL, or a direct external URL.
+ *   Always fetch GET /documents/:id fresh before opening the PDF viewer rather than
+ *   using a long-cached pdf_url. Hide the "Read" button when pdf_url is null.
  *
  * NOT_IMPLEMENTED short-circuit on first 404/405 (same pattern as other clients).
  * Full normalisation on every response — handles multiple envelope shapes and
@@ -134,9 +143,12 @@ function normalizeArticle(raw: any): Article {
   const estimatedReadMinutes =
     rawReadTime !== null ? Number(rawReadTime) : estimateReadTime(raw.content ?? raw.body ?? '');
 
-  // Extract PDF/document file URL — mirrors mobile resolveFileUrl logic
+  // Extract PDF/document file URL.
+  // The backend always pre-resolves pdf_url before sending (signed GCS URL, legacy
+  // storage URL, or external URL). Never attempt client-side path resolution.
+  // pdf_url is null when no PDF is attached — the UI must handle this gracefully.
   const pdfUrl: string | null = (() => {
-    // 1. Direct string fields
+    // 1. Direct string fields — pdf_url is the canonical field from the new backend
     const direct = [
       'pdf_url', 'file_url', 'document_url', 'attachment_url',
       'pdf_link', 'download_url', 'media_url', 'resource_url',
@@ -200,7 +212,7 @@ function normalizeArticle(raw: any): Article {
     categoryName,
     categoryColor,
     thumbnailUrl:
-      raw.thumbnail ?? raw.thumbnail_url ?? raw.cover_image ?? raw.featured_image ?? raw.image ?? null,
+      raw.cover_image_url ?? raw.thumbnail_url ?? raw.thumbnail ?? raw.cover_image ?? raw.featured_image ?? raw.image ?? null,
     estimatedReadMinutes,
     publishedAt: String(raw.published_at ?? raw.created_at ?? ''),
     updatedAt: String(raw.updated_at ?? raw.published_at ?? raw.created_at ?? ''),
@@ -238,12 +250,14 @@ export async function getArticles(params?: {
   category_id?: number | null;
   per_page?: number;
   page?: number;
+  search?: string;
 }): Promise<ArticlesResponse> {
   if (articlesNotImplemented) return { success: true, data: [] };
   const qs = new URLSearchParams();
   if (params?.category_id) qs.set('category_id', String(params.category_id));
   qs.set('per_page', String(params?.per_page ?? 20));
   if (params?.page) qs.set('page', String(params.page));
+  if (params?.search?.trim()) qs.set('search', params.search.trim());
 
   const res = await apiGet<unknown>(`/api/v1/mobile/reader/documents?${qs}`);
   if (!res.success) {

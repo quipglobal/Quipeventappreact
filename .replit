@@ -159,3 +159,6 @@ EXPO_PUBLIC_USE_MOCK_API = "false"
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 120000
+
+[objectStorage]
+defaultBucketID = "replit-objstore-ccbfeac6-5389-4851-b84a-5651fbeb06b7"

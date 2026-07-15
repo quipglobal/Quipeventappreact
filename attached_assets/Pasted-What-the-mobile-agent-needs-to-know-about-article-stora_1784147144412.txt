@@ -1,0 +1,38 @@
+What the mobile agent needs to know about article storage & viewing
+The pdf_url field is always pre-resolved — no mobile-side changes needed
+The mobile API (GET /mobile/reader/documents and GET /mobile/reader/documents/{id}) already handles everything transparently. The pdf_url field in every response is always a ready-to-use URL — the backend resolves it before sending, regardless of how the PDF is stored.
+
+There are three storage backends, but mobile never needs to care which one applies:
+
+Storage type	What's in DB	What pdf_url contains in API response
+Object Storage (new)	objstore:reader-pdfs/t3_abc123.pdf	A signed GCS URL, valid for 1 hour
+Legacy local disk	reader-pdfs/t1_abc123.pdf	Full https://…/storage/reader-pdfs/… URL
+External URL (old)	null storage path, pdf_url column set	That URL directly
+Key behaviours mobile should account for
+Signed URLs expire in 1 hour. If the user navigates away and returns much later, the URL could be stale. Safe pattern: fetch the document detail (GET /documents/{id}) fresh each time before opening the PDF viewer, rather than caching the pdf_url long-term.
+
+pdf_url can be null. If a document has no PDF attached yet (draft in progress, or admin forgot to upload), pdf_url will be null. The mobile UI should handle this gracefully — e.g. hide the "Read PDF" button.
+
+Routes are tenant-scoped via the auth token. No X-Tenant-ID header is needed for mobile (the user's token determines the tenant). Only admin-web passes that header explicitly.
+
+Available mobile endpoints
+GET /api/v1/mobile/reader/categories
+GET /api/v1/mobile/reader/documents?page=1&per_page=20&category=X&search=Y
+GET /api/v1/mobile/reader/documents/{id}
+
+All require Authorization: Bearer {token}. Only PUBLISHED documents are returned — drafts are invisible to mobile.
+
+Response shape (both list and detail)
+{
+  "id": 12,
+  "title": "State of AI 2025",
+  "author_name": "Jane Smith",
+  "category": "Technology",
+  "short_description": "...",
+  "pdf_url": "https://storage.googleapis.com/...?X-Goog-Signature=...&Expires=...",
+  "cover_image_url": "https://...",
+  "created_at": "2025-07-15T10:00:00+00:00",
+  "updated_at": "2025-07-15T10:00:00+00:00"
+}
+
+That's everything mobile needs — no auth headers, no bucket names, no signed-URL logic on the client side. The backend abstracts it all.
