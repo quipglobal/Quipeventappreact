@@ -1,0 +1,105 @@
+Mobile Agent Prompt: Event Join-Code Check-In Flow
+Context
+Users who are not yet registered for an event can join using an event_code (join code). Once a user joins, they should never be prompted for the code again. Check-in status persists server-side in the event_checkins table and is idempotent — calling the same endpoint twice is safe.
+
+Step 1 — Detect whether the user is already a member
+Before showing any join/check-in UI, always call:
+
+GET /api/v1/events/{eventId}/access
+Authorization: Bearer {token}
+
+Response:
+
+{
+  "is_member": false,
+  "role": null,
+  "event": { "id": 12, "name": "TechConf 2025", ... }
+}
+
+If is_member: true → skip the join-code screen entirely, go straight to the event home.
+If is_member: false → show the "Enter Join Code" screen.
+Cache this result locally (keyed by eventId + userId). Once the user joins, set is_member: true locally so they never see the join-code screen again for this event, even across app restarts.
+
+Step 2 — Join the event with the code (unauthenticated-member flow)
+When the user submits a join code:
+
+POST /api/v1/events/join
+Authorization: Bearer {token}
+Content-Type: application/json
+{ "event_code": "ABC123" }
+
+Success response (200):
+
+{
+  "success": true,
+  "message": "Successfully joined the event.",
+  "event": { "id": 12, "name": "TechConf 2025", ... },
+  "membership": { "role": "attendee", "status": "registered" }
+}
+
+On success:
+
+Mark is_member: true in local storage for this event.
+The backend automatically creates a check-in record at this point — no separate check-in call is needed for the join flow.
+Navigate the user into the event home.
+Error cases to handle:
+
+404 — invalid code, show "Code not found" error.
+409 — user is already a member (safe to treat as success, navigate in).
+Step 3 — During new user registration with an event code
+If the app has a registration flow that includes an event code field, pass it directly to auth:
+
+POST /api/v1/auth/register
+Content-Type: application/json
+{
+  "name": "Jane Smith",
+  "email": "jane@example.com",
+  "password": "...",
+  "event_code": "ABC123"   ← optional, joins the event automatically
+}
+
+The backend resolves the tenant from the event code and joins the event in the same transaction. After registration, the user is already a member and already checked in.
+
+Step 4 — Self check-in (for users already joined but not physically checked in)
+If a user is a member but hasn't physically arrived yet, call:
+
+POST /api/v1/events/{eventId}/self-check-in
+Authorization: Bearer {token}
+Content-Type: application/json
+{}   ← empty body for self check-in
+
+Success response (200):
+
+{
+  "success": true,
+  "checked_in": true,
+  "message": "You have been checked in."
+}
+
+This is idempotent — safe to call even if already checked in. Call it once on first entry into the event home screen for members who haven't checked in yet.
+
+Recommended app-side state machine
+App opens event screen
+       │
+       ▼
+GET /events/{id}/access
+       │
+  is_member?
+  ┌─── No ──► Show "Enter Join Code" screen
+  │                  │
+  │            POST /events/join  ──► on success: mark joined, enter event
+  │
+  └─── Yes ──► Load event home
+                     │
+               checked_in locally?
+               ┌─── No ──► POST /events/{id}/self-check-in (silent, background)
+               └─── Yes ──► Done, never ask again
+
+Key rules for the mobile agent
+Rule	Detail
+Never re-prompt	Once is_member: true is stored locally, never show the join-code screen for that event again
+Persist join state	Store { eventId, isJoined: true } in secure local storage after a successful join
+Check-in is automatic on join	Don't make a separate check-in call after POST /events/join — the backend handles it
+Self-check-in is idempotent	Safe to call on every app open for members; backend deduplicates
+Audience update is server-side	The event_checkins and event_memberships tables are updated by the backend — mobile has nothing extra to do
+Role is returned on join	Use membership.role from the join response to determine which UI to show (attendee vs sponsor_rep vs organizer)

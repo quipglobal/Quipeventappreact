@@ -13,7 +13,7 @@ import {
   listEventsApi, getEventApi, OrganizerEvent,
   checkEventAccess, joinEventWithCode, joinEventByCodeApi,
 } from '@/app/api/eventsClient';
-import { checkInMemberApi } from '@/app/api/audienceClient';
+import { selfCheckInApi } from '@/app/api/audienceClient';
 import { getVideoFeedCategories, getVideoFeeds, VideoFeed } from '@/app/api/videoFeedsClient';
 import {
   getArticleCategories, getArticles, getArticle, postArticleAnalytics, postAnalyticsEvent,
@@ -289,10 +289,10 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
       return;
     }
 
-    // Fire-and-forget check-in so the user appears in the audience list immediately.
-    // Uses the membership_id returned by the join endpoint — no second lookup needed.
-    if (res.data?.eventId && res.data?.membershipId) {
-      checkInMemberApi(res.data.eventId, res.data.membershipId).catch(() => {});
+    // Fire-and-forget self check-in so the user appears in the audience list immediately.
+    // Idempotent — safe even if the backend already checked them in during join.
+    if (res.data?.eventId) {
+      selfCheckInApi(res.data.eventId).catch(() => {});
     }
 
     // Navigate to the joined event — use eventId from response if present,
@@ -354,7 +354,12 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
     setIsJoiningEvent(true);
     const res = await joinEventWithCode(eventKey.trim());
     setIsJoiningEvent(false);
-    if (res.success) {
+    // 409 = user is already a member — still enter the event
+    const is409 = !res.success && res.error?.code === '409';
+    if (res.success || is409) {
+      if (res.success && res.data?.eventId) {
+        selfCheckInApi(res.data.eventId).catch(() => {});
+      }
       setGateEvent(null);
       enterEvent(gateEvent);
     } else {

@@ -240,10 +240,20 @@ export async function joinByCode(
 
   const res = await request<any>('/api/v1/events/join', {
     method: 'POST',
-    body: JSON.stringify({ code: upper }),
+    body: JSON.stringify({ event_code: upper }),
   });
 
-  if (!res.success) return res as ApiResponse<Event & { autoCheckedIn: boolean; membershipId?: number }>;
+  if (!res.success) {
+    // 409 = user is already a member — treat as success and resolve event from code.
+    const is409 =
+      res.error?.code === '409' ||
+      res.error?.code === 'CONFLICT' ||
+      res.error?.message?.toLowerCase().includes('already');
+    if (!is409) {
+      return res as ApiResponse<Event & { autoCheckedIn: boolean; membershipId?: number }>;
+    }
+    if (__DEV__) console.log(`[Events] joinByCode 409/already-member for code=${upper} — resolving event`);
+  }
 
   const raw = res.data ?? {};
   const autoCheckedIn: boolean = Boolean(raw.auto_checked_in);
@@ -285,6 +295,44 @@ export async function joinByCode(
       message: `Joined but could not load event details for code "${upper}". Please refresh.`,
     },
   };
+}
+
+/**
+ * GET /api/v1/events/{eventId}/access
+ * Returns whether the current user is a member of the event.
+ * Always returns 200 — never blocks.
+ * Cache the result locally once is_member is true.
+ */
+export async function checkEventAccess(
+  eventId: string,
+): Promise<ApiResponse<{ is_member: boolean; role: string | null; event: any }>> {
+  const res = await request<any>(`/api/v1/events/${eventId}/access`);
+  if (!res.success) return res;
+  const raw = res.data ?? {};
+  const data = raw?.data ?? raw;
+  return {
+    success: true,
+    data: {
+      is_member: Boolean(data?.is_member),
+      role: data?.role ?? null,
+      event: data?.event ?? null,
+    },
+  };
+}
+
+/**
+ * POST /api/v1/events/{eventId}/self-check-in
+ * Marks the current user as physically checked in.
+ * Idempotent — safe to call even if already checked in.
+ * No membership ID required — backend resolves from bearer token.
+ */
+export async function selfCheckIn(
+  eventId: string,
+): Promise<ApiResponse<{ checked_in: boolean }>> {
+  return request<{ checked_in: boolean }>(`/api/v1/events/${eventId}/self-check-in`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
 }
 
 export async function listSessions(filters?: { day?: number; track?: string }): Promise<ApiResponse<Session[]>> {

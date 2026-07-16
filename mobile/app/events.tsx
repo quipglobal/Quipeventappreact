@@ -25,8 +25,7 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '@/context/AuthContext';
 import { useEvent } from '@/context/EventContext';
-import { listEventsByTenant, findEventByCode, joinByCode } from '@/lib/api/events';
-import { checkInMember, getMyMembershipId } from '@/lib/api/audience';
+import { listEventsByTenant, findEventByCode, joinByCode, checkEventAccess, selfCheckIn } from '@/lib/api/events';
 import {
   fetchGlobalVideoFeeds,
   fetchGlobalArticles,
@@ -298,11 +297,9 @@ export default function EventsScreen() {
 
   const goToFeed = useCallback(() => router.replace('/(tabs)/feed'), []);
 
-  // Persist membership, award check-in points, and fire-and-forget backend check-in.
-  // knownMemberId — pass directly from the join response to avoid a separate lookup
-  // (the badge-code member-search endpoint also requires membership, creating a
-  // chicken-and-egg problem if we haven't checked in yet).
-  const saveJoinedEvent = useCallback(async (eventId: string, knownMemberId?: number) => {
+  // Persist membership, award check-in points, and fire-and-forget backend self check-in.
+  // Uses POST /events/:id/self-check-in (idempotent, no membership ID needed).
+  const saveJoinedEvent = useCallback(async (eventId: string) => {
     // Always mark locally first so points are awarded immediately.
     markEventCheckedIn(eventId);
     setJoinedEventIds((prev) => {
@@ -311,21 +308,16 @@ export default function EventsScreen() {
       AsyncStorage.setItem(JOINED_EVENTS_KEY, JSON.stringify(next)).catch(() => {});
       return next;
     });
-    // Best-effort backend check-in — use the membership_id from the join response
-    // when available, then fall back to badge-code / user-id lookup.
-    (async () => {
-      const memberId = knownMemberId
-        ?? await getMyMembershipId(eventId, user?.badgeCode, user?.id).catch(() => null);
-      if (memberId) await checkInMember(eventId, memberId).catch(() => {});
-    })().catch(() => {});
-  }, [markEventCheckedIn, user?.badgeCode, user?.id]);
+    // Best-effort backend self check-in — idempotent, safe to call even if already checked in.
+    selfCheckIn(eventId).catch(() => {});
+  }, [markEventCheckedIn]);
 
   // Handle event card tap.
-  // For events not yet in joinedEventIds: silently attempt an idempotent join
-  // using the event's own code. If the user is already a backend member the
-  // call succeeds immediately and they go straight to the feed — no code re-entry.
-  // Only fall back to the code-entry popup when the silent join fails.
+  // 1. Local cache hit → go straight to feed.
+  // 2. Backend access check (GET /events/:id/access) → if is_member, cache + go to feed.
+  // 3. Not a member → show code-entry popup.
   const handleCardPress = useCallback(async (ev: Event) => {
+    // Fast path: already in local joined cache
     if (joinedEventIds.includes(String(ev.id))) {
       setCurrentEventId(ev.id);
       refreshEventRole(ev.id);
@@ -333,26 +325,25 @@ export default function EventsScreen() {
       return;
     }
 
-    if (ev.code) {
-      setSilentJoiningId(ev.id);
-      try {
-        const res = await joinByCode(ev.code);
-        if (res.success && res.data) {
-          const targetId = res.data.id ?? ev.id;
-          setCurrentEventId(targetId);
-          await refreshEventRole(targetId);
-          await saveJoinedEvent(targetId, res.data.membershipId);
-          setSilentJoiningId(null);
-          router.replace('/(tabs)/feed');
-          return;
-        }
-      } catch {}
-      setSilentJoiningId(null);
-    }
+    // Check backend membership status
+    setSilentJoiningId(ev.id);
+    try {
+      const accessRes = await checkEventAccess(ev.id);
+      if (accessRes.success && accessRes.data?.is_member) {
+        const targetId = ev.id;
+        setCurrentEventId(targetId);
+        await refreshEventRole(targetId);
+        await saveJoinedEvent(targetId);
+        setSilentJoiningId(null);
+        router.replace('/(tabs)/feed');
+        return;
+      }
+    } catch {}
+    setSilentJoiningId(null);
 
-    // Silent join failed or event has no code — show the code entry popup.
+    // Not a member — show the code-entry popup
     setSelectedEvent(ev);
-    setPopupCode(ev.code ?? '');
+    setPopupCode('');
   }, [joinedEventIds, setCurrentEventId, refreshEventRole, saveJoinedEvent]);
 
   const handleJoin = useCallback(async (code: string) => {
@@ -366,8 +357,7 @@ export default function EventsScreen() {
         if (ev.id) {
           setCurrentEventId(ev.id);
           await refreshEventRole(ev.id);
-          // Pass membership_id directly so check-in doesn't need a second API call.
-          await saveJoinedEvent(ev.id, ev.membershipId);
+          await saveJoinedEvent(ev.id);
         }
         Alert.alert('Joined!', `You've joined "${ev.name}".`, [{ text: 'Enter Event', onPress: goToFeed }]);
       },

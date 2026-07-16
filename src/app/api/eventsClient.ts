@@ -182,21 +182,23 @@ export async function joinEventByCodeApi(code: string): Promise<JoinEventRespons
   const normalizedCode = code.trim().toUpperCase();
   const res = await apiPost<unknown>(
     '/api/v1/events/join',
-    { code: normalizedCode },
+    { event_code: normalizedCode },
     EVENTS_TENANT_HEADERS,
   );
   if (res.success && res.data) {
     const raw = res.data as Record<string, unknown>;
-    const eventId = String(raw.event_id ?? raw.eventId ?? raw.id ?? '');
-    // membership_id may be returned as a number or a string from the backend
-    const _rawMembId = raw.membership_id ?? raw.member_id;
+    const membership = raw.membership as Record<string, unknown> | undefined;
+    const eventId = String(
+      (raw.event as Record<string, unknown>)?.id ?? raw.event_id ?? raw.eventId ?? raw.id ?? '',
+    );
+    const _rawMembId = raw.membership_id ?? raw.member_id ?? membership?.id;
     const membershipId: number | undefined =
       typeof _rawMembId === 'number' ? _rawMembId :
       typeof _rawMembId === 'string' && _rawMembId ? (Number(_rawMembId) || undefined) :
       undefined;
     return { success: true, data: { eventId, message: String(raw.message ?? 'Successfully joined event!'), membershipId } };
   }
-  return { success: false, error: { code: 'INVALID_CODE', message: 'Event not found. Please check your code.' } };
+  return { success: false, error: { code: res.error?.code ?? 'INVALID_CODE', message: res.error?.message ?? 'Event not found. Please check your code.' } };
 }
 
 /**
@@ -224,20 +226,22 @@ export async function checkEventAccess(eventId: string): Promise<EventAccessResp
 export async function joinEventWithCode(eventCode: string): Promise<JoinEventResponse> {
   const res = await apiPost<unknown>(
     '/api/v1/events/join',
-    { code: eventCode.trim().toUpperCase() },
+    { event_code: eventCode.trim().toUpperCase() },
     EVENTS_TENANT_HEADERS,
   );
   if (res.success && res.data) {
     const raw = res.data as Record<string, unknown>;
-    const eventId = String(raw.event_id ?? raw.eventId ?? raw.id ?? '');
-    // membership_id may be returned as a number or a string from the backend
-    const _rawMembId = raw.membership_id ?? raw.member_id;
+    const membership = raw.membership as Record<string, unknown> | undefined;
+    const eventId = String(
+      (raw.event as Record<string, unknown>)?.id ?? raw.event_id ?? raw.eventId ?? raw.id ?? '',
+    );
+    const _rawMembId = raw.membership_id ?? raw.member_id ?? membership?.id;
     const membershipId: number | undefined =
       typeof _rawMembId === 'number' ? _rawMembId :
       typeof _rawMembId === 'string' && _rawMembId ? (Number(_rawMembId) || undefined) :
       undefined;
     return { success: true, data: { eventId, message: raw.message as string ?? 'Successfully joined event!', membershipId } };
   }
-  const msg = (res.error?.message) ?? 'Invalid event key. Please try again.';
+  const msg = res.error?.message ?? 'Invalid event key. Please try again.';
   return { success: false, error: { code: res.error?.code ?? 'INVALID_CODE', message: msg } };
 }

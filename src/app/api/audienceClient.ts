@@ -498,6 +498,27 @@ export async function checkInMemberApi(
 }
 
 /**
+ * POST /api/v1/events/{eventId}/self-check-in
+ * Marks the current user as physically checked in for an event.
+ * Idempotent — safe to call even if already checked in.
+ * No membership ID required; the backend resolves it from the bearer token.
+ */
+export async function selfCheckInApi(
+  eventId: string | number,
+): Promise<boolean> {
+  try {
+    const res = await apiPost<unknown>(
+      `/api/v1/events/${eventId}/self-check-in`,
+      {},
+      HEADERS,
+    );
+    return !!res.success;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Looks up the current user's membership_id for a given event.
  * Tries badge_code first (fast, single-record), then falls back to user_id
  * if badge_code is unavailable. Mirrors the mobile `getMyMembershipId` helper.
