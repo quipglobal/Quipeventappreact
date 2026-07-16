@@ -21,6 +21,7 @@ import { useEvent } from '@/context/EventContext';
 import { useChallenges, useCompleteChallenge, usePolls, useVotePoll, useSurveys, useGetSurveyDetail, useSubmitSurvey, useGiveaways, useCreateGiveaway, useUpdateGiveaway, useRemoveGiveaway, useRecordGiveawayWinner } from '@/hooks/useEngage';
 import { useLeaderboard } from '@/hooks/useAudience';
 import { useLeads, useLuckyDraw, useSubmitScan, leadsQueryKey } from '@/hooks/useLeads';
+import { useEvents } from '@/hooks/useEvents';
 import { DataState } from '@/components/DataState';
 import { BadgeCameraScanner } from '@/components/BadgeCameraScanner';
 import { SponsorReviews } from '@/components/SponsorReviews';
@@ -477,6 +478,12 @@ type EngageSection = 'hub' | 'polls' | 'surveys' | 'challenges' | 'leaderboard' 
 
 function AttendeeEngage() {
   const { user, completedChallenges, completeChallenge, votedPolls, markPollVoted, markSurveyDone, completedSurveys, showToast } = useAuth();
+  const { currentEventId } = useEvent();
+  const { data: events = [] } = useEvents();
+  const currentEvent = events.find((e) => String(e.id) === String(currentEventId)) ?? null;
+  const currentEventEndDate = currentEvent?.endDate || undefined;
+  const isAttendee = user?.role !== 'sponsor';
+
   const insets = useSafeAreaInsets();
   const { tab: deepLinkTab } = useLocalSearchParams<{ tab?: string }>();
   const [section, setSection] = useState<EngageSection>('hub');
@@ -546,7 +553,11 @@ function AttendeeEngage() {
           <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
           <Text style={styles.backText}>Back</Text>
         </TouchableOpacity>
-        <SponsorReviews companyId={reviewsCompanyId!} companyName={user?.company ?? ''} />
+        <SponsorReviews
+          companyId={reviewsCompanyId!}
+          companyName={user?.company ?? ''}
+          eventEndDate={currentEventEndDate}
+        />
       </View>
     );
   }
@@ -833,17 +844,19 @@ function AttendeeEngage() {
         <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
       </TouchableOpacity>
 
-      {/* Sponsor Reviews card */}
-      <TouchableOpacity style={styles.hubCard} onPress={() => { setReviewsCompanyId(user?.id ?? 'default'); setSection('reviews'); }} activeOpacity={0.85}>
-        <View style={[styles.hubCardIcon, { backgroundColor: 'rgba(245,158,11,0.12)' }]}>
-          <Ionicons name="star" size={22} color={colors.warning} />
-        </View>
-        <View style={styles.hubCardBody}>
-          <Text style={styles.hubCardTitle}>Sponsor Reviews</Text>
-          <Text style={styles.hubCardSub}>Rate the sponsors you visited</Text>
-        </View>
-        <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-      </TouchableOpacity>
+      {/* Sponsor Reviews card — Attendees only */}
+      {isAttendee && (
+        <TouchableOpacity style={styles.hubCard} onPress={() => { setReviewsCompanyId(user?.id ?? 'default'); setSection('reviews'); }} activeOpacity={0.85}>
+          <View style={[styles.hubCardIcon, { backgroundColor: 'rgba(245,158,11,0.12)' }]}>
+            <Ionicons name="star" size={22} color={colors.warning} />
+          </View>
+          <View style={styles.hubCardBody}>
+            <Text style={styles.hubCardTitle}>Sponsor Reviews</Text>
+            <Text style={styles.hubCardSub}>Rate the sponsors you visited</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+        </TouchableOpacity>
+      )}
 
       {/* Challenges card */}
       <TouchableOpacity style={styles.hubCard} onPress={() => setSection('challenges')} activeOpacity={0.85}>

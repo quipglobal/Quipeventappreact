@@ -168,6 +168,11 @@ const SponsorReviewsSection: React.FC<{ companyId: number; companyName: string }
   // company through the attendee app.
   const isSponsorRep = user?.role === 'sponsor';
 
+  // Lock writing/editing once the event has ended.
+  const isEventPast = eventConfig?.endDate
+    ? new Date(eventConfig.endDate) < new Date(new Date().toDateString())
+    : false;
+
   const myEmail = user?.email?.toLowerCase() ?? '';
 
   // Load reviews. Backend is source of truth when available; localStorage acts
@@ -322,8 +327,14 @@ const SponsorReviewsSection: React.FC<{ companyId: number; companyName: string }
         </div>
       </div>
 
-      {/* Write / edit review */}
-      {user?.email ? (
+      {/* Write / edit review — locked once event has ended */}
+      {isEventPast ? (
+        <div className="rounded-2xl px-4 py-3 mb-3 flex items-center gap-2"
+          style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+          <Star style={{ width: 14, height: 14, color: '#f59e0b', fill: '#f59e0b', flexShrink: 0 }} />
+          <p style={{ color: t.textMuted, fontSize: 12 }}>Reviews are closed — the event has ended.</p>
+        </div>
+      ) : user?.email ? (
         <div className="rounded-2xl px-4 py-4 mb-3" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
           <p style={{ color: t.textSec, fontSize: 12, fontWeight: 600, marginBottom: 8 }}>
             {myReview ? 'Update your review' : `How was your experience with ${companyName}?`}
@@ -398,13 +409,15 @@ const SponsorReviewsSection: React.FC<{ companyId: number; companyName: string }
                 Your review
               </span>
             </div>
-            <button
-              onClick={handleDeleteMine}
-              className="flex items-center gap-1 px-2 py-1 rounded-md active:opacity-70"
-              style={{ color: t.textMuted, fontSize: 11, fontWeight: 600 }}
-            >
-              <Trash2 style={{ width: 11, height: 11 }} /> Delete
-            </button>
+            {!isEventPast && (
+              <button
+                onClick={handleDeleteMine}
+                className="flex items-center gap-1 px-2 py-1 rounded-md active:opacity-70"
+                style={{ color: t.textMuted, fontSize: 11, fontWeight: 600 }}
+              >
+                <Trash2 style={{ width: 11, height: 11 }} /> Delete
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-2 mb-1.5">
             <StarRating value={myReview.rating} readOnly size={14} />

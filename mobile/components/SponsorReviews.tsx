@@ -74,16 +74,26 @@ function StarRating({
  *   - optimistic submit with AsyncStorage overlay (survives reload/logout)
  *   - POST attempted every submit; NOT_IMPLEMENTED short-circuit is silent
  *   - sponsor reps don't see this section (can't review their own company)
+ *   - write form is locked once the event's endDate has passed
  */
 export function SponsorReviews({
   companyId,
   companyName,
+  eventEndDate,
 }: {
   companyId: string;
   companyName: string;
+  /** ISO 8601 date string (e.g. "2026-07-18") for the event's last day.
+   *  When provided and in the past, the write/edit form is locked. */
+  eventEndDate?: string;
 }) {
   const { user, showToast } = useAuth();
   const { currentEventId } = useEvent();
+
+  // Lock write/edit once the event has concluded.
+  const isEventPast = eventEndDate
+    ? new Date(eventEndDate) < new Date(new Date().toDateString())
+    : false;
 
   const [reviews, setReviews] = useState<SponsorReview[]>([]);
   const [rating, setRating] = useState(0);
@@ -198,8 +208,13 @@ export function SponsorReviews({
         )}
       </View>
 
-      {/* Write / edit review */}
-      {user?.email ? (
+      {/* Write / edit review — locked once event has ended */}
+      {isEventPast ? (
+        <View style={styles.signInCard}>
+          <Ionicons name="star" size={14} color="#f59e0b" />
+          <Text style={styles.signInText}>Reviews are closed — the event has ended.</Text>
+        </View>
+      ) : user?.email ? (
         <View style={styles.formCard}>
           <Text style={styles.formPrompt}>
             {myReview ? 'Update your review' : `How was your experience with ${companyName}?`}
@@ -252,10 +267,12 @@ export function SponsorReviews({
               <Ionicons name="checkmark-circle" size={13} color="#f97316" />
               <Text style={styles.myReviewBadgeText}>YOUR REVIEW</Text>
             </View>
-            <TouchableOpacity onPress={handleDeleteMine} style={styles.deleteBtn} activeOpacity={0.7}>
-              <Ionicons name="trash-outline" size={12} color={colors.textMuted} />
-              <Text style={styles.deleteText}>Delete</Text>
-            </TouchableOpacity>
+            {!isEventPast && (
+              <TouchableOpacity onPress={handleDeleteMine} style={styles.deleteBtn} activeOpacity={0.7}>
+                <Ionicons name="trash-outline" size={12} color={colors.textMuted} />
+                <Text style={styles.deleteText}>Delete</Text>
+              </TouchableOpacity>
+            )}
           </View>
           <View style={styles.reviewMetaRow}>
             <StarRating value={myReview.rating} readOnly size={14} />

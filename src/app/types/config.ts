@@ -2,6 +2,9 @@ export interface EventConfig {
   eventId: string;
   name: string;
   dates: string;
+  /** ISO 8601 date string for the last day of the event (e.g. "2026-07-18").
+   *  Used to lock review editing once the event has concluded. */
+  endDate?: string;
   timezone: string;
   location: string;
   logoURL: string;

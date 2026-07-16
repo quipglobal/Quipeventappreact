@@ -58,6 +58,7 @@ function eventToConfig(ev: OrganizerEvent): EventConfig {
     eventId: ev.id,
     name: ev.title,
     dates: ev.dates,
+    endDate: ev.dateRange?.end || undefined,
     timezone: 'UTC',
     location: ev.location,
     logoURL: '',
