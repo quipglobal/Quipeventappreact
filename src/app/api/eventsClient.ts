@@ -188,9 +188,11 @@ export async function joinEventByCodeApi(code: string): Promise<JoinEventRespons
   if (res.success && res.data) {
     const raw = res.data as Record<string, unknown>;
     const eventId = String(raw.event_id ?? raw.eventId ?? raw.id ?? '');
+    // membership_id may be returned as a number or a string from the backend
+    const _rawMembId = raw.membership_id ?? raw.member_id;
     const membershipId: number | undefined =
-      typeof raw.membership_id === 'number' ? raw.membership_id :
-      typeof raw.member_id === 'number' ? raw.member_id :
+      typeof _rawMembId === 'number' ? _rawMembId :
+      typeof _rawMembId === 'string' && _rawMembId ? (Number(_rawMembId) || undefined) :
       undefined;
     return { success: true, data: { eventId, message: String(raw.message ?? 'Successfully joined event!'), membershipId } };
   }
@@ -228,7 +230,13 @@ export async function joinEventWithCode(eventCode: string): Promise<JoinEventRes
   if (res.success && res.data) {
     const raw = res.data as Record<string, unknown>;
     const eventId = String(raw.event_id ?? raw.eventId ?? raw.id ?? '');
-    return { success: true, data: { eventId, message: raw.message as string ?? 'Successfully joined event!' } };
+    // membership_id may be returned as a number or a string from the backend
+    const _rawMembId = raw.membership_id ?? raw.member_id;
+    const membershipId: number | undefined =
+      typeof _rawMembId === 'number' ? _rawMembId :
+      typeof _rawMembId === 'string' && _rawMembId ? (Number(_rawMembId) || undefined) :
+      undefined;
+    return { success: true, data: { eventId, message: raw.message as string ?? 'Successfully joined event!', membershipId } };
   }
   const msg = (res.error?.message) ?? 'Invalid event key. Please try again.';
   return { success: false, error: { code: res.error?.code ?? 'INVALID_CODE', message: msg } };

@@ -497,6 +497,53 @@ export async function checkInMemberApi(
   }
 }
 
+/**
+ * Looks up the current user's membership_id for a given event.
+ * Tries badge_code first (fast, single-record), then falls back to user_id
+ * if badge_code is unavailable. Mirrors the mobile `getMyMembershipId` helper.
+ * Returns null on any failure — callers must handle this gracefully.
+ */
+export async function getMyMembershipIdApi(
+  eventId: string | number,
+  badgeCode?: string | null,
+  userId?: string | number | null,
+): Promise<number | null> {
+  const tryUrl = async (url: string): Promise<number | null> => {
+    const res = await apiGet<unknown>(url, HEADERS);
+    if (!res.success) return null;
+    const body = res.data as Record<string, unknown>;
+    const items: unknown[] = Array.isArray((body?.data as Record<string, unknown>)?.data)
+      ? ((body?.data as Record<string, unknown>).data as unknown[])
+      : Array.isArray(body?.data)
+        ? (body.data as unknown[])
+        : Array.isArray(body)
+          ? (body as unknown[])
+          : [];
+    if (items.length === 0) return null;
+    const first = items[0] as RawFlatMember;
+    const raw = first.membership_id;
+    if (typeof raw === 'number') return raw;
+    if (typeof raw === 'string' && raw) return Number(raw) || null;
+    return null;
+  };
+
+  if (badgeCode?.trim()) {
+    const id = await tryUrl(
+      `/api/v1/events/${eventId}/members?badge_code=${encodeURIComponent(badgeCode.trim())}`,
+    ).catch(() => null);
+    if (id !== null) return id;
+  }
+
+  if (userId) {
+    const id = await tryUrl(
+      `/api/v1/events/${eventId}/members?user_id=${encodeURIComponent(String(userId))}`,
+    ).catch(() => null);
+    if (id !== null) return id;
+  }
+
+  return null;
+}
+
 // ─── Me Profile (rich self-profile) ───────────────────────────────────────────
 
 export interface MeProfile {
