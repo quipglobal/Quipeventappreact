@@ -99,26 +99,41 @@ export async function checkInMember(
 }
 
 /**
- * Looks up the current user's membership_id for a given event using their
- * badge code. Needed to call the check-in endpoint after joining.
- * Returns null on any failure — callers must handle this gracefully.
+ * Looks up the current user's membership_id for a given event.
+ * Tries badge_code first (fast single-record search), then falls back to
+ * user_id if badge_code is unavailable. Returns null on any failure.
  */
 export async function getMyMembershipId(
   eventId: string | number,
   badgeCode?: string | null,
+  userId?: string | number | null,
 ): Promise<number | null> {
-  if (!badgeCode) return null;
-  const res = await request<any>(
-    `/api/v1/events/${eventId}/members?badge_code=${encodeURIComponent(badgeCode.trim())}`,
-  );
-  if (!res.success) return null;
-  const body = res.data as Record<string, unknown>;
-  const items: any[] = Array.isArray(body?.data)
-    ? (body.data as any[])
-    : Array.isArray(body)
-      ? (body as any[])
-      : [];
-  if (items.length === 0) return null;
-  const m = normalize(items[0]);
-  return m.memberId;
+  const tryUrl = async (url: string): Promise<number | null> => {
+    const res = await request<any>(url);
+    if (!res.success) return null;
+    const body = res.data as Record<string, unknown>;
+    const items: any[] = Array.isArray(body?.data)
+      ? (body.data as any[])
+      : Array.isArray(body)
+        ? (body as any[])
+        : [];
+    if (items.length === 0) return null;
+    return normalize(items[0]).memberId;
+  };
+
+  if (badgeCode?.trim()) {
+    const id = await tryUrl(
+      `/api/v1/events/${eventId}/members?badge_code=${encodeURIComponent(badgeCode.trim())}`,
+    );
+    if (id !== null) return id;
+  }
+
+  if (userId) {
+    const id = await tryUrl(
+      `/api/v1/events/${eventId}/members?user_id=${encodeURIComponent(String(userId))}`,
+    );
+    if (id !== null) return id;
+  }
+
+  return null;
 }

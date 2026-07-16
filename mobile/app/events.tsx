@@ -62,11 +62,11 @@ const getEventImage = (ev: Event, idx: number) =>
   ev.bannerUrl ?? FALLBACK_IMAGES[idx % FALLBACK_IMAGES.length];
 
 // ─── Event card ───────────────────────────────────────────────────────────────
-function EventCard({ event, index, onPress }: { event: Event; index: number; onPress: () => void }) {
+function EventCard({ event, index, onPress, isLoading }: { event: Event; index: number; onPress: () => void; isLoading?: boolean }) {
   const photo = getEventImage(event, index);
   const isUpcoming = event.status === 'upcoming' || event.status === 'live';
   return (
-    <TouchableOpacity style={es.card} onPress={onPress} activeOpacity={0.88}>
+    <TouchableOpacity style={es.card} onPress={isLoading ? undefined : onPress} activeOpacity={0.88}>
       <ImageBackground source={{ uri: photo }} style={es.cardPhoto} imageStyle={es.cardPhotoImg}>
         <LinearGradient colors={['transparent', 'rgba(5,5,12,0.6)']} style={StyleSheet.absoluteFill} />
         <View style={es.badgeRow}>
@@ -112,6 +112,12 @@ function EventCard({ event, index, onPress }: { event: Event; index: number; onP
           <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
         </View>
       </View>
+      {isLoading && (
+        <View style={es.cardLoadingOverlay}>
+          <ActivityIndicator color="#fff" size="small" />
+          <Text style={es.cardLoadingText}>Checking membership…</Text>
+        </View>
+      )}
     </TouchableOpacity>
   );
 }
@@ -213,6 +219,7 @@ export default function EventsScreen() {
   const [popupCode, setPopupCode] = useState('');
   const [eventsTab, setEventsTab] = useState<'upcoming' | 'past'>('upcoming');
   const [joinedEventIds, setJoinedEventIds] = useState<string[]>([]);
+  const [silentJoiningId, setSilentJoiningId] = useState<string | null>(null);
 
   // Load persisted joined-event IDs so card taps skip the code gate
   useEffect(() => {
@@ -296,6 +303,7 @@ export default function EventsScreen() {
   // (the badge-code member-search endpoint also requires membership, creating a
   // chicken-and-egg problem if we haven't checked in yet).
   const saveJoinedEvent = useCallback(async (eventId: string, knownMemberId?: number) => {
+    // Always mark locally first so points are awarded immediately.
     markEventCheckedIn(eventId);
     setJoinedEventIds((prev) => {
       if (prev.includes(eventId)) return prev;
@@ -303,13 +311,49 @@ export default function EventsScreen() {
       AsyncStorage.setItem(JOINED_EVENTS_KEY, JSON.stringify(next)).catch(() => {});
       return next;
     });
-    // Best-effort backend check-in — use the membership_id from the join
-    // response when available, otherwise fall back to badge-code lookup.
+    // Best-effort backend check-in — use the membership_id from the join response
+    // when available, then fall back to badge-code / user-id lookup.
     (async () => {
-      const memberId = knownMemberId ?? await getMyMembershipId(eventId, user?.badgeCode).catch(() => null);
+      const memberId = knownMemberId
+        ?? await getMyMembershipId(eventId, user?.badgeCode, user?.id).catch(() => null);
       if (memberId) await checkInMember(eventId, memberId).catch(() => {});
     })().catch(() => {});
-  }, [markEventCheckedIn, user?.badgeCode]);
+  }, [markEventCheckedIn, user?.badgeCode, user?.id]);
+
+  // Handle event card tap.
+  // For events not yet in joinedEventIds: silently attempt an idempotent join
+  // using the event's own code. If the user is already a backend member the
+  // call succeeds immediately and they go straight to the feed — no code re-entry.
+  // Only fall back to the code-entry popup when the silent join fails.
+  const handleCardPress = useCallback(async (ev: Event) => {
+    if (joinedEventIds.includes(String(ev.id))) {
+      setCurrentEventId(ev.id);
+      refreshEventRole(ev.id);
+      router.replace('/(tabs)/feed');
+      return;
+    }
+
+    if (ev.code) {
+      setSilentJoiningId(ev.id);
+      try {
+        const res = await joinByCode(ev.code);
+        if (res.success && res.data) {
+          const targetId = res.data.id ?? ev.id;
+          setCurrentEventId(targetId);
+          await refreshEventRole(targetId);
+          await saveJoinedEvent(targetId, res.data.membershipId);
+          setSilentJoiningId(null);
+          router.replace('/(tabs)/feed');
+          return;
+        }
+      } catch {}
+      setSilentJoiningId(null);
+    }
+
+    // Silent join failed or event has no code — show the code entry popup.
+    setSelectedEvent(ev);
+    setPopupCode(ev.code ?? '');
+  }, [joinedEventIds, setCurrentEventId, refreshEventRole, saveJoinedEvent]);
 
   const handleJoin = useCallback(async (code: string) => {
     const c = code.trim().toUpperCase();
@@ -596,16 +640,8 @@ export default function EventsScreen() {
                     key={ev.id}
                     event={ev}
                     index={idx}
-                    onPress={() => {
-                      if (joinedEventIds.includes(String(ev.id))) {
-                        setCurrentEventId(ev.id);
-                        refreshEventRole(ev.id);
-                        router.replace('/(tabs)/feed');
-                      } else {
-                        setSelectedEvent(ev);
-                        setPopupCode(ev.code ?? '');
-                      }
-                    }}
+                    onPress={() => handleCardPress(ev)}
+                    isLoading={silentJoiningId === String(ev.id)}
                   />
                 ))}
               </View>
@@ -629,16 +665,8 @@ export default function EventsScreen() {
                       key={ev.id}
                       event={ev}
                       index={idx}
-                      onPress={() => {
-                        if (joinedEventIds.includes(String(ev.id))) {
-                          setCurrentEventId(ev.id);
-                          refreshEventRole(ev.id);
-                          router.replace('/(tabs)/feed');
-                        } else {
-                          setSelectedEvent(ev);
-                          setPopupCode(ev.code ?? '');
-                        }
-                      }}
+                      onPress={() => handleCardPress(ev)}
+                      isLoading={silentJoiningId === String(ev.id)}
                     />
                   ))}
                 </View>
@@ -923,6 +951,17 @@ const es = StyleSheet.create({
     borderColor: 'rgba(124,58,237,0.5)',
   },
   retryText: { color: '#a78bfa', fontSize: 13, fontWeight: '600' },
+
+  cardLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(5,5,12,0.72)',
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 10,
+  },
+  cardLoadingText: { color: 'rgba(255,255,255,0.85)', fontSize: 13, fontWeight: '600' },
 });
 
 // ─── Feed tab styles ──────────────────────────────────────────────────────────

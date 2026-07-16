@@ -247,11 +247,11 @@ export async function joinByCode(
 
   const raw = res.data ?? {};
   const autoCheckedIn: boolean = Boolean(raw.auto_checked_in);
-  // Extract membership_id from the join response so callers can check-in
-  // immediately without needing a separate member-lookup API call.
+  // Extract membership_id — backend may return it as a number or a string.
+  const _rawMembId = raw.membership_id ?? raw.member_id;
   const membershipId: number | undefined =
-    typeof raw.membership_id === 'number' ? raw.membership_id :
-    typeof raw.member_id === 'number' ? raw.member_id :
+    typeof _rawMembId === 'number' ? _rawMembId :
+    typeof _rawMembId === 'string' && _rawMembId ? (Number(_rawMembId) || undefined) :
     undefined;
   if (__DEV__) console.log(`[Events] joinByCode auto_checked_in=${autoCheckedIn} membershipId=${membershipId}`);
 
