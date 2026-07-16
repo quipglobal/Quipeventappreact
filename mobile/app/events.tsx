@@ -312,12 +312,13 @@ export default function EventsScreen() {
     selfCheckIn(eventId).catch(() => {});
   }, [markEventCheckedIn]);
 
-  // Handle event card tap.
-  // 1. Local cache hit → go straight to feed.
-  // 2. Backend access check (GET /events/:id/access) → if is_member, cache + go to feed.
-  // 3. Not a member → show code-entry popup.
+  // Handle event card tap — three-strategy flow:
+  // 1. Local cache hit → go straight to feed (instant, no network).
+  // 2. Backend membership check (GET /events/:id/access) → if is_member, cache + enter.
+  // 3. Silent re-join with event's own code (idempotent for existing members) → if ok, enter.
+  // 4. All checks failed → show code-entry popup as last resort.
   const handleCardPress = useCallback(async (ev: Event) => {
-    // Fast path: already in local joined cache
+    // ── Strategy 1: local cache ──────────────────────────────────────────────
     if (joinedEventIds.includes(String(ev.id))) {
       setCurrentEventId(ev.id);
       refreshEventRole(ev.id);
@@ -325,23 +326,41 @@ export default function EventsScreen() {
       return;
     }
 
-    // Check backend membership status
     setSilentJoiningId(ev.id);
+
+    // ── Strategy 2: backend access check ────────────────────────────────────
     try {
       const accessRes = await checkEventAccess(ev.id);
       if (accessRes.success && accessRes.data?.is_member) {
-        const targetId = ev.id;
-        setCurrentEventId(targetId);
-        await refreshEventRole(targetId);
-        await saveJoinedEvent(targetId);
+        setCurrentEventId(ev.id);
+        await refreshEventRole(ev.id);
+        await saveJoinedEvent(ev.id);
         setSilentJoiningId(null);
         router.replace('/(tabs)/feed');
         return;
       }
     } catch {}
-    setSilentJoiningId(null);
 
-    // Not a member — show the code-entry popup
+    // ── Strategy 3: silent join with event's own code (idempotent) ──────────
+    // Catches the case where checkEventAccess is not yet deployed or returns
+    // is_member: false even though the user joined (e.g. field-name mismatch).
+    if (ev.code) {
+      try {
+        const joinRes = await joinByCode(ev.code);
+        if (joinRes.success && joinRes.data) {
+          const targetId = joinRes.data.id ?? ev.id;
+          setCurrentEventId(targetId);
+          await refreshEventRole(targetId);
+          await saveJoinedEvent(targetId);
+          setSilentJoiningId(null);
+          router.replace('/(tabs)/feed');
+          return;
+        }
+      } catch {}
+    }
+
+    setSilentJoiningId(null);
+    // ── Fallback: show code-entry popup ──────────────────────────────────────
     setSelectedEvent(ev);
     setPopupCode('');
   }, [joinedEventIds, setCurrentEventId, refreshEventRole, saveJoinedEvent]);

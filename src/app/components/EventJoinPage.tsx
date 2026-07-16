@@ -328,18 +328,40 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
     onJoinEvent();
   };
 
+  // Three-strategy flow — mirrors the mobile handleCardPress logic:
+  // 1. Backend membership check (GET /events/:id/access) → if is_member, enter directly.
+  // 2. Silent re-join with event's own code (idempotent for already-members) → if ok, enter.
+  // 3. Both failed → show the key-entry gate modal.
   const handleEventCardClick = async (ev: OrganizerEvent) => {
     setCheckingEventId(ev.id);
     try {
-      const res = await checkEventAccess(ev.id);
-      if (res.success && res.data?.is_member) {
-        enterEvent(ev);
-      } else {
-        setGateEvent(ev);
-        setEventKey('');
-        setKeyError('');
+      // Strategy 1: check if user is already a member
+      try {
+        const res = await checkEventAccess(ev.id);
+        if (res.success && res.data?.is_member) {
+          enterEvent(ev);
+          return;
+        }
+      } catch {}
+
+      // Strategy 2: silent join using the event's own code (idempotent — safe for existing members)
+      // Catches the case where checkEventAccess is not yet deployed or returns
+      // is_member: false even though the user previously joined.
+      if (ev.code) {
+        try {
+          const joinRes = await joinEventByCodeApi(ev.code);
+          const is409 = !joinRes.success && joinRes.error?.code === '409';
+          if (joinRes.success || is409) {
+            if (joinRes.success && joinRes.data?.eventId) {
+              selfCheckInApi(joinRes.data.eventId).catch(() => {});
+            }
+            enterEvent(ev);
+            return;
+          }
+        } catch {}
       }
-    } catch {
+
+      // Strategy 3: show code-entry gate
       setGateEvent(ev);
       setEventKey('');
       setKeyError('');

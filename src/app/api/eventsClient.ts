@@ -182,7 +182,8 @@ export async function joinEventByCodeApi(code: string): Promise<JoinEventRespons
   const normalizedCode = code.trim().toUpperCase();
   const res = await apiPost<unknown>(
     '/api/v1/events/join',
-    { event_code: normalizedCode },
+    // Send both field names so it works regardless of which one the backend expects.
+    { event_code: normalizedCode, code: normalizedCode },
     EVENTS_TENANT_HEADERS,
   );
   if (res.success && res.data) {
@@ -224,9 +225,11 @@ export async function checkEventAccess(eventId: string): Promise<EventAccessResp
  * Backend auto-creates a checkin record — no separate check-in step needed.
  */
 export async function joinEventWithCode(eventCode: string): Promise<JoinEventResponse> {
+  const upper = eventCode.trim().toUpperCase();
   const res = await apiPost<unknown>(
     '/api/v1/events/join',
-    { event_code: eventCode.trim().toUpperCase() },
+    // Send both field names so it works regardless of which one the backend expects.
+    { event_code: upper, code: upper },
     EVENTS_TENANT_HEADERS,
   );
   if (res.success && res.data) {
@@ -240,7 +243,7 @@ export async function joinEventWithCode(eventCode: string): Promise<JoinEventRes
       typeof _rawMembId === 'number' ? _rawMembId :
       typeof _rawMembId === 'string' && _rawMembId ? (Number(_rawMembId) || undefined) :
       undefined;
-    return { success: true, data: { eventId, message: raw.message as string ?? 'Successfully joined event!', membershipId } };
+    return { success: true, data: { eventId, message: (raw.message as string) ?? 'Successfully joined event!', membershipId } };
   }
   const msg = res.error?.message ?? 'Invalid event key. Please try again.';
   return { success: false, error: { code: res.error?.code ?? 'INVALID_CODE', message: msg } };

@@ -240,7 +240,8 @@ export async function joinByCode(
 
   const res = await request<any>('/api/v1/events/join', {
     method: 'POST',
-    body: JSON.stringify({ event_code: upper }),
+    // Send both field names so it works regardless of which field the backend expects.
+    body: JSON.stringify({ event_code: upper, code: upper }),
   });
 
   if (!res.success) {
