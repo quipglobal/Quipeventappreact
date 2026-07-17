@@ -73,6 +73,15 @@ export interface MeResponse {
 // ─── Normalizer ───────────────────────────────────────────────────────────────
 
 function normalizeUser(raw: Record<string, unknown>): AuthUser {
+  const roleStr = String(raw.role ?? '').toLowerCase();
+  const rolesArray: string[] = Array.isArray(raw.roles)
+    ? (raw.roles as unknown[]).map((r) => String(r).toLowerCase())
+    : [];
+  const isSponsor =
+    roleStr === 'sponsor' || roleStr === 'sponsor_rep' ||
+    roleStr === 'exhibitor' || roleStr === 'exhibitor_rep' ||
+    rolesArray.includes('sponsor') || rolesArray.includes('sponsor_rep') ||
+    rolesArray.includes('exhibitor') || rolesArray.includes('exhibitor_rep');
   return {
     id: String(raw.id ?? ''),
     name: (raw.name as string) ?? `${raw.first_name ?? ''} ${raw.last_name ?? ''}`.trim(),
@@ -80,7 +89,7 @@ function normalizeUser(raw: Record<string, unknown>): AuthUser {
     phone: (raw.phone as string | undefined),
     title: (raw.title ?? raw.job_title ?? raw.position ?? '') as string,
     company: (raw.company ?? raw.organization ?? '') as string,
-    role: raw.role === 'sponsor' ? 'sponsor' : 'attendee',
+    role: isSponsor ? 'sponsor' : 'attendee',
     avatar: (raw.avatar ?? raw.avatar_url ?? raw.photo ?? undefined) as string | undefined,
     points: Number(raw.points ?? raw.gamification_points ?? 0),
     tier: (raw.tier ?? raw.membership_tier ?? 'Bronze') as string,

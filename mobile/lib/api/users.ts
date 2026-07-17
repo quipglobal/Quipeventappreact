@@ -99,16 +99,36 @@ export async function listAttendees(filters?: { tier?: string; search?: string }
   params.set('per_page', '200');
   if (filters?.tier) params.set('tier', filters.tier);
   if (filters?.search) params.set('search', filters.search);
-  // Backend returns Cache-Control: no-store — always fetch fresh, no local cache.
+
   const res = await request<any>(`/api/v1/events/${eventId}/attendees?${params.toString()}`);
-  if (!res.success) return res as ApiResponse<Attendee[]>;
-  const body = res.data as any;
-  const paginator = body?.data ?? body;
-  const raw: any[] = Array.isArray(paginator?.data) ? paginator.data
-    : Array.isArray(body?.data) ? body.data
-    : Array.isArray(res.data) ? res.data
+  if (res.success) {
+    const body = res.data as any;
+    const paginator = body?.data ?? body;
+    const raw: any[] = Array.isArray(paginator?.data) ? paginator.data
+      : Array.isArray(body?.data) ? body.data
+      : Array.isArray(res.data) ? res.data
+      : [];
+    if (raw.length > 0) {
+      return { success: true, data: raw.map(normalizeAttendee) };
+    }
+  }
+
+  // /attendees may return 403 for sponsor reps or an empty list when the
+  // backend excludes them. Fall back to /members which includes all roles.
+  if (__DEV__) console.log('[Users] /attendees failed or empty — falling back to /members');
+  const fbParams = new URLSearchParams();
+  fbParams.set('per_page', '200');
+  fbParams.set('checked_in_only', 'false');
+  if (filters?.search) fbParams.set('search', filters.search);
+  const fb = await request<any>(`/api/v1/events/${eventId}/members?${fbParams.toString()}`);
+  if (!fb.success) return fb as ApiResponse<Attendee[]>;
+  const fbBody = fb.data as any;
+  const fbPaginator = fbBody?.data ?? fbBody;
+  const rawFb: any[] = Array.isArray(fbPaginator?.data) ? fbPaginator.data
+    : Array.isArray(fbBody?.data) ? fbBody.data
+    : Array.isArray(fb.data) ? fb.data
     : [];
-  return { success: true, data: raw.map(normalizeAttendee) };
+  return { success: true, data: rawFb.map(normalizeAttendee) };
 }
 
 export async function getAttendee(userId: string): Promise<ApiResponse<Attendee>> {

@@ -336,27 +336,49 @@ export async function getEventMembersApi(
   checkedInOnly: boolean = false,
 ): Promise<EventMembersResponse> {
   const qs = `per_page=100&checked_in_only=${checkedInOnly}`;
+
   const membersRes = await apiGet<unknown>(`/api/v1/events/${eventId}/attendees?${qs}`, HEADERS);
 
-  if (!membersRes.success) {
-    return { success: false, error: membersRes.error ?? { message: 'Failed to fetch audience.' } };
+  if (membersRes.success) {
+    const body = membersRes.data as Record<string, unknown>;
+    const paginator = (body?.data ?? body) as Record<string, unknown>;
+    const rawList: unknown[] = Array.isArray(paginator?.data)
+      ? (paginator.data as unknown[])
+      : Array.isArray(body?.data)
+        ? (body.data as unknown[])
+        : Array.isArray(membersRes.data)
+          ? (membersRes.data as unknown[])
+          : [];
+    if (rawList.length > 0) {
+      const total = typeof paginator?.total === 'number' ? paginator.total : rawList.length;
+      const members = rawList.map(m => normalizeFlatMember(m as RawFlatMember, eventId));
+      return { success: true, data: members, total };
+    }
   }
 
-  const body = membersRes.data as Record<string, unknown>;
-  const paginator = (body?.data ?? body) as Record<string, unknown>;
+  // /attendees may return 403 for sponsor reps or an empty list (backend excludes
+  // them). Fall back to /members which includes all event roles.
+  const fallbackRes = await apiGet<unknown>(
+    `/api/v1/events/${eventId}/members?${qs}`,
+    HEADERS,
+  );
+  if (!fallbackRes.success) {
+    return { success: false, error: fallbackRes.error ?? { message: 'Failed to fetch audience.' } };
+  }
 
-  const rawList: unknown[] = Array.isArray(paginator?.data)
-    ? (paginator.data as unknown[])
-    : Array.isArray(body?.data)
-      ? (body.data as unknown[])
-      : Array.isArray(membersRes.data)
-        ? (membersRes.data as unknown[])
+  const fbBody = fallbackRes.data as Record<string, unknown>;
+  const fbPaginator = (fbBody?.data ?? fbBody) as Record<string, unknown>;
+  const rawFb: unknown[] = Array.isArray(fbPaginator?.data)
+    ? (fbPaginator.data as unknown[])
+    : Array.isArray(fbBody?.data)
+      ? (fbBody.data as unknown[])
+      : Array.isArray(fallbackRes.data)
+        ? (fallbackRes.data as unknown[])
         : [];
 
-  const total = typeof paginator?.total === 'number' ? paginator.total : rawList.length;
-  const members = rawList.map(m => normalizeFlatMember(m as RawFlatMember, eventId));
-
-  return { success: true, data: members, total };
+  const fbTotal = typeof fbPaginator?.total === 'number' ? fbPaginator.total : rawFb.length;
+  const fbMembers = rawFb.map(m => normalizeFlatMember(m as RawFlatMember, eventId));
+  return { success: true, data: fbMembers, total: fbTotal };
 }
 
 /**

@@ -763,7 +763,12 @@ export async function getMyEventRole(
   }
 
   function findByUserId(items: any[]): any | undefined {
-    return items.find((m: any) => String(m.id) === String(userId));
+    // m.id may be membership_id (v1 shape) or user_id (v2 flat shape).
+    // m.user_id is the actual user id in v1 nested shape.
+    return items.find((m: any) =>
+      String(m.id) === String(userId) ||
+      String(m.user_id ?? '') === String(userId),
+    );
   }
 
   console.log(`[getMyEventRole] START eventId=${eventId} userId=${userId} badgeCode=${badgeCode ?? 'none'}`);

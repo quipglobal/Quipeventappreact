@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
@@ -1367,8 +1367,20 @@ function SponsorEngage() {
 }
 
 export default function EngageScreen() {
-  const { user } = useAuth();
+  const { user, refreshEventRole } = useAuth();
+  const { currentEventId } = useEvent();
   const insets = useSafeAreaInsets();
+
+  // Re-check the event-scoped role each time this tab gains focus so a
+  // stale cached role (e.g. sponsor from a previous event) never shows the
+  // wrong UI after an event switch or app restart with a cached session.
+  useFocusEffect(
+    useCallback(() => {
+      if (currentEventId) {
+        refreshEventRole(currentEventId);
+      }
+    }, [currentEventId, refreshEventRole]),
+  );
 
   if (user?.role === 'sponsor') {
     return <SponsorEngage />;
