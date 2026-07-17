@@ -82,6 +82,13 @@ Vite adds `Content-Encoding: gzip` when serving `.tar.gz` files. curl auto-decom
 ## type:GIT pitfall
 Worker reads an internal field (not `gitRef`) for branch name, resulting in `git clone ... undefined`, always failing. Do not use `type: GIT` for API-triggered builds.
 
+## Correct poll query shape
+`builds.byId(buildId)` — NOT `build(buildId)` (that field no longer exists on RootQuery).
+Also: `platform` is NOT a field on `AndroidJobInput` — it is inferred from the mutation name.
+
 ## Successful build evidence
-Build `52e57b56-5df5-4d73-8012-b45eb8e8d9f0` → FINISHED
+Build `52e57b56-5df5-4d73-8012-b45eb8e8d9f0` → FINISHED (versionCode 36)
 Artifact: `https://expo.dev/artifacts/eas/X5EGSq4FBE90LIbuejGkEeykBXmUrLk3S1KG9o8wUT8.aab`
+
+Build `129dc389-5957-4668-b0ec-f57891d9ea30` → FINISHED (versionCode 43, July 2026)
+Artifact: `https://expo.dev/artifacts/eas/r55z-hEHQLMJsJ6EBmjb7FiZi2mkVIfqgHPoaFsKmyU.aab`
