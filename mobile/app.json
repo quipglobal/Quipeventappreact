@@ -34,7 +34,7 @@
         "backgroundColor": "#07070F"
       },
       "package": "com.apexevents.meet",
-      "versionCode": 36,
+      "versionCode": 43,
       "targetSdkVersion": 35,
       "compileSdkVersion": 35,
       "softwareKeyboardLayoutMode": "resize",
