@@ -1087,7 +1087,12 @@ function GiveawaysManager({
 function SponsorEngage() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const [mode, setMode] = useState<'tools' | 'scanner' | 'leads' | 'draw' | 'giveaways'>('tools');
+  const { currentEventId } = useEvent();
+  const { data: events = [] } = useEvents();
+  const currentEvent = events.find((e) => String(e.id) === String(currentEventId)) ?? null;
+  const currentEventEndDate = currentEvent?.endDate || undefined;
+  const [reviewsCompanyId, setReviewsCompanyId] = useState<string | null>(null);
+  const [mode, setMode] = useState<'tools' | 'scanner' | 'leads' | 'draw' | 'giveaways' | 'reviews'>('tools');
   const [drawWinner, setDrawWinner] = useState<{ id: string; name: string; company?: string; title?: string; avatar?: string } | null>(null);
   const [selectedGiveaway, setSelectedGiveaway] = useState<Giveaway | null>(null);
   const [showGiveawayPicker, setShowGiveawayPicker] = useState(false);
@@ -1191,6 +1196,25 @@ function SponsorEngage() {
         sponsorId={user?.id ?? ''}
         onBack={() => setMode('tools')}
       />
+    );
+  }
+
+  if (mode === 'reviews') {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <TouchableOpacity
+          style={[styles.backBtn, { marginHorizontal: spacing.xl, marginBottom: spacing.lg }]}
+          onPress={() => { setMode('tools'); setReviewsCompanyId(null); }}
+        >
+          <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
+          <Text style={styles.backText}>Back</Text>
+        </TouchableOpacity>
+        <SponsorReviews
+          companyId={reviewsCompanyId!}
+          companyName={user?.company ?? ''}
+          eventEndDate={currentEventEndDate}
+        />
+      </View>
     );
   }
 
@@ -1327,6 +1351,14 @@ function SponsorEngage() {
           </View>
           <Text style={styles.toolTitle}>Analytics</Text>
           <Text style={styles.toolSub}>Booth stats</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.toolCard} onPress={() => { setReviewsCompanyId(user?.id ?? 'default'); setMode('reviews'); }}>
+          <View style={[styles.toolIcon, { backgroundColor: 'rgba(245,158,11,0.15)' }]}>
+            <Ionicons name="star" size={22} color="#f59e0b" />
+          </View>
+          <Text style={styles.toolTitle}>Reviews</Text>
+          <Text style={styles.toolSub}>See your ratings</Text>
         </TouchableOpacity>
 
       </View>

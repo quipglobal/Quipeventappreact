@@ -212,8 +212,6 @@ const SponsorReviewsSection: React.FC<{ companyId: number; companyName: string }
     return () => { cancelled = true; };
   }, [companyId, myEmail, eventId]);
 
-  if (isSponsorRep) return null;
-
   const myReview = reviews.find(r => r.authorEmail.toLowerCase() === myEmail);
   const otherReviews = reviews.filter(r => r.authorEmail.toLowerCase() !== myEmail);
   const avgRating = reviews.length
@@ -327,8 +325,8 @@ const SponsorReviewsSection: React.FC<{ companyId: number; companyName: string }
         </div>
       </div>
 
-      {/* Write / edit review — locked once event has ended */}
-      {isEventPast ? (
+      {/* Write / edit review — hidden for sponsor reps, locked once event has ended */}
+      {!isSponsorRep && (isEventPast ? (
         <div className="rounded-2xl px-4 py-3 mb-3 flex items-center gap-2"
           style={{ background: t.surface, border: `1px solid ${t.border}` }}>
           <Star style={{ width: 14, height: 14, color: '#f59e0b', fill: '#f59e0b', flexShrink: 0 }} />
@@ -396,10 +394,10 @@ const SponsorReviewsSection: React.FC<{ companyId: number; companyName: string }
           <MessageSquare style={{ width: 14, height: 14, color: t.textMuted }} />
           <p style={{ color: t.textMuted, fontSize: 12 }}>Sign in to leave a review.</p>
         </div>
-      )}
+      ))}
 
       {/* My current review */}
-      {myReview && (
+      {!isSponsorRep && myReview && (
         <div className="rounded-2xl px-4 py-3 mb-3"
           style={{ background: 'rgba(249,115,22,0.06)', border: '1px solid rgba(249,115,22,0.25)' }}>
           <div className="flex items-start justify-between gap-2 mb-1">

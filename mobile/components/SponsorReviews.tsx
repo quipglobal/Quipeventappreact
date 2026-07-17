@@ -191,8 +191,6 @@ export function SponsorReviews({
     await saveSponsorReviews(currentEventId, companyId, next);
   }, [reviews, myEmail, companyId, currentEventId]);
 
-  if (isSponsorRep) return null;
-
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
@@ -208,8 +206,8 @@ export function SponsorReviews({
         )}
       </View>
 
-      {/* Write / edit review — locked once event has ended */}
-      {isEventPast ? (
+      {/* Write / edit review — hidden for sponsor reps, locked once event has ended */}
+      {!isSponsorRep && (isEventPast ? (
         <View style={styles.signInCard}>
           <Ionicons name="star" size={14} color="#f59e0b" />
           <Text style={styles.signInText}>Reviews are closed — the event has ended.</Text>
@@ -257,10 +255,10 @@ export function SponsorReviews({
           <Ionicons name="chatbubble-outline" size={14} color={colors.textMuted} />
           <Text style={styles.signInText}>Sign in to leave a review.</Text>
         </View>
-      )}
+      ))}
 
-      {/* My current review */}
-      {myReview && (
+      {/* My current review — only visible to the reviewer, not sponsor reps */}
+      {!isSponsorRep && myReview && (
         <View style={styles.myReviewCard}>
           <View style={styles.myReviewHeader}>
             <View style={styles.myReviewBadge}>

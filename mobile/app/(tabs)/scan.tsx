@@ -177,6 +177,8 @@ function LeadsView({ leads, onBack }: { leads: Lead[]; onBack: () => void }) {
 
 export default function ScanBadgeScreen() {
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
+  const isSponsor = user?.role === 'sponsor';
   const [mode, setMode] = useState<Mode>('home');
   const [drawWinner, setDrawWinner] = useState<{ id: string; name: string; company?: string } | null>(null);
   const [selectedGiveaway, setSelectedGiveaway] = useState<Giveaway | null>(null);
@@ -216,7 +218,7 @@ export default function ScanBadgeScreen() {
     return <LeadsView leads={leadsData} onBack={() => setMode('home')} />;
   }
 
-  if (mode === 'draw') {
+  if (mode === 'draw' && isSponsor) {
     return (
       <View style={[styles.container, { paddingTop: insets.top + spacing.xl }]}>
         <TouchableOpacity
@@ -354,13 +356,15 @@ export default function ScanBadgeScreen() {
           <Text style={styles.toolSub}>{leadsData.length} captured</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.toolCard} onPress={() => setMode('draw')}>
-          <View style={[styles.toolIcon, { backgroundColor: 'rgba(245,158,11,0.15)' }]}>
-            <Ionicons name="trophy" size={22} color="#f59e0b" />
-          </View>
-          <Text style={styles.toolTitle}>Lucky Draw</Text>
-          <Text style={styles.toolSub}>Pick winner</Text>
-        </TouchableOpacity>
+        {isSponsor && (
+          <TouchableOpacity style={styles.toolCard} onPress={() => setMode('draw')}>
+            <View style={[styles.toolIcon, { backgroundColor: 'rgba(245,158,11,0.15)' }]}>
+              <Ionicons name="trophy" size={22} color="#f59e0b" />
+            </View>
+            <Text style={styles.toolTitle}>Lucky Draw</Text>
+            <Text style={styles.toolSub}>Pick winner</Text>
+          </TouchableOpacity>
+        )}
 
         <TouchableOpacity
           style={styles.toolCard}
