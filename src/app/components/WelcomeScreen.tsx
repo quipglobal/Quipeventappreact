@@ -382,7 +382,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
 
         {/* ── Top bar ──────────────────────────────────────────────────── */}
         <div className="relative z-20 flex items-center justify-between px-6 pt-14 pb-2 flex-shrink-0">
-          <img src={cxoLogo} alt="CXO Inc" style={{ height: 48, width: 'auto' }} />
+          <img src={cxoLogo} alt="CXO Inc" style={{ height: 108, width: 'auto' }} />
           <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full"
             style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.14)', backdropFilter: 'blur(8px)' }}>
             <div className="w-1.5 h-1.5 rounded-full" style={{ background: '#34d399', animation: 'live-pulse 1.6s ease-in-out infinite' }} />
@@ -414,9 +414,9 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
         {/* ── Hero text + CTA ──────────────────────────────────────────── */}
         <div className="relative z-20 px-6 pb-10 flex-shrink-0">
           <h1 style={{ color: '#fff', fontSize: 40, fontWeight: 900, letterSpacing: '-0.04em', lineHeight: 1.05, marginBottom: 10 }}>
-            Where the<br />
+            Connect.<br />
             <span style={{ background: 'linear-gradient(110deg,#c4b5fd 0%,#818cf8 45%,#38bdf8 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-              Future Connects
+              Engage. Innovate.
             </span>
           </h1>
           <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14, lineHeight: 1.55, marginBottom: 20 }}>

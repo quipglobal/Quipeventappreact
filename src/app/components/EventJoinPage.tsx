@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   Ticket, Calendar, MapPin, Users, ChevronRight, Clock,
   ArrowRight, Globe, Video, Hash, Loader2, Play, Tv2,
@@ -111,6 +111,27 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
   const [feeds, setFeeds] = useState<VideoFeed[]>([]);
   const [feedsLoading, setFeedsLoading] = useState(true);
   const [playingVideo, setPlayingVideo] = useState<VideoFeed | null>(null);
+
+  // ── Feeds pagination ──────────────────────────────────────────────────────
+  const [feedsHasMore, setFeedsHasMore] = useState(false);
+  const [feedsLoadingMore, setFeedsLoadingMore] = useState(false);
+  const [feedsTotalCount, setFeedsTotalCount] = useState(0);
+  const feedsPageRef = useRef(1);
+  const feedsAbortRef = useRef<AbortController | null>(null);
+  const feedsLoadedIdsRef = useRef<Set<number>>(new Set());
+  const feedsIsLoadingMoreRef = useRef(false);
+  const feedsSentinelRef = useRef<HTMLDivElement | null>(null);
+  // Responsive initial page size — computed once on mount
+  const feedsPageSize = useMemo(() => {
+    if (typeof window === 'undefined') return 10;
+    const conn = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
+    if (conn?.saveData || conn?.effectiveType === 'slow-2g' || conn?.effectiveType === '2g') return 4;
+    const w = window.innerWidth;
+    if (w < 768) return 4;
+    if (w < 1024) return 6;
+    return 10;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [articleCategories, setArticleCategories] = useState<ArticleCategory[]>([]);
   const [selectedArticleCategory, setSelectedArticleCategory] = useState<ArticleCategory | null>(null);
   const [articles, setArticles] = useState<Article[]>([]);
@@ -138,13 +159,53 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
     if (res.success && res.data) setCategories(res.data);
   }, []);
 
-  // ── Fetch feeds (re-runs when category filter changes) ───────────────────
-  const fetchFeeds = useCallback(async (category?: string) => {
-    setFeedsLoading(true);
-    const res = await getVideoFeeds({ category: category ?? undefined, per_page: 30 });
-    if (res.success && res.data) setFeeds(res.data);
-    setFeedsLoading(false);
-  }, []);
+  // ── Fetch feeds — paginated, supports abort ────────────────────────────
+  const fetchFeeds = useCallback(async (
+    category: string | undefined,
+    pageNum: number,
+    append: boolean,
+    signal?: AbortSignal,
+  ): Promise<boolean> => {
+    try {
+      const res = await getVideoFeeds({ category, page: pageNum, per_page: feedsPageSize }, signal);
+      if (signal?.aborted) return false;
+      if (!res.success || !res.data) return false;
+
+      // Deduplicate by video ID across pages
+      const deduped = res.data.filter(feed => {
+        if (feedsLoadedIdsRef.current.has(feed.id)) return false;
+        feedsLoadedIdsRef.current.add(feed.id);
+        return true;
+      });
+
+      setFeeds(prev => append ? [...prev, ...deduped] : deduped);
+
+      if (res.meta) {
+        const hm = res.meta.has_more ?? (res.meta.current_page < res.meta.last_page);
+        setFeedsHasMore(hm);
+        setFeedsTotalCount(res.meta.total ?? 0);
+      } else {
+        setFeedsHasMore(false);
+        setFeedsTotalCount(0);
+      }
+      return true;
+    } catch {
+      if (signal?.aborted) return false;
+      return false;
+    }
+  }, [feedsPageSize]);
+
+  // ── Manual "Load more" fallback for feeds ─────────────────────────────
+  const handleLoadMoreFeeds = useCallback(async () => {
+    if (feedsIsLoadingMoreRef.current || !feedsHasMore) return;
+    feedsIsLoadingMoreRef.current = true;
+    setFeedsLoadingMore(true);
+    const next = feedsPageRef.current + 1;
+    await fetchFeeds(selectedCategory ?? undefined, next, true);
+    feedsPageRef.current = next;
+    feedsIsLoadingMoreRef.current = false;
+    setFeedsLoadingMore(false);
+  }, [feedsHasMore, fetchFeeds, selectedCategory]);
 
   // ── Fetch article categories ──────────────────────────────────────────────
   const fetchArticleCategories = useCallback(async () => {
@@ -161,7 +222,44 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
   }, []);
 
   useEffect(() => { fetchEvents(); fetchCategories(); fetchArticleCategories(); }, [fetchEvents, fetchCategories, fetchArticleCategories]);
-  useEffect(() => { fetchFeeds(selectedCategory ?? undefined); }, [fetchFeeds, selectedCategory]);
+
+  // ── Reset + load page 1 whenever category changes ──────────────────────
+  useEffect(() => {
+    feedsAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    feedsAbortRef.current = ctrl;
+    setFeedsLoading(true);
+    setFeeds([]);
+    setFeedsHasMore(false);
+    setFeedsTotalCount(0);
+    feedsPageRef.current = 1;
+    feedsLoadedIdsRef.current = new Set();
+    feedsIsLoadingMoreRef.current = false;
+    fetchFeeds(selectedCategory ?? undefined, 1, false, ctrl.signal).finally(() => {
+      if (!ctrl.signal.aborted) setFeedsLoading(false);
+    });
+    return () => { ctrl.abort(); };
+  }, [fetchFeeds, selectedCategory]);
+
+  // ── IntersectionObserver — auto-load next page of videos ──────────────
+  useEffect(() => {
+    const sentinel = feedsSentinelRef.current;
+    if (!sentinel || !feedsHasMore) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries[0].isIntersecting || feedsIsLoadingMoreRef.current || !feedsHasMore) return;
+      feedsIsLoadingMoreRef.current = true;
+      setFeedsLoadingMore(true);
+      const next = feedsPageRef.current + 1;
+      fetchFeeds(selectedCategory ?? undefined, next, true).then(() => {
+        feedsPageRef.current = next;
+        feedsIsLoadingMoreRef.current = false;
+        setFeedsLoadingMore(false);
+      });
+    }, { rootMargin: '300px' });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [feedsHasMore, fetchFeeds, selectedCategory]);
+
   useEffect(() => { if (feedSubTab === 'articles') fetchArticles(selectedArticleCategory?.name); }, [fetchArticles, feedSubTab, selectedArticleCategory]);
 
   // ── Impression tracking ───────────────────────────────────────────────────
@@ -732,6 +830,24 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
     );
   };
 
+  const VideoCardSkeleton: React.FC = () => (
+    <div
+      className="rounded-2xl overflow-hidden animate-pulse"
+      style={{ background: t.surface, border: `1px solid ${t.border}` }}
+      aria-hidden="true"
+    >
+      <div className="h-48" style={{ background: t.surface2 }} />
+      <div className="p-3.5 space-y-2">
+        <div className="h-3.5 rounded-lg w-3/4" style={{ background: t.surface2 }} />
+        <div className="h-3 rounded-lg w-1/2" style={{ background: t.surface2 }} />
+        <div className="flex gap-1.5 pt-1">
+          <div className="h-4 w-14 rounded-full" style={{ background: t.surface2 }} />
+          <div className="h-4 w-16 rounded-full" style={{ background: t.surface2 }} />
+        </div>
+      </div>
+    </div>
+  );
+
   const VideoCard: React.FC<{ feed: VideoFeed }> = ({ feed }) => (
     <button
       onClick={() => setPlayingVideo(feed)}
@@ -922,7 +1038,7 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
               {!feedsLoading && (
                 <div className="px-5 pt-3 pb-1 flex items-center justify-between">
                   <span style={{ color: t.textMuted, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                    {selectedCategory ? selectedCategory : 'All'} · {feeds.length} videos
+                    {selectedCategory ? selectedCategory : 'All'} · {feedsTotalCount > 0 ? feedsTotalCount : feeds.length} videos
                   </span>
                 </div>
               )}
@@ -930,8 +1046,10 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
               {/* Video cards */}
               <div className="px-5 pt-2">
                 {feedsLoading ? (
-                  <div className="flex items-center justify-center py-16">
-                    <RefreshCw size={26} style={{ color: '#7c3aed', animation: 'spin-cw 1s linear infinite' }} />
+                  <div className="space-y-4">
+                    {Array.from({ length: feedsPageSize }).map((_, i) => (
+                      <VideoCardSkeleton key={i} />
+                    ))}
                   </div>
                 ) : feeds.length === 0 ? (
                   <div className="text-center py-12 rounded-2xl" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
@@ -939,9 +1057,45 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
                     <p style={{ color: t.textSec, fontSize: 14 }}>No videos in this category</p>
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    {feeds.map(feed => <VideoCard key={feed.id} feed={feed} />)}
-                  </div>
+                  <>
+                    <div className="space-y-4">
+                      {feeds.map(feed => <VideoCard key={feed.id} feed={feed} />)}
+                    </div>
+
+                    {/* Sentinel — IntersectionObserver triggers 300px before bottom */}
+                    <div ref={feedsSentinelRef} aria-hidden="true" style={{ height: 1 }} />
+
+                    {/* Loading more spinner */}
+                    {feedsLoadingMore && (
+                      <div className="flex justify-center py-4" aria-live="polite">
+                        <Loader2 size={20} className="animate-spin" style={{ color: '#7c3aed' }} />
+                      </div>
+                    )}
+
+                    {/* Manual load more fallback */}
+                    {feedsHasMore && !feedsLoadingMore && (
+                      <div className="py-4 text-center">
+                        <button
+                          onClick={handleLoadMoreFeeds}
+                          className="px-5 py-2.5 rounded-xl font-semibold text-sm active:scale-[0.97] transition-transform"
+                          style={{ background: 'rgba(124,58,237,0.15)', color: '#a78bfa', border: '1px solid rgba(124,58,237,0.3)' }}
+                          aria-label="Load more videos"
+                        >
+                          Load more
+                        </button>
+                      </div>
+                    )}
+
+                    {/* End of feed */}
+                    {!feedsHasMore && feeds.length > 0 && !feedsLoadingMore && (
+                      <div className="text-center py-6">
+                        <div className="w-12 h-1 rounded-full mx-auto mb-3" style={{ background: t.surface2 }} />
+                        <p style={{ color: t.textMuted, fontSize: 12, fontWeight: 600 }}>
+                          You've reached the end of the video feed.
+                        </p>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </>

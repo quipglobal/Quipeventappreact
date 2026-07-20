@@ -54,17 +54,24 @@ interface RawFeedsEnvelope {
   meta?: VideoFeedsMeta;
 }
 
-export async function getVideoFeeds(params?: {
-  category?: string;
-  page?: number;
-  per_page?: number;
-}): Promise<VideoFeedsResponse> {
+export async function getVideoFeeds(
+  params?: {
+    category?: string;
+    page?: number;
+    per_page?: number;
+  },
+  signal?: AbortSignal,
+): Promise<VideoFeedsResponse> {
+  if (signal?.aborted) return { success: true, data: [] };
+
   const qs = new URLSearchParams();
   if (params?.category) qs.set('category', params.category);
   if (params?.page) qs.set('page', String(params.page));
   qs.set('per_page', String(params?.per_page ?? 20));
 
   const res = await apiGet<unknown>(`/api/v1/mobile/video-feeds?${qs}`);
+
+  if (signal?.aborted) return { success: true, data: [] };
   if (!res.success) {
     return { success: false, error: res.error ?? { message: 'Failed to load video feeds.' } };
   }
