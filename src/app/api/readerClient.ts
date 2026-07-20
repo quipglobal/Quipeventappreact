@@ -212,20 +212,31 @@ function extractArray(res: any): unknown[] {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function extractMeta(res: any): ArticlesMeta | undefined {
+  // Shape A — backend sends { success, data: [...], meta: { current_page, last_page, total, has_more } }
+  // This is the primary shape used by the mobile reader API (same as video-feeds).
+  const top = res.meta ?? res.pagination;
+  if (top != null && typeof top === 'object') {
+    const cur = Number(top.current_page ?? 1);
+    const last = Number(top.last_page ?? top.total_pages ?? 1);
+    const hm = top.has_more !== undefined ? Boolean(top.has_more) : (cur < last);
+    return { current_page: cur, last_page: last, total: Number(top.total ?? 0), has_more: hm };
+  }
+  // Shape B — Laravel paginator nested inside data: { data: { data:[...], current_page, last_page } }
   const d = res.data;
-  if (!d) return undefined;
-  // Laravel paginator — meta at top level of data envelope
+  if (!d || Array.isArray(d)) return undefined;
   if (d.current_page != null) {
     const cur = Number(d.current_page);
     const last = Number(d.last_page ?? 1);
-    return { current_page: cur, last_page: last, total: Number(d.total ?? 0), has_more: cur < last };
+    const hm = d.has_more !== undefined ? Boolean(d.has_more) : (cur < last);
+    return { current_page: cur, last_page: last, total: Number(d.total ?? 0), has_more: hm };
   }
-  // Nested meta / pagination object
+  // Shape C — meta nested inside the data envelope
   const m = d.meta ?? d.pagination;
   if (m?.current_page != null) {
     const cur = Number(m.current_page);
     const last = Number(m.last_page ?? m.total_pages ?? 1);
-    return { current_page: cur, last_page: last, total: Number(m.total ?? 0), has_more: cur < last };
+    const hm = m.has_more !== undefined ? Boolean(m.has_more) : (cur < last);
+    return { current_page: cur, last_page: last, total: Number(m.total ?? 0), has_more: hm };
   }
   return undefined;
 }

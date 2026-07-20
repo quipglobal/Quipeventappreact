@@ -196,7 +196,8 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
         setFeedsHasMore(hm);
         setFeedsTotalCount(res.meta.total ?? 0);
       } else {
-        setFeedsHasMore(false);
+        // No meta — infer from page fullness
+        setFeedsHasMore(res.data.length >= feedsPageSize);
         setFeedsTotalCount(0);
       }
       return true;
@@ -249,7 +250,9 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
         setArticlesHasMore(hm);
         setArticlesTotalCount(res.meta.total ?? 0);
       } else {
-        setArticlesHasMore(false);
+        // No meta returned — infer from page fullness:
+        // if the API returned a full page, more pages likely exist.
+        setArticlesHasMore(res.data.length >= feedsPageSize);
         setArticlesTotalCount(0);
       }
       return true;
