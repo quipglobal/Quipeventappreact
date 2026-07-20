@@ -1,0 +1,447 @@
+Act as a senior frontend performance engineer and full-stack developer.
+
+The web application’s Video Feeds page currently loads all videos at once. This causes slow initial page loads, excessive network usage, high memory consumption, and poor performance, especially on mobile devices.
+
+Optimize the Video Feeds feature so that only a limited number of videos load initially, and additional videos load progressively as the user scrolls.
+
+## Primary objective
+
+Implement a production-ready, mobile-optimized video feed with:
+
+* Server-side pagination
+* Infinite scrolling
+* Lazy loading
+* Reduced initial video count on mobile
+* Controlled video preloading
+* Efficient thumbnail loading
+* Prevention of duplicate API requests
+* Smooth scrolling
+* Proper loading, empty, and error states
+
+Do not redesign the entire module or change existing business logic.
+
+## Required behavior
+
+### Initial loading limits
+
+Use responsive page sizes:
+
+* Mobile devices under 768px: load 4 videos initially
+* Tablets between 768px and 1024px: load 6 videos initially
+* Desktop devices over 1024px: load 10 videos initially
+
+Load the next page automatically when the user approaches the bottom of the feed.
+
+Do not load the complete video catalog during the initial page request.
+
+## Backend pagination
+
+Inspect the existing Video Feeds API.
+
+If pagination already exists, use it correctly.
+
+If pagination does not exist, add server-side pagination without breaking the existing endpoint consumers.
+
+Preferred API structure:
+
+```http
+GET /api/video-feeds?page=1&per_page=4
+```
+
+Preferred response:
+
+```json
+{
+  "data": [],
+  "meta": {
+    "current_page": 1,
+    "per_page": 4,
+    "last_page": 10,
+    "total": 40,
+    "has_more": true
+  }
+}
+```
+
+Cursor-based pagination may be used instead if it better matches the current backend architecture.
+
+The backend must:
+
+* Return only the requested records
+* Apply stable ordering
+* Avoid duplicate records between pages
+* Respect user, event, tenant, role, and permission filters
+* Return pagination metadata
+* Use database indexes for frequently used sort and filter fields
+* Avoid loading all rows into memory before pagination
+
+## Infinite scrolling
+
+Implement infinite scrolling using `IntersectionObserver`.
+
+Add a small sentinel element near the bottom of the feed.
+
+When the sentinel enters the viewport:
+
+1. Confirm another page exists.
+2. Confirm a request is not already in progress.
+3. Request the next page.
+4. Append new items to the existing feed.
+5. Remove duplicate records by video ID.
+6. Stop requesting when no more records exist.
+
+Do not use an unthrottled window scroll event unless the existing framework requires it.
+
+Trigger the next-page request before the user reaches the absolute bottom so the experience feels continuous.
+
+Recommended preload distance:
+
+```js
+rootMargin: "300px"
+```
+
+## Video loading optimization
+
+Do not allow every video element to preload its full media file.
+
+Use the following default behavior:
+
+```html
+<video preload="none">
+```
+
+or:
+
+```html
+<video preload="metadata">
+```
+
+Use `preload="metadata"` only when duration or metadata is required before playback.
+
+Each feed item should initially show:
+
+* Video thumbnail or poster image
+* Play button
+* Title
+* Description or metadata
+* Lightweight placeholder or skeleton
+
+The actual video source should load only when:
+
+* The user clicks play, or
+* The video enters a defined near-viewport range, if autoplay behavior is required
+
+Do not autoplay multiple videos simultaneously.
+
+If autoplay is part of the existing feature:
+
+* Autoplay only the most visible video
+* Pause videos that leave the viewport
+* Keep autoplay muted
+* Do not preload all upcoming videos
+* Respect browser autoplay restrictions
+* Respect reduced-motion and data-saving preferences where available
+
+## Thumbnail optimization
+
+Ensure thumbnails:
+
+* Use appropriately sized images
+* Are compressed
+* Use WebP or AVIF when supported
+* Include width and height attributes
+* Use lazy loading
+* Do not download desktop-resolution images on mobile
+
+Use responsive images where supported:
+
+```html
+<img
+  loading="lazy"
+  decoding="async"
+  srcset="..."
+  sizes="..."
+/>
+```
+
+If videos do not have thumbnails, generate or retrieve poster images instead of loading the video file to create the initial preview.
+
+## Request management
+
+Prevent duplicate requests.
+
+The implementation must track:
+
+* Current page or cursor
+* Whether a request is loading
+* Whether more records exist
+* Already loaded video IDs
+* Active search or filter state
+
+Use request cancellation with `AbortController` when:
+
+* The user leaves the page
+* Search changes
+* Filters change
+* The active event changes
+* The active tenant changes
+* A newer request replaces an older request
+
+Do not append stale responses after a filter, event, or search change.
+
+## Search, filters, and sorting
+
+Preserve the existing search, filtering, and sorting behavior.
+
+When search or filters change:
+
+1. Cancel active feed requests.
+2. Reset the page or cursor.
+3. Clear existing feed items.
+4. Fetch the first page using the new criteria.
+5. Prevent records from the previous query from being appended.
+
+Include all active filter parameters in pagination requests.
+
+## State handling
+
+Add clear UI states for:
+
+### Initial loading
+
+Show skeleton video cards instead of a blank screen.
+
+### Loading more
+
+Show a small loading indicator at the bottom of the feed.
+
+Do not block the already-loaded feed.
+
+### Empty state
+
+Show an appropriate message when no videos are available.
+
+### Error state
+
+Show a user-friendly error message and a Retry button.
+
+### End of feed
+
+When all records are loaded, stop observing or requesting additional pages.
+
+Optionally show:
+
+```text
+You have reached the end of the video feed.
+```
+
+## Mobile optimization
+
+For mobile devices:
+
+* Load fewer records per page
+* Use lower-resolution thumbnails
+* Avoid preload of offscreen video files
+* Use one-column feed layout unless the existing design specifies otherwise
+* Preserve touch-friendly controls
+* Avoid large memory usage from previously played videos
+* Release video resources when items are far outside the viewport where practical
+* Ensure the feed remains responsive on slower mobile networks
+
+Respect browser connection hints when available:
+
+```js
+navigator.connection?.saveData
+navigator.connection?.effectiveType
+```
+
+For users on data-saving mode or slow connections:
+
+* Disable autoplay
+* Use smaller thumbnails
+* Avoid video prefetching
+* Load the media file only after explicit user interaction
+
+## Rendering optimization
+
+Inspect the current component for unnecessary rerenders.
+
+Apply appropriate optimization based on the existing framework:
+
+* Stable component keys
+* Memoized video cards
+* Memoized callbacks
+* Avoid recreating large objects during render
+* Avoid global state updates for every scroll event
+* Avoid rendering hidden video players unnecessarily
+
+If the feed can contain a very large number of loaded records, use windowing or virtualization only if it works reliably with the existing video player implementation.
+
+Do not add virtualization if it introduces playback bugs, layout jumps, or accessibility problems.
+
+## Caching
+
+Use the project’s existing data-fetching library where possible.
+
+If React Query, TanStack Query, SWR, or another caching tool is already installed:
+
+* Use infinite-query functionality
+* Preserve previously loaded pages
+* Deduplicate requests
+* Configure a reasonable stale time
+* Avoid refetching all previous pages unnecessarily
+
+Do not install a new state-management or data-fetching library if the existing project already has a suitable solution.
+
+## Accessibility
+
+Ensure:
+
+* Play and pause controls have accessible names
+* Keyboard users can operate video controls
+* Loading states are announced appropriately
+* Infinite scrolling does not trap keyboard users
+* A manual “Load more” button is available as a fallback
+* Focus is not moved unexpectedly when new records are appended
+* Error and retry controls are keyboard accessible
+
+## Performance targets
+
+Measure performance before and after the optimization.
+
+Target improvements:
+
+* Initial API response contains only the first page
+* Initial page does not request every video media file
+* Initial mobile render contains no more than 4 video cards
+* Initial desktop render contains no more than 10 video cards
+* No duplicate pagination requests
+* No duplicate videos in the feed
+* Additional records load smoothly before the user reaches the bottom
+* Video playback remains functional after pagination
+* Search and filters reset pagination correctly
+* Initial page interactive within 3 seconds on a normal connection
+* Button or play feedback visible within 200 milliseconds
+* No major scroll freezing
+* No persistent memory growth during normal scrolling
+
+## Testing requirements
+
+Create or update automated tests covering:
+
+1. Mobile initially loads 4 videos.
+2. Tablet initially loads 6 videos.
+3. Desktop initially loads 10 videos.
+4. Scrolling near the bottom requests the next page.
+5. The next page is appended rather than replacing existing videos.
+6. Duplicate requests are blocked.
+7. Duplicate videos are removed.
+8. Loading stops when no more pages exist.
+9. Search resets the feed to page 1.
+10. Filters reset the feed to page 1.
+11. Stale requests are cancelled.
+12. API errors show a Retry button.
+13. Retrying loads the correct page.
+14. Videos do not preload full media files by default.
+15. Only one autoplay video plays at a time, if autoplay is enabled.
+16. Manual Load More works when `IntersectionObserver` is unavailable.
+17. Permissions and tenant filtering remain enforced.
+18. Existing video analytics continue working correctly.
+19. Video impressions are not counted multiple times because of rerenders.
+20. Video play and engagement events are still submitted correctly.
+
+Test at these viewport sizes:
+
+* 375×667
+* 390×844
+* 768×1024
+* 1366×768
+* 1440×900
+
+Test under:
+
+* Normal network
+* Slow 4G
+* High latency
+* Temporary offline mode
+* API failure
+* Empty API response
+
+## Analytics protection
+
+Preserve all existing video analytics.
+
+Verify that pagination and lazy rendering do not incorrectly affect:
+
+* Impressions
+* Video opens
+* Play events
+* Pause events
+* Completion events
+* Watch duration
+* Unique viewer counts
+* Event-level analytics
+* Sponsor-level analytics
+
+An impression should only be recorded when the video card becomes meaningfully visible according to the existing analytics definition.
+
+Do not record an impression merely because the API returned the video record.
+
+Prevent duplicate analytics submissions caused by rerenders or repeated intersection events.
+
+## Required deliverables
+
+Create:
+
+### `qa-reports/VIDEO_FEED_PERFORMANCE_REPORT.md`
+
+Include:
+
+* Previous behavior
+* Updated behavior
+* Initial video count by device type
+* API pagination details
+* Initial network request count
+* Initial transferred data
+* Video media requests before interaction
+* Page-load measurements
+* Scroll performance findings
+* Memory observations
+* Analytics validation
+* Before-and-after comparison
+
+### `qa-reports/VIDEO_FEED_TEST_REPORT.md`
+
+Include:
+
+* Test cases
+* Device sizes
+* Network conditions
+* Passed tests
+* Failed tests
+* Blocked tests
+* Defects
+* Screenshots or logs
+* Regression status
+
+## Final response format
+
+At completion, provide:
+
+1. Root cause of the performance issue
+2. Pagination strategy implemented
+3. Initial page size for mobile, tablet, and desktop
+4. Video preload strategy
+5. Thumbnail optimization performed
+6. Infinite-scroll behavior
+7. Analytics validation result
+8. Before-and-after performance measurements
+9. Tests passed and failed
+10. Files changed
+11. Database or API changes
+12. Exact commands to rerun the tests
+13. Any remaining risks
+
+Begin by auditing the current Video Feeds page, its API calls, video player behavior, and analytics implementation.
+
+Then implement the optimization without waiting for additional confirmation.

@@ -2,12 +2,17 @@
  * Feed API Client
  * ─────────────────────────────────────────────────────────────────────────────
  * API CONTRACT:
- *   GET  /api/v1/events/:eventId/event-video-feeds   → paginated VideoFeed list
- *   POST /api/v1/events/:eventId/event-video-feeds/:id/view  → view record
+ *   GET  /api/v1/events/:eventId/event-video-feeds?page=N&per_page=N → paginated VideoFeed list
+ *   POST /api/v1/events/:eventId/event-video-feeds/:id/view          → view record
  *
  * No hardcoded fallback data — the UI renders a genuine empty state when the
  * backend returns no videos for an event. This ensures Austin (0 feeds) and
  * LA (4 feeds) always show their actual data instead of demo content.
+ *
+ * Pagination params:
+ *   page     — 1-based page number
+ *   per_page — records per page (mobile: 4, tablet: 6, desktop: 10)
+ *   limit    — alias sent alongside per_page for backend compatibility
  */
 
 import { apiGet, apiPost } from './client';
@@ -69,6 +74,7 @@ function normalizeVideoFeedItem(raw: Record<string, unknown>, index: number): Fe
     raw.description ?? raw.content ?? raw.caption ?? raw.summary ?? raw.title ?? '',
   );
   const accentColor: string = ACCENT_COLORS[index % ACCENT_COLORS.length];
+  void accentColor;
 
   return {
     id: String(raw.id ?? index),
@@ -94,24 +100,43 @@ function normalizeVideoFeedItem(raw: Record<string, unknown>, index: number): Fe
 // ─── API Methods ──────────────────────────────────────────────────────────────
 
 /**
- * GET /api/v1/events/:eventId/event-video-feeds
+ * GET /api/v1/events/:eventId/event-video-feeds?page=N&per_page=N
  *
  * Returns a paginated list of video feeds for the event. Uses Laravel-style
  * page pagination (?page=N) as well as cursor pagination if the backend
  * supplies a next_cursor field.
  *
+ * perPage defaults to 10 but the caller passes a responsive value:
+ *   mobile (<768px): 4 | tablet (768–1024px): 6 | desktop: 10
+ *
+ * signal — optional AbortSignal for request cancellation on event/filter changes.
+ *
  * Returns an empty list (no error, no demo data) when the backend has no
  * videos for the event — Austin legitimately has 0, LA has 4, etc.
  */
-export async function getFeedApi(eventId: string, page = 1): Promise<FeedResponse> {
+export async function getFeedApi(
+  eventId: string,
+  page = 1,
+  perPage = 10,
+  signal?: AbortSignal,
+): Promise<FeedResponse> {
   if (!eventId) {
     return { success: true, data: { items: [], page: 1, hasMore: false, total: 0 } };
   }
 
+  if (signal?.aborted) {
+    return { success: true, data: { items: [], page, hasMore: false, total: 0 } };
+  }
+
   const res = await apiGet<unknown>(
-    `/api/v1/events/${eventId}/event-video-feeds?page=${page}&limit=10`,
+    `/api/v1/events/${eventId}/event-video-feeds?page=${page}&per_page=${perPage}&limit=${perPage}`,
     FEED_TENANT_HEADERS,
   );
+
+  // If the signal was aborted while the request was in-flight, discard the result
+  if (signal?.aborted) {
+    return { success: true, data: { items: [], page, hasMore: false, total: 0 } };
+  }
 
   if (!res.success) {
     if (page > 1) {

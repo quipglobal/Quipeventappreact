@@ -10,7 +10,20 @@ interface FeedVideoPostProps {
   post: FeedVideoPostType;
 }
 
-export const FeedVideoPost: React.FC<FeedVideoPostProps> = ({ post }) => {
+/**
+ * FeedVideoPost
+ *
+ * Performance notes:
+ * - Wrapped in React.memo — re-renders only when `post` reference changes.
+ * - video[preload="none"] — the browser fetches NO media bytes until the user
+ *   clicks play, saving bandwidth on initial load.
+ * - src is set imperatively on first play (not via React state) to avoid a
+ *   render cycle between "set src" and "call play()".
+ * - Thumbnail image uses loading="lazy" + decoding="async" for deferred decode.
+ * - Analytics (80% watch → markVideoWatchedApi) are guarded by hasEarned so
+ *   they fire exactly once per mount regardless of rerenders.
+ */
+export const FeedVideoPost: React.FC<FeedVideoPostProps> = React.memo(({ post }) => {
   const { t } = useTheme();
   const { addPoints, showToast, eventConfig } = useApp();
 
@@ -24,11 +37,21 @@ export const FeedVideoPost: React.FC<FeedVideoPostProps> = ({ post }) => {
   const [likesCount, setLikesCount] = useState(post.likes);
   const [showOverlay, setShowOverlay] = useState(true);
 
+  // Set the video src lazily — only when the user first clicks play.
+  // This avoids every card pre-fetching its media file on mount.
+  const ensureSrc = useCallback(() => {
+    const vid = videoRef.current;
+    if (!vid || vid.src || !post.videoUrl) return;
+    vid.src = post.videoUrl;
+    vid.load();
+  }, [post.videoUrl]);
+
   const handlePlayPause = useCallback(() => {
     const vid = videoRef.current;
     if (!vid) return;
+    ensureSrc();
     if (vid.paused) {
-      vid.play();
+      vid.play().catch(() => {/* browser may block autoplay, ignore */});
       setIsPlaying(true);
       setShowOverlay(false);
     } else {
@@ -36,7 +59,7 @@ export const FeedVideoPost: React.FC<FeedVideoPostProps> = ({ post }) => {
       setIsPlaying(false);
       setShowOverlay(true);
     }
-  }, []);
+  }, [ensureSrc]);
 
   const handleTimeUpdate = useCallback(() => {
     const vid = videoRef.current;
@@ -44,6 +67,7 @@ export const FeedVideoPost: React.FC<FeedVideoPostProps> = ({ post }) => {
     const pct = vid.currentTime / vid.duration;
     setProgress(pct * 100);
 
+    // Fire analytics exactly once per mount when 80% is reached
     if (!hasEarned && pct >= 0.8) {
       setHasEarned(true);
       setShowEarnedBurst(true);
@@ -60,7 +84,7 @@ export const FeedVideoPost: React.FC<FeedVideoPostProps> = ({ post }) => {
     setProgress(100);
   }, []);
 
-  const handleLike = () => {
+  const handleLike = useCallback(() => {
     if (!isLiked) {
       setIsLiked(true);
       setLikesCount(p => p + 1);
@@ -69,25 +93,35 @@ export const FeedVideoPost: React.FC<FeedVideoPostProps> = ({ post }) => {
       setIsLiked(false);
       setLikesCount(p => p - 1);
     }
-  };
+  }, [isLiked, addPoints]);
 
-  const toggleMute = (e: React.MouseEvent) => {
+  const toggleMute = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     const vid = videoRef.current;
     if (!vid) return;
     vid.muted = !vid.muted;
     setIsMuted(vid.muted);
-  };
+  }, []);
 
   return (
     <div className="mb-4">
-      <div className="rounded-3xl overflow-hidden" style={{ background: t.surface, border: `1px solid ${t.border}`, boxShadow: t.shadow }}>
-
+      <div
+        className="rounded-3xl overflow-hidden"
+        style={{ background: t.surface, border: `1px solid ${t.border}`, boxShadow: t.shadow }}
+      >
         {/* Header */}
         <div className="flex items-start justify-between p-4 pb-3">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0" style={{ background: t.surface2 }}>
-              <img src={post.user.avatar} alt={post.user.name} className="w-full h-full object-cover" />
+              <img
+                src={post.user.avatar}
+                alt={post.user.name}
+                className="w-full h-full object-cover"
+                loading="lazy"
+                decoding="async"
+                width={40}
+                height={40}
+              />
             </div>
             <div>
               <h3 className="text-sm font-bold leading-tight" style={{ color: t.text }}>{post.user.name}</h3>
@@ -117,24 +151,40 @@ export const FeedVideoPost: React.FC<FeedVideoPostProps> = ({ post }) => {
         </p>
 
         {/* Video Player */}
-        <div className="relative mx-4 mb-4 rounded-2xl overflow-hidden cursor-pointer" style={{ background: '#000' }} onClick={handlePlayPause}>
+        <div
+          className="relative mx-4 mb-4 rounded-2xl overflow-hidden cursor-pointer"
+          style={{ background: '#000' }}
+          onClick={handlePlayPause}
+          role="button"
+          tabIndex={0}
+          aria-label={isPlaying ? `Pause ${post.user.name} video` : `Play ${post.user.name} video`}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handlePlayPause(); } }}
+        >
+          {/*
+           * preload="none" — the browser fetches zero media bytes on mount.
+           * src is NOT set here; it is set imperatively in ensureSrc() the first
+           * time the user clicks play. poster is set so the thumbnail is shown
+           * without any video bytes being downloaded.
+           */}
           <video
             ref={videoRef}
-            src={post.videoUrl}
-            poster={post.thumbnail}
+            poster={post.thumbnail || undefined}
             muted={isMuted}
             playsInline
-            preload="metadata"
+            preload="none"
             onTimeUpdate={handleTimeUpdate}
             onEnded={handleEnded}
             className="w-full object-cover"
             style={{ maxHeight: 280, display: 'block' }}
+            aria-label={`${post.user.name} video`}
           />
 
-          {/* Duration badge */}
-          {!isPlaying && (
-            <div className="absolute bottom-3 right-3 px-2 py-0.5 rounded-md text-[10px] font-bold text-white"
-              style={{ background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)' }}>
+          {/* Duration badge (hidden while playing) */}
+          {!isPlaying && post.duration && (
+            <div
+              className="absolute bottom-3 right-3 px-2 py-0.5 rounded-md text-[10px] font-bold text-white"
+              style={{ background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(4px)' }}
+            >
               {post.duration}
             </div>
           )}
@@ -152,18 +202,30 @@ export const FeedVideoPost: React.FC<FeedVideoPostProps> = ({ post }) => {
                 <motion.div
                   whileTap={{ scale: 0.88 }}
                   className="w-14 h-14 rounded-full flex items-center justify-center"
-                  style={{ background: 'rgba(255,255,255,0.18)', backdropFilter: 'blur(8px)', border: '1.5px solid rgba(255,255,255,0.35)' }}
+                  style={{
+                    background: 'rgba(255,255,255,0.18)',
+                    backdropFilter: 'blur(8px)',
+                    border: '1.5px solid rgba(255,255,255,0.35)',
+                  }}
                 >
                   <Play size={26} fill="white" color="white" style={{ marginLeft: 3 }} />
                 </motion.div>
 
-                {/* Earn prompt on overlay */}
+                {/* Earn prompt */}
                 {!hasEarned && (
                   <div className="absolute bottom-10 left-0 right-0 flex justify-center">
-                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full"
-                      style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', border: '1px solid rgba(245,158,11,0.4)' }}>
+                    <div
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full"
+                      style={{
+                        background: 'rgba(0,0,0,0.6)',
+                        backdropFilter: 'blur(8px)',
+                        border: '1px solid rgba(245,158,11,0.4)',
+                      }}
+                    >
                       <Star size={12} fill="#f59e0b" color="#f59e0b" />
-                      <span className="text-[11px] font-semibold text-white">Watch to earn +{post.pointsReward} pts</span>
+                      <span className="text-[11px] font-semibold text-white">
+                        Watch to earn +{post.pointsReward} pts
+                      </span>
                     </div>
                   </div>
                 )}
@@ -177,6 +239,7 @@ export const FeedVideoPost: React.FC<FeedVideoPostProps> = ({ post }) => {
               onClick={toggleMute}
               className="absolute bottom-3 right-3 w-8 h-8 rounded-full flex items-center justify-center"
               style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}
+              aria-label={isMuted ? 'Unmute video' : 'Mute video'}
             >
               {isMuted
                 ? <VolumeX size={14} color="white" />
@@ -185,7 +248,7 @@ export const FeedVideoPost: React.FC<FeedVideoPostProps> = ({ post }) => {
             </button>
           )}
 
-          {/* Points earned burst */}
+          {/* Points earned burst animation */}
           <AnimatePresence>
             {showEarnedBurst && (
               <motion.div
@@ -194,10 +257,13 @@ export const FeedVideoPost: React.FC<FeedVideoPostProps> = ({ post }) => {
                 exit={{ opacity: 0, scale: 1.1, y: -16 }}
                 transition={{ type: 'spring', stiffness: 340, damping: 22 }}
                 className="absolute inset-0 flex items-center justify-center pointer-events-none"
+                aria-live="polite"
               >
-                <div className="flex flex-col items-center gap-2 px-6 py-4 rounded-2xl"
-                  style={{ background: 'rgba(16,185,129,0.92)', backdropFilter: 'blur(12px)' }}>
-                  <span className="text-3xl">🎉</span>
+                <div
+                  className="flex flex-col items-center gap-2 px-6 py-4 rounded-2xl"
+                  style={{ background: 'rgba(16,185,129,0.92)', backdropFilter: 'blur(12px)' }}
+                >
+                  <span className="text-3xl" aria-hidden="true">🎉</span>
                   <span className="text-white font-black text-xl">+{post.pointsReward} pts!</span>
                   <span className="text-green-100 text-xs font-medium">Thanks for watching</span>
                 </div>
@@ -216,20 +282,33 @@ export const FeedVideoPost: React.FC<FeedVideoPostProps> = ({ post }) => {
                 ? 'linear-gradient(90deg,#10b981,#34d399)'
                 : 'linear-gradient(90deg,#7c3aed,#4f46e5)',
             }}
+            role="progressbar"
+            aria-valuenow={Math.round(progress)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label="Watch progress"
           />
         </div>
 
         {/* Actions */}
-        <div className="flex items-center justify-between px-4 pb-4 pt-1 border-t" style={{ borderColor: t.divider }}>
-          <button onClick={handleLike} className="flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-white/5">
+        <div
+          className="flex items-center justify-between px-4 pb-4 pt-1 border-t"
+          style={{ borderColor: t.divider }}
+        >
+          <button
+            onClick={handleLike}
+            className="flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-white/5"
+            aria-label={isLiked ? 'Unlike' : 'Like'}
+            aria-pressed={isLiked}
+          >
             <Heart size={18} fill={isLiked ? '#ec4899' : 'none'} color={isLiked ? '#ec4899' : t.textSec} />
             <span className="text-xs font-medium" style={{ color: isLiked ? '#ec4899' : t.textSec }}>{likesCount}</span>
           </button>
-          <button className="flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-white/5">
+          <button className="flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-white/5" aria-label="Comments">
             <MessageSquare size={18} color={t.textSec} />
             <span className="text-xs font-medium" style={{ color: t.textSec }}>{post.comments.length}</span>
           </button>
-          <button className="flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-white/5">
+          <button className="flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-white/5" aria-label="Share">
             <Share2 size={18} color={t.textSec} />
             <span className="text-xs font-medium" style={{ color: t.textSec }}>{post.shares}</span>
           </button>
@@ -237,4 +316,6 @@ export const FeedVideoPost: React.FC<FeedVideoPostProps> = ({ post }) => {
       </div>
     </div>
   );
-};
+});
+
+FeedVideoPost.displayName = 'FeedVideoPost';
