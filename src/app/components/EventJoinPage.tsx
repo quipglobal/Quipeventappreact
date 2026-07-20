@@ -136,6 +136,17 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
   const [selectedArticleCategory, setSelectedArticleCategory] = useState<ArticleCategory | null>(null);
   const [articles, setArticles] = useState<Article[]>([]);
   const [articlesLoading, setArticlesLoading] = useState(false);
+
+  // ── Articles pagination ───────────────────────────────────────────────────
+  const [articlesHasMore, setArticlesHasMore] = useState(false);
+  const [articlesLoadingMore, setArticlesLoadingMore] = useState(false);
+  const [articlesTotalCount, setArticlesTotalCount] = useState(0);
+  const articlesPageRef = useRef(1);
+  const articlesAbortRef = useRef<AbortController | null>(null);
+  const articlesLoadedIdsRef = useRef<Set<number>>(new Set());
+  const articlesIsLoadingMoreRef = useRef(false);
+  const articlesSentinelRef = useRef<HTMLDivElement | null>(null);
+
   const [readingArticle, setReadingArticle] = useState<Article | null>(null);
   const [readingArticleLoading, setReadingArticleLoading] = useState(false);
   const articleSessionRef = useRef<{
@@ -213,13 +224,52 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
     if (res.success && res.data) setArticleCategories(res.data);
   }, []);
 
-  // ── Fetch articles ────────────────────────────────────────────────────────
-  const fetchArticles = useCallback(async (categoryName?: string) => {
-    setArticlesLoading(true);
-    const res = await getArticles({ category: categoryName, per_page: 30 });
-    if (res.success && res.data) setArticles(res.data);
-    setArticlesLoading(false);
-  }, []);
+  // ── Fetch articles — paginated, supports abort ────────────────────────
+  const fetchArticles = useCallback(async (
+    categoryName: string | undefined,
+    pageNum: number,
+    append: boolean,
+    signal?: AbortSignal,
+  ): Promise<boolean> => {
+    try {
+      const res = await getArticles({ category: categoryName, page: pageNum, per_page: feedsPageSize }, signal);
+      if (signal?.aborted) return false;
+      if (!res.success || !res.data) return false;
+
+      const deduped = res.data.filter(article => {
+        if (articlesLoadedIdsRef.current.has(article.id)) return false;
+        articlesLoadedIdsRef.current.add(article.id);
+        return true;
+      });
+
+      setArticles(prev => append ? [...prev, ...deduped] : deduped);
+
+      if (res.meta) {
+        const hm = res.meta.has_more ?? (res.meta.current_page < res.meta.last_page);
+        setArticlesHasMore(hm);
+        setArticlesTotalCount(res.meta.total ?? 0);
+      } else {
+        setArticlesHasMore(false);
+        setArticlesTotalCount(0);
+      }
+      return true;
+    } catch {
+      if (signal?.aborted) return false;
+      return false;
+    }
+  }, [feedsPageSize]);
+
+  // ── Manual "Load more" fallback for articles ───────────────────────────
+  const handleLoadMoreArticles = useCallback(async () => {
+    if (articlesIsLoadingMoreRef.current || !articlesHasMore) return;
+    articlesIsLoadingMoreRef.current = true;
+    setArticlesLoadingMore(true);
+    const next = articlesPageRef.current + 1;
+    await fetchArticles(selectedArticleCategory?.name, next, true);
+    articlesPageRef.current = next;
+    articlesIsLoadingMoreRef.current = false;
+    setArticlesLoadingMore(false);
+  }, [articlesHasMore, fetchArticles, selectedArticleCategory]);
 
   useEffect(() => { fetchEvents(); fetchCategories(); fetchArticleCategories(); }, [fetchEvents, fetchCategories, fetchArticleCategories]);
 
@@ -260,7 +310,43 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
     return () => observer.disconnect();
   }, [feedsHasMore, fetchFeeds, selectedCategory]);
 
-  useEffect(() => { if (feedSubTab === 'articles') fetchArticles(selectedArticleCategory?.name); }, [fetchArticles, feedSubTab, selectedArticleCategory]);
+  // ── Reset + load page 1 when articles tab/category changes ────────────
+  useEffect(() => {
+    if (feedSubTab !== 'articles') return;
+    articlesAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    articlesAbortRef.current = ctrl;
+    setArticlesLoading(true);
+    setArticles([]);
+    setArticlesHasMore(false);
+    setArticlesTotalCount(0);
+    articlesPageRef.current = 1;
+    articlesLoadedIdsRef.current = new Set();
+    articlesIsLoadingMoreRef.current = false;
+    fetchArticles(selectedArticleCategory?.name, 1, false, ctrl.signal).finally(() => {
+      if (!ctrl.signal.aborted) setArticlesLoading(false);
+    });
+    return () => { ctrl.abort(); };
+  }, [fetchArticles, feedSubTab, selectedArticleCategory]);
+
+  // ── IntersectionObserver — auto-load next page of articles ────────────
+  useEffect(() => {
+    const sentinel = articlesSentinelRef.current;
+    if (!sentinel || !articlesHasMore) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (!entries[0].isIntersecting || articlesIsLoadingMoreRef.current || !articlesHasMore) return;
+      articlesIsLoadingMoreRef.current = true;
+      setArticlesLoadingMore(true);
+      const next = articlesPageRef.current + 1;
+      fetchArticles(selectedArticleCategory?.name, next, true).then(() => {
+        articlesPageRef.current = next;
+        articlesIsLoadingMoreRef.current = false;
+        setArticlesLoadingMore(false);
+      });
+    }, { rootMargin: '300px' });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [articlesHasMore, fetchArticles, selectedArticleCategory]);
 
   // ── Impression tracking ───────────────────────────────────────────────────
   useEffect(() => {
@@ -749,6 +835,29 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
     );
   };
 
+  const ArticleCardSkeleton: React.FC = () => (
+    <div
+      className="rounded-2xl overflow-hidden animate-pulse"
+      style={{ background: t.surface, border: `1px solid ${t.border}` }}
+      aria-hidden="true"
+    >
+      <div className="h-36" style={{ background: t.surface2 }} />
+      <div className="p-3.5 space-y-2">
+        <div className="flex gap-2 mb-2">
+          <div className="h-4 w-16 rounded-md" style={{ background: t.surface2 }} />
+          <div className="h-4 w-10 rounded-md" style={{ background: t.surface2 }} />
+        </div>
+        <div className="h-4 rounded-lg w-4/5" style={{ background: t.surface2 }} />
+        <div className="h-3.5 rounded-lg w-3/5" style={{ background: t.surface2 }} />
+        <div className="h-3 rounded-lg w-2/3" style={{ background: t.surface2 }} />
+        <div className="flex justify-between pt-1">
+          <div className="h-3 w-20 rounded" style={{ background: t.surface2 }} />
+          <div className="h-3 w-16 rounded" style={{ background: t.surface2 }} />
+        </div>
+      </div>
+    </div>
+  );
+
   const ArticleCard: React.FC<{ article: Article }> = ({ article }) => {
     const dateLabel = article.publishedAt
       ? new Date(article.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -1141,7 +1250,7 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
               {!articlesLoading && (
                 <div className="px-5 pt-3 pb-1">
                   <span style={{ color: t.textMuted, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                    {selectedArticleCategory ? selectedArticleCategory.name : 'All'} · {articles.length} articles
+                    {selectedArticleCategory ? selectedArticleCategory.name : 'All'} · {articlesTotalCount > 0 ? articlesTotalCount : articles.length} articles
                   </span>
                 </div>
               )}
@@ -1149,21 +1258,59 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
               {/* Article cards */}
               <div className="px-5 pt-2">
                 {articlesLoading ? (
-                  <div className="flex items-center justify-center py-16">
-                    <RefreshCw size={26} style={{ color: '#7c3aed', animation: 'spin-cw 1s linear infinite' }} />
+                  <div className="space-y-4">
+                    {Array.from({ length: feedsPageSize }).map((_, i) => (
+                      <ArticleCardSkeleton key={i} />
+                    ))}
                   </div>
                 ) : articles.length === 0 ? (
                   <div className="text-center py-12 rounded-2xl" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
                     <BookOpen size={40} style={{ color: t.emptyIcon, margin: '0 auto 8px' }} />
                     <p style={{ color: t.textSec, fontSize: 14, fontWeight: 600 }}>No articles yet</p>
                     <p style={{ color: t.textMuted, fontSize: 12, marginTop: 4 }}>
-                      {articlesLoading ? 'Loading…' : 'Articles will appear here once published.'}
+                      Articles will appear here once published.
                     </p>
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    {articles.map(article => <ArticleCard key={article.id} article={article} />)}
-                  </div>
+                  <>
+                    <div className="space-y-4">
+                      {articles.map((article, i) => <ArticleCard key={article.id > 0 ? article.id : `art-${i}`} article={article} />)}
+                    </div>
+
+                    {/* Sentinel — IntersectionObserver triggers 300px before bottom */}
+                    <div ref={articlesSentinelRef} aria-hidden="true" style={{ height: 1 }} />
+
+                    {/* Loading more spinner */}
+                    {articlesLoadingMore && (
+                      <div className="flex justify-center py-4" aria-live="polite">
+                        <Loader2 size={20} className="animate-spin" style={{ color: '#7c3aed' }} />
+                      </div>
+                    )}
+
+                    {/* Manual load more fallback */}
+                    {articlesHasMore && !articlesLoadingMore && (
+                      <div className="py-4 text-center">
+                        <button
+                          onClick={handleLoadMoreArticles}
+                          className="px-5 py-2.5 rounded-xl font-semibold text-sm active:scale-[0.97] transition-transform"
+                          style={{ background: 'rgba(124,58,237,0.15)', color: '#a78bfa', border: '1px solid rgba(124,58,237,0.3)' }}
+                          aria-label="Load more articles"
+                        >
+                          Load more
+                        </button>
+                      </div>
+                    )}
+
+                    {/* End of articles */}
+                    {!articlesHasMore && articles.length > 0 && !articlesLoadingMore && (
+                      <div className="text-center py-6">
+                        <div className="w-12 h-1 rounded-full mx-auto mb-3" style={{ background: t.surface2 }} />
+                        <p style={{ color: t.textMuted, fontSize: 12, fontWeight: 600 }}>
+                          You've reached the end of the articles.
+                        </p>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </>

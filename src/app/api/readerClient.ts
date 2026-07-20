@@ -32,6 +32,13 @@ export interface ArticleCategory {
   documentCount: number;
 }
 
+export interface ArticlesMeta {
+  current_page: number;
+  last_page: number;
+  total: number;
+  has_more: boolean;
+}
+
 export interface Article {
   id: number;
   title: string;
@@ -74,6 +81,7 @@ export interface ArticleAnalyticsEventPayload {
 export interface ArticlesResponse {
   success: boolean;
   data?: Article[];
+  meta?: ArticlesMeta;
   error?: { code?: string; message: string };
 }
 
@@ -202,6 +210,26 @@ function extractArray(res: any): unknown[] {
   return [];
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractMeta(res: any): ArticlesMeta | undefined {
+  const d = res.data;
+  if (!d) return undefined;
+  // Laravel paginator — meta at top level of data envelope
+  if (d.current_page != null) {
+    const cur = Number(d.current_page);
+    const last = Number(d.last_page ?? 1);
+    return { current_page: cur, last_page: last, total: Number(d.total ?? 0), has_more: cur < last };
+  }
+  // Nested meta / pagination object
+  const m = d.meta ?? d.pagination;
+  if (m?.current_page != null) {
+    const cur = Number(m.current_page);
+    const last = Number(m.last_page ?? m.total_pages ?? 1);
+    return { current_page: cur, last_page: last, total: Number(m.total ?? 0), has_more: cur < last };
+  }
+  return undefined;
+}
+
 // ── Public API ──────────────────────────────────────────────────────────────
 
 export async function getArticleCategories(): Promise<ArticleCategoriesResponse> {
@@ -218,14 +246,19 @@ export async function getArticleCategories(): Promise<ArticleCategoriesResponse>
   return { success: true, data: raw.map(normalizeCategory) };
 }
 
-export async function getArticles(params?: {
-  /** Filter by category name string — backend accepts ?category=<name> */
-  category?: string | null;
-  per_page?: number;
-  page?: number;
-  search?: string;
-}): Promise<ArticlesResponse> {
+export async function getArticles(
+  params?: {
+    /** Filter by category name string — backend accepts ?category=<name> */
+    category?: string | null;
+    per_page?: number;
+    page?: number;
+    search?: string;
+  },
+  signal?: AbortSignal,
+): Promise<ArticlesResponse> {
   if (articlesNotImplemented) return { success: true, data: [] };
+  if (signal?.aborted) return { success: true, data: [] };
+
   const qs = new URLSearchParams();
   if (params?.category?.trim()) qs.set('category', params.category.trim());
   qs.set('per_page', String(params?.per_page ?? 20));
@@ -233,6 +266,8 @@ export async function getArticles(params?: {
   if (params?.search?.trim()) qs.set('search', params.search.trim());
 
   const res = await apiGet<unknown>(`/api/v1/mobile/reader/documents?${qs}`);
+
+  if (signal?.aborted) return { success: true, data: [] };
   if (!res.success) {
     if (isNotImplemented(res.error?.code)) {
       articlesNotImplemented = true;
@@ -241,7 +276,8 @@ export async function getArticles(params?: {
     return { success: false, error: res.error ?? { message: 'Failed to load articles.' } };
   }
   const raw = extractArray(res);
-  return { success: true, data: raw.map(normalizeArticle) };
+  const meta = extractMeta(res);
+  return { success: true, data: raw.map(normalizeArticle), meta };
 }
 
 export async function getArticle(id: number): Promise<ArticleResponse> {
