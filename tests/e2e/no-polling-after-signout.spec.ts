@@ -249,8 +249,8 @@ test('no authenticated requests fire after sign-out (polling regression guard)',
   await page.goto('/');
 
   // Splash auto-completes after ~2.4s, then welcome screen renders the
-  // "Start Networking" CTA which opens the sign-in sheet.
-  const startBtn = page.getByRole('button', { name: /start networking/i });
+  // "Sign in" CTA which opens the sign-in sheet.
+  const startBtn = page.getByRole('button', { name: /sign in/i });
   await startBtn.click({ timeout: 15_000 });
 
   await page.getByPlaceholder('you@example.com').fill('test@example.com');

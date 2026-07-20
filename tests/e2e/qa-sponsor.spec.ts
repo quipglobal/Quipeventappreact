@@ -71,7 +71,7 @@ test('Sponsor: login → join → sponsor-specific features', async ({ page }) =
 
   // ── Login ────────────────────────────────────────────────────────────
   await page.goto('/');
-  await page.getByRole('button', { name: /start networking/i }).click({ timeout: 15_000 });
+  await page.getByRole('button', { name: /sign in/i }).click({ timeout: 15_000 });
   await page.getByPlaceholder('you@example.com').fill('sam@acme.com');
   await page.getByRole('button', { name: /^Continue$/i }).click();
   const otpInputs = page.locator('div[aria-label="Sign in"] input[inputmode="numeric"]');

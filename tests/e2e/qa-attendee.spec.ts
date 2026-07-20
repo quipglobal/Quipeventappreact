@@ -76,7 +76,7 @@ test('Attendee: login → join → all core pages', async ({ page }) => {
 
   // ── Login ────────────────────────────────────────────────────────────
   await page.goto('/');
-  await page.getByRole('button', { name: /start networking/i }).click({ timeout: 15_000 });
+  await page.getByRole('button', { name: /sign in/i }).click({ timeout: 15_000 });
   await page.getByPlaceholder('you@example.com').fill('alice@cxo.com');
   await page.getByRole('button', { name: /^Continue$/i }).click();
   const otpInputs = page.locator('div[aria-label="Sign in"] input[inputmode="numeric"]');
@@ -171,5 +171,5 @@ test('Attendee: login → join → all core pages', async ({ page }) => {
   await page.getByRole('button', { name: /^More$/i }).click();
   await page.getByRole('button', { name: /^Settings$/i }).click();
   await page.getByRole('button', { name: /Sign Out/i }).click();
-  await expect(page.getByRole('button', { name: /start networking/i })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('button', { name: /sign in/i })).toBeVisible({ timeout: 15_000 });
 });

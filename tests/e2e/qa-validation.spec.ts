@@ -58,7 +58,7 @@ function baseRoute(page: Page, otpFail = false) {
 
 async function doLoginAndJoin(page: Page) {
   await page.goto('/');
-  await page.getByRole('button', { name: /start networking/i }).click({ timeout: 15_000 });
+  await page.getByRole('button', { name: /sign in/i }).click({ timeout: 15_000 });
   await page.getByPlaceholder('you@example.com').fill('alice@cxo.com');
   await page.getByRole('button', { name: /^Continue$/i }).click();
   const otpInputs = page.locator('div[aria-label="Sign in"] input[inputmode="numeric"]');
@@ -77,7 +77,7 @@ test('C1: Empty email submission is blocked', async ({ page }) => {
   test.setTimeout(30_000);
   await baseRoute(page);
   await page.goto('/');
-  await page.getByRole('button', { name: /start networking/i }).click({ timeout: 12_000 });
+  await page.getByRole('button', { name: /sign in/i }).click({ timeout: 12_000 });
   const continueBtn = page.getByRole('button', { name: /^Continue$/i });
   await expect(continueBtn).toBeVisible({ timeout: 8_000 });
 
@@ -97,7 +97,7 @@ test('C2: Wrong OTP code shows error, stays on OTP screen', async ({ page }) => 
   test.setTimeout(45_000);
   await baseRoute(page, true);
   await page.goto('/');
-  await page.getByRole('button', { name: /start networking/i }).click({ timeout: 12_000 });
+  await page.getByRole('button', { name: /sign in/i }).click({ timeout: 12_000 });
   await page.getByPlaceholder('you@example.com').fill('alice@cxo.com');
   await page.getByRole('button', { name: /^Continue$/i }).click();
   const otpInputs = page.locator('div[aria-label="Sign in"] input[inputmode="numeric"]');
@@ -139,7 +139,7 @@ test('C3: Invalid event code shows error, stays on join page', async ({ page }) 
   });
 
   await page.goto('/');
-  await page.getByRole('button', { name: /start networking/i }).click({ timeout: 12_000 });
+  await page.getByRole('button', { name: /sign in/i }).click({ timeout: 12_000 });
   await page.getByPlaceholder('you@example.com').fill('alice@cxo.com');
   await page.getByRole('button', { name: /^Continue$/i }).click();
   const otpInputs = page.locator('div[aria-label="Sign in"] input[inputmode="numeric"]');
