@@ -1233,14 +1233,14 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
                     </button>
                     {articleCategories.map(cat => (
                       <button
-                        key={cat.id}
-                        onClick={() => setSelectedArticleCategory(selectedArticleCategory?.id === cat.id ? null : cat)}
+                        key={cat.slug || cat.name}
+                        onClick={() => setSelectedArticleCategory(selectedArticleCategory?.slug === cat.slug ? null : cat)}
                         className="px-3.5 py-1.5 rounded-full text-[12px] transition-all whitespace-nowrap"
                         style={{
                           fontWeight: 700,
-                          background: selectedArticleCategory?.id === cat.id ? 'rgba(124,58,237,0.2)' : t.surface2,
-                          color: selectedArticleCategory?.id === cat.id ? '#a78bfa' : t.textSec,
-                          border: `1px solid ${selectedArticleCategory?.id === cat.id ? 'rgba(124,58,237,0.4)' : t.border}`,
+                          background: selectedArticleCategory?.slug === cat.slug ? 'rgba(124,58,237,0.2)' : t.surface2,
+                          color: selectedArticleCategory?.slug === cat.slug ? '#a78bfa' : t.textSec,
+                          border: `1px solid ${selectedArticleCategory?.slug === cat.slug ? 'rgba(124,58,237,0.4)' : t.border}`,
                         }}>
                         {cat.name}
                       </button>

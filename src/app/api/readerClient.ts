@@ -116,10 +116,21 @@ function estimateReadTime(text: string): number {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function normalizeCategory(raw: any): ArticleCategory {
+  // Backend may return plain strings (e.g. "Technology") rather than objects.
+  if (typeof raw === 'string' || typeof raw === 'number') {
+    const name = String(raw);
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || name;
+    return { id: 0, name, slug, color: '#7c3aed', documentCount: 0 };
+  }
+  const name = String(raw.name ?? raw.title ?? raw.label ?? raw.category_name ?? '');
+  // Derive a unique slug even when the backend omits it — used as React key + selection id.
+  const slug = String(
+    (raw.slug ?? raw.id ?? name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')) || name
+  );
   return {
     id: Number(raw.id ?? 0),
-    name: String(raw.name ?? raw.title ?? ''),
-    slug: String(raw.slug ?? raw.id ?? ''),
+    name,
+    slug,
     color: String(raw.color ?? raw.accent_color ?? '#7c3aed'),
     documentCount: Number(raw.document_count ?? raw.documents_count ?? raw.count ?? 0),
   };
