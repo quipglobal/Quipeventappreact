@@ -66,9 +66,9 @@ async function doLoginAndJoin(page: Page) {
   await otpInputs.first().focus();
   await page.keyboard.type('123456', { delay: 30 });
   await page.getByRole('button', { name: /looks good,?\s*continue/i }).click({ timeout: 15_000 });
+  // Events tab → click event card (mock returns is_member=true → enters directly, no code needed)
   await page.getByRole('button', { name: /^Events$/i }).click({ timeout: 10_000 });
-  await page.getByPlaceholder(/e\.g\. TECH26/i).fill('CXO26');
-  await page.getByRole('button', { name: /^Join$/i }).click();
+  await page.getByText('CXO Summit 2026').first().click({ timeout: 10_000 });
   await expect(page.getByRole('button', { name: /^Home$/i })).toBeVisible({ timeout: 15_000 });
 }
 
@@ -133,7 +133,8 @@ test('C3: Invalid event code shows error, stays on join page', async ({ page }) 
       return ok({ success: true, data: { event_id: 21, membership_id: 1, message: 'Joined!' } });
     }
     if (p === '/api/v1/events/21') return ok({ success: true, data: EVENT21 });
-    if (p.startsWith('/api/v1/events/21/access')) return ok({ success: true, data: { has_access: true, is_member: true, membership_id: '1', role: 'attendee', status: 'active' } });
+    // is_member: false → gate modal shows when clicking the event card
+    if (p.startsWith('/api/v1/events/21/access')) return ok({ success: true, data: { has_access: true, is_member: false, membership_id: null, role: null, status: null } });
     if (p.startsWith('/api/v1/events/21/')) return ok({ success: true, data: [] });
     return ok({ success: true, data: null });
   });
@@ -149,7 +150,10 @@ test('C3: Invalid event code shows error, stays on join page', async ({ page }) 
   await page.getByRole('button', { name: /looks good,?\s*continue/i }).click({ timeout: 15_000 });
   await page.getByRole('button', { name: /^Events$/i }).click({ timeout: 10_000 });
 
-  await page.getByPlaceholder(/e\.g\. TECH26/i).fill('XXXXX');
+  // Click event card → gate modal appears (is_member=false)
+  await page.getByText('CXO Summit 2026').first().click({ timeout: 10_000 });
+  // Fill invalid code in gate modal and submit
+  await page.getByPlaceholder(/e\.g\. CISO2026/i).fill('XXXXX');
   await page.getByRole('button', { name: /^Join$/i }).click();
   await expect(page.getByText(/not found|invalid|error/i).first()).toBeVisible({ timeout: 8_000 });
   await expect(page.getByRole('button', { name: /^Home$/i })).not.toBeVisible({ timeout: 3_000 });

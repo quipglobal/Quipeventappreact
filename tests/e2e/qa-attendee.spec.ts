@@ -85,10 +85,9 @@ test('Attendee: login → join → all core pages', async ({ page }) => {
   await page.keyboard.type('123456', { delay: 30 });
   await page.getByRole('button', { name: /looks good,?\s*continue/i }).click({ timeout: 15_000 });
 
-  // ── EventJoinPage: Events tab → code → Join ───────────────────────────
+  // ── EventJoinPage: Events tab → click event card (is_member=true → enters directly)
   await page.getByRole('button', { name: /^Events$/i }).click({ timeout: 10_000 });
-  await page.getByPlaceholder(/e\.g\. TECH26/i).fill('CXO26');
-  await page.getByRole('button', { name: /^Join$/i }).click();
+  await page.getByText('CXO Summit 2026').first().click({ timeout: 10_000 });
   await expect(page.getByRole('button', { name: /^Home$/i })).toBeVisible({ timeout: 15_000 });
 
   // ── A1: Home renders (greeting + points) ────────────────────────────
