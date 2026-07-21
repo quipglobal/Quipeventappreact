@@ -1320,16 +1320,6 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
               boxShadow: isDark ? '0 8px 40px rgba(124,58,237,0.15)' : '0 8px 32px rgba(124,58,237,0.1)',
               border: `1px solid ${t.borderAcc}`,
             }}>
-              <div className="flex items-center gap-2.5 mb-4">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center"
-                  style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)' }}>
-                  <Hash style={{ width: 20, height: 20, color: '#fff' }} />
-                </div>
-                <div>
-                  <h2 style={{ color: t.text, fontSize: 16, fontWeight: 700 }}>Enter Event Code</h2>
-                  <p style={{ color: t.textSec, fontSize: 12 }}>Got an invite? Enter the code to join instantly.</p>
-                </div>
-              </div>
               <form onSubmit={handleSubmitCode}>
                 <div className="flex gap-2">
                   <div className="flex-1 relative">
