@@ -539,12 +539,19 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
   const { eventConfig, addPoints, sendConnectionRequest } = useApp();
   const { t, isDark } = useTheme();
 
-  const [members, setMembers] = useState<EventMember[]>(() => getCached<EventMember[]>('members', eventConfig.eventId ?? '') ?? []);
+  // Default is checkedInOnly=true, so seed from the checked-in cache, not the
+  // all-registrations cache.  This prevents the flicker where the page briefly
+  // shows every registration before the API responds with the filtered list.
+  const [members, setMembers] = useState<EventMember[]>(() =>
+    getCached<EventMember[]>('members:checkedIn', eventConfig.eventId ?? '') ?? [],
+  );
   const [checkedInIds, setCheckedInIds] = useState<Set<number>>(() => {
     const c = getCached<EventMember[]>('members:checkedIn', eventConfig.eventId ?? '');
     return c ? new Set(c.map(m => m.userId)) : new Set();
   });
-  const [loading, setLoading] = useState<boolean>(() => !getCached<EventMember[]>('members', eventConfig.eventId ?? ''));
+  const [loading, setLoading] = useState<boolean>(() =>
+    !getCached<EventMember[]>('members:checkedIn', eventConfig.eventId ?? ''),
+  );
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
@@ -568,27 +575,41 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
 
   const fetchMembers = useCallback(async () => {
     if (!eventId) { setLoading(false); return; }
-    const hasCached = getCached<EventMember[]>('members', eventId) !== null;
+    // Use the correct cache key so the loading gate matches what we show.
+    const membersKey = checkedInOnly ? 'members:checkedIn' : 'members';
+    const hasCached = getCached<EventMember[]>(membersKey, eventId) !== null;
     if (!hasCached) setLoading(true);
     setError(null);
-    // The list endpoint with checked_in_only=false returns ACTIVE registrations
-    // even if the user hasn't physically checked in. Get the *true* checked-in
-    // set from the dedicated checked_in_only=true endpoint and cross-reference.
-    const [listRes, checkedInRes] = await Promise.all([
-      getEventMembersApi(eventId, checkedInOnly),
-      getEventMembersApi(eventId, true),
-    ]);
-    if (listRes.success && listRes.data) {
-      setMembers(listRes.data);
-      if (!checkedInOnly) setCached('members', eventId, listRes.data);
+
+    if (checkedInOnly) {
+      // Only one API call needed — the list IS the checked-in set.
+      const listRes = await getEventMembersApi(eventId, true);
+      if (listRes.success && listRes.data) {
+        setMembers(listRes.data);
+        setCheckedInIds(new Set(listRes.data.map(m => m.userId)));
+        setCached('members:checkedIn', eventId, listRes.data);
+      } else {
+        setError(listRes.error?.message ?? 'Failed to load audience');
+        setCheckedInIds(new Set());
+      }
     } else {
-      setError(listRes.error?.message ?? 'Failed to load audience');
-    }
-    if (checkedInRes.success && checkedInRes.data) {
-      setCheckedInIds(new Set(checkedInRes.data.map(m => m.userId)));
-      setCached('members:checkedIn', eventId, checkedInRes.data);
-    } else {
-      setCheckedInIds(new Set());
+      // Show all registrations; also fetch the checked-in set for badges.
+      const [listRes, checkedInRes] = await Promise.all([
+        getEventMembersApi(eventId, false),
+        getEventMembersApi(eventId, true),
+      ]);
+      if (listRes.success && listRes.data) {
+        setMembers(listRes.data);
+        setCached('members', eventId, listRes.data);
+      } else {
+        setError(listRes.error?.message ?? 'Failed to load audience');
+      }
+      if (checkedInRes.success && checkedInRes.data) {
+        setCheckedInIds(new Set(checkedInRes.data.map(m => m.userId)));
+        setCached('members:checkedIn', eventId, checkedInRes.data);
+      } else {
+        setCheckedInIds(new Set());
+      }
     }
     setLoading(false);
   }, [eventId, checkedInOnly]);

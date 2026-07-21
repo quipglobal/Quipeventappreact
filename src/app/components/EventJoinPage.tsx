@@ -517,40 +517,25 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
     onJoinEvent();
   };
 
-  // Three-strategy flow — mirrors the mobile handleCardPress logic:
+  // Two-strategy flow:
   // 1. Backend membership check (GET /events/:id/access) → if is_member, enter directly.
-  // 2. Silent re-join with event's own code (idempotent for already-members) → if ok, enter.
-  // 3. Both failed → show the key-entry gate modal.
+  // 2. Not a member (or check unavailable) → show the key-entry gate modal so the
+  //    user must supply their unique event code.  We deliberately do NOT silently
+  //    re-join using ev.code — that would allow any authenticated user to bypass the
+  //    code requirement entirely.
   const handleEventCardClick = async (ev: OrganizerEvent) => {
     setCheckingEventId(ev.id);
     try {
-      // Strategy 1: check if user is already a member
+      // Strategy 1: verify existing membership via backend
       try {
         const res = await checkEventAccess(ev.id);
         if (res.success && res.data?.is_member) {
-          enterEvent(ev); // enterEvent already calls selfCheckInApi
+          enterEvent(ev); // enterEvent calls switchEvent + joinEvent + selfCheckInApi
           return;
         }
       } catch {}
 
-      // Strategy 2: silent join using the event's own code (idempotent — safe for existing members)
-      // Catches the case where checkEventAccess is not yet deployed or returns
-      // is_member: false even though the user previously joined.
-      if (ev.code) {
-        try {
-          const joinRes = await joinEventByCodeApi(ev.code);
-          const is409 = !joinRes.success && joinRes.error?.code === '409';
-          if (joinRes.success || is409) {
-            // Use eventId from response, fall back to the card's id
-            const checkInId = (joinRes.success && joinRes.data?.eventId) ? joinRes.data.eventId : ev.id;
-            selfCheckInApi(checkInId).catch(() => {});
-            enterEvent(ev);
-            return;
-          }
-        } catch {}
-      }
-
-      // Strategy 3: show code-entry gate
+      // Strategy 2: not a member (or access check unavailable) — require code entry
       setGateEvent(ev);
       setEventKey('');
       setKeyError('');
