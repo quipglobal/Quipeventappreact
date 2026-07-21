@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ArrowLeft, Building2, Globe, ChevronRight, Users,
   ExternalLink, Loader2, RefreshCw, Search, X,
@@ -798,6 +798,23 @@ export const SponsorsListPage: React.FC<SponsorsListPageProps> = ({ onBack, vari
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Company | null>(null);
 
+  const SPONSORS_PAGE_SIZE = 15;
+  const [visibleCount, setVisibleCount] = useState(SPONSORS_PAGE_SIZE);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { setVisibleCount(SPONSORS_PAGE_SIZE); }, [search]);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) setVisibleCount(c => c + SPONSORS_PAGE_SIZE); },
+      { threshold: 0.1 },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
   const fetchCompanies = useCallback(async () => {
     if (!eventConfig?.eventId) { setLoading(false); return; }
     setError(null);
@@ -945,7 +962,7 @@ export const SponsorsListPage: React.FC<SponsorsListPageProps> = ({ onBack, vari
 
         {/* List */}
         <div className="space-y-2.5">
-          {filtered.map((company, index) => (
+          {filtered.slice(0, visibleCount).map((company, index) => (
             <CompanyCard
               key={company.id}
               company={company}
@@ -955,6 +972,8 @@ export const SponsorsListPage: React.FC<SponsorsListPageProps> = ({ onBack, vari
           ))}
 
           {/* No search results */}
+          <div ref={sentinelRef} className="h-4" />
+
           {!loading && !error && companies.length > 0 && filtered.length === 0 && (
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3"

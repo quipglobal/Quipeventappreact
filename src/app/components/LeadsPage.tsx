@@ -504,6 +504,23 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
     });
   }, [allLeads, searchQuery, filterPriority]);
 
+  const LEADS_PAGE_SIZE = 20;
+  const [visibleLeadsCount, setVisibleLeadsCount] = useState(LEADS_PAGE_SIZE);
+  const leadsSentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { setVisibleLeadsCount(LEADS_PAGE_SIZE); }, [searchQuery, filterPriority]);
+
+  useEffect(() => {
+    const el = leadsSentinelRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) setVisibleLeadsCount(c => c + LEADS_PAGE_SIZE); },
+      { threshold: 0.1 },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
   // Stats
   const hotCount  = allLeads.filter(l => l.priority === 'hot').length;
   const warmCount = allLeads.filter(l => l.priority === 'warm').length;
@@ -762,7 +779,7 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
           </button>
         )}
 
-        {filteredLeads.map((lead, index) => {
+        {filteredLeads.slice(0, visibleLeadsCount).map((lead, index) => {
           const pc = priorityConfig[lead.priority];
           const PIcon = pc.icon;
           return (
@@ -911,6 +928,8 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
             </motion.div>
           );
         })}
+
+        <div ref={leadsSentinelRef} className="h-4" />
 
         {/* Empty state */}
         {filteredLeads.length === 0 && (

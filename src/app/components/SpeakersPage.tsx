@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { Mic, Search, Loader2, AlertCircle, Building2, Linkedin } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
@@ -59,6 +59,23 @@ export const SpeakersPage: React.FC = () => {
   const [selected, setSelected] = useState<EventMember | null>(null);
   const [detail, setDetail] = useState<MemberDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+
+  const SPK_PAGE_SIZE = 20;
+  const [visibleCount, setVisibleCount] = useState(SPK_PAGE_SIZE);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { setVisibleCount(SPK_PAGE_SIZE); }, [query]);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) setVisibleCount(c => c + SPK_PAGE_SIZE); },
+      { threshold: 0.1 },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!eventConfig?.eventId) return;
@@ -209,7 +226,7 @@ export const SpeakersPage: React.FC = () => {
 
         {!loading && !error && filtered.length > 0 && (
           <div className="flex flex-col gap-2.5">
-            {filtered.map(sp => (
+            {filtered.slice(0, visibleCount).map(sp => (
               <button
                 key={sp.memberId}
                 onClick={() => openSpeaker(sp)}
@@ -250,6 +267,7 @@ export const SpeakersPage: React.FC = () => {
                 </span>
               </button>
             ))}
+            <div ref={sentinelRef} className="h-4" />
           </div>
         )}
       </div>
