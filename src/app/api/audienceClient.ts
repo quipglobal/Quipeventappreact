@@ -320,16 +320,82 @@ export async function getMyEventRoleApi(
   return { ok: true, found: false };
 }
 
+// ─── Shared pagination extractor ──────────────────────────────────────────────
+
+function extractPage(
+  res: { success: boolean; data?: unknown; error?: { message: string } },
+  eventId: string | number,
+): { data: EventMember[]; total: number } | null {
+  if (!res.success) return null;
+  const body = res.data as Record<string, unknown>;
+  const paginator = (body?.data ?? body) as Record<string, unknown>;
+  const list: unknown[] = Array.isArray(paginator?.data)
+    ? (paginator.data as unknown[])
+    : Array.isArray(body?.data)
+      ? (body.data as unknown[])
+      : Array.isArray(res.data)
+        ? (res.data as unknown[])
+        : [];
+  const total = typeof paginator?.total === 'number' ? paginator.total : list.length;
+  const data = list.map(m => normalizeFlatMember(m as RawFlatMember, eventId));
+  return { data, total };
+}
+
 // ─── API Methods ──────────────────────────────────────────────────────────────
+
+export interface PagedMembersResult {
+  data: EventMember[];
+  total: number;
+  hasMore: boolean;
+}
+
+/**
+ * GET /api/v1/events/:id/attendees?per_page=<n>&page=<p>&checked_in_only=<bool>
+ *
+ * Paginated audience fetch. Returns one page of members plus metadata about
+ * whether more pages exist. Use this for infinite-scroll UI.
+ *
+ * Falls back to /members on page 1 when /attendees returns empty or 403
+ * (sponsor rep access restriction).
+ */
+export async function getEventMembersPaginatedApi(
+  eventId: string | number,
+  checkedInOnly: boolean,
+  page: number = 1,
+  perPage: number = 25,
+): Promise<{ success: true; result: PagedMembersResult } | { success: false; error: { message: string } }> {
+  const qs = `per_page=${perPage}&page=${page}&checked_in_only=${checkedInOnly}`;
+
+  const primaryRes = await apiGet<unknown>(`/api/v1/events/${eventId}/attendees?${qs}`, HEADERS);
+  const primary = extractPage(primaryRes, eventId);
+  if (primary && (primary.data.length > 0 || page > 1)) {
+    return {
+      success: true,
+      result: { data: primary.data, total: primary.total, hasMore: page * perPage < primary.total },
+    };
+  }
+
+  // Fall back to /members on page 1 (sponsor reps, empty /attendees, etc.)
+  if (page === 1) {
+    const fallbackRes = await apiGet<unknown>(`/api/v1/events/${eventId}/members?${qs}`, HEADERS);
+    const fb = extractPage(fallbackRes, eventId);
+    if (!fb) {
+      return { success: false, error: (fallbackRes as { error?: { message: string } }).error ?? { message: 'Failed to fetch audience.' } };
+    }
+    return {
+      success: true,
+      result: { data: fb.data, total: fb.total, hasMore: page * perPage < fb.total },
+    };
+  }
+
+  return { success: false, error: { message: 'Failed to fetch audience.' } };
+}
 
 /**
  * GET /api/v1/events/:id/attendees?per_page=100&checked_in_only=<bool>
  *
- * Returns audience members (Attendee / Speaker / Moderator / Sponsor only).
- * Server-side role filter — Organizers and Staff are excluded automatically.
- * Backend returns Cache-Control: no-store; always call fresh, do not cache.
- * checkedInOnly=false → all role-eligible registrations
- * checkedInOnly=true  → checked-in subset only
+ * Legacy single-page fetch kept for badge scanner, role lookup, and other
+ * callers that need the full list. New UI should use getEventMembersPaginatedApi.
  */
 export async function getEventMembersApi(
   eventId: string | number,
@@ -338,47 +404,17 @@ export async function getEventMembersApi(
   const qs = `per_page=100&checked_in_only=${checkedInOnly}`;
 
   const membersRes = await apiGet<unknown>(`/api/v1/events/${eventId}/attendees?${qs}`, HEADERS);
-
-  if (membersRes.success) {
-    const body = membersRes.data as Record<string, unknown>;
-    const paginator = (body?.data ?? body) as Record<string, unknown>;
-    const rawList: unknown[] = Array.isArray(paginator?.data)
-      ? (paginator.data as unknown[])
-      : Array.isArray(body?.data)
-        ? (body.data as unknown[])
-        : Array.isArray(membersRes.data)
-          ? (membersRes.data as unknown[])
-          : [];
-    if (rawList.length > 0) {
-      const total = typeof paginator?.total === 'number' ? paginator.total : rawList.length;
-      const members = rawList.map(m => normalizeFlatMember(m as RawFlatMember, eventId));
-      return { success: true, data: members, total };
-    }
+  const primary = extractPage(membersRes, eventId);
+  if (primary && primary.data.length > 0) {
+    return { success: true, data: primary.data, total: primary.total };
   }
 
-  // /attendees may return 403 for sponsor reps or an empty list (backend excludes
-  // them). Fall back to /members which includes all event roles.
-  const fallbackRes = await apiGet<unknown>(
-    `/api/v1/events/${eventId}/members?${qs}`,
-    HEADERS,
-  );
-  if (!fallbackRes.success) {
-    return { success: false, error: fallbackRes.error ?? { message: 'Failed to fetch audience.' } };
+  const fallbackRes = await apiGet<unknown>(`/api/v1/events/${eventId}/members?${qs}`, HEADERS);
+  const fb = extractPage(fallbackRes, eventId);
+  if (!fb) {
+    return { success: false, error: (fallbackRes as { error?: { message: string } }).error ?? { message: 'Failed to fetch audience.' } };
   }
-
-  const fbBody = fallbackRes.data as Record<string, unknown>;
-  const fbPaginator = (fbBody?.data ?? fbBody) as Record<string, unknown>;
-  const rawFb: unknown[] = Array.isArray(fbPaginator?.data)
-    ? (fbPaginator.data as unknown[])
-    : Array.isArray(fbBody?.data)
-      ? (fbBody.data as unknown[])
-      : Array.isArray(fallbackRes.data)
-        ? (fallbackRes.data as unknown[])
-        : [];
-
-  const fbTotal = typeof fbPaginator?.total === 'number' ? fbPaginator.total : rawFb.length;
-  const fbMembers = rawFb.map(m => normalizeFlatMember(m as RawFlatMember, eventId));
-  return { success: true, data: fbMembers, total: fbTotal };
+  return { success: true, data: fb.data, total: fb.total };
 }
 
 /**
