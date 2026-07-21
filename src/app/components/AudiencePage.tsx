@@ -548,8 +548,8 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
-  // Default: show all registrations (checked-in filter toggled manually)
-  const [checkedInOnly, setCheckedInOnly] = useState(false);
+  // Default: show only checked-in attendees per policy; user can toggle to see all registrations.
+  const [checkedInOnly, setCheckedInOnly] = useState(true);
   const [selectedMember, setSelectedMember] = useState<EventMember | null>(null);
   const [connectedIds, setConnectedIds] = useState<Set<number>>(new Set());
 

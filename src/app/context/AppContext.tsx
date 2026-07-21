@@ -1853,6 +1853,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const switchEvent = (config: EventConfig) => {
     setActiveEventConfig(config);
+    // Each event requires its own join code — reset so the user must verify
+    // access to the new event via EventJoinPage or SwitchEventModal's real API.
+    // Callers that already verified (e.g. EventJoinPage enterEvent, SwitchEventModal
+    // handleConfirmSwitch) must call joinEvent() immediately after to re-gate.
+    setHasJoinedEvent(false);
     setCompletedSurveys([]);
     setInProgressSurveysState({});
     setVotedPolls([]);

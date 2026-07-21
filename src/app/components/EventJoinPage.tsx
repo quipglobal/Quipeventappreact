@@ -512,6 +512,8 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
   const enterEvent = (ev: OrganizerEvent) => {
     switchEvent(eventToConfig(ev));
     joinEvent();
+    // Auto check-in so the user appears in the audience list immediately.
+    selfCheckInApi(ev.id).catch(() => {});
     onJoinEvent();
   };
 
@@ -526,7 +528,7 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
       try {
         const res = await checkEventAccess(ev.id);
         if (res.success && res.data?.is_member) {
-          enterEvent(ev);
+          enterEvent(ev); // enterEvent already calls selfCheckInApi
           return;
         }
       } catch {}
@@ -539,9 +541,9 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
           const joinRes = await joinEventByCodeApi(ev.code);
           const is409 = !joinRes.success && joinRes.error?.code === '409';
           if (joinRes.success || is409) {
-            if (joinRes.success && joinRes.data?.eventId) {
-              selfCheckInApi(joinRes.data.eventId).catch(() => {});
-            }
+            // Use eventId from response, fall back to the card's id
+            const checkInId = (joinRes.success && joinRes.data?.eventId) ? joinRes.data.eventId : ev.id;
+            selfCheckInApi(checkInId).catch(() => {});
             enterEvent(ev);
             return;
           }
@@ -566,9 +568,10 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
     // 409 = user is already a member — still enter the event
     const is409 = !res.success && res.error?.code === '409';
     if (res.success || is409) {
-      if (res.success && res.data?.eventId) {
-        selfCheckInApi(res.data.eventId).catch(() => {});
-      }
+      // Use eventId from response; fall back to the gate event's own id so
+      // self-check-in always fires even if the backend omits the field.
+      const checkInId = (res.success && res.data?.eventId) ? res.data.eventId : gateEvent.id;
+      selfCheckInApi(checkInId).catch(() => {});
       setGateEvent(null);
       enterEvent(gateEvent);
     } else {

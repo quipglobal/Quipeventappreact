@@ -1,15 +1,17 @@
 /**
  * SwitchEventModal
  * ─────────────────────────────────────────────────────────────────────────────
- * Bottom-sheet modal that lets a user enter a 6-character event access code
- * to switch into a different event/conference.
+ * Bottom-sheet modal that lets a user enter their event access code to switch
+ * into a different event/conference.
  *
  * Flow:
  *   [Code Entry] ──valid code──► [Event Preview] ──confirm──► [Switched ✓]
  *                ◄──── back ─────
  *
- * Mock event codes (replace with API call when backend is live):
- *   TECH26 · DEVCON · SUMMIT · HEALTH · DESIGN · FUTURE
+ * Real backend is called on Verify:
+ *   POST /api/v1/events/join  { event_code, code }  → join + get eventId
+ *   GET  /api/v1/events/:id                          → full event details for preview
+ *   POST /api/v1/events/:id/self-check-in            → auto check-in on confirm
  */
 
 import React, {
@@ -30,7 +32,6 @@ import {
   Calendar,
   MapPin,
   ArrowLeft,
-  Sparkles,
   Lock,
   Users,
   Zap,
@@ -38,149 +39,65 @@ import {
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import { EventConfig } from '@/app/types/config';
-
-// ─── Mock Event Code Registry ─────────────────────────────────────────────────
-// TODO: Replace with GET /events/verify-code?code=XXXXX when backend is ready
-
-interface EventPreview {
-  config: EventConfig;
-  attendeeCount: number;
-  description: string;
-  color: string; // tailwind gradient classes
-}
-
-const EVENT_CODES: Record<string, EventPreview> = {
-  TECH26: {
-    attendeeCount: 2400,
-    description: 'The premier technology conference for builders, designers, and innovators.',
-    color: 'from-indigo-500 via-purple-600 to-pink-600',
-    config: {
-      eventId: 'tech-summit-2026',
-      name: 'Tech Summit 2026',
-      dates: 'January 16–18, 2026',
-      timezone: 'PST',
-      location: 'San Francisco, CA',
-      logoURL: '',
-      backgroundURL: '',
-      themeColors: { primary: '#6366f1', secondary: '#8b5cf6', accent: '#ec4899' },
-      modulesEnabled: { agenda: true, sponsors: true, surveys: true, polls: true, leaderboard: true, audience: true, challenges: true, notifications: true },
-      permissions: { guestAccess: true, sponsorRoleEnabled: true, networkingEnabled: true },
-    },
-  },
-  DEVCON: {
-    attendeeCount: 1800,
-    description: 'A hands-on developer conference covering cloud, AI, and open-source.',
-    color: 'from-cyan-500 via-blue-600 to-indigo-600',
-    config: {
-      eventId: 'devcon-winter-2026',
-      name: 'DevCon Winter 2026',
-      dates: 'February 20–22, 2026',
-      timezone: 'CST',
-      location: 'Austin, TX',
-      logoURL: '',
-      backgroundURL: '',
-      themeColors: { primary: '#0ea5e9', secondary: '#3b82f6', accent: '#6366f1' },
-      modulesEnabled: { agenda: true, sponsors: true, surveys: true, polls: true, leaderboard: true, audience: false, challenges: true, notifications: true },
-      permissions: { guestAccess: false, sponsorRoleEnabled: true, networkingEnabled: true },
-    },
-  },
-  SUMMIT: {
-    attendeeCount: 950,
-    description: 'Exclusive leadership conference for C-suite executives and founders.',
-    color: 'from-amber-500 via-orange-500 to-red-500',
-    config: {
-      eventId: 'leadership-summit-2026',
-      name: 'Leadership Summit 2026',
-      dates: 'March 5–7, 2026',
-      timezone: 'EST',
-      location: 'New York, NY',
-      logoURL: '',
-      backgroundURL: '',
-      themeColors: { primary: '#f59e0b', secondary: '#ef4444', accent: '#f97316' },
-      modulesEnabled: { agenda: true, sponsors: true, surveys: true, polls: false, leaderboard: false, audience: true, challenges: false, notifications: true },
-      permissions: { guestAccess: false, sponsorRoleEnabled: true, networkingEnabled: true },
-    },
-  },
-  HEALTH: {
-    attendeeCount: 3100,
-    description: 'Where healthcare innovation meets technology — connecting clinicians, startups, and investors.',
-    color: 'from-emerald-500 via-teal-500 to-cyan-600',
-    config: {
-      eventId: 'healthtech-expo-2026',
-      name: 'HealthTech Expo 2026',
-      dates: 'April 10–12, 2026',
-      timezone: 'EST',
-      location: 'Boston, MA',
-      logoURL: '',
-      backgroundURL: '',
-      themeColors: { primary: '#10b981', secondary: '#14b8a6', accent: '#06b6d4' },
-      modulesEnabled: { agenda: true, sponsors: true, surveys: true, polls: true, leaderboard: true, audience: true, challenges: true, notifications: true },
-      permissions: { guestAccess: true, sponsorRoleEnabled: true, networkingEnabled: true },
-    },
-  },
-  DESIGN: {
-    attendeeCount: 1200,
-    description: 'Two days of inspiration, workshops, and talks from the world\'s leading designers.',
-    color: 'from-pink-500 via-rose-500 to-purple-600',
-    config: {
-      eventId: 'design-forward-2026',
-      name: 'Design Forward 2026',
-      dates: 'May 8–9, 2026',
-      timezone: 'PST',
-      location: 'Seattle, WA',
-      logoURL: '',
-      backgroundURL: '',
-      themeColors: { primary: '#ec4899', secondary: '#f43f5e', accent: '#a855f7' },
-      modulesEnabled: { agenda: true, sponsors: false, surveys: true, polls: true, leaderboard: true, audience: true, challenges: false, notifications: true },
-      permissions: { guestAccess: true, sponsorRoleEnabled: false, networkingEnabled: true },
-    },
-  },
-  FUTURE: {
-    attendeeCount: 5000,
-    description: 'The world\'s largest future-of-work conference, exploring AI, automation, and society.',
-    color: 'from-violet-600 via-purple-600 to-fuchsia-600',
-    config: {
-      eventId: 'future-of-work-2026',
-      name: 'Future of Work 2026',
-      dates: 'June 15–18, 2026',
-      timezone: 'GMT',
-      location: 'London, UK',
-      logoURL: '',
-      backgroundURL: '',
-      themeColors: { primary: '#7c3aed', secondary: '#a21caf', accent: '#c026d3' },
-      modulesEnabled: { agenda: true, sponsors: true, surveys: true, polls: true, leaderboard: true, audience: true, challenges: true, notifications: true },
-      permissions: { guestAccess: false, sponsorRoleEnabled: true, networkingEnabled: true },
-    },
-  },
-};
-
-const CODE_LENGTH = 6;
+import { joinEventByCodeApi, getEventApi, OrganizerEvent } from '@/app/api/eventsClient';
+import { selfCheckInApi } from '@/app/api/audienceClient';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
 const normalize = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
+function eventToConfig(ev: OrganizerEvent): EventConfig {
+  return {
+    eventId: ev.id,
+    name: ev.title,
+    dates: ev.dates,
+    endDate: ev.dateRange?.end || undefined,
+    timezone: 'UTC',
+    location: ev.location,
+    logoURL: '',
+    backgroundURL: ev.cover,
+    themeColors: { primary: '#7c3aed', secondary: '#4f46e5', accent: '#ec4899' },
+    modulesEnabled: {
+      agenda: true, sponsors: true, surveys: true, polls: true,
+      leaderboard: true, audience: true, challenges: true, notifications: true,
+    },
+    permissions: { guestAccess: true, sponsorRoleEnabled: true, networkingEnabled: true },
+  };
+}
+
+// The input grid supports up to MAX_CHARS boxes; the "Verify" button enables once
+// the user has typed at least MIN_CODE_LEN alphanumeric characters.
+const MAX_CHARS = 8;
+const MIN_CODE_LEN = 4;
+
 // ─── Props ────────────────────────────────────────────────────────────────────
+
 interface SwitchEventModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
 // ─── Step types ───────────────────────────────────────────────────────────────
+
 type ModalStep = 'entry' | 'preview' | 'success';
 
 // ─── Component ────────────────────────────────────────────────────────────────
+
 export const SwitchEventModal: React.FC<SwitchEventModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { eventConfig, switchEvent } = useApp();
+  const { eventConfig, switchEvent, joinEvent } = useApp();
   const { t } = useTheme();
 
   const [step, setStep] = useState<ModalStep>('entry');
-  const [chars, setChars] = useState<string[]>(Array(CODE_LENGTH).fill(''));
+  const [chars, setChars] = useState<string[]>(Array(MAX_CHARS).fill(''));
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [matched, setMatched] = useState<EventPreview | null>(null);
+  // The matched event config (real data from backend)
+  const [matchedConfig, setMatchedConfig] = useState<EventConfig | null>(null);
+  // The event ID returned by the join endpoint — used for self-check-in
+  const [joinedEventId, setJoinedEventId] = useState<string>('');
   const [switching, setSwitching] = useState(false);
 
   const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
@@ -190,37 +107,38 @@ export const SwitchEventModal: React.FC<SwitchEventModalProps> = ({
     if (!isOpen) {
       setTimeout(() => {
         setStep('entry');
-        setChars(Array(CODE_LENGTH).fill(''));
+        setChars(Array(MAX_CHARS).fill(''));
         setError(null);
-        setMatched(null);
+        setMatchedConfig(null);
+        setJoinedEventId('');
         setVerifying(false);
         setSwitching(false);
-      }, 300); // wait for close animation
+      }, 300);
     } else {
-      // Auto-focus first input when modal opens
       setTimeout(() => inputRefs.current[0]?.focus(), 200);
     }
   }, [isOpen]);
 
-  const code = chars.join('');
-  const isFilled = code.length === CODE_LENGTH;
+  const code = chars.join('').trim();
+  const isReady = code.length >= MIN_CODE_LEN;
 
   // ─── Input handling ────────────────────────────────────────────────────────
+
   const handleCharInput = useCallback(
     (index: number, value: string) => {
       const cleaned = normalize(value).slice(-1);
-      if (!cleaned && value !== '') return; // reject non-alphanumeric (but allow empty for delete)
+      if (!cleaned && value !== '') return;
 
       const next = [...chars];
       next[index] = cleaned;
       setChars(next);
       setError(null);
 
-      if (cleaned && index < CODE_LENGTH - 1) {
+      if (cleaned && index < MAX_CHARS - 1) {
         inputRefs.current[index + 1]?.focus();
       }
     },
-    [chars]
+    [chars],
   );
 
   const handleKeyDown = useCallback(
@@ -241,73 +159,91 @@ export const SwitchEventModal: React.FC<SwitchEventModalProps> = ({
         e.preventDefault();
       } else if (e.key === 'ArrowLeft' && index > 0) {
         inputRefs.current[index - 1]?.focus();
-      } else if (e.key === 'ArrowRight' && index < CODE_LENGTH - 1) {
+      } else if (e.key === 'ArrowRight' && index < MAX_CHARS - 1) {
         inputRefs.current[index + 1]?.focus();
-      } else if (e.key === 'Enter' && isFilled && step === 'entry') {
+      } else if (e.key === 'Enter' && isReady && step === 'entry') {
         handleVerify();
       }
     },
-    [chars, isFilled, step]
+    [chars, isReady, step],
   );
 
   const handlePaste = useCallback(
     (e: ClipboardEvent<HTMLInputElement>) => {
       e.preventDefault();
-      const pasted = normalize(e.clipboardData.getData('text')).slice(0, CODE_LENGTH);
+      const pasted = normalize(e.clipboardData.getData('text')).slice(0, MAX_CHARS);
       if (!pasted) return;
-      const next = Array(CODE_LENGTH).fill('');
+      const next = Array(MAX_CHARS).fill('');
       pasted.split('').forEach((c, i) => { next[i] = c; });
       setChars(next);
       setError(null);
-      const focusIdx = Math.min(pasted.length, CODE_LENGTH - 1);
+      const focusIdx = Math.min(pasted.length, MAX_CHARS - 1);
       inputRefs.current[focusIdx]?.focus();
     },
-    []
+    [],
   );
 
-  // ─── Verify code ───────────────────────────────────────────────────────────
+  // ─── Verify code (real backend) ────────────────────────────────────────────
+
   const handleVerify = useCallback(async () => {
-    if (!isFilled || verifying) return;
+    if (!isReady || verifying) return;
     setVerifying(true);
     setError(null);
 
-    // TODO: replace with real API: GET /events/verify-code?code=CODE
-    await new Promise((r) => setTimeout(r, 900));
+    const res = await joinEventByCodeApi(code);
+    const is409 = !res.success && res.error?.code === '409';
 
-    const lookup = EVENT_CODES[code];
-
-    if (!lookup) {
-      setError('Invalid event code. Please check and try again.');
+    if (!res.success && !is409) {
+      setError(res.error?.message ?? 'Invalid event code. Please check and try again.');
       setVerifying(false);
-      // Shake effect: clear + refocus
-      setChars(Array(CODE_LENGTH).fill(''));
+      setChars(Array(MAX_CHARS).fill(''));
       setTimeout(() => inputRefs.current[0]?.focus(), 50);
       return;
     }
 
-    if (lookup.config.eventId === eventConfig.eventId) {
-      setError("You're already attending this event!");
-      setVerifying(false);
-      return;
+    const eventId = res.data?.eventId ?? '';
+    setJoinedEventId(eventId);
+
+    // Fetch full event details for the preview step
+    if (eventId) {
+      try {
+        const evRes = await getEventApi(eventId);
+        if (evRes.success && evRes.data) {
+          // Guard: don't let the user "switch" to the event they're already in
+          if (evRes.data.id === eventConfig.eventId) {
+            setError("You're already attending this event!");
+            setVerifying(false);
+            return;
+          }
+          setMatchedConfig(eventToConfig(evRes.data));
+        }
+      } catch {
+        // Non-fatal — still proceed with a minimal config
+      }
     }
 
-    setMatched(lookup);
     setStep('preview');
     setVerifying(false);
-  }, [code, isFilled, verifying, eventConfig.eventId]);
+  }, [code, isReady, verifying, eventConfig.eventId]);
 
   // ─── Confirm switch ────────────────────────────────────────────────────────
+
   const handleConfirmSwitch = useCallback(async () => {
-    if (!matched) return;
+    if (!matchedConfig) return;
     setSwitching(true);
-    // Simulate a brief handshake
-    await new Promise((r) => setTimeout(r, 1100));
-    switchEvent(matched.config);
+
+    // switchEvent resets hasJoinedEvent; joinEvent re-gates immediately.
+    // Both state updates are batched by React 18 → single render with hasJoinedEvent=true.
+    switchEvent(matchedConfig);
+    joinEvent();
+
+    // Auto check-in so the user appears in the new event's audience immediately.
+    if (joinedEventId) selfCheckInApi(joinedEventId).catch(() => {});
+
     setStep('success');
     setSwitching(false);
-    // Auto-close after showing success
     setTimeout(() => onClose(), 1800);
-  }, [matched, switchEvent, onClose]);
+  }, [matchedConfig, switchEvent, joinEvent, onClose, joinedEventId]);
 
   if (!isOpen) return null;
 
@@ -362,12 +298,12 @@ export const SwitchEventModal: React.FC<SwitchEventModalProps> = ({
               <div className="flex items-center gap-2 mb-5 px-3 py-2.5 rounded-xl" style={{ background: t.accentBg, border: `1px solid ${t.borderAcc}` }}>
                 <Lock style={{ width: 13, height: 13, color: t.accentSoft, flexShrink: 0 }} />
                 <p style={{ color: t.accentSoft, fontSize: 12, lineHeight: 1.4 }}>
-                  Your 6-character code is provided by the event organiser
+                  Your unique event access code is provided by the event organiser
                 </p>
               </div>
 
-              {/* OTP inputs */}
-              <div className="flex justify-center gap-2 mb-5">
+              {/* OTP-style inputs */}
+              <div className="flex justify-center gap-1.5 mb-5 flex-wrap">
                 {chars.map((char, i) => (
                   <input
                     key={i}
@@ -381,12 +317,12 @@ export const SwitchEventModal: React.FC<SwitchEventModalProps> = ({
                     onPaste={handlePaste}
                     className="text-center font-mono font-bold outline-none rounded-xl transition-all"
                     style={{
-                      width: 46, height: 52, fontSize: 20,
+                      width: 40, height: 48, fontSize: 18,
                       background: char ? t.accentBg : t.inputBg,
                       border: `2px solid ${char ? t.borderAcc : error ? 'rgba(239,68,68,0.5)' : t.border}`,
                       color: t.text,
                     }}
-                    aria-label={`Digit ${i + 1}`}
+                    aria-label={`Character ${i + 1}`}
                   />
                 ))}
               </div>
@@ -399,22 +335,22 @@ export const SwitchEventModal: React.FC<SwitchEventModalProps> = ({
                 </div>
               )}
 
-              {/* Hint codes */}
+              {/* Hint */}
               <p style={{ color: t.textMuted, fontSize: 11, textAlign: 'center', marginBottom: 16 }}>
-                Try: <span style={{ fontFamily: 'monospace', color: t.accentSoft }}>TECH26 · DEVCON · SUMMIT · HEALTH</span>
+                Type your code — {MIN_CODE_LEN}+ characters needed
               </p>
 
               {/* Verify button */}
               <button
                 onClick={handleVerify}
-                disabled={!isFilled || verifying}
+                disabled={!isReady || verifying}
                 className="w-full flex items-center justify-center gap-2 rounded-2xl font-semibold text-white transition-all"
                 style={{
                   height: 52,
-                  background: isFilled && !verifying ? 'linear-gradient(135deg,#7c3aed,#4f46e5)' : t.surface2,
-                  color: isFilled ? '#fff' : t.textMuted,
-                  cursor: isFilled && !verifying ? 'pointer' : 'not-allowed',
-                  boxShadow: isFilled && !verifying ? '0 8px 28px rgba(124,58,237,0.4)' : 'none',
+                  background: isReady && !verifying ? 'linear-gradient(135deg,#7c3aed,#4f46e5)' : t.surface2,
+                  color: isReady ? '#fff' : t.textMuted,
+                  cursor: isReady && !verifying ? 'pointer' : 'not-allowed',
+                  boxShadow: isReady && !verifying ? '0 8px 28px rgba(124,58,237,0.4)' : 'none',
                 }}
               >
                 {verifying ? (
@@ -427,7 +363,7 @@ export const SwitchEventModal: React.FC<SwitchEventModalProps> = ({
           )}
 
           {/* ── Step: Preview ─────────────────────────────────────────── */}
-          {step === 'preview' && matched && (
+          {step === 'preview' && matchedConfig && (
             <div className="px-6 pt-4 pb-10">
               <div className="flex items-center gap-3 mb-6">
                 <button onClick={() => setStep('entry')} className="hover:opacity-70 transition-opacity">
@@ -437,32 +373,43 @@ export const SwitchEventModal: React.FC<SwitchEventModalProps> = ({
               </div>
 
               {/* Event banner */}
-              <div className={`bg-gradient-to-br ${matched.color} rounded-2xl p-5 text-white mb-5`}>
+              <div className="rounded-2xl p-5 text-white mb-5"
+                style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5,#6366f1)' }}>
                 <div className="flex items-start gap-3 mb-3">
-                  <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(255,255,255,0.25)' }}>
-                    <Sparkles style={{ width: 24, height: 24 }} />
+                  <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
+                    style={{ background: 'rgba(255,255,255,0.2)' }}>
+                    <Ticket style={{ width: 24, height: 24 }} />
                   </div>
                   <div>
-                    <h3 style={{ fontSize: 18, fontWeight: 800, marginBottom: 2 }}>{matched.config.name}</h3>
-                    <div className="flex items-center gap-2" style={{ color: 'rgba(255,255,255,0.8)', fontSize: 13 }}>
-                      <Calendar style={{ width: 13, height: 13 }} /><span>{matched.config.dates}</span>
-                    </div>
-                    <div className="flex items-center gap-2 mt-1" style={{ color: 'rgba(255,255,255,0.8)', fontSize: 13 }}>
-                      <MapPin style={{ width: 13, height: 13 }} /><span>{matched.config.location}</span>
-                    </div>
+                    <h3 style={{ fontSize: 18, fontWeight: 800, marginBottom: 2 }}>{matchedConfig.name}</h3>
+                    {matchedConfig.dates && (
+                      <div className="flex items-center gap-1.5" style={{ color: 'rgba(255,255,255,0.8)', fontSize: 13 }}>
+                        <Calendar style={{ width: 13, height: 13 }} />
+                        <span>{matchedConfig.dates}</span>
+                      </div>
+                    )}
+                    {matchedConfig.location && (
+                      <div className="flex items-center gap-1.5 mt-0.5" style={{ color: 'rgba(255,255,255,0.8)', fontSize: 13 }}>
+                        <MapPin style={{ width: 13, height: 13 }} />
+                        <span>{matchedConfig.location}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
-                <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: 13, lineHeight: 1.5, marginBottom: 12 }}>{matched.description}</p>
-                <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: 'rgba(255,255,255,0.2)' }}>
+                <div className="flex items-center gap-2 px-3 py-2 rounded-xl"
+                  style={{ background: 'rgba(255,255,255,0.2)' }}>
                   <Users style={{ width: 15, height: 15 }} />
-                  <span style={{ fontSize: 13, fontWeight: 600 }}>{matched.attendeeCount.toLocaleString()} expected attendees</span>
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>You are registered for this event</span>
                 </div>
               </div>
 
               {/* Warning */}
-              <div className="flex items-start gap-2.5 px-4 py-3 rounded-xl mb-5" style={{ background: t.warningBg, border: `1px solid ${t.border}` }}>
+              <div className="flex items-start gap-2.5 px-4 py-3 rounded-xl mb-5"
+                style={{ background: t.warningBg, border: `1px solid ${t.border}` }}>
                 <Zap style={{ width: 15, height: 15, color: t.warningText, flexShrink: 0, marginTop: 1 }} />
-                <p style={{ color: t.warningText, fontSize: 13, fontWeight: 500 }}>Your progress for the current event will be preserved.</p>
+                <p style={{ color: t.warningText, fontSize: 13, fontWeight: 500 }}>
+                  Your progress for the current event will be preserved.
+                </p>
               </div>
 
               <button onClick={handleConfirmSwitch} disabled={switching}
@@ -470,20 +417,56 @@ export const SwitchEventModal: React.FC<SwitchEventModalProps> = ({
                 style={{ height: 52, background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', opacity: switching ? 0.7 : 1, boxShadow: '0 8px 28px rgba(124,58,237,0.4)' }}>
                 {switching
                   ? <><RefreshCw style={{ width: 17, height: 17, animation: 'spin 1s linear infinite' }} /> Switching…</>
-                  : <><CheckCircle2 style={{ width: 17, height: 17 }} /> Confirm Switch</>}
+                  : <><CheckCircle2 style={{ width: 17, height: 17 }} /> Enter Event</>}
+              </button>
+            </div>
+          )}
+
+          {/* ── Step: Preview (no event details) ──────────────────────── */}
+          {step === 'preview' && !matchedConfig && (
+            <div className="px-6 pt-4 pb-10">
+              <div className="flex items-center gap-3 mb-6">
+                <button onClick={() => setStep('entry')} className="hover:opacity-70 transition-opacity">
+                  <ArrowLeft style={{ width: 22, height: 22, color: t.textSec }} />
+                </button>
+                <h2 style={{ color: t.text, fontSize: 17, fontWeight: 700 }}>Event Found</h2>
+              </div>
+
+              <div className="rounded-2xl p-5 text-white mb-5"
+                style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)' }}>
+                <div className="flex items-center gap-3">
+                  <CheckCircle2 style={{ width: 28, height: 28, color: '#34d399' }} />
+                  <div>
+                    <p style={{ fontSize: 16, fontWeight: 700 }}>Code accepted</p>
+                    <p style={{ color: 'rgba(255,255,255,0.75)', fontSize: 13 }}>
+                      You have been registered for this event.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <button onClick={handleConfirmSwitch} disabled={switching}
+                className="w-full flex items-center justify-center gap-2 rounded-2xl font-semibold text-white"
+                style={{ height: 52, background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', opacity: switching ? 0.7 : 1, boxShadow: '0 8px 28px rgba(124,58,237,0.4)' }}>
+                {switching
+                  ? <><RefreshCw style={{ width: 17, height: 17, animation: 'spin 1s linear infinite' }} /> Switching…</>
+                  : <><CheckCircle2 style={{ width: 17, height: 17 }} /> Enter Event</>}
               </button>
             </div>
           )}
 
           {/* ── Step: Success ─────────────────────────────────────────── */}
-          {step === 'success' && matched && (
+          {step === 'success' && (
             <div className="px-6 pt-6 pb-10 text-center">
-              <div className="w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-5" style={{ background: 'linear-gradient(135deg,#10b981,#0d9488)', boxShadow: '0 12px 40px rgba(16,185,129,0.35)' }}>
+              <div className="w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-5"
+                style={{ background: 'linear-gradient(135deg,#10b981,#0d9488)', boxShadow: '0 12px 40px rgba(16,185,129,0.35)' }}>
                 <CheckCircle2 style={{ width: 36, height: 36, color: '#fff' }} />
               </div>
               <h2 style={{ color: t.text, fontSize: 22, fontWeight: 800, marginBottom: 6 }}>Switched!</h2>
               <p style={{ color: t.textSec, fontSize: 14, marginBottom: 4 }}>You're now at</p>
-              <p style={{ color: t.accentSoft, fontSize: 17, fontWeight: 700 }}>{matched.config.name}</p>
+              <p style={{ color: t.accentSoft, fontSize: 17, fontWeight: 700 }}>
+                {matchedConfig?.name ?? 'the new event'}
+              </p>
             </div>
           )}
         </div>
