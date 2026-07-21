@@ -1318,9 +1318,54 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
             <div className="rounded-2xl p-5" style={{
               background: t.surface,
               boxShadow: isDark ? '0 8px 40px rgba(124,58,237,0.15)' : '0 8px 32px rgba(124,58,237,0.1)',
-              border: `0px solid ${t.borderAcc}`,
+              border: `1px solid ${t.borderAcc}`,
             }}>
-             
+              <div className="flex items-center gap-2.5 mb-4">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center"
+                  style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)' }}>
+                  <Hash style={{ width: 20, height: 20, color: '#fff' }} />
+                </div>
+                <div>
+                  <h2 style={{ color: t.text, fontSize: 16, fontWeight: 700 }}>Enter Event Code</h2>
+                  <p style={{ color: t.textSec, fontSize: 12 }}>Got an invite? Enter the code to join instantly.</p>
+                </div>
+              </div>
+              <form onSubmit={handleSubmitCode}>
+                <div className="flex gap-2">
+                  <div className="flex-1 relative">
+                    <input
+                      type="text"
+                      placeholder="e.g. TECH26"
+                      value={eventCode}
+                      onChange={e => { setEventCode(e.target.value.toUpperCase()); setCodeError(''); }}
+                      className="w-full px-4 py-3 rounded-xl outline-none text-center tracking-widest"
+                      style={{
+                        background: t.inputBg,
+                        border: `1.5px solid ${codeError ? t.errorText : eventCode ? t.borderAcc : t.inputBorder}`,
+                        color: t.text, fontSize: 16, fontWeight: 700, letterSpacing: '0.15em',
+                      }}
+                      maxLength={12}
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={isJoining || !eventCode.trim()}
+                    className="px-5 py-3 rounded-xl flex items-center gap-2 transition-all active:scale-[0.97]"
+                    style={{
+                      background: isJoining || !eventCode.trim() ? t.surface2 : 'linear-gradient(135deg,#7c3aed,#4f46e5)',
+                      color: isJoining || !eventCode.trim() ? t.textMuted : '#fff',
+                      fontWeight: 700, fontSize: 14, opacity: isJoining ? 0.7 : 1,
+                    }}>
+                    {isJoining
+                      ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      : <><span>Join</span><ArrowRight style={{ width: 16, height: 16 }} /></>
+                    }
+                  </button>
+                </div>
+                {codeError && (
+                  <p style={{ color: t.errorText, fontSize: 12, marginTop: 8, fontWeight: 500 }}>{codeError}</p>
+                )}
+              </form>
             </div>
           </div>
 
