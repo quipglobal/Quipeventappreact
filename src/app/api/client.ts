@@ -99,12 +99,19 @@ async function parseResponse<T>(res: Response): Promise<ApiEnvelope<T>> {
 }
 
 const MAX_RETRIES = 2;
+const REQUEST_TIMEOUT_MS = 10_000;
 
 async function fetchWithRetry(url: string, options: RequestInit, retries = MAX_RETRIES): Promise<Response> {
+  const controller = new AbortController();
+  const tid = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    return await fetch(url, options);
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    clearTimeout(tid);
+    return res;
   } catch (err) {
-    if (retries > 0) {
+    clearTimeout(tid);
+    const isAbort = err instanceof Error && err.name === 'AbortError';
+    if (retries > 0 && !isAbort) {
       await new Promise(r => setTimeout(r, 600));
       return fetchWithRetry(url, options, retries - 1);
     }
