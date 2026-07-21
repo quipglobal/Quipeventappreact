@@ -306,7 +306,7 @@ export async function joinByCode(
  */
 export async function checkEventAccess(
   eventId: string,
-): Promise<ApiResponse<{ is_member: boolean; role: string | null; event: any }>> {
+): Promise<ApiResponse<{ is_member: boolean; is_checked_in: boolean; role: string | null; event: any }>> {
   const res = await request<any>(`/api/v1/events/${eventId}/access`);
   if (!res.success) return res;
   const raw = res.data ?? {};
@@ -314,8 +314,9 @@ export async function checkEventAccess(
   return {
     success: true,
     data: {
-      is_member: Boolean(data?.is_member),
-      role: data?.role ?? null,
+      is_member:     Boolean(data?.is_member),
+      is_checked_in: Boolean(data?.is_checked_in),
+      role:  data?.role ?? null,
       event: data?.event ?? null,
     },
   };
