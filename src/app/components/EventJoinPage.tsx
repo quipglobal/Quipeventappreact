@@ -1314,7 +1314,7 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
       {activeTab === 'events' && (
         <div className="flex-1 pb-8">
           {/* Event code input */}
-          <div className="px-5 pt-5">
+          {/* <div className="px-5 pt-5">
             <div className="rounded-2xl p-5" style={{
               background: t.surface,
               boxShadow: isDark ? '0 8px 40px rgba(124,58,237,0.15)' : '0 8px 32px rgba(124,58,237,0.1)',
@@ -1366,8 +1366,7 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
                   <p style={{ color: t.errorText, fontSize: 12, marginTop: 8, fontWeight: 500 }}>{codeError}</p>
                 )}
               </form>
-            </div>
-          </div>
+            </div>  */}
 
           {/* Upcoming events */}
           <div className="px-5 mt-6">
