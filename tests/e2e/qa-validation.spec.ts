@@ -185,21 +185,12 @@ test('C6-C7: Giveaway empty state, Switch Events returns to join page', async ({
   await baseRoute(page); // giveaways returns []
   await doLoginAndJoin(page);
 
-  // C6: Giveaways empty state — accessed via "View All" button in the Featured Giveaway section
+  // C6: Giveaways section is hidden from attendees — "View All" button absent on Home
   await page.getByRole('button', { name: /^Home$/i }).click();
-  // The Home page has a "Featured Giveaway" section with a "View All" button → navigates to giveaways
   const viewAllBtn = page.getByRole('button', { name: /^View All$/i });
-  await expect(viewAllBtn.first()).toBeVisible({ timeout: 8_000 });
-  await viewAllBtn.first().click();
-  // Page renders without crash
-  await expect(page.locator('body')).not.toBeEmpty({ timeout: 5_000 });
-  const anyContent = page.locator('h1,h2,h3,[class*="empty"],[class*="card"],[class*="page"],p');
-  await expect(anyContent.first()).toBeVisible({ timeout: 8_000 });
+  await expect(viewAllBtn).toHaveCount(0);
 
-  // C7: Back to Home, then Switch Events → back to EventJoinPage
-  // GiveawaysPage is a detail page with a "Back" button, no bottom nav
-  await page.getByRole('button', { name: /^Back$/i }).click();
-  await expect(page.getByRole('button', { name: /^More$/i })).toBeVisible({ timeout: 8_000 });
+  // C7: Switch Events → back to EventJoinPage
   await page.getByRole('button', { name: /^More$/i }).click();
   await page.getByRole('button', { name: /^Switch Events$/i }).click();
   await expect(page.getByText(/Welcome,?\s*Alice/i)).toBeVisible({ timeout: 10_000 });
