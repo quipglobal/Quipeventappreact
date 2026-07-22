@@ -20,6 +20,8 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { OtpInput } from './OtpInput';
 import { sendOtp, verifyOtp, register, loginWithPassword, AuthUser } from '@/lib/apiClient';
+import { listAllCompanies } from '@/lib/api/companies';
+import type { CompanyLookup } from '@/lib/api/companies';
 import { useAuth } from '@/context/AuthContext';
 import { colors, spacing, radius } from '@/constants/theme';
 import {
@@ -47,6 +49,7 @@ interface CreateForm {
   email: string;
   title: string;
   company: string;
+  companyId: number | null;
   phone: string;
 }
 
@@ -209,6 +212,7 @@ function CreateProfileView({
   setForm,
   error,
   loading,
+  companies,
   onSubmit,
   onBack,
   onSignIn,
@@ -217,10 +221,18 @@ function CreateProfileView({
   setForm: (f: Partial<CreateForm>) => void;
   error: string;
   loading: boolean;
+  companies: { id: number; name: string }[];
   onSubmit: () => void;
   onBack: () => void;
   onSignIn: () => void;
 }) {
+  const [companyOpen, setCompanyOpen] = React.useState(false);
+  const filteredCompanies = React.useMemo(
+    () => form.company.trim()
+      ? companies.filter(c => c.name.toLowerCase().includes(form.company.toLowerCase())).slice(0, 8)
+      : [],
+    [companies, form.company],
+  );
   return (
     <ScrollView
       style={{ flex: 1 }}
@@ -291,17 +303,42 @@ function CreateProfileView({
         />
       </View>
 
-      {/* Company */}
-      <View style={[sh.inputRow, sh.inputMt]}>
-        <Ionicons name="business-outline" size={16} color="rgba(255,255,255,0.35)" style={sh.inputIcon} />
-        <TextInput
-          style={sh.inputText}
-          placeholder="Company"
-          placeholderTextColor="rgba(255,255,255,0.28)"
-          value={form.company}
-          onChangeText={(v) => setForm({ company: v })}
-          autoCapitalize="words"
-        />
+      {/* Company autocomplete */}
+      <View style={sh.inputMt}>
+        <View style={sh.inputRow}>
+          <Ionicons name="business-outline" size={16} color="rgba(255,255,255,0.35)" style={sh.inputIcon} />
+          <TextInput
+            style={sh.inputText}
+            placeholder="Search or type your company"
+            placeholderTextColor="rgba(255,255,255,0.28)"
+            value={form.company}
+            onChangeText={(v) => { setForm({ company: v, companyId: null }); setCompanyOpen(true); }}
+            onFocus={() => setCompanyOpen(true)}
+            autoCapitalize="words"
+          />
+          {form.companyId != null && (
+            <TouchableOpacity
+              onPress={() => setForm({ company: '', companyId: null })}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              style={{ marginRight: 8 }}
+            >
+              <Ionicons name="close-circle" size={16} color="rgba(255,255,255,0.4)" />
+            </TouchableOpacity>
+          )}
+        </View>
+        {companyOpen && filteredCompanies.length > 0 && (
+          <View style={{ borderRadius: 12, marginTop: 4, borderWidth: 1, borderColor: 'rgba(124,58,237,0.4)', backgroundColor: '#1a1a2e', overflow: 'hidden' }}>
+            {filteredCompanies.map((c, i) => (
+              <TouchableOpacity
+                key={c.id}
+                onPress={() => { setForm({ company: c.name, companyId: c.id }); setCompanyOpen(false); Keyboard.dismiss(); }}
+                style={{ paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: i < filteredCompanies.length - 1 ? 1 : 0, borderBottomColor: 'rgba(255,255,255,0.06)' }}
+              >
+                <Text style={{ color: '#e2e8f0', fontSize: 13 }}>{c.name}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
       </View>
 
       {/* Phone (optional) */}
@@ -500,12 +537,20 @@ export function WelcomeScreen() {
 
   // Create-account form
   const [createForm, setCreateFormState] = useState<CreateForm>({
-    firstName: '', lastName: '', email: '', title: '', company: '', phone: '',
+    firstName: '', lastName: '', email: '', title: '', company: '', companyId: null, phone: '',
   });
   const setCreateForm = (patch: Partial<CreateForm>) =>
     setCreateFormState((p) => ({ ...p, ...patch }));
   const [createError, setCreateError] = useState('');
   const [createLoading, setCreateLoading] = useState(false);
+
+  // Companies for autocomplete on registration
+  const [companies, setCompanies] = useState<CompanyLookup[]>([]);
+  useEffect(() => {
+    listAllCompanies().then(res => {
+      if (res.success && res.data) setCompanies(res.data);
+    });
+  }, []);
 
   // Top-level tabs + feeds
   const [activeTab, setActiveTab] = useState<TopTab>(null);
@@ -582,7 +627,7 @@ export function WelcomeScreen() {
       setOtpError('');
       setResolvedUser(null);
       setResolvedToken('');
-      setCreateFormState({ firstName: '', lastName: '', email: '', title: '', company: '', phone: '' });
+      setCreateFormState({ firstName: '', lastName: '', email: '', title: '', company: '', companyId: null, phone: '' });
       setCreateError('');
       if (resendRef.current) clearInterval(resendRef.current);
       setResendCountdown(0);
@@ -689,6 +734,7 @@ export function WelcomeScreen() {
         phone: createForm.phone,
         title: createForm.title,
         company: createForm.company,
+        companyId: createForm.companyId,
       });
       if (!res.success || !res.data) { setCreateError(res.error?.message ?? 'Registration failed.'); return; }
       await login(res.data.token, res.data.user);
@@ -941,6 +987,7 @@ export function WelcomeScreen() {
             setForm={setCreateForm}
             error={createError}
             loading={createLoading}
+            companies={companies}
             onSubmit={handleCreateAccount}
             onBack={() => setSheetView(identifier ? 'no-account' : 'email')}
             onSignIn={() => { setSheetView('email'); setEmail(''); setEmailError(''); }}

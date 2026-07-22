@@ -672,6 +672,7 @@ export interface RegisterInput {
   email: string;
   title: string;
   company: string;
+  companyId?: number | null;
 }
 
 function splitName(fullName: string): { first_name: string; last_name: string } {
@@ -687,18 +688,21 @@ export async function register(
   const { first_name, last_name } = splitName(input.name);
   const randomPassword = `OTP-${Math.random().toString(36).slice(2, 10).toUpperCase()}-${Date.now()}`;
 
+  const registerBody: Record<string, unknown> = {
+    first_name,
+    last_name,
+    phone: input.phone,
+    email: input.email,
+    title: input.title,
+    company: input.company,
+    password: randomPassword,
+    password_confirmation: randomPassword,
+  };
+  if (input.companyId) registerBody.company_id = input.companyId;
+
   const res = await request<any>('/api/v1/auth/register', {
     method: 'POST',
-    body: JSON.stringify({
-      first_name,
-      last_name,
-      phone: input.phone,
-      email: input.email,
-      title: input.title,
-      company: input.company,
-      password: randomPassword,
-      password_confirmation: randomPassword,
-    }),
+    body: JSON.stringify(registerBody),
   });
 
   if (!res.success || !res.data) return res as ApiResponse<{ token: string; user: AuthUser }>;

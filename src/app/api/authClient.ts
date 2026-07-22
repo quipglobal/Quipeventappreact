@@ -184,9 +184,10 @@ export async function registerUser(params: {
   phone?: string;
   title?: string;
   company?: string;
+  companyId?: number | null;
   tenantId?: number;
 }): Promise<RegisterResponse> {
-  const res = await apiPost<Record<string, unknown>>('/api/v1/auth/register', {
+  const body: Record<string, unknown> = {
     email: params.email,
     first_name: params.firstName.trim(),
     last_name: params.lastName.trim(),
@@ -194,7 +195,9 @@ export async function registerUser(params: {
     title: params.title?.trim() ?? '',
     company: params.company?.trim() ?? '',
     tenant_id: 3,
-  });
+  };
+  if (params.companyId) body.company_id = params.companyId;
+  const res = await apiPost<Record<string, unknown>>('/api/v1/auth/register', body);
 
   if (!res.success || !res.data) {
     return {
