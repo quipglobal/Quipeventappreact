@@ -334,20 +334,7 @@ export default function EventsScreen() {
       if (accessRes.success && accessRes.data?.is_member) {
         setCurrentEventId(ev.id);
         await refreshEventRole(ev.id);
-        if (accessRes.data.is_checked_in) {
-          // Already checked in server-side — skip redundant selfCheckIn, just
-          // update local cache so Strategy 1 wins next time.
-          markEventCheckedIn(ev.id);
-          setJoinedEventIds((prev) => {
-            if (prev.includes(ev.id)) return prev;
-            const next = [...prev, ev.id];
-            AsyncStorage.setItem(JOINED_EVENTS_KEY, JSON.stringify(next)).catch(() => {});
-            return next;
-          });
-        } else {
-          // Member but not yet physically checked in — fire selfCheckIn.
-          await saveJoinedEvent(ev.id);
-        }
+        await saveJoinedEvent(ev.id);
         setSilentJoiningId(null);
         router.replace('/(tabs)/feed');
         return;

@@ -4,13 +4,11 @@
  * Full-screen background video (business networking)
  * Email login → OTP → Profile review / Create account
  */
-import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import cxoLogo from '@/assets/cxo-logo-transparent.png';
 import { User, Mail, Briefcase, Building2, ArrowLeft, RefreshCw, CheckCircle2, AlertCircle, X, Phone } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { sendOtp, verifyOtp, registerUser, AuthUser } from '@/app/api/authClient';
-import { listCompaniesApi } from '@/app/api/lookupsClient';
-import type { Lookup } from '@/app/api/lookupsClient';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
@@ -285,7 +283,6 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
         phone: createForm.phone.trim(),
         title: createForm.title.trim(),
         company: createForm.company.trim(),
-        companyId: createCompanyId,
       });
 
       if (!res.success || !res.data) {
@@ -339,8 +336,6 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
       setOtpContext('login');
       setExistingUser(null);
       setCreateForm({ firstName: '', lastName: '', title: '', company: '', phone: '' });
-      setCreateCompanyId(null);
-      setCompanyOpen(false);
       setCreateError('');
       setRegisteredUserData(null);
       if (resendRef.current) clearInterval(resendRef.current);
@@ -359,21 +354,6 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
   });
 
   const [focusedField, setFocusedField] = useState('');
-
-  const [createCompanyId, setCreateCompanyId] = useState<number | null>(null);
-  const [companyOpen, setCompanyOpen] = useState(false);
-  const [companies, setCompanies] = useState<Lookup[]>([]);
-  const filteredCreateCompanies = useMemo(
-    () => createForm.company.trim()
-      ? companies.filter(c => c.name.toLowerCase().includes(createForm.company.toLowerCase())).slice(0, 8)
-      : [],
-    [companies, createForm.company],
-  );
-  useEffect(() => {
-    listCompaniesApi(500).then(res => {
-      if (res.success && res.data) setCompanies(res.data);
-    });
-  }, []);
 
   return (
     <div className="flex items-center justify-center min-h-screen w-full" style={{ background: '#000', fontFamily: 'Inter,sans-serif' }}>
@@ -815,43 +795,17 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
                     />
                   </div>
 
-                  {/* Company with typeahead */}
-                  <div className="relative" style={{ zIndex: 50 }}>
-                    <Building2 size={15} style={{ position: 'absolute', left: 14, top: 16, color: createForm.company ? '#a78bfa' : 'rgba(255,255,255,0.25)', pointerEvents: 'none', zIndex: 1 }} />
+                  {/* Company */}
+                  <div className="relative">
+                    <Building2 size={15} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: createForm.company ? '#a78bfa' : 'rgba(255,255,255,0.25)' }} />
                     <input
-                      type="text" placeholder="Search or type your company"
+                      type="text" placeholder="Company"
                       value={createForm.company}
-                      onChange={e => { setCreateForm(f => ({ ...f, company: e.target.value })); setCreateCompanyId(null); setCompanyOpen(true); }}
-                      onFocus={() => { setFocusedField('company'); setCompanyOpen(true); }}
+                      onChange={e => setCreateForm(f => ({ ...f, company: e.target.value }))}
+                      onFocus={() => setFocusedField('company')} onBlur={() => setFocusedField('')}
                       className="outline-none"
                       style={inputStyle(focusedField === 'company', !!createForm.company)}
                     />
-                    {createCompanyId != null && (
-                      <button
-                        type="button"
-                        onClick={() => { setCreateCompanyId(null); setCreateForm(f => ({ ...f, company: '' })); }}
-                        style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%', width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0 }}
-                      >
-                        <X size={11} color="rgba(255,255,255,0.6)" />
-                      </button>
-                    )}
-                    {companyOpen && filteredCreateCompanies.length > 0 && (
-                      <div
-                        style={{ position: 'absolute', left: 0, right: 0, top: '100%', marginTop: 4, borderRadius: 12, overflow: 'hidden', zIndex: 50, maxHeight: 200, overflowY: 'auto', background: '#1a1a2e', border: '1px solid rgba(124,58,237,0.4)', boxShadow: '0 8px 32px rgba(0,0,0,0.6)' }}
-                      >
-                        {filteredCreateCompanies.map(c => (
-                          <button
-                            key={c.id}
-                            type="button"
-                            onClick={() => { setCreateCompanyId(c.id); setCreateForm(f => ({ ...f, company: c.name })); setCompanyOpen(false); setFocusedField(''); }}
-                            style={{ width: '100%', textAlign: 'left', padding: '10px 16px', color: '#e2e8f0', fontSize: 13, borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'transparent', cursor: 'pointer', display: 'block' }}
-                          >
-                            {c.name}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    {companyOpen && <div style={{ position: 'fixed', inset: 0, zIndex: 40 }} onClick={() => { setCompanyOpen(false); }} />}
                   </div>
 
                   {/* Phone Number */}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   ArrowLeft, Search, Users, Sparkles,
   Building2, ChevronRight, UserCheck,
@@ -9,7 +9,7 @@ import {
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import { motion, AnimatePresence } from 'motion/react';
-import { getEventMembersPaginatedApi, getMemberDetailApi, getMeProfileApi, EventMember, MemberDetail } from '@/app/api/audienceClient';
+import { getEventMembersApi, getMemberDetailApi, getMeProfileApi, EventMember, MemberDetail } from '@/app/api/audienceClient';
 import { getCached, setCached } from '@/app/lib/pageCache';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -539,8 +539,6 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
   const { eventConfig, addPoints, sendConnectionRequest } = useApp();
   const { t, isDark } = useTheme();
 
-  const PAGE_SIZE = 25;
-
   // Default is checkedInOnly=true, so seed from the checked-in cache, not the
   // all-registrations cache.  This prevents the flicker where the page briefly
   // shows every registration before the API responds with the filtered list.
@@ -554,10 +552,6 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
   const [loading, setLoading] = useState<boolean>(() =>
     !getCached<EventMember[]>('members:checkedIn', eventConfig.eventId ?? ''),
   );
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
@@ -565,7 +559,6 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
   const [checkedInOnly, setCheckedInOnly] = useState(true);
   const [selectedMember, setSelectedMember] = useState<EventMember | null>(null);
   const [connectedIds, setConnectedIds] = useState<Set<number>>(new Set());
-  const sentinelRef = useRef<HTMLDivElement>(null);
 
   // The detail panel uses `absolute inset-0` relative to this page, so it
   // anchors to the top of the (potentially long) attendee list. If the user
@@ -580,76 +573,48 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
   const eventId = eventConfig?.eventId;
   const eventName = eventConfig?.name ?? 'This Event';
 
-  const fetchFirstPage = useCallback(async () => {
+  const fetchMembers = useCallback(async () => {
     if (!eventId) { setLoading(false); return; }
+    // Use the correct cache key so the loading gate matches what we show.
     const membersKey = checkedInOnly ? 'members:checkedIn' : 'members';
     const hasCached = getCached<EventMember[]>(membersKey, eventId) !== null;
     if (!hasCached) setLoading(true);
     setError(null);
-    setCurrentPage(1);
-    setHasMore(false);
 
-    const res = await getEventMembersPaginatedApi(eventId, checkedInOnly, 1, PAGE_SIZE);
-    if (res.success) {
-      setMembers(res.result.data);
-      setTotalCount(res.result.total);
-      setHasMore(res.result.hasMore);
-      setCached(membersKey, eventId, res.result.data);
-      if (checkedInOnly) {
-        setCheckedInIds(new Set(res.result.data.map(m => m.userId)));
+    if (checkedInOnly) {
+      // Only one API call needed — the list IS the checked-in set.
+      const listRes = await getEventMembersApi(eventId, true);
+      if (listRes.success && listRes.data) {
+        setMembers(listRes.data);
+        setCheckedInIds(new Set(listRes.data.map(m => m.userId)));
+        setCached('members:checkedIn', eventId, listRes.data);
       } else {
-        // Background: fetch checked-in IDs for the badge display.
-        // Use a large page so we get all checked-in members in one shot.
-        getEventMembersPaginatedApi(eventId, true, 1, 500).then(r => {
-          if (r.success) {
-            setCheckedInIds(new Set(r.result.data.map(m => m.userId)));
-            setCached('members:checkedIn', eventId, r.result.data);
-          }
-        }).catch(() => {});
+        setError(listRes.error?.message ?? 'Failed to load audience');
+        setCheckedInIds(new Set());
       }
     } else {
-      setError(res.error.message ?? 'Failed to load audience');
-      setCheckedInIds(new Set());
-    }
-    setLoading(false);
-  }, [eventId, checkedInOnly, PAGE_SIZE]);
-
-  const loadMore = useCallback(async () => {
-    if (!eventId || loadingMore || !hasMore) return;
-    setLoadingMore(true);
-    const nextPage = currentPage + 1;
-    const res = await getEventMembersPaginatedApi(eventId, checkedInOnly, nextPage, PAGE_SIZE);
-    if (res.success) {
-      setMembers(prev => {
-        const seen = new Set(prev.map(m => m.userId));
-        return [...prev, ...res.result.data.filter(m => !seen.has(m.userId))];
-      });
-      setCurrentPage(nextPage);
-      setHasMore(res.result.hasMore);
-      if (checkedInOnly) {
-        setCheckedInIds(prev => {
-          const next = new Set(prev);
-          res.result.data.forEach(m => next.add(m.userId));
-          return next;
-        });
+      // Show all registrations; also fetch the checked-in set for badges.
+      const [listRes, checkedInRes] = await Promise.all([
+        getEventMembersApi(eventId, false),
+        getEventMembersApi(eventId, true),
+      ]);
+      if (listRes.success && listRes.data) {
+        setMembers(listRes.data);
+        setCached('members', eventId, listRes.data);
+      } else {
+        setError(listRes.error?.message ?? 'Failed to load audience');
+      }
+      if (checkedInRes.success && checkedInRes.data) {
+        setCheckedInIds(new Set(checkedInRes.data.map(m => m.userId)));
+        setCached('members:checkedIn', eventId, checkedInRes.data);
+      } else {
+        setCheckedInIds(new Set());
       }
     }
-    setLoadingMore(false);
-  }, [eventId, checkedInOnly, loadingMore, hasMore, currentPage, PAGE_SIZE]);
+    setLoading(false);
+  }, [eventId, checkedInOnly]);
 
-  useEffect(() => { fetchFirstPage(); }, [fetchFirstPage]);
-
-  // Trigger loadMore when the sentinel scrolls into view.
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el || !hasMore) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) loadMore(); },
-      { rootMargin: '300px' },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [hasMore, loadMore]);
+  useEffect(() => { fetchMembers(); }, [fetchMembers]);
 
   const availableRoles = useMemo(() => {
     return Array.from(new Set(members.map(m => m.role))).sort();
@@ -853,7 +818,7 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
             <div>
               <h3 style={{ color: t.text, fontSize: 16, fontWeight: 700, marginBottom: 6 }}>Couldn't load audience</h3>
               <p style={{ color: t.textMuted, fontSize: 13, marginBottom: 16 }}>{error}</p>
-              <button onClick={fetchFirstPage}
+              <button onClick={fetchMembers}
                 className="flex items-center gap-2 mx-auto px-5 py-2.5 rounded-xl"
                 style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', color: '#fff', fontSize: 13, fontWeight: 700 }}>
                 <RefreshCw style={{ width: 14, height: 14 }} /> Retry
@@ -899,12 +864,8 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
         {!loading && !error && filteredMembers.length > 0 && (
           <div className="py-3">
             <p style={{ color: t.textMuted, fontSize: 12, fontWeight: 600 }}>
-              {(searchQuery || roleFilter !== 'all')
-                ? `${filteredMembers.length} found`
-                : totalCount > members.length
-                  ? `${members.length} of ${totalCount} ${checkedInOnly ? 'checked-in' : 'registered'} attendees`
-                  : `${filteredMembers.length} ${checkedInOnly ? 'checked-in' : 'registered'} attendee${filteredMembers.length !== 1 ? 's' : ''}`
-              }
+              {filteredMembers.length} {checkedInOnly ? 'checked-in' : 'registered'} attendee{filteredMembers.length !== 1 ? 's' : ''}
+              {(searchQuery || roleFilter !== 'all') ? ' found' : ''}
             </p>
           </div>
         )}
@@ -934,20 +895,6 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
             </div>
           )}
         </div>
-
-        {/* Infinite-scroll sentinel — triggers next page when it enters the viewport */}
-        {!loading && !error && hasMore && (
-          <div ref={sentinelRef} className="h-1" />
-        )}
-
-        {/* Loading more indicator */}
-        {loadingMore && (
-          <div className="flex items-center justify-center gap-2 py-5">
-            <Loader2 style={{ width: 18, height: 18, color: '#7c3aed', animation: 'spin 1s linear infinite' }} />
-            <span style={{ color: t.textMuted, fontSize: 12, fontWeight: 600 }}>Loading more…</span>
-            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-          </div>
-        )}
       </div>
 
       {/* Detail overlay */}

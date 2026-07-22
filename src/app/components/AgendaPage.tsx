@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Clock, MapPin, Bookmark, Search, CalendarDays, Users } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
@@ -79,23 +79,6 @@ export const AgendaPage: React.FC = () => {
     const matchView = viewMode === 'all' || bookmarkedSessions.includes(s.id);
     return matchSearch && matchDay && matchView;
   });
-
-  const AGENDA_PAGE_SIZE = 10;
-  const [visibleCount, setVisibleCount] = useState(AGENDA_PAGE_SIZE);
-  const sentinelRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => { setVisibleCount(AGENDA_PAGE_SIZE); }, [searchQuery, selectedDay, viewMode]);
-
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el) return;
-    const obs = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) setVisibleCount(c => c + AGENDA_PAGE_SIZE); },
-      { threshold: 0.1 },
-    );
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, []);
 
   const headerBg = eventConfig?.backgroundURL
     ? `linear-gradient(160deg,rgba(10,5,30,0.82) 0%,rgba(30,10,60,0.72) 100%),url(${eventConfig.backgroundURL}) center/cover no-repeat`
@@ -203,7 +186,7 @@ export const AgendaPage: React.FC = () => {
           </div>
         ) : (
           <div className="space-y-4">
-            {filteredSessions.slice(0, visibleCount).map(session => {
+            {filteredSessions.map(session => {
               const isBookmarked = bookmarkedSessions.includes(session.id);
               return (
                 <div
@@ -410,7 +393,6 @@ export const AgendaPage: React.FC = () => {
             })}
           </div>
         )}
-        <div ref={sentinelRef} className="h-4" />
       </div>
     </div>
   );

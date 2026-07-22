@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React from 'react';
 import { ArrowLeft, Gift, Sparkles, Tag, Ticket, Trophy } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
@@ -12,21 +12,6 @@ export const GiveawaysPage: React.FC<GiveawaysPageProps> = ({ onBack }) => {
   const { t } = useTheme();
 
   const giveaways = sponsorGiveaways;
-
-  const GW_PAGE_SIZE = 8;
-  const [visibleCount, setVisibleCount] = useState(GW_PAGE_SIZE);
-  const sentinelRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el) return;
-    const obs = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) setVisibleCount(c => c + GW_PAGE_SIZE); },
-      { threshold: 0.1 },
-    );
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, []);
 
   return (
     <div className="pb-24 min-h-screen" style={{ background: t.bgPage }}>
@@ -128,7 +113,7 @@ export const GiveawaysPage: React.FC<GiveawaysPageProps> = ({ onBack }) => {
           </div>
         )}
 
-        {giveaways.slice(0, visibleCount).map(g => (
+        {giveaways.map(g => (
           <div
             key={g.id}
             className="rounded-2xl overflow-hidden"
@@ -317,7 +302,6 @@ export const GiveawaysPage: React.FC<GiveawaysPageProps> = ({ onBack }) => {
             </div>
           </div>
         ))}
-        <div ref={sentinelRef} className="h-4" />
       </div>
     </div>
   );

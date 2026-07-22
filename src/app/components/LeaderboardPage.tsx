@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useRef } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Trophy, Medal, Award, TrendingUp, Crown } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
@@ -50,23 +50,6 @@ export const LeaderboardPage: React.FC = () => {
 
   const userRank = rows.find(p => p.isCurrentUser);
   const top3 = rows.slice(0, 3);
-
-  const LB_PAGE_SIZE = 20;
-  const [visibleCount, setVisibleCount] = useState(LB_PAGE_SIZE);
-  const sentinelRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => { setVisibleCount(LB_PAGE_SIZE); }, [leaderboard]);
-
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el) return;
-    const obs = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) setVisibleCount(c => c + LB_PAGE_SIZE); },
-      { threshold: 0.1 },
-    );
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, []);
 
   // Refresh on first mount so a deep-link straight to the
   // Leaderboard tab (without going through the Home page) still gets
@@ -228,7 +211,7 @@ export const LeaderboardPage: React.FC = () => {
         <div className="px-5">
           <h2 style={{ color: t.text, fontSize: 16, fontWeight: 700, marginBottom: 12 }}>All Rankings</h2>
           <div className="space-y-2">
-            {rows.slice(0, visibleCount).map(person => (
+            {rows.map(person => (
               <div key={person.userId}
                 className="flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all"
                 style={{
@@ -265,7 +248,6 @@ export const LeaderboardPage: React.FC = () => {
               </div>
             ))}
           </div>
-          <div ref={sentinelRef} className="h-4" />
         </div>
       )}
     </div>

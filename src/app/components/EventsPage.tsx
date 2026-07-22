@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Calendar, Clock, MapPin, Users, ChevronRight, Ticket,
   Search, Sparkles, ArrowRight, Globe, Star, Video,
@@ -47,23 +47,6 @@ export const EventsPage: React.FC<EventsPageProps> = ({ onNavigate, compact = fa
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  const EVENTS_PAGE_SIZE = 10;
-  const [visibleCount, setVisibleCount] = useState(EVENTS_PAGE_SIZE);
-  const sentinelRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => { setVisibleCount(EVENTS_PAGE_SIZE); }, [activeTab, searchQuery, selectedCategory]);
-
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el) return;
-    const obs = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) setVisibleCount(c => c + EVENTS_PAGE_SIZE); },
-      { threshold: 0.1 },
-    );
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, []);
 
   const fetchEvents = useCallback(async () => {
     try {
@@ -389,7 +372,6 @@ export const EventsPage: React.FC<EventsPageProps> = ({ onNavigate, compact = fa
         ) : (
           filtered
             .filter(ev => ev.id !== heroEvent?.id || activeTab !== 'all')
-            .slice(0, visibleCount)
             .map(ev => {
               const stCfg = statusConfig[ev.status];
               const catCfg = categoryConfig[ev.category];
@@ -581,7 +563,6 @@ export const EventsPage: React.FC<EventsPageProps> = ({ onNavigate, compact = fa
               );
             })
         )}
-        <div ref={sentinelRef} className="h-4" />
       </div>
 
       {/* ── Bottom CTA ──────────────────────────────────────────────── */}
