@@ -651,8 +651,8 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
         </div>
       )}
 
-      {/* ── Giveaways & Draws ───────────────────────────────────────────── */}
-      <div className="px-4 pt-4">
+      {/* ── Giveaways & Draws — sponsors only ─────────────────────────── */}
+      {user?.role === 'sponsor' && <div className="px-4 pt-4">
         <div className="flex items-center justify-between mb-2">
           <h2
             className="flex items-center gap-1.5"
@@ -716,7 +716,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
             <ChevronRight size={16} style={{ color: t.textMuted }} />
           </div>
         </button>
-      </div>
+      </div>}
 
       {/* ── Leaderboard Status ──────────────────────────────────────────── */}
       <div className="px-4 pt-4">

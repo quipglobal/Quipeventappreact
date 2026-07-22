@@ -41,13 +41,10 @@ export const SideMenu: React.FC<SideMenuProps> = ({ open, onClose, onNavigate, o
     { id: 'scan',        label: 'Scan Badge',       icon: ScanLine,      action: () => go('scan') },
     { id: 'connects',    label: 'My Connects',      icon: UserCheck,     action: () => go('leads') },
     { id: 'leaderboard', label: 'Leaderboard',      icon: Trophy,        action: () => go('leaderboard') },
-    { id: 'giveaways',   label: 'Giveaways & Draw', icon: Gift,          action: () => go('engage-giveaways') },
-    ...(isSponsor ? [{
-      id: 'manage-giveaways',
-      label: 'Manage Giveaways',
-      icon: Sparkles,
-      action: () => go('sponsor-giveaways'),
-    }] : []),
+    ...(isSponsor ? [
+      { id: 'giveaways',        label: 'Giveaways & Draw', icon: Gift,     action: () => go('engage-giveaways') },
+      { id: 'manage-giveaways', label: 'Manage Giveaways', icon: Sparkles, action: () => go('sponsor-giveaways') },
+    ] : []),
     { id: 'settings',    label: 'Settings',         icon: Settings,      action: () => go('profile') },
     { id: 'switch',      label: 'Switch Events',    icon: Repeat,        action: () => { onSwitchEvents(); onClose(); } },
   ];

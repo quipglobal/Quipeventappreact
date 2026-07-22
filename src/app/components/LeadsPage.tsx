@@ -756,8 +756,8 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
 
       {/* ── Lead Cards ─────────────────────────────────────── */}
       <div className="px-5 pb-24 space-y-2.5">
-        {/* Lucky Draw CTA */}
-        {onNavigateToDraw && allLeads.length > 0 && (
+        {/* Lucky Draw CTA — sponsors only */}
+        {onNavigateToDraw && user?.role === 'sponsor' && allLeads.length > 0 && (
           <button onClick={onNavigateToDraw}
             className="w-full rounded-2xl p-4 text-left active:scale-[0.98] transition-all relative overflow-hidden"
             style={{ background: 'linear-gradient(135deg,#f59e0b,#d97706)', boxShadow: '0 4px 20px rgba(245,158,11,0.2)' }}>
