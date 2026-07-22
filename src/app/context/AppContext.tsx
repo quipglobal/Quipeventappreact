@@ -50,6 +50,7 @@ import {
   type LeaderboardPeriod,
 } from '@/app/api/leaderboardClient';
 import { useAuthedEffect } from '@/app/hooks/useAuthedEffect';
+import { getCached } from '@/app/lib/pageCache';
 
 interface User {
   id: string;
@@ -515,6 +516,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // Allow reconciliation to actually try the network on this event
       // change in case earlier in the session the route was missing.
       resetGiveawaysEndpointMissing();
+      // Seed from preloader cache for instant display while network refreshes.
+      const cachedGw = getCached<SponsorGiveaway[]>('giveaways', eventId);
+      if (cachedGw?.length) setSponsorGiveaways(cachedGw);
       listGiveawaysApi(eventId).then(res => {
         if (cancelled) return;
         if (res.success && res.data) {
@@ -648,6 +652,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // is in flight. The Leaderboard page falls back to its
       // skeleton/empty state during this gap.
       setLeaderboard([]);
+      // Seed from preloader cache so the page renders instantly while the
+      // network refresh runs in the background. The leaderboard skeleton
+      // (leaderboardLoading && rows.length === 0) won't show when rows exist.
+      const cachedLb = getCached<LeaderboardEntry[]>('leaderboard', eventId);
+      if (cachedLb?.length) setLeaderboard(cachedLb);
       void refreshLeaderboard('overall');
     },
     [activeEventConfig?.eventId],
