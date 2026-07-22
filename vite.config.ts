@@ -7,6 +7,8 @@ const BACKEND =
   process.env.VITE_API_BASE_URL ??
   'https://app.cxocollaborate.com';
 
+const REPLIT_DEV_DOMAIN = process.env.REPLIT_DEV_DOMAIN;
+
 export default defineConfig({
   plugins: [
     react(),
@@ -21,6 +23,9 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5000,
     allowedHosts: true,
+    hmr: REPLIT_DEV_DOMAIN
+      ? { host: REPLIT_DEV_DOMAIN, clientPort: 443, protocol: 'wss' }
+      : {},
     proxy: {
       '/api': {
         target: BACKEND,
@@ -28,7 +33,6 @@ export default defineConfig({
         secure: true,
         rewrite: (p) => p,
       },
-      // Backend serves uploaded media (avatars, etc.) from /storage/...
       '/storage': {
         target: BACKEND,
         changeOrigin: true,

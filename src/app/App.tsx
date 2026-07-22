@@ -236,6 +236,8 @@ function AppContent() {
   usePreloader(eventConfig?.eventId, hasJoinedEvent);
   const { t, isDark } = useTheme();
 
+  const handleSplashComplete = React.useCallback(() => setScreen('welcome'), []);
+
   React.useEffect(() => {
     if (!sessionRestored) return;
     if (screen === 'splash') return;
@@ -320,7 +322,7 @@ function AppContent() {
 
   return (
     <div style={{ minHeight: '100svh', background: isDark ? '#000' : '#e8e4f5', fontFamily: 'Inter,sans-serif' }}>
-      {screen === 'splash' && <SplashScreen onComplete={() => setScreen('welcome')} />}
+      {screen === 'splash' && <SplashScreen onComplete={handleSplashComplete} />}
       {screen === 'welcome' && <WelcomeScreen onLogin={() => setScreen('event-join')} />}
 
       {screen === 'event-join' && user && (

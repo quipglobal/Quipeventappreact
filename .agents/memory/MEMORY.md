@@ -9,3 +9,4 @@
 - [Expo Replit Dev Server Setup](expo-replit-dev-server.md) — --go + REACT_NATIVE_PACKAGER_HOSTNAME required for Replit emulator/QR; never use --web (gets stuck at 98.8%)
 - [EAS Yarn Lock Replit Firewall](eas-yarn-lock-replit-firewall.md) — yarn.lock entries from Replit have package-firewall.replit.local URLs; must sed-replace before EAS upload
 - [Screenshot Tool Fresh Navigation](screenshot-tool-fresh-navigation.md) — app_preview screenshots reload fresh each call; can't observe timed transitions (splash, toasts) this way — use runTest instead
+- [Vite HMR Replit Config](vite-hmr-replit.md) — Replit proxy drops idle WS every 4s; fix: hmr host=REPLIT_DEV_DOMAIN + clientPort=443 + protocol=wss; also memoize SplashScreen onComplete
