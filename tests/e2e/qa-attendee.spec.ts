@@ -113,13 +113,18 @@ test('Attendee: login → join → all core pages', async ({ page }) => {
   const engageTile = page.locator('button').filter({ hasText: /Surveys|Live Polls|Challenges/i });
   await expect(engageTile.first()).toBeVisible({ timeout: 8_000 });
 
-  // ── A4: Giveaways section is NOT visible to attendees ───────────────
+  // ── A4: Giveaways — via "View All" button in the Featured Giveaway section
   await page.getByRole('button', { name: /^Home$/i }).click();
-  // Attendees never see the Giveaways & Draws card on the Home page
+  // Home page "Featured Giveaway" section has a "View All" button → engage-giveaways
   const viewAllBtn = page.getByRole('button', { name: /^View All$/i });
-  await expect(viewAllBtn).toHaveCount(0);
+  await expect(viewAllBtn.first()).toBeVisible({ timeout: 8_000 });
+  await viewAllBtn.first().click();
+  await expect(page.getByText('MacBook Pro Raffle')).toBeVisible({ timeout: 8_000 });
 
-  // ── A5: Partners tab ─────────────────────────────────────────────────
+  // ── A5: Back → Partners tab ──────────────────────────────────────────
+  // GiveawaysPage has no bottom nav; navigate back first
+  await page.getByRole('button', { name: /^Back$/i }).click();
+  await expect(page.getByRole('button', { name: /^More$/i })).toBeVisible({ timeout: 6_000 });
   await page.getByRole('button', { name: /^Partners$/i }).click();
   await expect(page.getByText('Acme Corp')).toBeVisible({ timeout: 8_000 });
 
@@ -129,8 +134,7 @@ test('Attendee: login → join → all core pages', async ({ page }) => {
   await expect(page.getByRole('button', { name: /^Leaderboard$/i })).toBeVisible({ timeout: 6_000 });
   await expect(page.getByRole('button', { name: /^Agenda$/i })).toBeVisible();
   await expect(page.getByRole('button', { name: /^My Connects$/i })).toBeVisible();
-  // Giveaways & Draw is sponsor-only — must NOT appear for attendees
-  await expect(page.getByRole('button', { name: /^Giveaways & Draw$/i })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Giveaways & Draw$/i })).toBeVisible();
 
   // ── A7: Leaderboard ──────────────────────────────────────────────────
   await page.getByRole('button', { name: /^Leaderboard$/i }).click();

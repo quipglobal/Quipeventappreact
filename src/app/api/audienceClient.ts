@@ -350,24 +350,13 @@ export interface PagedMembersResult {
 }
 
 /**
- * Session-scoped cache of the endpoint that returned data for each event.
- * Populated on the first successful page-1 fetch; subsequent pages skip the
- * sequential /attendees → /members fallback and go directly to the right route.
- */
-const _endpointPref = new Map<string | number, 'attendees' | 'members'>();
-
-/**
  * GET /api/v1/events/:id/attendees?per_page=<n>&page=<p>&checked_in_only=<bool>
  *
  * Paginated audience fetch. Returns one page of members plus metadata about
  * whether more pages exist. Use this for infinite-scroll UI.
  *
- * Page 1 with no cached preference: fires /attendees AND /members in parallel
- * and uses the first one that returns data, eliminating the sequential
- * /attendees → /members waterfall that added 2-4 s on every cold load.
- *
- * After page 1 the winning endpoint is cached in _endpointPref so all
- * subsequent pages go direct (no wasted parallel request).
+ * Falls back to /members on page 1 when /attendees returns empty or 403
+ * (sponsor rep access restriction).
  */
 export async function getEventMembersPaginatedApi(
   eventId: string | number,
@@ -377,73 +366,29 @@ export async function getEventMembersPaginatedApi(
 ): Promise<{ success: true; result: PagedMembersResult } | { success: false; error: { message: string } }> {
   const qs = `per_page=${perPage}&page=${page}&checked_in_only=${checkedInOnly}`;
 
-  // ── Pages 2+: go directly to the known-good endpoint ──────────────────────
-  if (page > 1) {
-    const ep = _endpointPref.get(eventId) ?? 'attendees';
-    const res = await apiGet<unknown>(`/api/v1/events/${eventId}/${ep}?${qs}`, HEADERS);
-    const parsed = extractPage(res, eventId);
-    if (!parsed) {
-      return { success: false, error: (res as { error?: { message: string } }).error ?? { message: 'Failed to fetch audience.' } };
+  const primaryRes = await apiGet<unknown>(`/api/v1/events/${eventId}/attendees?${qs}`, HEADERS);
+  const primary = extractPage(primaryRes, eventId);
+  if (primary && (primary.data.length > 0 || page > 1)) {
+    return {
+      success: true,
+      result: { data: primary.data, total: primary.total, hasMore: page * perPage < primary.total },
+    };
+  }
+
+  // Fall back to /members on page 1 (sponsor reps, empty /attendees, etc.)
+  if (page === 1) {
+    const fallbackRes = await apiGet<unknown>(`/api/v1/events/${eventId}/members?${qs}`, HEADERS);
+    const fb = extractPage(fallbackRes, eventId);
+    if (!fb) {
+      return { success: false, error: (fallbackRes as { error?: { message: string } }).error ?? { message: 'Failed to fetch audience.' } };
     }
     return {
       success: true,
-      result: { data: parsed.data, total: parsed.total, hasMore: page * perPage < parsed.total },
+      result: { data: fb.data, total: fb.total, hasMore: page * perPage < fb.total },
     };
   }
 
-  // ── Page 1, known preference: go direct ───────────────────────────────────
-  const knownEp = _endpointPref.get(eventId);
-  if (knownEp) {
-    const res = await apiGet<unknown>(`/api/v1/events/${eventId}/${knownEp}?${qs}`, HEADERS);
-    const parsed = extractPage(res, eventId);
-    if (parsed && parsed.data.length > 0) {
-      return {
-        success: true,
-        result: { data: parsed.data, total: parsed.total, hasMore: perPage < parsed.total },
-      };
-    }
-    // Preference stale (e.g. after an event switch) — drop it and re-probe
-    _endpointPref.delete(eventId);
-  }
-
-  // ── Page 1, no preference: race both endpoints simultaneously ─────────────
-  // Fires /attendees and /members in parallel so the first endpoint that
-  // returns data wins, eliminating the 2-4 s sequential fallback penalty.
-  const [attendeesRes, membersRes] = await Promise.all([
-    apiGet<unknown>(`/api/v1/events/${eventId}/attendees?${qs}`, HEADERS),
-    apiGet<unknown>(`/api/v1/events/${eventId}/members?${qs}`, HEADERS),
-  ]);
-
-  const parsedAttendees = extractPage(attendeesRes, eventId);
-  const parsedMembers   = extractPage(membersRes,   eventId);
-
-  if (parsedAttendees && parsedAttendees.data.length > 0) {
-    _endpointPref.set(eventId, 'attendees');
-    return {
-      success: true,
-      result: { data: parsedAttendees.data, total: parsedAttendees.total, hasMore: perPage < parsedAttendees.total },
-    };
-  }
-
-  if (parsedMembers && parsedMembers.data.length > 0) {
-    _endpointPref.set(eventId, 'members');
-    return {
-      success: true,
-      result: { data: parsedMembers.data, total: parsedMembers.total, hasMore: perPage < parsedMembers.total },
-    };
-  }
-
-  // Both returned empty or failed
-  if (!parsedAttendees && !parsedMembers) {
-    const err =
-      (attendeesRes as { error?: { message: string } }).error ??
-      (membersRes   as { error?: { message: string } }).error ??
-      { message: 'Failed to fetch audience.' };
-    return { success: false, error: err };
-  }
-
-  // Endpoints responded but returned empty data (no members yet)
-  return { success: true, result: { data: [], total: 0, hasMore: false } };
+  return { success: false, error: { message: 'Failed to fetch audience.' } };
 }
 
 /**

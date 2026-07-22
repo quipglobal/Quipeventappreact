@@ -284,7 +284,7 @@ function AppContent() {
       case 'engage-polls':     return <PollsListPage     onBack={() => setActivePage('engage')} />;
       case 'engage-challenges':return <ChallengesPage    onBack={() => setActivePage('engage')} />;
       case 'engage-audience':  return <AudiencePage />;
-      case 'engage-giveaways': return user?.role === 'sponsor' ? <GiveawaysPage onBack={() => setActivePage('home')} /> : <HomePage onNavigate={handleNavigate} />;
+      case 'engage-giveaways': return <GiveawaysPage onBack={() => setActivePage('home')} />;
       case 'leaderboard':      return <LeaderboardPage />;
       case 'profile':          return <ProfilePage onEdit={() => setActivePage('edit-profile')} />;
       case 'edit-profile':     return <EditProfilePage onBack={() => setActivePage('profile')} />;
