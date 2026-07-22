@@ -13,11 +13,6 @@ const BACKEND =
   'https://app.cxocollaborate.com';
 
 const backendUrl = new URL(BACKEND);
-const DIST_DIR = path.join(__dirname, 'dist');
-const INDEX_HTML = path.join(DIST_DIR, 'index.html');
-
-console.log(`[server] dist dir: ${DIST_DIR}`);
-console.log(`[server] backend:  ${BACKEND}`);
 
 function proxyTo(prefix) {
   return (req, res) => {
@@ -54,25 +49,13 @@ function proxyTo(prefix) {
 app.use('/api',     proxyTo('/api'));
 app.use('/storage', proxyTo('/storage'));
 
-app.use(express.static(DIST_DIR));
+app.use(express.static(path.join(__dirname, 'dist')));
 
 app.use((_req, res) => {
-  res.sendFile(INDEX_HTML, (err) => {
-    if (err) {
-      console.error('[server] sendFile error:', err.message, '| path:', INDEX_HTML);
-      if (!res.headersSent) {
-        res.status(200).send(
-          '<!DOCTYPE html><html><head><meta charset="utf-8">' +
-          '<title>CXO</title></head><body>' +
-          '<script>window.location.reload();</script>' +
-          '</body></html>'
-        );
-      }
-    }
-  });
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`[server] listening on port ${PORT}`);
-  console.log(`[server] proxying /api → ${BACKEND}`);
+  console.log(`Server running on port ${PORT}`);
+  console.log(`Proxying /api → ${BACKEND}`);
 });

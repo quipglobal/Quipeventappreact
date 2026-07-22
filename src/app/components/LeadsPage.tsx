@@ -16,7 +16,6 @@ import {
   resetScanEndpointMissing,
 } from '@/app/api/leadsClient';
 import { loadLeadEdits, lookupLeadEdit, type LeadEditsMap } from '@/app/lib/leadEditsStorage';
-import { getCached, setCached } from '@/app/lib/pageCache';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -333,12 +332,7 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterPriority, setFilterPriority] = useState<Priority | 'all'>('all');
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
-  // Initialise from preloader cache so the list renders instantly on first
-  // visit with no spinner. The mount effect below still refreshes from the
-  // network and writes the latest data back to the cache.
-  const [apiLeads, setApiLeads] = useState<Lead[] | null>(
-    () => getCached<Lead[]>('leads', eventConfig?.eventId ?? '') ?? null,
-  );
+  const [apiLeads, setApiLeads] = useState<Lead[] | null>(null);
   const [reconciling, setReconciling] = useState(false);
 
   // Page-mount flow:
@@ -422,8 +416,6 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
       if (cancelled) return;
       if (initial.success && initial.data) {
         setApiLeads(mergeServerLeadsWithLocalEdits(initial.data, contextLeads, overlay));
-        // Keep cache warm so the next visit to this page is instant.
-        setCached('leads', eventId, initial.data);
         // The list endpoint is live; if `/leads/scan` was previously marked
         // as missing earlier in this session (e.g. backend rolled out the
         // routes after the user opened the app), allow reconciliation to
