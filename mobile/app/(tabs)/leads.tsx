@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  Animated,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -21,12 +22,67 @@ import { submitScan } from '@/lib/api/leads';
 import { colors, spacing, radius } from '@/constants/theme';
 import type { ApiResponse, Lead } from '@/lib/api/types';
 
+function LeadSkeletonCard({ opacity }: { opacity: number }) {
+  return (
+    <View style={[skStyles.card, { opacity }]}>
+      <View style={skStyles.row}>
+        <View style={skStyles.avatar} />
+        <View style={skStyles.info}>
+          <View style={[skStyles.line, { width: '55%' }]} />
+          <View style={[skStyles.line, { width: '40%', marginTop: 7 }]} />
+          <View style={[skStyles.line, { width: '28%', marginTop: 7 }]} />
+        </View>
+        <View style={skStyles.dot} />
+      </View>
+    </View>
+  );
+}
+
+function LeadsSkeletonList() {
+  const pulse = useRef(new Animated.Value(0.4)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.4, duration: 700, useNativeDriver: true }),
+      ]),
+    ).start();
+  }, [pulse]);
+
+  return (
+    <Animated.View style={{ opacity: pulse, paddingHorizontal: spacing.xl, paddingTop: spacing.md }}>
+      <LeadSkeletonCard opacity={1} />
+      <LeadSkeletonCard opacity={0.85} />
+      <LeadSkeletonCard opacity={0.65} />
+      <LeadSkeletonCard opacity={0.45} />
+    </Animated.View>
+  );
+}
+
+const SKEL_BG = 'rgba(255,255,255,0.07)';
+const skStyles = StyleSheet.create({
+  card: {
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    borderWidth: 0.5,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  avatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: SKEL_BG },
+  info: { flex: 1 },
+  line: { height: 11, borderRadius: 6, backgroundColor: SKEL_BG },
+  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: SKEL_BG },
+});
+
 export default function LeadsScreen() {
   const insets = useSafeAreaInsets();
   const { user, showToast } = useAuth();
   const { currentEventId } = useEvent();
   const queryClient = useQueryClient();
-  const { data: leads = [], isLoading, refetch } = useLeads();
+  const { data: leads = [], isLoading, isPending, refetch } = useLeads();
   const [retryingIds, setRetryingIds] = useState<Set<string>>(new Set());
   const inFlightRef = React.useRef<Set<string>>(new Set());
 
@@ -73,10 +129,8 @@ export default function LeadsScreen() {
         </LinearGradient>
       </TouchableOpacity>
 
-      {isLoading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.primary} />
-        </View>
+      {isPending ? (
+        <LeadsSkeletonList />
       ) : leads.length === 0 ? (
         <View style={styles.empty}>
           <Ionicons name="people-outline" size={52} color={colors.textMuted} />

@@ -334,6 +334,7 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [apiLeads, setApiLeads] = useState<Lead[] | null>(null);
   const [reconciling, setReconciling] = useState(false);
+  const isLoadingLeads = apiLeads === null;
 
   // Page-mount flow:
   //   1. Fetch GET /leads to populate the canonical view (`apiLeads`).
@@ -739,6 +740,29 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
 
       {/* ── Lead Cards ─────────────────────────────────────── */}
       <div className="px-5 pb-24 space-y-2.5">
+
+        {/* Initial loading skeleton — only when no local cache to show */}
+        {isLoadingLeads && contextLeads.length === 0 && (
+          <div className="space-y-2.5 pt-1">
+            {[1, 0.8, 0.6, 0.4].map((op, i) => (
+              <div
+                key={i}
+                className="rounded-2xl p-4 animate-pulse"
+                style={{ background: t.surface, border: `1px solid ${t.border}`, opacity: op }}
+              >
+                <div className="flex items-start gap-3.5">
+                  <div className="w-12 h-12 rounded-xl flex-shrink-0" style={{ background: t.surface2 }} />
+                  <div className="flex-1 space-y-2 pt-1">
+                    <div className="h-3 rounded-full" style={{ background: t.surface2, width: '50%' }} />
+                    <div className="h-2.5 rounded-full" style={{ background: t.surface2, width: '35%' }} />
+                    <div className="h-2.5 rounded-full" style={{ background: t.surface2, width: '65%' }} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Lucky Draw CTA */}
         {onNavigateToDraw && allLeads.length > 0 && (
           <button onClick={onNavigateToDraw}
@@ -912,8 +936,8 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
           );
         })}
 
-        {/* Empty state */}
-        {filteredLeads.length === 0 && (
+        {/* Empty state — suppressed while the initial API fetch is in flight */}
+        {filteredLeads.length === 0 && !isLoadingLeads && (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4"
               style={{ background: t.surface2 }}>
