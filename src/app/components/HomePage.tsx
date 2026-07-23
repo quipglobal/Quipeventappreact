@@ -183,6 +183,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   // to a generated avatar when the backend hasn't supplied one.
   const leaderboardTop3 = leaderboard.slice(0, 3).map((entry) => ({
     rank: entry.rank,
+    userId: entry.userId,
     name: entry.name,
     company: entry.company,
     points: entry.points,
@@ -785,7 +786,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           )}
           {leaderboardTop3.map((p, i) => (
             <div
-              key={p.rank}
+              key={p.userId || p.rank}
               className="px-4 py-2.5 flex items-center gap-3"
               style={{
                 borderBottom:

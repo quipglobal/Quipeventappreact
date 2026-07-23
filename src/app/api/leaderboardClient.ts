@@ -136,8 +136,12 @@ function normalizeEntry(raw: any, fallbackRank: number): LeaderboardEntry | null
       raw.avatar, raw.avatar_url, raw.avatarUrl, raw.photo, raw.photo_url,
       user?.avatar, user?.avatar_url,
     ),
-    points: pickNumber(raw.points, raw.total_points, raw.totalPoints, raw.gamification_points),
-    tier: normalizeTier(raw.tier ?? raw.membership_tier ?? user?.tier),
+    points: pickNumber(
+      raw.points, raw.total_points, raw.totalPoints, raw.gamification_points,
+      raw.score, raw.event_points, raw.event_score, raw.total_score,
+      user?.points, user?.total_points, user?.gamification_points,
+    ),
+    tier: normalizeTier(raw.tier ?? raw.membership_tier ?? user?.tier ?? user?.membership_tier),
     change: pickNumber(raw.change, raw.rank_change, raw.rankChange, raw.delta),
   };
 }
