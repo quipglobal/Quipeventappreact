@@ -28,7 +28,7 @@ type Mode = 'home' | 'scanner' | 'leads' | 'draw';
 
 function ScannerView({ onBack, onScanSuccess }: { onBack: () => void; onScanSuccess: () => void }) {
   const insets = useSafeAreaInsets();
-  const { addPoints, showToast } = useAuth();
+  const { showToast } = useAuth();
   const { mutateAsync: submitScanAsync, isPending } = useSubmitScan();
   const inFlightRef = React.useRef(false);
 
@@ -39,9 +39,11 @@ function ScannerView({ onBack, onScanSuccess }: { onBack: () => void; onScanSucc
       const res = await submitScanAsync({ badgeData: code });
       if (res.success && res.data) {
         const name = res.data.name || 'attendee';
+        // points_awarded now reflects points earned by the scanned attendee,
+        // not the rep. Do NOT credit the rep's balance.
         const pts = typeof res.data.pointsAwarded === 'number' ? res.data.pointsAwarded : 0;
-        if (pts > 0) addPoints(pts, `Scanned ${name}'s badge`);
-        showToast(`Saved ${name} to your leads`);
+        const ptsSuffix = pts > 0 ? ` · +${pts} pts for attendee` : '';
+        showToast(`Saved ${name} to your leads${ptsSuffix}`);
         onScanSuccess();
       } else {
         const msg = res.error?.message || 'We couldn\'t recognize that badge. Please try again.';
