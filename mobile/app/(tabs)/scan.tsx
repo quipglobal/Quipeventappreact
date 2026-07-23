@@ -185,7 +185,10 @@ export default function ScanBadgeScreen() {
   const [showGiveawayPicker, setShowGiveawayPicker] = useState(false);
 
   const { data: leadsData = [], refetch: refetchLeads } = useLeads();
-  const { data: giveawaysForDraw = [] } = useGiveaways();
+  const { data: allGiveaways = [] } = useGiveaways();
+  const giveawaysForDraw = allGiveaways.filter(
+    (g) => !g.sponsorId || g.sponsorId === String(user?.id ?? ''),
+  );
   const { mutate: triggerDraw, isPending: drawPending } = useLuckyDraw();
 
   const runDraw = () => {

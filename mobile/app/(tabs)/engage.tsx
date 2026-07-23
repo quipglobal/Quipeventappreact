@@ -899,7 +899,10 @@ function GiveawaysManager({
   onBack: () => void;
 }) {
   const insets = useSafeAreaInsets();
-  const { data: giveaways = [], isLoading, isError, refetch } = useGiveaways();
+  const { data: allGiveaways = [], isLoading, isError, refetch } = useGiveaways();
+  const giveaways = allGiveaways.filter(
+    (g) => !g.sponsorId || g.sponsorId === sponsorId,
+  );
   const { mutate: createGiveaway } = useCreateGiveaway();
   const { mutate: updateGiveaway } = useUpdateGiveaway();
   const { mutate: removeGiveaway } = useRemoveGiveaway();
@@ -1099,7 +1102,10 @@ function SponsorEngage() {
   const [drawShuffling, setDrawShuffling] = useState(false);
 
   const { data: leadsData = [], refetch: refetchLeads } = useLeads();
-  const { data: giveawaysForDraw = [] } = useGiveaways();
+  const { data: allGiveaways = [] } = useGiveaways();
+  const giveawaysForDraw = allGiveaways.filter(
+    (g) => !g.sponsorId || g.sponsorId === String(user?.id ?? ''),
+  );
   const { mutate: triggerDraw, isPending: drawPending } = useLuckyDraw();
   const recordWinner = useRecordGiveawayWinner();
   const leads = leadsData;
