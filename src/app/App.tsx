@@ -289,8 +289,8 @@ function AppContent() {
       case 'profile':          return <ProfilePage onEdit={() => setActivePage('edit-profile')} />;
       case 'edit-profile':     return <EditProfilePage onBack={() => setActivePage('profile')} />;
       case 'partners':         return <SponsorsListPage variant="listing" />;
-      case 'attendees':        return <LeadsPage onNavigateToDraw={() => setActivePage('sponsor-draw')} onNavigateToScan={() => setActivePage('scan')} />;
-      case 'leads':            return <LeadsPage onNavigateToDraw={() => setActivePage('sponsor-draw')} onNavigateToScan={() => setActivePage('scan')} />;
+      case 'attendees':        return <LeadsPage onNavigateToDraw={user?.role === 'sponsor' ? () => setActivePage('sponsor-draw') : undefined} onNavigateToScan={() => setActivePage('scan')} />;
+      case 'leads':            return <LeadsPage onNavigateToDraw={user?.role === 'sponsor' ? () => setActivePage('sponsor-draw') : undefined} onNavigateToScan={() => setActivePage('scan')} />;
       case 'my-badge':         return <MyBadgePage />;
       case 'booth':            return <PlaceholderPage title="Sponsor Booth" desc="Manage your booth profile and promotional materials." onBack={() => setActivePage('home')} />;
       case 'scan':             return <SponsorScannerPage />;
