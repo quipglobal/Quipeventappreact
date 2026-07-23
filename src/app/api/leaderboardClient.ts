@@ -143,12 +143,44 @@ function normalizeEntry(raw: any, fallbackRank: number): LeaderboardEntry | null
 }
 
 /**
+ * Returns true when a raw leaderboard row belongs to a sponsor / exhibitor
+ * / vendor. Sponsors accumulate points through badge scans (lead capture),
+ * which is a different activity from attendee gamification. Including them
+ * in the attendee leaderboard inflates scores unfairly, so we filter them
+ * out client-side regardless of what the backend sends.
+ *
+ * We check every known field name the Laravel backend might use for role.
+ */
+function isSponsorRow(row: any): boolean {
+  if (!row || typeof row !== 'object') return false;
+  const nested = row.user ?? row.attendee ?? row.member ?? null;
+  const rawRole = String(
+    row.role ?? row.user_role ?? row.userRole ??
+    row.account_type ?? row.accountType ??
+    row.user_type ?? row.userType ??
+    row.type ??
+    nested?.role ?? nested?.user_role ?? nested?.account_type ?? nested?.user_type ?? ''
+  ).toLowerCase().trim();
+  return (
+    rawRole === 'sponsor' ||
+    rawRole === 'exhibitor' ||
+    rawRole === 'vendor' ||
+    rawRole === 'sponsor_rep' ||
+    rawRole === 'sponsorrep'
+  );
+}
+
+/**
  * GET /api/v1/events/:eventId/leaderboard
  *
  * `period` is forwarded as a query string; the backend may ignore it
  * (returning the same overall ranking) — that's fine, the UI still
  * works because the filter pill is a presentation hint, not a
  * client-side slice.
+ *
+ * `role=attendee` is sent as a hint so a cooperating backend can
+ * pre-filter on its side; if not supported it is silently ignored
+ * and we filter sponsor rows client-side in the step below.
  */
 export async function listLeaderboard(
   eventId: string | number,
@@ -158,7 +190,7 @@ export async function listLeaderboard(
   if (listEndpointMissing) {
     return { success: false, error: { code: 'NOT_IMPLEMENTED', message: 'Leaderboard endpoint not deployed.' } };
   }
-  const path = `/api/v1/events/${eventId}/leaderboard?period=${encodeURIComponent(period)}&limit=${limit}`;
+  const path = `/api/v1/events/${eventId}/leaderboard?period=${encodeURIComponent(period)}&limit=${limit}&role=attendee`;
   const res = await apiGet<unknown>(path, HEADERS);
   if (!res.success || !res.data) {
     if (res.error?.code === '404' || res.error?.code === '405') {
@@ -190,7 +222,12 @@ export async function listLeaderboard(
     }
     return { success: true, data: [] };
   }
-  const entries = raw
+  // Strip sponsor / exhibitor / vendor rows — their points come from badge
+  // scans (lead capture), not attendee gamification, so they must not appear
+  // in the attendee leaderboard. Re-rank sequentially after filtering so
+  // rank numbers remain contiguous (1, 2, 3 … rather than 1, 3, 5 …).
+  const attendeeRows = raw.filter((row) => !isSponsorRow(row));
+  const entries = attendeeRows
     .map((row, idx) => normalizeEntry(row, idx + 1))
     .filter((e): e is LeaderboardEntry => e !== null);
   return { success: true, data: entries };
