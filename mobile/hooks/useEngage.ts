@@ -64,12 +64,28 @@ export function useVotePoll() {
 
 export function useSurveys() {
   const { currentEventId } = useEvent();
-  return useAuthedQuery({
+  const queryClient = useQueryClient();
+  const query = useAuthedQuery({
     queryKey: ['surveys', currentEventId],
     queryFn: listSurveys,
     select: (res) => res.data ?? [],
     enabled: !!currentEventId,
+    staleTime: 5 * 60 * 1000,
   });
+
+  const surveys = query.data;
+  useEffect(() => {
+    if (!surveys?.length || !currentEventId) return;
+    for (const sv of surveys.slice(0, 10)) {
+      queryClient.prefetchQuery({
+        queryKey: ['survey-detail', currentEventId, sv.id],
+        queryFn: () => getSurveyDetail(sv.id),
+        staleTime: 5 * 60 * 1000,
+      });
+    }
+  }, [surveys, currentEventId, queryClient]);
+
+  return query;
 }
 
 export function useGetSurveyDetail(surveyId: string | null) {

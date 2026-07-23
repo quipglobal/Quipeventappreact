@@ -8,6 +8,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { listSessionsApi } from '@/app/api/agendaClient';
 import { getEventSpeakersApi, getEventMembersApi } from '@/app/api/audienceClient';
 import { getEventCompaniesApi } from '@/app/api/companiesClient';
+import { listEventSurveysApi, getEventSurveyApi } from '@/app/api/engageClient';
 import { setCached } from '@/app/lib/pageCache';
 
 const REFRESH_MS = 3 * 60 * 1000;
@@ -39,6 +40,20 @@ export function usePreloader(
       // Sponsors / partners list
       getEventCompaniesApi(eid).then(r => {
         if (r.success && r.data) setCached('companies', eid, r.data);
+      }),
+      // Surveys list — prefetch so SurveysListPage renders instantly
+      listEventSurveysApi(eid).then(async r => {
+        if (!r.success || !r.data) return;
+        setCached('surveys', eid, r.data);
+        // Prefetch the first 10 survey details in the background so tapping
+        // a survey is instant rather than triggering a second round-trip.
+        await Promise.allSettled(
+          r.data.slice(0, 10).map(sv =>
+            getEventSurveyApi(eid, sv.id).then(dr => {
+              if (dr.success && dr.data) setCached(`survey-detail:${sv.id}`, eid, dr.data);
+            })
+          )
+        );
       }),
     ]);
   }, []);

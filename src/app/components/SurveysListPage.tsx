@@ -11,6 +11,7 @@ import {
   BackendSurveyQuestion,
   SurveyAnswer,
 } from '@/app/api/engageClient';
+import { getCached, setCached } from '@/app/lib/pageCache';
 
 interface SurveysListPageProps { onBack: () => void; }
 
@@ -42,18 +43,35 @@ export const SurveysListPage: React.FC<SurveysListPageProps> = ({ onBack }) => {
   const [answers, setAnswers] = useState<Record<number, unknown>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Load list whenever event changes
+  const filterSurveys = (list: BackendSurveySummary[]) => {
+    return list.filter(s => {
+      const st = (s.status ?? '').toUpperCase();
+      return st === 'PUBLISHED' || st === 'OPEN' || st === 'ACTIVE' || st === 'LIVE' || st === '';
+    });
+  };
+
+  // Load list whenever event changes — serve from cache immediately, then
+  // refresh in the background so subsequent visits are always instant.
   useEffect(() => {
     if (!eventId) return;
     let stale = false;
-    setLoading(true);
-    setLoadError(null);
-    setSurveys([]);
+
+    const cached = getCached<BackendSurveySummary[]>('surveys', eventId);
+    if (cached) {
+      setSurveys(filterSurveys(cached));
+      setLoading(false);
+    } else {
+      setLoading(true);
+      setLoadError(null);
+      setSurveys([]);
+    }
+
     listEventSurveysApi(eventId).then(res => {
       if (stale) return;
       if (res.success && res.data) {
-        setSurveys(res.data.filter(s => s.status === 'PUBLISHED' || s.status === 'OPEN'));
-      } else {
+        setCached('surveys', eventId, res.data);
+        setSurveys(filterSurveys(res.data));
+      } else if (!cached) {
         setLoadError(res.error?.message ?? 'Failed to load surveys.');
       }
       setLoading(false);
@@ -63,13 +81,22 @@ export const SurveysListPage: React.FC<SurveysListPageProps> = ({ onBack }) => {
 
   const openSurvey = async (surveyId: number) => {
     if (!eventId) return;
-    setDetailLoading(true);
-    setSelectedDetail(null);
     setAnswers({});
     setCurrentQuestion(0);
+
+    const cached = getCached<BackendSurveyDetail>(`survey-detail:${surveyId}`, eventId);
+    if (cached) {
+      const sorted = { ...cached, questions: [...cached.questions].sort((a, b) => a.order - b.order) };
+      setSelectedDetail(sorted);
+      return;
+    }
+
+    setDetailLoading(true);
+    setSelectedDetail(null);
     const res = await getEventSurveyApi(eventId, surveyId);
     setDetailLoading(false);
     if (res.success && res.data) {
+      setCached(`survey-detail:${surveyId}`, eventId, res.data);
       const sorted = { ...res.data, questions: [...res.data.questions].sort((a, b) => a.order - b.order) };
       setSelectedDetail(sorted);
     } else {
