@@ -24,6 +24,7 @@ import {
   type EncryptedPayload,
 } from '@/app/lib/messageCrypto';
 import { fetchPointsFromBackend, scheduleSyncPoints, cancelPendingSyncPoints } from '@/app/api/pointsClient';
+import { getUserPointsApi } from '@/app/api/userClient';
 import { getMyEventRoleApi } from '@/app/api/audienceClient';
 import { loadLeadsFromStorage, saveLeadsToStorage, clearLeadsStorage } from '@/app/lib/leadsStorage';
 import { saveLeadEdit } from '@/app/lib/leadEditsStorage';
@@ -795,6 +796,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     resetMeetingsEndpointMissing();
     resetMessagesEndpointMissing();
   }, [user?.id]);
+
+  // ── Backend points sync ────────────────────────────────────────────────
+  // Sponsor scan points are awarded server-side to the scanned attendee.
+  // addPoints() only handles actions the user explicitly takes, so we
+  // periodically pull /my-rank and take Math.max(local, backend) to surface
+  // server-awarded points without clobbering in-flight optimistic updates.
+  useEffect(() => {
+    const eventId = activeEventConfig?.eventId;
+    if (!user?.id || !eventId) return;
+
+    const syncPoints = async () => {
+      const res = await getUserPointsApi(eventId).catch(() => null);
+      if (!res?.success || !res.data) return;
+      const backendPts = res.data.points;
+      const backendTier = res.data.tier;
+      setUser((prev) => {
+        if (!prev) return prev;
+        const merged = Math.max(prev.points, backendPts);
+        if (merged === prev.points && (!backendTier || backendTier === prev.tier)) return prev;
+        return { ...prev, points: merged, tier: backendTier || prev.tier };
+      });
+    };
+
+    void syncPoints();
+
+    const interval = setInterval(syncPoints, 2 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [user?.id, activeEventConfig?.eventId]);
 
   // ── Background pendingSync reconciliation ──────────────────────────────
   // Periodically retry pushing locally-saved (`pendingSync: true`) leads to

@@ -1,8 +1,10 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { AuthUser, getMe, getMyEventRole, setToken, clearToken, setUnauthorizedHandler, clearUnauthorizedHandler } from '@/lib/apiClient';
+import { getUserPoints } from '@/lib/api/users';
 
 interface AppContextValue {
   user: AuthUser | null;
@@ -285,6 +287,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return next;
     });
   }, [addPoints]);
+
+  // ── Backend points sync ────────────────────────────────────────────────
+  // Sponsor scan points are awarded server-side to the scanned attendee.
+  // The local addPoints() only handles actions the user takes themselves,
+  // so we periodically fetch /my-rank and take Math.max(local, backend) to
+  // surface any server-awarded points (scan, admin grants, etc.) without
+  // clobbering optimistic local updates that haven't synced yet.
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const sync = async () => {
+      const res = await getUserPoints().catch(() => null);
+      if (!res?.success || !res.data) return;
+      const backendPts = res.data.points;
+      const backendTier = res.data.tier;
+      setUserState((prev) => {
+        if (!prev) return prev;
+        const merged = Math.max(prev.points, backendPts);
+        if (merged === prev.points && backendTier === prev.tier) return prev;
+        const updated = { ...prev, points: merged, tier: backendTier || prev.tier };
+        AsyncStorage.setItem(CACHED_USER_KEY, JSON.stringify(updated)).catch(() => {});
+        return updated;
+      });
+    };
+
+    void sync();
+
+    const interval = setInterval(sync, 2 * 60 * 1000);
+
+    const sub = AppState.addEventListener('change', (state: AppStateStatus) => {
+      if (state === 'active') void sync();
+    });
+
+    return () => {
+      clearInterval(interval);
+      sub.remove();
+    };
+  }, [user?.id, setUserState]);
 
   return (
     <AuthContext.Provider value={{
