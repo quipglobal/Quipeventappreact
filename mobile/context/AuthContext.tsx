@@ -297,9 +297,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!user?.id) return;
 
+    // Tracks the wall-clock time of the last completed sync so the
+    // AppState listener can skip redundant calls (e.g. rapid lock/unlock
+    // cycles). The periodic interval already covers the steady-state
+    // refresh cadence; the AppState listener is only there to catch
+    // long foreground gaps. A 5-minute cooldown prevents a burst of
+    // GET /my-rank calls on every phone unlock.
+    const lastSyncAt = { current: 0 };
+    const FOREGROUND_COOLDOWN_MS = 5 * 60 * 1000;
+
     const sync = async () => {
       const res = await getUserPoints().catch(() => null);
       if (!res?.success || !res.data) return;
+      lastSyncAt.current = Date.now();
       const backendPts = res.data.points;
       const backendTier = res.data.tier;
       setUserState((prev) => {
@@ -317,7 +327,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const interval = setInterval(sync, 2 * 60 * 1000);
 
     const sub = AppState.addEventListener('change', (state: AppStateStatus) => {
-      if (state === 'active') void sync();
+      if (state !== 'active') return;
+      if (Date.now() - lastSyncAt.current < FOREGROUND_COOLDOWN_MS) return;
+      void sync();
     });
 
     return () => {

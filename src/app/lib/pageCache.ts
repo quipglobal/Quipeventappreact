@@ -6,7 +6,7 @@
  * an event and refreshes it every 3 minutes in the background.
  */
 
-const TTL_MS = 3 * 60 * 1000; // 3 minutes
+const TTL_MS = 15 * 60 * 1000; // 15 minutes — matches the preloader refresh cadence
 
 interface Entry {
   data: unknown;

@@ -11,7 +11,17 @@ import { getEventCompaniesApi } from '@/app/api/companiesClient';
 import { listEventSurveysApi, getEventSurveyApi } from '@/app/api/engageClient';
 import { setCached } from '@/app/lib/pageCache';
 
-const REFRESH_MS = 3 * 60 * 1000;
+// Static content (agenda, speakers, sponsors) rarely changes during an event
+// — refresh every 15 minutes instead of 3.  Semi-dynamic content (members,
+// surveys) also benefits from a longer window; users re-entering the app
+// get fresh data via the focus-refetch path in each page component.
+const REFRESH_MS = 15 * 60 * 1000;
+
+// Survey detail fan-out: prefetch only the first few entries on join so the
+// initial network burst stays manageable.  Remaining details are fetched
+// on-demand when the user taps a survey row (each page checks the cache first
+// so a cache-hit is still instant).
+const SURVEY_DETAIL_PREFETCH_LIMIT = 3;
 
 export function usePreloader(
   eventId: string | number | undefined,
@@ -45,10 +55,10 @@ export function usePreloader(
       listEventSurveysApi(eid).then(async r => {
         if (!r.success || !r.data) return;
         setCached('surveys', eid, r.data);
-        // Prefetch the first 10 survey details in the background so tapping
-        // a survey is instant rather than triggering a second round-trip.
+        // Prefetch only the first few survey details on join — the rest are
+        // fetched on-demand (cache-hit is still instant for pre-cached ones).
         await Promise.allSettled(
-          r.data.slice(0, 10).map(sv =>
+          r.data.slice(0, SURVEY_DETAIL_PREFETCH_LIMIT).map(sv =>
             getEventSurveyApi(eid, sv.id).then(dr => {
               if (dr.success && dr.data) setCached(`survey-detail:${sv.id}`, eid, dr.data);
             })
