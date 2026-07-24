@@ -197,12 +197,15 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({
       {/* ── Live scanning overlay (corner brackets + scan line) ── */}
       {state === 'streaming' && (
         <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 10 }}>
-          {/* Animated scan line */}
+          {/* @keyframes scanLine is injected via the <style> tag at the bottom
+              of this component. top:0 is the initial position so the animation
+              starts at the top even before the first frame paints. */}
           <div
             className="absolute left-0 w-full h-0.5 bg-green-400"
             style={{
+              top: 0,
               boxShadow: '0 0 12px 2px rgba(34,197,94,0.8)',
-              animation: 'scanLine 2s linear infinite',
+              animation: 'scanLine 2s ease-in-out infinite',
             }}
           />
           {/* Dark vignette border */}
@@ -216,6 +219,18 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({
           <div className="absolute bottom-9 right-9 w-5 h-5 border-b-2 border-r-2 border-green-400 rounded-br-md" />
         </div>
       )}
+      {/* Keyframe lives here so CameraScanner is self-contained regardless of
+          which parent page renders it. */}
+      <style>{`
+        @keyframes scanLine {
+          0%   { top: 0%; opacity: 1; }
+          45%  { top: calc(100% - 2px); opacity: 1; }
+          50%  { top: calc(100% - 2px); opacity: 0; }
+          51%  { top: 0%; opacity: 0; }
+          55%  { top: 0%; opacity: 1; }
+          100% { top: calc(100% - 2px); opacity: 1; }
+        }
+      `}</style>
     </div>
   );
 };
