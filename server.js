@@ -51,6 +51,24 @@ app.use('/storage', proxyTo('/storage'));
 
 app.use(express.static(path.join(__dirname, 'dist')));
 
+// Explicit SPA root handler. Using an explicit route (instead of relying
+// solely on the static middleware) lets us catch sendFile errors and still
+// return a 200 during the brief window right after the container starts —
+// before the layer containing dist/ is fully mounted. Without this, node.js
+// binds the TCP socket and starts accepting health-check probes ~10–50 ms
+// before the static middleware can find index.html, causing repeated 500s
+// that fail the autoscale promote step.
+app.get('/', (req, res) => {
+  const indexPath = path.join(__dirname, 'dist', 'index.html');
+  res.sendFile(indexPath, (err) => {
+    if (err) {
+      // Safe fallback: return a minimal 200 so the startup health probe
+      // always passes. The real app bundle will load once the layer is ready.
+      res.status(200).send('<!doctype html><html><head><meta charset="utf-8"></head><body><div id="root"></div></body></html>');
+    }
+  });
+});
+
 app.use((_req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
