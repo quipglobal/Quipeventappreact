@@ -45,6 +45,11 @@ config:
       arrivalRate: 100
       rampTo: 1
 
+  # Explicitly load the ensure plugin so threshold enforcement is active in CI
+  # (some Artillery versions require this even when using the ensure section).
+  plugins:
+    ensure: {}
+
   # Fail the suite if p95 latency > 3 s or error rate > 1 %
   ensure:
     maxErrorRate: 1
