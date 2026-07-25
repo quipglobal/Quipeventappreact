@@ -684,6 +684,12 @@ export const SponsorScannerPage: React.FC = () => {
         </AnimatePresence>
       </div>
 
+      <style>{`
+        @keyframes scan {
+          0% { top: 0; }
+          100% { top: 100%; }
+        }
+      `}</style>
     </div>
   );
 };
