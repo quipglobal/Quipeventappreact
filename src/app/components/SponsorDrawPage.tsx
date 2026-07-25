@@ -8,6 +8,7 @@ import { useApp, Lead, SponsorGiveaway } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { triggerLuckyDraw, listLeads } from '@/app/api/leadsClient';
+import { getCached, setCached } from '@/app/lib/pageCache';
 
 // ─── Draw history entry ──────────────────────────────────────────────────────
 
@@ -41,8 +42,14 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
   const [poolLeads, setPoolLeads] = useState<Lead[]>([]);
 
   useEffect(() => {
-    listLeads(eventConfig?.eventId ?? '0').then(res => {
+    const eid = eventConfig?.eventId ?? '0';
+    // Serve the leads pool from cache when available — avoids a fresh
+    // API call every time a sponsor opens or returns to this page.
+    const cached = getCached<Lead[]>('leads', eid);
+    if (cached) { setPoolLeads(cached); return; }
+    listLeads(eid).then(res => {
       if (res.success && res.data) {
+        setCached('leads', eid, res.data);
         setPoolLeads(res.data);
       }
     });

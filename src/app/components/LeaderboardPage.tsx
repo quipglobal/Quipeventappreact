@@ -4,6 +4,12 @@ import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import type { LeaderboardEntry, LeaderboardPeriod } from '@/app/api/leaderboardClient';
 
+// Module-level timestamp so navigating away and back within 60 s reuses
+// the already-loaded AppContext data without firing a redundant API call.
+// Resets to 0 on full page reload, so the first mount always fetches.
+const LEADERBOARD_CACHE_MS = 60_000;
+let lastLeaderboardFetch = 0;
+
 /**
  * Build a placeholder avatar URL from a display name. Mirrors the
  * convention used elsewhere in the app for users without a profile
@@ -51,12 +57,15 @@ export const LeaderboardPage: React.FC = () => {
   const userRank = rows.find(p => p.isCurrentUser);
   const top3 = rows.slice(0, 3);
 
-  // Refresh on first mount so a deep-link straight to the
-  // Leaderboard tab (without going through the Home page) still gets
-  // fresh data — the context's on-event-change effect already covers
-  // most cases but is a one-shot. The fetch is single-flight in the
-  // context, so this is safe to no-op when one's already running.
+  // Refresh on first mount (or when data is stale) so a deep-link
+  // straight to the Leaderboard tab still gets fresh data. Throttled
+  // by LEADERBOARD_CACHE_MS so navigating away and back in quick
+  // succession reuses the already-loaded AppContext rows instead of
+  // hammering the API on every tab press.
   useEffect(() => {
+    const now = Date.now();
+    if (leaderboard.length > 0 && now - lastLeaderboardFetch < LEADERBOARD_CACHE_MS) return;
+    lastLeaderboardFetch = now;
     void refreshLeaderboard();
     // We deliberately fire-and-forget on mount only; the period
     // pills and event-change handler cover the other refresh paths.
