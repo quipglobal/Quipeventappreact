@@ -19,7 +19,9 @@
 #   npm run test:load
 
 config:
-  target: "{{ $processEnvironment.LOAD_TEST_BASE_URL }}"
+  # Default target is production. Override via:
+  #   artillery run --target https://staging.cxocollaborate.com tests/load/api-perf.yml
+  target: "https://app.cxocollaborate.com"
   http:
     timeout: 15
     pool: 50

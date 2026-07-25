@@ -26,7 +26,7 @@ Under 100 concurrent users the old survey behaviour alone generated
 |---|---|---|
 | `LOAD_TEST_TOKEN` | Valid `Bearer` token for the target environment | `export LOAD_TEST_TOKEN=227\|g0oVmr...` |
 | `LOAD_TEST_EVENT_ID` | Numeric event id to test against | `export LOAD_TEST_EVENT_ID=21` |
-| `LOAD_TEST_BASE_URL` | API base URL (defaults to production) | `export LOAD_TEST_BASE_URL=https://staging.cxocollaborate.com` |
+| *(none)* | Target URL defaults to production (`https://app.cxocollaborate.com`). Use `--target` to override. | `artillery run --target https://staging.cxocollaborate.com tests/load/api-perf.yml` |
 
 ### Getting a token
 
@@ -36,16 +36,15 @@ for staging/dev only — never use admin tokens against production).
 ## Running the suite
 
 ```bash
-# Against production (default)
+# Against production (default target is https://app.cxocollaborate.com)
 export LOAD_TEST_TOKEN="<your-token>"
 export LOAD_TEST_EVENT_ID=21
 npm run test:load
 
-# Against a staging environment
-export LOAD_TEST_BASE_URL="https://staging.cxocollaborate.com"
+# Against a staging environment (use --target to override the hardcoded default)
 export LOAD_TEST_TOKEN="<staging-token>"
 export LOAD_TEST_EVENT_ID=21
-npm run test:load
+npx artillery run --target https://staging.cxocollaborate.com tests/load/api-perf.yml
 ```
 
 ## Load profile
