@@ -153,12 +153,15 @@ async function runPhase({ name, durationMs, startVUs, endVUs }) {
   const vuStep = (endVUs - startVUs) / Math.max(ticks - 1, 1);
 
   for (let tick = 0; tick < ticks; tick++) {
+    const tickStart = Date.now();
     const vus = Math.max(1, Math.round(startVUs + tick * vuStep));
     process.stdout.write(`  tick ${tick + 1}/${ticks}  VUs=${vus}  requests=${metrics.requests}\r`);
     const iterations = Array.from({ length: vus }, () => runIteration());
     await Promise.all(iterations);
-    // Pace to ~1 s per tick (rough; network latency also contributes)
-    await new Promise((r) => setTimeout(r, 100));
+    // Pace each tick to ≈1 s wall-clock so the declared phase durations are respected.
+    // If requests take longer than 1 s we skip the sleep rather than falling behind.
+    const tickElapsed = Date.now() - tickStart;
+    await new Promise((r) => setTimeout(r, Math.max(0, 1000 - tickElapsed)));
   }
   process.stdout.write('\n');
 }

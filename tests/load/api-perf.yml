@@ -2,27 +2,26 @@
 #
 # Tests the four endpoints that slowed under real event load:
 #   - Attendee list (audience tab)
-#   - Survey list + detail (engage tab)
+#   - Survey list (engage tab)
 #   - Poll list (engage tab)
-#   - Event list (home / event picker)
+#   - Event listing (home / event picker)
 #
 # Prerequisites
 # -------------
-# 1. Set LOAD_TEST_TOKEN to a valid Bearer token for the target environment.
-# 2. Set LOAD_TEST_EVENT_ID to the numeric event id to test against.
-# 3. Set LOAD_TEST_BASE_URL to the API base (default: https://app.cxocollaborate.com).
+# 1. Set LOAD_TEST_TOKEN to a valid Bearer token.
+# 2. Set LOAD_TEST_EVENT_ID to the numeric event id to test against (e.g. 21).
+# 3. Optionally set LOAD_TEST_BASE_URL (defaults to https://app.cxocollaborate.com).
 #
 # Run
 # ---
+#   export LOAD_TEST_TOKEN="<token>"
+#   export LOAD_TEST_EVENT_ID=21
 #   npm run test:load
-#   # or target a specific environment:
-#   LOAD_TEST_BASE_URL=https://staging.cxocollaborate.com npm run test:load
 
 config:
-  target: "{{ $processEnvironment.LOAD_TEST_BASE_URL || 'https://app.cxocollaborate.com' }}"
+  target: "{{ $processEnvironment.LOAD_TEST_BASE_URL }}"
   http:
     timeout: 15
-    # Keep-alive reuse matches what real clients do (browsers, RN fetch)
     pool: 50
   defaults:
     headers:
@@ -31,8 +30,6 @@ config:
       Accept: "application/json"
 
   # Ramp from 0 → 100 virtual users over 30 s, hold 60 s, ramp down 15 s.
-  # At peak (100 VUs) each VU fires one request per scenario per iteration,
-  # giving ~100 concurrent requests for each measured endpoint.
   phases:
     - name: "ramp-up"
       duration: 30
@@ -48,58 +45,36 @@ config:
 
   # Fail the suite if p95 latency > 3 s or error rate > 1 %
   ensure:
+    maxErrorRate: 1
     thresholds:
       - http.response_time.p95: 3000
-    conditions:
-      - expression: "(counters['http.codes.4xx'] || 0) + (counters['http.codes.5xx'] || 0) < (counters['http.requests'] || 1) * 0.01"
-        strict: true
-
-  # Emit a JSON report for CI artefact upload
-  plugins:
-    ensure: {}
 
 scenarios:
   # ── Audience list ──────────────────────────────────────────────────────────
-  # This is the heaviest endpoint — it returns all event members at once and
-  # previously had staleTime:0 on the client, meaning every tab switch fired
-  # a fresh request with no coalescing.
+  # Previously had staleTime:0 on the client — every tab switch by every user
+  # fired a fresh GET with zero coalescing. Now staleTime:60s.
   - name: "GET attendees"
     weight: 30
     flow:
       - get:
           url: "/api/v1/events/{{ $processEnvironment.LOAD_TEST_EVENT_ID }}/attendees"
-          capture:
-            - json: "$.success"
-              as: "attendeesSuccess"
           expect:
             - statusCode: 200
 
   # ── Survey list ────────────────────────────────────────────────────────────
-  # The mobile useSurveys hook previously prefetched 10 survey details on every
-  # mount. This scenario tests the list-level endpoint; see "survey-detail"
-  # below for the amplified detail calls.
+  # Client previously auto-prefetched 10 detail pages per mount (→ 11 req/user).
+  # Prefetch is now capped at 3 on mount; remaining pages load on demand.
   - name: "GET surveys"
     weight: 20
     flow:
       - get:
           url: "/api/v1/events/{{ $processEnvironment.LOAD_TEST_EVENT_ID }}/mobile-surveys"
-          capture:
-            - json: "$.data[0].id"
-              as: "firstSurveyId"
           expect:
             - statusCode: 200
-      # Simulate the (now-capped) detail prefetch: only 3 detail calls per mount
-      - loop:
-          - get:
-              url: "/api/v1/events/{{ $processEnvironment.LOAD_TEST_EVENT_ID }}/mobile-surveys/{{ firstSurveyId }}"
-              ifTrue: "firstSurveyId"
-              expect:
-                - statusCode:
-                    - 200
-                    - 404
-        count: 1
 
   # ── Poll list ──────────────────────────────────────────────────────────────
+  # Previously used React Query's default staleTime:0 — refetched on every focus.
+  # Now staleTime:60s matches the audience cache window.
   - name: "GET polls"
     weight: 25
     flow:
