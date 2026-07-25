@@ -8,7 +8,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { listSessionsApi } from '@/app/api/agendaClient';
 import { getEventSpeakersApi, getEventMembersApi } from '@/app/api/audienceClient';
 import { getEventCompaniesApi } from '@/app/api/companiesClient';
-import { listEventSurveysApi, getEventSurveyApi } from '@/app/api/engageClient';
+import { listEventSurveysApi, getEventSurveyApi, listEventPollsApi, listEventChallengesApi } from '@/app/api/engageClient';
 import { setCached } from '@/app/lib/pageCache';
 
 // Static content (agenda, speakers, sponsors) rarely changes during an event
@@ -64,6 +64,15 @@ export function usePreloader(
             })
           )
         );
+      }),
+      // Polls list — pre-warm so PollsListPage and EngagePage badge counts
+      // are served from cache on every tab visit instead of hitting the API.
+      listEventPollsApi(eid).then(r => {
+        if (r.success && r.data) setCached('polls', eid, r.data);
+      }),
+      // Challenges — pre-warm for EngagePage badge counts
+      listEventChallengesApi(eid).then(r => {
+        if (r.success && r.data) setCached('challenges', eid, r.data);
       }),
     ]);
   }, []);

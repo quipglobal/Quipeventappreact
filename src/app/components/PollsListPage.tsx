@@ -6,9 +6,11 @@ import {
   listEventPollsApi,
   getEventPollApi,
   submitEventPollVoteApi,
+  BackendPollSummary,
   BackendPollDetail,
   PollResultRow,
 } from '@/app/api/engageClient';
+import { getCached, setCached } from '@/app/lib/pageCache';
 
 interface PollsListPageProps { onBack: () => void; }
 
@@ -39,14 +41,22 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
     setPolls([]);
 
     (async () => {
-      const listRes = await listEventPollsApi(eventId);
-      if (stale) return;
-      if (!listRes.success || !listRes.data) {
-        setLoadError(listRes.error?.message ?? 'Failed to load polls.');
-        setLoading(false);
-        return;
+      // Serve the polls list from the preloader cache when available.
+      // If it's a cache miss, fetch and store so subsequent visits are instant.
+      let summaries = getCached<BackendPollSummary[]>('polls', eventId);
+      if (!summaries) {
+        const listRes = await listEventPollsApi(eventId);
+        if (stale) return;
+        if (!listRes.success || !listRes.data) {
+          setLoadError(listRes.error?.message ?? 'Failed to load polls.');
+          setLoading(false);
+          return;
+        }
+        summaries = listRes.data;
+        setCached('polls', eventId, summaries);
       }
-      const live = listRes.data.filter(p => p.status === 'LIVE' || p.status === 'CLOSED');
+      if (stale) return;
+      const live = summaries.filter(p => p.status === 'LIVE' || p.status === 'CLOSED');
       const detailResults = await Promise.all(
         live.map(p => getEventPollApi(eventId, p.id))
       );

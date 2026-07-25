@@ -3,7 +3,11 @@ import { Building2, FileText, BarChart3, Trophy, Sparkles, ArrowRight, Users } f
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import { mockSponsors } from '@/app/data/mockData';
-import { listEventSurveysApi, listEventPollsApi, listEventChallengesApi } from '@/app/api/engageClient';
+import {
+  listEventSurveysApi, listEventPollsApi, listEventChallengesApi,
+  BackendSurveySummary, BackendPollSummary, BackendChallenge,
+} from '@/app/api/engageClient';
+import { getCached, setCached } from '@/app/lib/pageCache';
 
 interface EngagePageProps { onNavigate: (page: string) => void; }
 
@@ -19,15 +23,35 @@ export const EngagePage: React.FC<EngagePageProps> = ({ onNavigate }) => {
   useEffect(() => {
     if (!eventId) return;
     let stale = false;
+
+    // Serve immediately from preloader cache when available — no network hit
+    const cs = getCached<BackendSurveySummary[]>('surveys', eventId);
+    const cp = getCached<BackendPollSummary[]>('polls', eventId);
+    const cc = getCached<BackendChallenge[]>('challenges', eventId);
+    if (cs) setSurveyIds(cs.filter(s => s.status === 'PUBLISHED' || s.status === 'OPEN').map(s => String(s.id)));
+    if (cp) setLivePollIds(cp.filter(p => p.status === 'LIVE').map(p => String(p.id)));
+    if (cc) setActiveChallengeIds(cc.filter(c => c.is_active).map(c => String(c.id)));
+
+    // Only fetch for endpoints that had a cache miss
+    if (cs && cp && cc) return;
     Promise.all([
-      listEventSurveysApi(eventId),
-      listEventPollsApi(eventId),
-      listEventChallengesApi(eventId),
+      cs ? Promise.resolve({ success: true as const, data: cs }) : listEventSurveysApi(eventId),
+      cp ? Promise.resolve({ success: true as const, data: cp }) : listEventPollsApi(eventId),
+      cc ? Promise.resolve({ success: true as const, data: cc }) : listEventChallengesApi(eventId),
     ]).then(([sRes, pRes, cRes]) => {
       if (stale) return;
-      if (sRes.success && sRes.data) setSurveyIds(sRes.data.filter(s => s.status === 'PUBLISHED' || s.status === 'OPEN').map(s => String(s.id)));
-      if (pRes.success && pRes.data) setLivePollIds(pRes.data.filter(p => p.status === 'LIVE').map(p => String(p.id)));
-      if (cRes.success && cRes.data) setActiveChallengeIds(cRes.data.filter(c => c.is_active).map(c => String(c.id)));
+      if (!cs && sRes.success && sRes.data) {
+        setSurveyIds(sRes.data.filter(s => s.status === 'PUBLISHED' || s.status === 'OPEN').map(s => String(s.id)));
+        setCached('surveys', eventId, sRes.data);
+      }
+      if (!cp && pRes.success && pRes.data) {
+        setLivePollIds(pRes.data.filter(p => p.status === 'LIVE').map(p => String(p.id)));
+        setCached('polls', eventId, pRes.data);
+      }
+      if (!cc && cRes.success && cRes.data) {
+        setActiveChallengeIds(cRes.data.filter(c => c.is_active).map(c => String(c.id)));
+        setCached('challenges', eventId, cRes.data);
+      }
     });
     return () => { stale = true; };
   }, [eventId]);
