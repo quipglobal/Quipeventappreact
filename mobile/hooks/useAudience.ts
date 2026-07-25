@@ -16,13 +16,15 @@ export function useAudience(filters?: { tier?: string; search?: string }) {
       return res.data ?? [];
     },
     enabled: !!currentEventId,
-    // Backend returns Cache-Control: no-store — always fetch fresh.
-    // staleTime:0 means data is immediately stale so React Query will always
-    // go to the network on mount / focus. gcTime:0 evicts the cache entry as
-    // soon as there are no active subscribers, preventing stale data from
-    // being served to a newly-mounted audience screen.
-    staleTime: 0,
-    gcTime: 0,
+    // 60-second stale window: the attendee list changes infrequently and the
+    // old staleTime:0 / gcTime:0 combo guaranteed a full network round-trip
+    // on every tab switch. Under high user load (100+ concurrent sessions)
+    // that caused a burst of simultaneous GET /attendees calls with zero
+    // coalescing. Now repeated visits within 60 s are served from cache and
+    // a background refetch runs silently after the window lapses — the list
+    // stays fresh without amplifying backend pressure. gcTime uses the React
+    // Query default (5 min), keeping the cache warm across brief navigations.
+    staleTime: 60_000,
   });
 }
 

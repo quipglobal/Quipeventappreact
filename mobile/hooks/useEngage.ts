@@ -47,6 +47,10 @@ export function usePolls() {
     queryFn: listPolls,
     select: (res) => res.data ?? [],
     enabled: !!currentEventId,
+    // 60-second stale window matching the audience cache. Without an explicit
+    // staleTime React Query defaults to 0, causing a refetch on every mount
+    // and focus event — amplifying poll traffic under load.
+    staleTime: 60_000,
   });
 }
 
@@ -76,7 +80,12 @@ export function useSurveys() {
   const surveys = query.data;
   useEffect(() => {
     if (!surveys?.length || !currentEventId) return;
-    for (const sv of surveys.slice(0, 10)) {
+    // Cap at 3: prefetching all 10 survey details fires up to 11 simultaneous
+    // requests per mounted screen. With 100 concurrent users that's 1 100
+    // requests just for surveys. The remaining entries load on-demand;
+    // useGetSurveyDetail checks the cache first so a pre-warmed entry is
+    // still instant — only the tail entries require an extra round-trip.
+    for (const sv of surveys.slice(0, 3)) {
       queryClient.prefetchQuery({
         queryKey: ['survey-detail', currentEventId, sv.id],
         queryFn: () => getSurveyDetail(sv.id),
