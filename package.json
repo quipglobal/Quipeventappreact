@@ -4,6 +4,7 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
+    "preinstall": "node -e \"try{const fs=require('fs'),p=require('path'),nm=p.join(__dirname,'node_modules');fs.readdirSync(nm).filter(f=>/^\\.[a-zA-Z].+-[A-Za-z0-9]{6,}$/.test(f)).forEach(f=>{try{fs.rmSync(p.join(nm,f),{recursive:true,force:true})}catch(e){}});}catch(e){}\"",
     "build": "vite build",
     "dev": "vite",
     "test:e2e": "playwright test",
