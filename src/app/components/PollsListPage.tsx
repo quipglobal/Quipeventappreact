@@ -57,8 +57,19 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
       }
       if (stale) return;
       const live = summaries.filter(p => p.status === 'LIVE' || p.status === 'CLOSED');
+
+      // Serve each poll detail from cache if the preloader already fetched it.
+      // Only fire a network request for polls that aren't cached yet — and cache
+      // the result so subsequent visits (and other components) pay zero cost.
       const detailResults = await Promise.all(
-        live.map(p => getEventPollApi(eventId, p.id))
+        live.map(p => {
+          const cached = getCached<BackendPollDetail>(`poll-detail:${p.id}`, eventId);
+          if (cached) return Promise.resolve({ success: true as const, data: cached });
+          return getEventPollApi(eventId, p.id).then(r => {
+            if (r.success && r.data) setCached(`poll-detail:${p.id}`, eventId, r.data);
+            return r;
+          });
+        })
       );
       if (stale) return;
       const built: PollState[] = [];

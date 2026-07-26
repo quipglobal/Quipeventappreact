@@ -8,7 +8,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { listSessionsApi } from '@/app/api/agendaClient';
 import { getEventSpeakersApi, getEventMembersApi } from '@/app/api/audienceClient';
 import { getEventCompaniesApi } from '@/app/api/companiesClient';
-import { listEventSurveysApi, getEventSurveyApi, listEventPollsApi, listEventChallengesApi } from '@/app/api/engageClient';
+import { listEventSurveysApi, getEventSurveyApi, listEventPollsApi, getEventPollApi, listEventChallengesApi } from '@/app/api/engageClient';
 import { setCached } from '@/app/lib/pageCache';
 
 // Static content (agenda, speakers, sponsors) rarely changes during an event
@@ -68,10 +68,21 @@ export function usePreloader(
           )
         );
       }),
-      // Polls list — pre-warm so PollsListPage and EngagePage badge counts
-      // are served from cache on every tab visit instead of hitting the API.
-      listEventPollsApi(eid).then(r => {
-        if (r.success && r.data) setCached('polls', eid, r.data);
+      // Polls list + details — pre-warm the list for EngagePage badge counts
+      // AND prefetch each poll's full detail (options) so PollsListPage never
+      // has to fire the N-poll fan-out on page open. Without this, every user
+      // opening PollsListPage fires one API call per live poll simultaneously.
+      listEventPollsApi(eid).then(async r => {
+        if (!r.success || !r.data) return;
+        setCached('polls', eid, r.data);
+        const actionable = r.data.filter(p => p.status === 'LIVE' || p.status === 'CLOSED');
+        await Promise.allSettled(
+          actionable.map(p =>
+            getEventPollApi(eid, p.id).then(dr => {
+              if (dr.success && dr.data) setCached(`poll-detail:${p.id}`, eid, dr.data);
+            })
+          )
+        );
       }),
       // Challenges — pre-warm for EngagePage badge counts
       listEventChallengesApi(eid).then(r => {
