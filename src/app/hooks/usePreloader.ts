@@ -39,13 +39,16 @@ export function usePreloader(
       getEventSpeakersApi(eid, 200).then(r => {
         if (r.success && r.data) setCached('speakers', eid, r.data);
       }),
-      // Audience members list (not filtered to checked-in only)
+      // Audience members list — fetch once and derive the checked-in subset
+      // client-side instead of making a separate checked_in_only=true call.
+      // This halves the number of /attendees API calls on every preload cycle.
       getEventMembersApi(eid, false).then(r => {
-        if (r.success && r.data) setCached('members', eid, r.data);
-      }),
-      // Checked-in members (separate endpoint call)
-      getEventMembersApi(eid, true).then(r => {
-        if (r.success && r.data) setCached('members:checkedIn', eid, r.data);
+        if (!r.success || !r.data) return;
+        setCached('members', eid, r.data);
+        // Derive the checked-in subset so AudiencePage's default view is
+        // served from cache instantly without any extra network request.
+        const checkedIn = r.data.filter(m => m.isCheckedIn);
+        setCached('members:checkedIn', eid, checkedIn);
       }),
       // Sponsors / partners list
       getEventCompaniesApi(eid).then(r => {

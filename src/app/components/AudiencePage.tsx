@@ -582,32 +582,62 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
     setError(null);
 
     if (checkedInOnly) {
-      // Only one API call needed — the list IS the checked-in set.
-      const listRes = await getEventMembersApi(eventId, true);
+      // Prefer a cache-derived checked-in set over a separate API call.
+      // The preloader now caches both 'members' and 'members:checkedIn'
+      // from a single fetch — so we can also build the checked-in list
+      // from the full members cache if the dedicated cache key is missing.
+      const cachedCheckedIn = getCached<EventMember[]>('members:checkedIn', eventId);
+      if (cachedCheckedIn) {
+        setMembers(cachedCheckedIn);
+        setCheckedInIds(new Set(cachedCheckedIn.map(m => m.userId)));
+        setLoading(false);
+        return;
+      }
+      // No checked-in cache — check if the full list is cached and derive.
+      const cachedAll = getCached<EventMember[]>('members', eventId);
+      if (cachedAll) {
+        const checkedIn = cachedAll.filter(m => m.isCheckedIn);
+        setMembers(checkedIn);
+        setCheckedInIds(new Set(checkedIn.map(m => m.userId)));
+        setCached('members:checkedIn', eventId, checkedIn);
+        setLoading(false);
+        return;
+      }
+      // True cache miss — fetch all members once and derive both subsets.
+      const listRes = await getEventMembersApi(eventId, false);
       if (listRes.success && listRes.data) {
-        setMembers(listRes.data);
-        setCheckedInIds(new Set(listRes.data.map(m => m.userId)));
-        setCached('members:checkedIn', eventId, listRes.data);
+        const all = listRes.data;
+        const checkedIn = all.filter(m => m.isCheckedIn);
+        setCached('members', eventId, all);
+        setCached('members:checkedIn', eventId, checkedIn);
+        setMembers(checkedIn);
+        setCheckedInIds(new Set(checkedIn.map(m => m.userId)));
       } else {
         setError(listRes.error?.message ?? 'Failed to load audience');
         setCheckedInIds(new Set());
       }
     } else {
-      // Show all registrations; also fetch the checked-in set for badges.
-      const [listRes, checkedInRes] = await Promise.all([
-        getEventMembersApi(eventId, false),
-        getEventMembersApi(eventId, true),
-      ]);
+      // Show all registrations. One fetch covers both the full list and the
+      // checked-in badge set — no second API call needed.
+      const cachedAll = getCached<EventMember[]>('members', eventId);
+      if (cachedAll) {
+        const cachedCheckedIn = getCached<EventMember[]>('members:checkedIn', eventId)
+          ?? cachedAll.filter(m => m.isCheckedIn);
+        setMembers(cachedAll);
+        setCheckedInIds(new Set(cachedCheckedIn.map(m => m.userId)));
+        setLoading(false);
+        return;
+      }
+      const listRes = await getEventMembersApi(eventId, false);
       if (listRes.success && listRes.data) {
-        setMembers(listRes.data);
-        setCached('members', eventId, listRes.data);
+        const all = listRes.data;
+        const checkedIn = all.filter(m => m.isCheckedIn);
+        setMembers(all);
+        setCached('members', eventId, all);
+        setCached('members:checkedIn', eventId, checkedIn);
+        setCheckedInIds(new Set(checkedIn.map(m => m.userId)));
       } else {
         setError(listRes.error?.message ?? 'Failed to load audience');
-      }
-      if (checkedInRes.success && checkedInRes.data) {
-        setCheckedInIds(new Set(checkedInRes.data.map(m => m.userId)));
-        setCached('members:checkedIn', eventId, checkedInRes.data);
-      } else {
         setCheckedInIds(new Set());
       }
     }

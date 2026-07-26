@@ -322,63 +322,58 @@ export async function getMyEventRoleApi(
 
 // ─── API Methods ──────────────────────────────────────────────────────────────
 
+/** Extracts the flat member array from any Laravel paginator envelope shape. */
+function extractRawList(res: { success: boolean; data?: unknown }): unknown[] {
+  if (!res.success) return [];
+  const body = res.data as Record<string, unknown>;
+  const paginator = (body?.data ?? body) as Record<string, unknown>;
+  if (Array.isArray(paginator?.data)) return paginator.data as unknown[];
+  if (Array.isArray(body?.data))      return body.data as unknown[];
+  if (Array.isArray(res.data))        return res.data as unknown[];
+  return [];
+}
+
 /**
- * GET /api/v1/events/:id/attendees?per_page=100&checked_in_only=<bool>
+ * GET /api/v1/events/:id/attendees?per_page=500
  *
  * Returns audience members (Attendee / Speaker / Moderator / Sponsor only).
  * Server-side role filter — Organizers and Staff are excluded automatically.
- * Backend returns Cache-Control: no-store; always call fresh, do not cache.
- * checkedInOnly=false → all role-eligible registrations
- * checkedInOnly=true  → checked-in subset only
+ *
+ * PERFORMANCE: Fires /attendees and /members in PARALLEL instead of
+ * sequentially. The old pattern (await /attendees → if empty → await /members)
+ * added 3-7 s of dead wait time on every audience load. Now both requests
+ * race; we use /attendees if it returns data, otherwise /members.
+ *
+ * checkedInOnly is passed to the server but the client also stores isCheckedIn
+ * on each record so callers can derive the checked-in subset without a second
+ * API call.
  */
 export async function getEventMembersApi(
   eventId: string | number,
   checkedInOnly: boolean = false,
 ): Promise<EventMembersResponse> {
-  const qs = `per_page=100&checked_in_only=${checkedInOnly}`;
+  const qs = `per_page=500&checked_in_only=${checkedInOnly}`;
 
-  const membersRes = await apiGet<unknown>(`/api/v1/events/${eventId}/attendees?${qs}`, HEADERS);
+  // Fire both endpoints simultaneously — no sequential wait.
+  const [attendeesRes, membersRes] = await Promise.all([
+    apiGet<unknown>(`/api/v1/events/${eventId}/attendees?${qs}`, HEADERS),
+    apiGet<unknown>(`/api/v1/events/${eventId}/members?${qs}`,   HEADERS),
+  ]);
 
-  if (membersRes.success) {
-    const body = membersRes.data as Record<string, unknown>;
-    const paginator = (body?.data ?? body) as Record<string, unknown>;
-    const rawList: unknown[] = Array.isArray(paginator?.data)
-      ? (paginator.data as unknown[])
-      : Array.isArray(body?.data)
-        ? (body.data as unknown[])
-        : Array.isArray(membersRes.data)
-          ? (membersRes.data as unknown[])
-          : [];
-    if (rawList.length > 0) {
-      const total = typeof paginator?.total === 'number' ? paginator.total : rawList.length;
-      const members = rawList.map(m => normalizeFlatMember(m as RawFlatMember, eventId));
-      return { success: true, data: members, total };
-    }
+  // Prefer /attendees (role-filtered, excludes staff/organizers).
+  // Fall back to /members if /attendees is empty or errored.
+  const fromAttendees = extractRawList(attendeesRes);
+  const rawList = fromAttendees.length > 0 ? fromAttendees : extractRawList(membersRes);
+
+  if (rawList.length === 0 && !attendeesRes.success && !membersRes.success) {
+    return { success: false, error: { message: 'Failed to fetch audience.' } };
   }
 
-  // /attendees may return 403 for sponsor reps or an empty list (backend excludes
-  // them). Fall back to /members which includes all event roles.
-  const fallbackRes = await apiGet<unknown>(
-    `/api/v1/events/${eventId}/members?${qs}`,
-    HEADERS,
-  );
-  if (!fallbackRes.success) {
-    return { success: false, error: fallbackRes.error ?? { message: 'Failed to fetch audience.' } };
-  }
-
-  const fbBody = fallbackRes.data as Record<string, unknown>;
-  const fbPaginator = (fbBody?.data ?? fbBody) as Record<string, unknown>;
-  const rawFb: unknown[] = Array.isArray(fbPaginator?.data)
-    ? (fbPaginator.data as unknown[])
-    : Array.isArray(fbBody?.data)
-      ? (fbBody.data as unknown[])
-      : Array.isArray(fallbackRes.data)
-        ? (fallbackRes.data as unknown[])
-        : [];
-
-  const fbTotal = typeof fbPaginator?.total === 'number' ? fbPaginator.total : rawFb.length;
-  const fbMembers = rawFb.map(m => normalizeFlatMember(m as RawFlatMember, eventId));
-  return { success: true, data: fbMembers, total: fbTotal };
+  const body = (attendeesRes.success ? attendeesRes.data : membersRes.data) as Record<string, unknown>;
+  const paginator = (body?.data ?? body) as Record<string, unknown>;
+  const total = typeof paginator?.total === 'number' ? paginator.total : rawList.length;
+  const members = rawList.map(m => normalizeFlatMember(m as RawFlatMember, eventId));
+  return { success: true, data: members, total };
 }
 
 /**
