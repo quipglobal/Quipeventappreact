@@ -476,10 +476,12 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
     // Always fetch checked-in only — single API call, no toggle needed.
     const listRes = await getEventMembersApi(eventId, true);
     if (listRes.success && listRes.data) {
-      // Client-side safety net: keep only truly checked-in records
-      const checkedIn = listRes.data.filter(m => m.isCheckedIn);
-      setCached('members:checkedIn', eventId, checkedIn);
-      setMembers(checkedIn);
+      // Trust the server's checked_in_only=true filter — do NOT additionally
+      // filter client-side. The attendees listing endpoint does not include
+      // joined_at / status=ACTIVE, so client-side isCheckedIn is always false,
+      // which would silently wipe out all returned members.
+      setCached('members:checkedIn', eventId, listRes.data);
+      setMembers(listRes.data);
     } else {
       setError(listRes.error?.message ?? 'Failed to load audience');
     }

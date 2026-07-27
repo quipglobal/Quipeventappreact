@@ -104,13 +104,13 @@ function extractRawList(res: { success: boolean; data?: unknown }): any[] {
 
 /**
  * Fetches checked-in attendees for the current event.
- * Primary: GET /api/v1/events/:id/attendees?per_page=200
- * Fallback: GET /api/v1/events/:id/members?per_page=200  (if /attendees empty or fails)
+ * Primary: GET /api/v1/events/:id/attendees?checked_in_only=true&per_page=200
+ * Fallback: GET /api/v1/events/:id/members?checked_in_only=true&per_page=200
  *
- * NOTE: checked_in_only is NOT sent to the backend — the param is unreliable
- * across events (some return 200 OK with [] for it). All members are fetched
- * and filtered client-side via the isCheckedIn flag (joined_at != null OR
- * status === 'ACTIVE').
+ * ALL members returned by the server are trusted as checked-in. Do NOT
+ * additionally filter client-side by isCheckedIn — the attendees listing
+ * endpoint does not include joined_at or status=ACTIVE, so the client-side
+ * derivation is always false, incorrectly hiding every attendee.
  */
 export async function listAttendees(filters?: { tier?: string; search?: string }): Promise<ApiResponse<Attendee[]>> {
   const eventId = getEventId();
@@ -119,26 +119,29 @@ export async function listAttendees(filters?: { tier?: string; search?: string }
 
   const params = new URLSearchParams();
   params.set('per_page', '200');
+  params.set('checked_in_only', 'true');
   if (filters?.search) params.set('search', filters.search);
 
   // Try /attendees first (role-filtered endpoint)
   const res = await request<any>(`/api/v1/events/${eventId}/attendees?${params.toString()}`);
   const rawList = extractRawList(res);
   if (res.success && rawList.length > 0) {
-    const data = rawList.map(normalizeAttendee).filter(a => a.isCheckedIn);
-    return { success: true, data };
+    // Trust the server's checked_in_only=true filter — all returned members are checked-in
+    return { success: true, data: rawList.map(normalizeAttendee) };
   }
 
   // Fall back to /members if /attendees fails or returns empty
   if (__DEV__) console.log('[Users] /attendees failed or empty — falling back to /members');
   const fbParams = new URLSearchParams();
   fbParams.set('per_page', '200');
+  fbParams.set('checked_in_only', 'true');
   if (filters?.search) fbParams.set('search', filters.search);
 
   const fb = await request<any>(`/api/v1/events/${eventId}/members?${fbParams.toString()}`);
   if (!fb.success) return fb as ApiResponse<Attendee[]>;
   const rawFb = extractRawList(fb);
-  return { success: true, data: rawFb.map(normalizeAttendee).filter(a => a.isCheckedIn) };
+  // Trust server filter — all returned members are checked-in
+  return { success: true, data: rawFb.map(normalizeAttendee) };
 }
 
 export async function getAttendee(userId: string): Promise<ApiResponse<Attendee>> {

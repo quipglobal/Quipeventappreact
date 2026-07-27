@@ -187,7 +187,13 @@ function normalizeFlatMember(raw: RawFlatMember, eventId: string | number): Even
     raw.company_name ||
     (raw.company && typeof raw.company === 'object' ? (raw.company as { name: string }).name : null) ||
     companyFromEmail(email);
-  const isCheckedIn = Boolean(raw.joined_at) || (raw.status ?? '').toUpperCase() === 'ACTIVE';
+  // Prefer explicit isCheckedIn flag from backend (present on scan / check-in
+  // responses). Fall back to deriving from joined_at / status for backends
+  // that include those fields on the listing endpoint.
+  const isCheckedIn =
+    typeof raw.isCheckedIn === 'boolean' ? raw.isCheckedIn :
+    typeof (raw as any).is_checked_in === 'boolean' ? (raw as any).is_checked_in :
+    Boolean(raw.joined_at) || (raw.status ?? '').toUpperCase() === 'ACTIVE';
   const avatar = raw.avatar_url || raw.profile_image || null;
 
   return {
@@ -325,24 +331,27 @@ function extractRawList(res: { success: boolean; data?: unknown }): unknown[] {
 }
 
 /**
- * GET /api/v1/events/:id/attendees?per_page=200
+ * GET /api/v1/events/:id/attendees?per_page=200[&checked_in_only=true]
  *
  * Sequential strategy — no wasted parallel requests:
  *   1. Try /attendees (role-filtered: Attendee / Speaker / Moderator / Sponsor)
  *   2. Fall back to /members if /attendees fails OR returns empty
  *
- * NOTE: checked_in_only is NOT sent to the backend — the param is unreliable
- * across events (some ignore it and return empty arrays). All members are
- * fetched and the caller filters by isCheckedIn client-side, which is derived
- * from joined_at != null OR status === 'ACTIVE'.
+ * When checkedInOnly=true the server-side filter is used and ALL returned
+ * members are treated as checked-in. Do NOT further filter by isCheckedIn
+ * client-side — the attendees listing endpoint does not return joined_at or
+ * status=ACTIVE, so the client-side derivation is always false for every
+ * member, incorrectly wiping out the entire result set.
  *
- * The checkedInOnly argument is kept for backward-compat but is unused server-side.
+ * isCheckedIn on each EventMember is still set (from raw.isCheckedIn if
+ * present, or derived from joined_at/status for backends that include them)
+ * so other consumers (SponsorScannerPage) continue to work.
  */
 export async function getEventMembersApi(
   eventId: string | number,
-  _checkedInOnly: boolean = false,
+  checkedInOnly: boolean = false,
 ): Promise<EventMembersResponse> {
-  const qs = `per_page=200`;
+  const qs = checkedInOnly ? `per_page=200&checked_in_only=true` : `per_page=200`;
 
   // Primary: /attendees (excludes organizers/staff)
   const attendeesRes = await apiGet<unknown>(`/api/v1/events/${eventId}/attendees?${qs}`, HEADERS);
