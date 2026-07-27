@@ -104,11 +104,13 @@ function extractRawList(res: { success: boolean; data?: unknown }): any[] {
 
 /**
  * Fetches checked-in attendees for the current event.
- * Primary: GET /api/v1/events/:id/attendees?checked_in_only=true&per_page=200
- * Fallback: GET /api/v1/events/:id/members?checked_in_only=true&per_page=200
+ * Primary: GET /api/v1/events/:id/attendees?per_page=200
+ * Fallback: GET /api/v1/events/:id/members?per_page=200  (if /attendees empty or fails)
  *
- * Returns only checked-in members. Client-side isCheckedIn flag is set as
- * a safety net in case the server returns non-checked-in records.
+ * NOTE: checked_in_only is NOT sent to the backend — the param is unreliable
+ * across events (some return 200 OK with [] for it). All members are fetched
+ * and filtered client-side via the isCheckedIn flag (joined_at != null OR
+ * status === 'ACTIVE').
  */
 export async function listAttendees(filters?: { tier?: string; search?: string }): Promise<ApiResponse<Attendee[]>> {
   const eventId = getEventId();
@@ -117,7 +119,6 @@ export async function listAttendees(filters?: { tier?: string; search?: string }
 
   const params = new URLSearchParams();
   params.set('per_page', '200');
-  params.set('checked_in_only', 'true');
   if (filters?.search) params.set('search', filters.search);
 
   // Try /attendees first (role-filtered endpoint)
@@ -132,7 +133,6 @@ export async function listAttendees(filters?: { tier?: string; search?: string }
   if (__DEV__) console.log('[Users] /attendees failed or empty — falling back to /members');
   const fbParams = new URLSearchParams();
   fbParams.set('per_page', '200');
-  fbParams.set('checked_in_only', 'true');
   if (filters?.search) fbParams.set('search', filters.search);
 
   const fb = await request<any>(`/api/v1/events/${eventId}/members?${fbParams.toString()}`);

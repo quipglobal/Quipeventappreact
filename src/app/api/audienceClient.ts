@@ -325,37 +325,45 @@ function extractRawList(res: { success: boolean; data?: unknown }): unknown[] {
 }
 
 /**
- * GET /api/v1/events/:id/attendees?checked_in_only=…&per_page=200
+ * GET /api/v1/events/:id/attendees?per_page=200
  *
  * Sequential strategy — no wasted parallel requests:
  *   1. Try /attendees (role-filtered: Attendee / Speaker / Moderator / Sponsor)
- *   2. Fall back to /members only if /attendees fails (not just empty)
+ *   2. Fall back to /members if /attendees fails OR returns empty
  *
- * checkedInOnly is passed to the server. Each returned member also has
- * isCheckedIn derived client-side (joined_at || status=ACTIVE) as a
- * safety net for backends that ignore the query param.
+ * NOTE: checked_in_only is NOT sent to the backend — the param is unreliable
+ * across events (some ignore it and return empty arrays). All members are
+ * fetched and the caller filters by isCheckedIn client-side, which is derived
+ * from joined_at != null OR status === 'ACTIVE'.
+ *
+ * The checkedInOnly argument is kept for backward-compat but is unused server-side.
  */
 export async function getEventMembersApi(
   eventId: string | number,
-  checkedInOnly: boolean = true,
+  _checkedInOnly: boolean = false,
 ): Promise<EventMembersResponse> {
-  const qs = `per_page=200&checked_in_only=${checkedInOnly}`;
+  const qs = `per_page=200`;
 
   // Primary: /attendees (excludes organizers/staff)
   const attendeesRes = await apiGet<unknown>(`/api/v1/events/${eventId}/attendees?${qs}`, HEADERS);
   if (attendeesRes.success) {
     const rawList = extractRawList(attendeesRes);
-    const body = attendeesRes.data as Record<string, unknown>;
-    const paginator = (body?.data ?? body) as Record<string, unknown>;
-    const total = typeof paginator?.total === 'number' ? paginator.total : rawList.length;
-    return {
-      success: true,
-      data: rawList.map(m => normalizeFlatMember(m as RawFlatMember, eventId)),
-      total,
-    };
+    // Fall through to /members if /attendees returned an empty list — some
+    // events return 200 OK with [] from /attendees but have data in /members.
+    if (rawList.length > 0) {
+      const body = attendeesRes.data as Record<string, unknown>;
+      const paginator = (body?.data ?? body) as Record<string, unknown>;
+      const total = typeof paginator?.total === 'number' ? paginator.total : rawList.length;
+      return {
+        success: true,
+        data: rawList.map(m => normalizeFlatMember(m as RawFlatMember, eventId)),
+        total,
+      };
+    }
   }
 
-  // Fallback: /members (all roles — useful for sponsors / organizers)
+  // Fallback: /members (all roles — useful for sponsors / organizers, and
+  // for events where /attendees returns empty or is not yet deployed)
   const membersRes = await apiGet<unknown>(`/api/v1/events/${eventId}/members?${qs}`, HEADERS);
   if (!membersRes.success) {
     return { success: false, error: { message: 'Failed to fetch audience.' } };
