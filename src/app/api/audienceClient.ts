@@ -8,7 +8,7 @@
  *   GET /api/v1/events/:id/attendees/:userId      → single attendee detail
  *
  * Admin / role-lookup (all roles including Organizer/Staff):
- *   GET /api/v1/events/:id/members                → still used for role detection
+ *   GET /api/v1/events/:id/members                → fallback if /attendees fails
  *   GET /api/v1/events/:id/members/:memberId      → check-in & role scan only
  *
  * Response shape per member (v2):
@@ -183,14 +183,11 @@ function normalizeSocialLinks(raw: unknown): Record<string, string> {
 
 function normalizeFlatMember(raw: RawFlatMember, eventId: string | number): EventMember {
   const email = raw.email ?? '';
-  // Company: flat company_name is cleanest; fall back to relation object, then email domain
   const company =
     raw.company_name ||
     (raw.company && typeof raw.company === 'object' ? (raw.company as { name: string }).name : null) ||
     companyFromEmail(email);
-  // isCheckedIn: joined_at being set is the primary signal; ACTIVE status as backup
   const isCheckedIn = Boolean(raw.joined_at) || (raw.status ?? '').toUpperCase() === 'ACTIVE';
-  // Avatar: prefer avatar_url, fall back to profile_image
   const avatar = raw.avatar_url || raw.profile_image || null;
 
   return {
@@ -262,11 +259,6 @@ export async function checkEmailInAudience(email: string): Promise<boolean> {
 /**
  * Looks up the current user's per-event role by scanning the event audience.
  * Iterates pages until the user is found or the audience is exhausted.
- *
- * Returns a discriminated result:
- *   { ok: true, found: true,  role }   — user is a member; role is normalized
- *   { ok: true, found: false }         — audience fully scanned, user absent
- *   { ok: false }                      — API error (caller should leave state alone)
  */
 export type MyEventRoleResult =
   | { ok: true; found: true; role: string }
@@ -274,7 +266,7 @@ export type MyEventRoleResult =
   | { ok: false };
 
 const ROLE_LOOKUP_PAGE_SIZE = 500;
-const ROLE_LOOKUP_MAX_PAGES = 10; // hard ceiling: 5,000 members
+const ROLE_LOOKUP_MAX_PAGES = 10;
 
 export async function getMyEventRoleApi(
   eventId: string | number,
@@ -311,7 +303,6 @@ export async function getMyEventRoleApi(
       return { ok: true, found: true, role: pickRole(me.roles ?? []) };
     }
 
-    // Stop when this page wasn't full — no more pages to fetch
     if (list.length < ROLE_LOOKUP_PAGE_SIZE) {
       return { ok: true, found: false };
     }
@@ -334,53 +325,55 @@ function extractRawList(res: { success: boolean; data?: unknown }): unknown[] {
 }
 
 /**
- * GET /api/v1/events/:id/attendees?per_page=500
+ * GET /api/v1/events/:id/attendees?checked_in_only=…&per_page=200
  *
- * Returns audience members (Attendee / Speaker / Moderator / Sponsor only).
- * Server-side role filter — Organizers and Staff are excluded automatically.
+ * Sequential strategy — no wasted parallel requests:
+ *   1. Try /attendees (role-filtered: Attendee / Speaker / Moderator / Sponsor)
+ *   2. Fall back to /members only if /attendees fails (not just empty)
  *
- * PERFORMANCE: Fires /attendees and /members in PARALLEL instead of
- * sequentially. The old pattern (await /attendees → if empty → await /members)
- * added 3-7 s of dead wait time on every audience load. Now both requests
- * race; we use /attendees if it returns data, otherwise /members.
- *
- * checkedInOnly is passed to the server but the client also stores isCheckedIn
- * on each record so callers can derive the checked-in subset without a second
- * API call.
+ * checkedInOnly is passed to the server. Each returned member also has
+ * isCheckedIn derived client-side (joined_at || status=ACTIVE) as a
+ * safety net for backends that ignore the query param.
  */
 export async function getEventMembersApi(
   eventId: string | number,
-  checkedInOnly: boolean = false,
+  checkedInOnly: boolean = true,
 ): Promise<EventMembersResponse> {
-  const qs = `per_page=500&checked_in_only=${checkedInOnly}`;
+  const qs = `per_page=200&checked_in_only=${checkedInOnly}`;
 
-  // Fire both endpoints simultaneously — no sequential wait.
-  const [attendeesRes, membersRes] = await Promise.all([
-    apiGet<unknown>(`/api/v1/events/${eventId}/attendees?${qs}`, HEADERS),
-    apiGet<unknown>(`/api/v1/events/${eventId}/members?${qs}`,   HEADERS),
-  ]);
-
-  // Prefer /attendees (role-filtered, excludes staff/organizers).
-  // Fall back to /members if /attendees is empty or errored.
-  const fromAttendees = extractRawList(attendeesRes);
-  const rawList = fromAttendees.length > 0 ? fromAttendees : extractRawList(membersRes);
-
-  if (rawList.length === 0 && !attendeesRes.success && !membersRes.success) {
-    return { success: false, error: { message: 'Failed to fetch audience.' } };
+  // Primary: /attendees (excludes organizers/staff)
+  const attendeesRes = await apiGet<unknown>(`/api/v1/events/${eventId}/attendees?${qs}`, HEADERS);
+  if (attendeesRes.success) {
+    const rawList = extractRawList(attendeesRes);
+    const body = attendeesRes.data as Record<string, unknown>;
+    const paginator = (body?.data ?? body) as Record<string, unknown>;
+    const total = typeof paginator?.total === 'number' ? paginator.total : rawList.length;
+    return {
+      success: true,
+      data: rawList.map(m => normalizeFlatMember(m as RawFlatMember, eventId)),
+      total,
+    };
   }
 
-  const body = (attendeesRes.success ? attendeesRes.data : membersRes.data) as Record<string, unknown>;
+  // Fallback: /members (all roles — useful for sponsors / organizers)
+  const membersRes = await apiGet<unknown>(`/api/v1/events/${eventId}/members?${qs}`, HEADERS);
+  if (!membersRes.success) {
+    return { success: false, error: { message: 'Failed to fetch audience.' } };
+  }
+  const rawList = extractRawList(membersRes);
+  const body = membersRes.data as Record<string, unknown>;
   const paginator = (body?.data ?? body) as Record<string, unknown>;
   const total = typeof paginator?.total === 'number' ? paginator.total : rawList.length;
-  const members = rawList.map(m => normalizeFlatMember(m as RawFlatMember, eventId));
-  return { success: true, data: members, total };
+  return {
+    success: true,
+    data: rawList.map(m => normalizeFlatMember(m as RawFlatMember, eventId)),
+    total,
+  };
 }
 
 /**
  * GET /api/v1/events/:id/attendees?per_page=…  (paginated)
- * Returns just the members whose role is "Speaker". Useful for the
- * Speaker Spotlight on the home screen.
- * Speakers are included in the server-side role filter on /attendees.
+ * Returns just the members whose role is "Speaker".
  */
 export async function getEventSpeakersApi(
   eventId: string | number,
@@ -388,7 +381,7 @@ export async function getEventSpeakersApi(
 ): Promise<EventMembersResponse> {
   const all: EventMember[] = [];
   const PAGE_SIZE = 200;
-  const MAX_PAGES = 5; // up to 1,000 members scanned
+  const MAX_PAGES = 5;
 
   for (let page = 1; page <= MAX_PAGES; page++) {
     const res = await apiGet<unknown>(
@@ -424,7 +417,6 @@ export async function getEventSpeakersApi(
 /**
  * GET /api/v1/events/:eventId/attendees/:userId
  * Returns a single attendee's full profile (same flat v2 shape).
- * Pass the user's userId (raw.id), not membership_id.
  */
 export async function getMemberDetailApi(
   eventId: string | number,
@@ -445,11 +437,8 @@ export async function getMemberDetailApi(
 // ─── Badge code lookup + check-in ─────────────────────────────────────────────
 
 /**
- * GET /api/v1/events/:eventId/attendees?per_page=…  (paginated)
- *
- * Convenience client-side fallback: scans the audience pages and returns the
- * first member whose `badgeCode` matches. Used when the scan endpoint cannot
- * resolve a code so the lead form can still pre-fill the attendee profile.
+ * Scans audience pages and returns the first member whose badge_code matches.
+ * Used as a fallback when the scan endpoint cannot resolve a code.
  */
 export async function findMemberByBadgeCodeApi(
   eventId: string | number,
@@ -487,16 +476,7 @@ export async function findMemberByBadgeCodeApi(
 
 /**
  * POST /api/v1/events/:eventId/members/:memberId/check-in
- *
- * Marks an attendee as checked-in to an event. Used by the badge scanner to
- * auto check-in attendees when they're scanned but haven't joined yet.
- *
- * Backend contract (to implement if not present):
- *   Request:  empty body
- *   Response: { success: true, data: { membership_id, status: 'ACTIVE', joined_at } }
- *
- * Returns true on success, false on any error (caller treats failure as a no-op
- * so the lead save still proceeds).
+ * Marks an attendee as checked-in. Returns true on success, false on error.
  */
 export async function checkInMemberApi(
   eventId: string | number,
@@ -516,9 +496,7 @@ export async function checkInMemberApi(
 
 /**
  * POST /api/v1/events/{eventId}/self-check-in
- * Marks the current user as physically checked in for an event.
- * Idempotent — safe to call even if already checked in.
- * No membership ID required; the backend resolves it from the bearer token.
+ * Marks the current user as physically checked in. Idempotent.
  */
 export async function selfCheckInApi(
   eventId: string | number,
@@ -537,9 +515,7 @@ export async function selfCheckInApi(
 
 /**
  * Looks up the current user's membership_id for a given event.
- * Tries badge_code first (fast, single-record), then falls back to user_id
- * if badge_code is unavailable. Mirrors the mobile `getMyMembershipId` helper.
- * Returns null on any failure — callers must handle this gracefully.
+ * Tries badge_code first, then falls back to user_id.
  */
 export async function getMyMembershipIdApi(
   eventId: string | number,
@@ -627,16 +603,18 @@ export async function getMeProfileApi(): Promise<{ success: boolean; data?: MePr
   const normalized: MeProfileNormalized = {
     id: typeof raw.id === 'number' ? raw.id : 0,
     name: typeof raw.name === 'string' ? raw.name : '',
-    first_name: extractString(raw.first_name),
-    last_name: extractString(raw.last_name),
+    first_name: typeof raw.first_name === 'string' ? raw.first_name : null,
+    last_name: typeof raw.last_name === 'string' ? raw.last_name : null,
     email: typeof raw.email === 'string' ? raw.email : '',
-    phone: extractString(raw.phone),
-    title: extractString(raw.title),
-    bio: extractString(raw.bio),
-    linkedin_url: extractString(raw.linkedin_url),
-    social_links: (raw.social_links && typeof raw.social_links === 'object') ? (raw.social_links as Record<string, unknown>) : null,
-    avatar_url: extractString(raw.avatar_url),
-    profile_image: extractString(raw.profile_image),
+    phone: typeof raw.phone === 'string' ? raw.phone : null,
+    title: typeof raw.title === 'string' ? raw.title : null,
+    bio: typeof raw.bio === 'string' ? raw.bio : null,
+    linkedin_url: typeof raw.linkedin_url === 'string' ? raw.linkedin_url : null,
+    social_links: raw.social_links != null && typeof raw.social_links === 'object' && !Array.isArray(raw.social_links)
+      ? raw.social_links as Record<string, unknown>
+      : null,
+    avatar_url: typeof raw.avatar_url === 'string' ? raw.avatar_url : null,
+    profile_image: typeof raw.profile_image === 'string' ? raw.profile_image : null,
     company: extractString(raw.company),
     industry: extractString(raw.industry),
     interested_topics: extractStringArray(raw.interested_topics),

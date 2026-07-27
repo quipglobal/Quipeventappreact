@@ -4,7 +4,7 @@ import {
   Building2, ChevronRight, UserCheck,
   Globe, X, Wifi, WifiOff,
   Loader2, BadgeCheck,
-  RefreshCw, Filter, User,
+  RefreshCw, User,
 } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
@@ -26,23 +26,6 @@ const AVATAR_COLORS = [
 
 function avatarColor(userId: number): string {
   return AVATAR_COLORS[userId % AVATAR_COLORS.length];
-}
-
-
-
-const roleGradients: Record<string, string> = {
-  Speaker:   'linear-gradient(135deg,#f59e0b,#ea580c)',
-  VIP:       'linear-gradient(135deg,#a78bfa,#7c3aed)',
-  Sponsor:   'linear-gradient(135deg,#10b981,#0d9488)',
-  Organizer: 'linear-gradient(135deg,#3b82f6,#6366f1)',
-  Staff:     'linear-gradient(135deg,#06b6d4,#0284c7)',
-  Moderator: 'linear-gradient(135deg,#ec4899,#db2777)',
-  Exhibitor: 'linear-gradient(135deg,#f97316,#ef4444)',
-  Attendee:  'linear-gradient(135deg,#6b7280,#4b5563)',
-};
-
-function roleGrad(role: string): string {
-  return roleGradients[role] ?? roleGradients['Attendee'];
 }
 
 // ─── Avatar ───────────────────────────────────────────────────────────────────
@@ -80,11 +63,9 @@ const DetailRow: React.FC<{
   value: string | null | undefined;
   divider?: boolean;
   valueColor?: string;
-  noMask?: boolean;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   t: Record<string, any>;
 }> = ({ icon, iconBg, label, value, divider, valueColor, t }) => {
-  // Guard: coerce any non-null value to a safe string to prevent "Objects are not valid as a React child" crashes
   const safeValue: string | null = value == null
     ? null
     : typeof value === 'string'
@@ -116,8 +97,7 @@ const MemberDetailPage: React.FC<{
   member: EventMember;
   eventId: string | number;
   onBack: () => void;
-  isCheckedIn: boolean;
-}> = ({ member, eventId, onBack, isCheckedIn }) => {
+}> = ({ member, eventId, onBack }) => {
   const { t, isDark } = useTheme();
   const { user } = useApp();
   const [detail, setDetail] = useState<MemberDetail | null>(null);
@@ -128,14 +108,12 @@ const MemberDetailPage: React.FC<{
     const isOwnProfile = !!user?.email && user.email.toLowerCase() === member.email.toLowerCase();
 
     const memberDetailPromise = getMemberDetailApi(eventId, member.userId);
-    // If viewing own profile, also fetch rich me/profile data
     const meProfilePromise = isOwnProfile ? getMeProfileApi() : Promise.resolve({ success: false as const });
 
     Promise.all([memberDetailPromise, meProfilePromise]).then(([memberRes, meRes]) => {
       const base = memberRes.success && memberRes.data ? memberRes.data : null;
       if (isOwnProfile && meRes.success && meRes.data) {
         const me = meRes.data;
-        // Merge me/profile rich fields over the base member detail
         const merged: MemberDetail = {
           ...(base ?? {
             memberId: member.memberId,
@@ -169,9 +147,7 @@ const MemberDetailPage: React.FC<{
           company: me.company || base?.company || member.company,
           avatar: me.avatar_url || me.profile_image || base?.avatar || null,
           industry: me.industry || null,
-          // getMeProfileApi already normalizes interested_topics to string[]
           interestedTopics: me.interested_topics,
-          // social_links values may be any type; coerce each to a string for safe rendering
           socialLinks: Object.fromEntries(
             Object.entries(me.social_links ?? {})
               .map(([k, v]) => [k, typeof v === 'string' ? v : (v != null ? String(v) : '')])
@@ -186,7 +162,6 @@ const MemberDetailPage: React.FC<{
     }).finally(() => setDetailLoading(false));
   }, [eventId, member.memberId, member.email, user?.email]);
 
-  // Merge: rich detail overrides base member data where available
   const firstName = detail?.firstName ?? member.name.split(' ')[0] ?? null;
   const lastName = detail?.lastName ?? (member.name.includes(' ') ? member.name.split(' ').slice(1).join(' ') : null);
   const company = detail?.company || member.company;
@@ -234,12 +209,10 @@ const MemberDetailPage: React.FC<{
                 style={{ borderColor: 'rgba(255,255,255,0.25)' }}>
                 <MemberAvatar member={member} size={80} rounded="rounded-none" />
               </div>
-              {isCheckedIn && (
-                <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-emerald-500 border-2 flex items-center justify-center"
-                  style={{ borderColor: isDark ? '#312e81' : '#6366f1' }}>
-                  <BadgeCheck style={{ width: 11, height: 11, color: '#fff' }} />
-                </div>
-              )}
+              <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-emerald-500 border-2 flex items-center justify-center"
+                style={{ borderColor: isDark ? '#312e81' : '#6366f1' }}>
+                <BadgeCheck style={{ width: 11, height: 11, color: '#fff' }} />
+              </div>
             </div>
 
             <div className="flex-1 min-w-0 pt-1">
@@ -251,18 +224,15 @@ const MemberDetailPage: React.FC<{
                   {typeof title === 'string' ? title : String(title)}
                 </p>
               )}
-              {isCheckedIn && (
-                <div className="flex items-center gap-1 mt-1.5">
-                  <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold"
-                    style={{ background: 'rgba(16,185,129,0.2)', color: '#34d399' }}>
-                    <BadgeCheck style={{ width: 10, height: 10 }} /> Checked In
-                  </span>
-                </div>
-              )}
+              <div className="flex items-center gap-1 mt-1.5">
+                <span className="flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold"
+                  style={{ background: 'rgba(16,185,129,0.2)', color: '#34d399' }}>
+                  <BadgeCheck style={{ width: 10, height: 10 }} /> Checked In
+                </span>
+              </div>
             </div>
           </div>
 
-          {/* Networking opt-in banner */}
           {member.networkingOptIn && (
             <div className="mt-4 flex items-center gap-2 px-3 py-2 rounded-xl"
               style={{ background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.25)' }}>
@@ -274,7 +244,6 @@ const MemberDetailPage: React.FC<{
         </div>
       </div>
 
-      {/* Loading shimmer while fetching rich profile */}
       {detailLoading && (
         <div className="px-5 mb-4">
           <div className="h-2 rounded-full animate-pulse mb-1" style={{ background: t.border, width: '60%' }} />
@@ -282,67 +251,20 @@ const MemberDetailPage: React.FC<{
         </div>
       )}
 
-      {/* ── Profile Details ───────────────────────────────── */}
       <div className="px-5 mb-5">
         <h3 style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Profile Details</h3>
         <div className="rounded-2xl overflow-hidden" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
-
-          {/* First Name */}
-          <DetailRow
-            icon={<User style={{ width: 14, height: 14, color: '#6366f1' }} />}
-            iconBg="rgba(99,102,241,0.1)"
-            label="First Name"
-            value={firstName}
-            divider
-            t={t}
-          />
-
-          {/* Last Name */}
-          <DetailRow
-            icon={<User style={{ width: 14, height: 14, color: '#6366f1' }} />}
-            iconBg="rgba(99,102,241,0.1)"
-            label="Last Name"
-            value={lastName}
-            divider
-            t={t}
-          />
-
-          {/* Job Title */}
-          <DetailRow
-            icon={<BadgeCheck style={{ width: 14, height: 14, color: '#7c3aed' }} />}
-            iconBg="rgba(124,58,237,0.1)"
-            label="Job Title"
-            value={title}
-            divider
-            t={t}
-          />
-
-          {/* Company */}
-          <DetailRow
-            icon={<Building2 style={{ width: 14, height: 14, color: '#f59e0b' }} />}
-            iconBg="rgba(245,158,11,0.1)"
-            label="Company"
-            value={company || null}
-            divider
-            t={t}
-          />
-
-          {/* Industry */}
-          <DetailRow
-            icon={<Globe style={{ width: 14, height: 14, color: '#06b6d4' }} />}
-            iconBg="rgba(6,182,212,0.1)"
-            label="Company Industry"
-            value={industry}
-            t={t}
-          />
+          <DetailRow icon={<User style={{ width: 14, height: 14, color: '#6366f1' }} />} iconBg="rgba(99,102,241,0.1)" label="First Name" value={firstName} divider t={t} />
+          <DetailRow icon={<User style={{ width: 14, height: 14, color: '#6366f1' }} />} iconBg="rgba(99,102,241,0.1)" label="Last Name" value={lastName} divider t={t} />
+          <DetailRow icon={<BadgeCheck style={{ width: 14, height: 14, color: '#7c3aed' }} />} iconBg="rgba(124,58,237,0.1)" label="Job Title" value={title} divider t={t} />
+          <DetailRow icon={<Building2 style={{ width: 14, height: 14, color: '#f59e0b' }} />} iconBg="rgba(245,158,11,0.1)" label="Company" value={company || null} divider t={t} />
+          <DetailRow icon={<Globe style={{ width: 14, height: 14, color: '#06b6d4' }} />} iconBg="rgba(6,182,212,0.1)" label="Company Industry" value={industry} t={t} />
         </div>
       </div>
 
-      {/* ── Introduction ─────────────────────────────────── */}
       <div className="px-5 mb-5">
         <h3 style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Introduction</h3>
-        <div className="rounded-2xl px-4 py-4"
-          style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+        <div className="rounded-2xl px-4 py-4" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
           {bio ? (
             <p style={{ color: t.textSec, fontSize: 13, lineHeight: 1.7 }}>{bio}</p>
           ) : (
@@ -351,11 +273,9 @@ const MemberDetailPage: React.FC<{
         </div>
       </div>
 
-      {/* ── Interested Topics ────────────────────────────── */}
       <div className="px-5 mb-5">
         <h3 style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Interested Topics</h3>
-        <div className="rounded-2xl px-4 py-4"
-          style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+        <div className="rounded-2xl px-4 py-4" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
           {interestedTopics.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {interestedTopics.map((topic, i) => {
@@ -374,7 +294,6 @@ const MemberDetailPage: React.FC<{
         </div>
       </div>
 
-      {/* ── Social Links ─────────────────────────────────── */}
       <div className="px-5 mb-5">
         <h3 style={{ color: t.text, fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Social Links</h3>
         <div className="rounded-2xl overflow-hidden" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
@@ -412,8 +331,6 @@ const MemberDetailPage: React.FC<{
         </div>
       </div>
 
-
-      {/* ── Networking ───────────────────────────────────── */}
       <div className="px-5 mb-5">
         <div className="rounded-2xl p-4 flex items-center gap-3"
           style={{
@@ -436,7 +353,6 @@ const MemberDetailPage: React.FC<{
         </div>
       </div>
 
-      {/* Privacy notice */}
       <div className="px-5 pb-8">
         <div className="rounded-xl p-4" style={{ background: t.surface2, border: `1px solid ${t.border}` }}>
           <div className="flex items-start gap-2.5">
@@ -456,10 +372,9 @@ const MemberDetailPage: React.FC<{
 const MemberCard: React.FC<{
   member: EventMember;
   isConnected: boolean;
-  isCheckedIn: boolean;
   index: number;
   onClick: () => void;
-}> = ({ member, isConnected, isCheckedIn, index, onClick }) => {
+}> = ({ member, isConnected, index, onClick }) => {
   const { t } = useTheme();
 
   return (
@@ -472,14 +387,12 @@ const MemberCard: React.FC<{
       style={{ background: t.surface, boxShadow: t.shadow, border: `1px solid ${t.border}` }}
     >
       <div className="flex items-center gap-3.5">
-        {/* Avatar */}
         <div className="flex-shrink-0">
           <div className="w-12 h-12 rounded-xl overflow-hidden">
             <MemberAvatar member={member} size={48} rounded="rounded-none" />
           </div>
         </div>
 
-        {/* Info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-0.5">
             <h3 className="truncate" style={{ color: t.text, fontSize: 14, fontWeight: 700 }}>
@@ -488,14 +401,12 @@ const MemberCard: React.FC<{
             {isConnected && <UserCheck style={{ width: 13, height: 13, color: t.successText, flexShrink: 0 }} />}
           </div>
 
-          {/* Job title */}
           {member.title && (
             <p className="truncate mb-1" style={{ color: t.textSec, fontSize: 12, fontWeight: 600 }}>
               {member.title}
             </p>
           )}
 
-          {/* Company */}
           <div className="flex items-center gap-1.5 flex-wrap min-w-0">
             {member.company && (
               <span className="truncate flex items-center gap-1" style={{ color: t.textSec, fontSize: 12 }}>
@@ -505,23 +416,13 @@ const MemberCard: React.FC<{
             )}
           </div>
 
-          {/* Check-in badge — only for members who actually checked in */}
-          {isCheckedIn && (
-            <div className="flex items-center gap-1 mt-1" style={{ color: '#10b981', fontSize: 11, fontWeight: 600 }}>
-              <BadgeCheck style={{ width: 11, height: 11 }} />
-              Checked in
-            </div>
-          )}
+          <div className="flex items-center gap-1 mt-1" style={{ color: '#10b981', fontSize: 11, fontWeight: 600 }}>
+            <BadgeCheck style={{ width: 11, height: 11 }} />
+            Checked in
+          </div>
         </div>
 
-        {/* Right: role tag + chevron */}
-        <div className="flex-shrink-0 flex flex-col items-end gap-2">
-          {member.role !== 'Attendee' && (
-            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold"
-              style={{ background: roleGrad(member.role), color: '#fff', letterSpacing: '0.04em' }}>
-              {member.role.toUpperCase()}
-            </span>
-          )}
+        <div className="flex-shrink-0">
           <ChevronRight style={{ width: 14, height: 14, color: t.textMuted }} />
         </div>
       </div>
@@ -539,31 +440,17 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
   const { eventConfig, addPoints, sendConnectionRequest } = useApp();
   const { t, isDark } = useTheme();
 
-  // Default is checkedInOnly=true, so seed from the checked-in cache, not the
-  // all-registrations cache.  This prevents the flicker where the page briefly
-  // shows every registration before the API responds with the filtered list.
   const [members, setMembers] = useState<EventMember[]>(() =>
     getCached<EventMember[]>('members:checkedIn', eventConfig.eventId ?? '') ?? [],
   );
-  const [checkedInIds, setCheckedInIds] = useState<Set<number>>(() => {
-    const c = getCached<EventMember[]>('members:checkedIn', eventConfig.eventId ?? '');
-    return c ? new Set(c.map(m => m.userId)) : new Set();
-  });
   const [loading, setLoading] = useState<boolean>(() =>
     !getCached<EventMember[]>('members:checkedIn', eventConfig.eventId ?? ''),
   );
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [roleFilter, setRoleFilter] = useState<string>('all');
-  // Default: show only checked-in attendees per policy; user can toggle to see all registrations.
-  const [checkedInOnly, setCheckedInOnly] = useState(true);
   const [selectedMember, setSelectedMember] = useState<EventMember | null>(null);
   const [connectedIds, setConnectedIds] = useState<Set<number>>(new Set());
 
-  // The detail panel uses `absolute inset-0` relative to this page, so it
-  // anchors to the top of the (potentially long) attendee list. If the user
-  // taps a card after scrolling down, the detail header would render off
-  // screen above them. Scroll to top whenever a member is opened.
   useEffect(() => {
     if (selectedMember) {
       window.scrollTo({ top: 0, behavior: 'auto' });
@@ -573,102 +460,47 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
   const eventId = eventConfig?.eventId;
   const eventName = eventConfig?.name ?? 'This Event';
 
-  const fetchMembers = useCallback(async () => {
+  const fetchMembers = useCallback(async (force = false) => {
     if (!eventId) { setLoading(false); return; }
-    // Use the correct cache key so the loading gate matches what we show.
-    const membersKey = checkedInOnly ? 'members:checkedIn' : 'members';
-    const hasCached = getCached<EventMember[]>(membersKey, eventId) !== null;
-    if (!hasCached) setLoading(true);
+
+    const cached = getCached<EventMember[]>('members:checkedIn', eventId);
+    if (cached && !force) {
+      setMembers(cached);
+      setLoading(false);
+      return;
+    }
+
+    if (!cached) setLoading(true);
     setError(null);
 
-    if (checkedInOnly) {
-      // Prefer a cache-derived checked-in set over a separate API call.
-      // The preloader now caches both 'members' and 'members:checkedIn'
-      // from a single fetch — so we can also build the checked-in list
-      // from the full members cache if the dedicated cache key is missing.
-      const cachedCheckedIn = getCached<EventMember[]>('members:checkedIn', eventId);
-      if (cachedCheckedIn) {
-        setMembers(cachedCheckedIn);
-        setCheckedInIds(new Set(cachedCheckedIn.map(m => m.userId)));
-        setLoading(false);
-        return;
-      }
-      // No checked-in cache — check if the full list is cached and derive.
-      const cachedAll = getCached<EventMember[]>('members', eventId);
-      if (cachedAll) {
-        const checkedIn = cachedAll.filter(m => m.isCheckedIn);
-        setMembers(checkedIn);
-        setCheckedInIds(new Set(checkedIn.map(m => m.userId)));
-        setCached('members:checkedIn', eventId, checkedIn);
-        setLoading(false);
-        return;
-      }
-      // True cache miss — fetch all members once and derive both subsets.
-      const listRes = await getEventMembersApi(eventId, false);
-      if (listRes.success && listRes.data) {
-        const all = listRes.data;
-        const checkedIn = all.filter(m => m.isCheckedIn);
-        setCached('members', eventId, all);
-        setCached('members:checkedIn', eventId, checkedIn);
-        setMembers(checkedIn);
-        setCheckedInIds(new Set(checkedIn.map(m => m.userId)));
-      } else {
-        setError(listRes.error?.message ?? 'Failed to load audience');
-        setCheckedInIds(new Set());
-      }
+    // Always fetch checked-in only — single API call, no toggle needed.
+    const listRes = await getEventMembersApi(eventId, true);
+    if (listRes.success && listRes.data) {
+      // Client-side safety net: keep only truly checked-in records
+      const checkedIn = listRes.data.filter(m => m.isCheckedIn);
+      setCached('members:checkedIn', eventId, checkedIn);
+      setMembers(checkedIn);
     } else {
-      // Show all registrations. One fetch covers both the full list and the
-      // checked-in badge set — no second API call needed.
-      const cachedAll = getCached<EventMember[]>('members', eventId);
-      if (cachedAll) {
-        const cachedCheckedIn = getCached<EventMember[]>('members:checkedIn', eventId)
-          ?? cachedAll.filter(m => m.isCheckedIn);
-        setMembers(cachedAll);
-        setCheckedInIds(new Set(cachedCheckedIn.map(m => m.userId)));
-        setLoading(false);
-        return;
-      }
-      const listRes = await getEventMembersApi(eventId, false);
-      if (listRes.success && listRes.data) {
-        const all = listRes.data;
-        const checkedIn = all.filter(m => m.isCheckedIn);
-        setMembers(all);
-        setCached('members', eventId, all);
-        setCached('members:checkedIn', eventId, checkedIn);
-        setCheckedInIds(new Set(checkedIn.map(m => m.userId)));
-      } else {
-        setError(listRes.error?.message ?? 'Failed to load audience');
-        setCheckedInIds(new Set());
-      }
+      setError(listRes.error?.message ?? 'Failed to load audience');
     }
     setLoading(false);
-  }, [eventId, checkedInOnly]);
+  }, [eventId]);
 
   useEffect(() => { fetchMembers(); }, [fetchMembers]);
 
-  const availableRoles = useMemo(() => {
-    return Array.from(new Set(members.map(m => m.role))).sort();
-  }, [members]);
-
   const filteredMembers = useMemo(() => {
     const q = searchQuery.toLowerCase();
-    return members.filter(m => {
-      const matchesSearch = !q ||
-        m.name.toLowerCase().includes(q) ||
-        m.role.toLowerCase().includes(q) ||
-        m.company.toLowerCase().includes(q);
-      const matchesRole = roleFilter === 'all' || m.role === roleFilter;
-      return matchesSearch && matchesRole;
-    });
-  }, [members, searchQuery, roleFilter]);
+    if (!q) return members;
+    return members.filter(m =>
+      m.name.toLowerCase().includes(q) ||
+      m.company.toLowerCase().includes(q) ||
+      (m.title ?? '').toLowerCase().includes(q),
+    );
+  }, [members, searchQuery]);
 
-  // Use the authoritative checked-in set from the dedicated endpoint,
-  // not the per-member isCheckedIn flag (which is true for any ACTIVE
-  // registration).
-  const checkedInCount = checkedInIds.size;
   const networkingCount = useMemo(
-    () => members.filter(m => checkedInIds.has(m.userId) && m.networkingOptIn).length,
-    [members, checkedInIds],
+    () => members.filter(m => m.networkingOptIn).length,
+    [members],
   );
 
   const handleConnect = (userId: number) => {
@@ -722,7 +554,7 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
             {eventName}
           </h1>
           <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, marginBottom: 12 }}>
-            Attendees at this event
+            Checked-in attendees
           </p>
 
           {/* Stats */}
@@ -731,7 +563,7 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg"
                 style={{ background: 'rgba(16,185,129,0.2)' }}>
                 <BadgeCheck style={{ width: 13, height: 13, color: '#34d399' }} />
-                <span style={{ color: '#34d399', fontSize: 12, fontWeight: 700 }}>{checkedInCount}</span>
+                <span style={{ color: '#34d399', fontSize: 12, fontWeight: 700 }}>{members.length}</span>
                 <span style={{ color: 'rgba(52,211,153,0.7)', fontSize: 11 }}>checked in</span>
               </div>
               {networkingCount > 0 && (
@@ -742,12 +574,6 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
                   <span style={{ color: 'rgba(129,140,248,0.7)', fontSize: 11 }}>networking</span>
                 </div>
               )}
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg"
-                style={{ background: 'rgba(255,255,255,0.1)' }}>
-                <Users style={{ width: 13, height: 13, color: 'rgba(255,255,255,0.7)' }} />
-                {/* <span style={{ color: '#fff', fontSize: 12, fontWeight: 700 }}>{members.length}</span>
-                <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11 }}>registered</span> */}
-              </div>
             </div>
           )}
 
@@ -756,7 +582,7 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2"
               style={{ width: 16, height: 16, color: 'rgba(255,255,255,0.4)' }} />
             <input type="text"
-              placeholder="Search by name, company, or role…"
+              placeholder="Search by name, company, or title…"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-10 py-2.5 rounded-xl outline-none"
@@ -773,58 +599,6 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
             )}
           </div>
         </div>
-      </div>
-
-      {/* Filter bar */}
-      <div className="px-5 py-3 flex gap-2 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
-        {/* Checked-in Only toggle — always sends param explicitly to the API */}
-        <button
-          onClick={() => setCheckedInOnly(v => !v)}
-          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full flex-shrink-0 transition-all"
-          style={{
-            background: checkedInOnly ? '#3b82f6' : t.surface,
-            color: checkedInOnly ? '#fff' : t.textSec,
-            fontSize: 12, fontWeight: 700,
-            border: `1.5px solid ${checkedInOnly ? '#3b82f6' : t.border}`,
-          }}>
-          <BadgeCheck style={{ width: 13, height: 13 }} />
-          {checkedInOnly ? 'Checked-in Only' : 'All Registrations'}
-        </button>
-
-        {/* Divider 
-        {availableRoles.length > 1 && (
-          <div className="w-px flex-shrink-0 self-stretch mx-0.5" style={{ background: t.divider }} />
-        )} by RT 07132026*/}
-
-        {/* All roles */}
-        {availableRoles.length > 1 && (
-          <button
-            onClick={() => setRoleFilter('all')}
-            className="px-3.5 py-1.5 rounded-full flex-shrink-0 transition-all"
-            style={{
-              background: roleFilter === 'all' ? t.accent : t.surface,
-              color: roleFilter === 'all' ? '#fff' : t.textSec,
-              fontSize: 12, fontWeight: 600,
-              border: `1px solid ${roleFilter === 'all' ? t.accent : t.border}`,
-            }}>
-            All roles
-          </button>
-        )}
-
-        {/* Per-role chips */}
-        {availableRoles.length > 1 && availableRoles.map(role => (
-          <button key={role}
-            onClick={() => setRoleFilter(role === roleFilter ? 'all' : role)}
-            className="px-3.5 py-1.5 rounded-full flex-shrink-0 transition-all whitespace-nowrap"
-            style={{
-              background: roleFilter === role ? t.accent : t.surface,
-              color: roleFilter === role ? '#fff' : t.textSec,
-              fontSize: 12, fontWeight: 600,
-              border: `1px solid ${roleFilter === role ? t.accent : t.border}`,
-            }}>
-            {role}
-          </button>
-        ))}
       </div>
 
       {/* Content */}
@@ -848,7 +622,7 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
             <div>
               <h3 style={{ color: t.text, fontSize: 16, fontWeight: 700, marginBottom: 6 }}>Couldn't load audience</h3>
               <p style={{ color: t.textMuted, fontSize: 13, marginBottom: 16 }}>{error}</p>
-              <button onClick={fetchMembers}
+              <button onClick={() => fetchMembers(true)}
                 className="flex items-center gap-2 mx-auto px-5 py-2.5 rounded-xl"
                 style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', color: '#fff', fontSize: 13, fontWeight: 700 }}>
                 <RefreshCw style={{ width: 14, height: 14 }} /> Retry
@@ -857,36 +631,16 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
           </div>
         )}
 
-        {/* No members at all */}
+        {/* Empty */}
         {!loading && !error && members.length === 0 && (
           <div className="flex flex-col items-center justify-center py-16 text-center gap-3">
             <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ background: t.surface2 }}>
-              <Users style={{ width: 28, height: 28, color: t.emptyIcon }} />
-            </div>
-            <h3 style={{ color: t.text, fontSize: 16, fontWeight: 700 }}>No attendees yet</h3>
-            <p style={{ color: t.textMuted, fontSize: 13, maxWidth: 240 }}>
-              No one has registered for this event yet.
-            </p>
-          </div>
-        )}
-
-        {/* Checked-in empty when filter is on */}
-        {!loading && !error && members.length > 0 && filteredMembers.length === 0 && checkedInOnly && !searchQuery && (
-          <div className="flex flex-col items-center justify-center py-14 text-center gap-3">
-            <div className="w-16 h-16 rounded-full flex items-center justify-center"
-              style={{ background: 'rgba(16,185,129,0.1)' }}>
-              <BadgeCheck style={{ width: 28, height: 28, color: '#10b981' }} />
+              <BadgeCheck style={{ width: 28, height: 28, color: t.emptyIcon }} />
             </div>
             <h3 style={{ color: t.text, fontSize: 16, fontWeight: 700 }}>No check-ins yet</h3>
-            <p style={{ color: t.textMuted, fontSize: 13, maxWidth: 260 }}>
-              No attendees have checked in yet. Toggle the filter off to see all {members.length} registrations.
+            <p style={{ color: t.textMuted, fontSize: 13, maxWidth: 240 }}>
+              No attendees have checked in for this event yet.
             </p>
-            <button
-              onClick={() => setCheckedInOnly(false)}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl mt-1"
-              style={{ background: t.surface, border: `1px solid ${t.border}`, color: t.textSec, fontSize: 12, fontWeight: 600 }}>
-              <Filter style={{ width: 12, height: 12 }} /> Show all registrations
-            </button>
           </div>
         )}
 
@@ -894,8 +648,8 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
         {!loading && !error && filteredMembers.length > 0 && (
           <div className="py-3">
             <p style={{ color: t.textMuted, fontSize: 12, fontWeight: 600 }}>
-              {filteredMembers.length} {checkedInOnly ? 'checked-in' : 'registered'} attendee{filteredMembers.length !== 1 ? 's' : ''}
-              {(searchQuery || roleFilter !== 'all') ? ' found' : ''}
+              {filteredMembers.length} checked-in attendee{filteredMembers.length !== 1 ? 's' : ''}
+              {searchQuery ? ' found' : ''}
             </p>
           </div>
         )}
@@ -907,34 +661,36 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
               key={member.userId}
               member={member}
               isConnected={connectedIds.has(member.userId)}
-              isCheckedIn={checkedInIds.has(member.userId)}
               index={index}
               onClick={() => setSelectedMember(member)}
             />
           ))}
 
           {/* Search empty */}
-          {!loading && !error && filteredMembers.length === 0 && (searchQuery || roleFilter !== 'all') && (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3"
-                style={{ background: t.surface2 }}>
+          {!loading && !error && filteredMembers.length === 0 && searchQuery && (
+            <div className="flex flex-col items-center justify-center py-12 text-center gap-3">
+              <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ background: t.surface2 }}>
                 <Search style={{ width: 24, height: 24, color: t.emptyIcon }} />
               </div>
-              <h3 style={{ color: t.text, fontSize: 15, fontWeight: 700, marginBottom: 4 }}>No results found</h3>
-              <p style={{ color: t.textMuted, fontSize: 13 }}>Try adjusting your search or filters</p>
+              <div>
+                <h3 style={{ color: t.text, fontSize: 15, fontWeight: 700, marginBottom: 4 }}>No results</h3>
+                <p style={{ color: t.textMuted, fontSize: 13 }}>
+                  No checked-in attendees match "{searchQuery}"
+                </p>
+              </div>
             </div>
           )}
         </div>
       </div>
 
-      {/* Detail overlay */}
+      {/* Detail panel */}
       <AnimatePresence>
         {selectedMember && (
           <MemberDetailPage
+            key={selectedMember.userId}
             member={selectedMember}
             eventId={eventId ?? ''}
             onBack={() => setSelectedMember(null)}
-            isCheckedIn={checkedInIds.has(selectedMember.userId)}
           />
         )}
       </AnimatePresence>

@@ -91,51 +91,60 @@ function normalizeLeaderboardEntry(raw: any, index: number): LeaderboardEntry {
   };
 }
 
+/** Extracts the flat member array from any Laravel paginator envelope shape. */
+function extractRawList(res: { success: boolean; data?: unknown }): any[] {
+  if (!res.success) return [];
+  const body = res.data as any;
+  const paginator = body?.data ?? body;
+  if (Array.isArray(paginator?.data)) return paginator.data;
+  if (Array.isArray(body?.data)) return body.data;
+  if (Array.isArray(res.data)) return res.data as any[];
+  return [];
+}
+
+/**
+ * Fetches checked-in attendees for the current event.
+ * Primary: GET /api/v1/events/:id/attendees?checked_in_only=true&per_page=200
+ * Fallback: GET /api/v1/events/:id/members?checked_in_only=true&per_page=200
+ *
+ * Returns only checked-in members. Client-side isCheckedIn flag is set as
+ * a safety net in case the server returns non-checked-in records.
+ */
 export async function listAttendees(filters?: { tier?: string; search?: string }): Promise<ApiResponse<Attendee[]>> {
   const eventId = getEventId();
   if (__DEV__) console.log(`[Users] listAttendees eventId=${eventId} filters=`, filters);
   if (!eventId) return { success: true, data: [] };
+
   const params = new URLSearchParams();
   params.set('per_page', '200');
-  if (filters?.tier) params.set('tier', filters.tier);
+  params.set('checked_in_only', 'true');
   if (filters?.search) params.set('search', filters.search);
 
+  // Try /attendees first (role-filtered endpoint)
   const res = await request<any>(`/api/v1/events/${eventId}/attendees?${params.toString()}`);
-  if (res.success) {
-    const body = res.data as any;
-    const paginator = body?.data ?? body;
-    const raw: any[] = Array.isArray(paginator?.data) ? paginator.data
-      : Array.isArray(body?.data) ? body.data
-      : Array.isArray(res.data) ? res.data
-      : [];
-    if (raw.length > 0) {
-      return { success: true, data: raw.map(normalizeAttendee) };
-    }
+  const rawList = extractRawList(res);
+  if (res.success && rawList.length > 0) {
+    const data = rawList.map(normalizeAttendee).filter(a => a.isCheckedIn);
+    return { success: true, data };
   }
 
-  // /attendees may return 403 for sponsor reps or an empty list when the
-  // backend excludes them. Fall back to /members which includes all roles.
+  // Fall back to /members if /attendees fails or returns empty
   if (__DEV__) console.log('[Users] /attendees failed or empty — falling back to /members');
   const fbParams = new URLSearchParams();
   fbParams.set('per_page', '200');
-  fbParams.set('checked_in_only', 'false');
+  fbParams.set('checked_in_only', 'true');
   if (filters?.search) fbParams.set('search', filters.search);
+
   const fb = await request<any>(`/api/v1/events/${eventId}/members?${fbParams.toString()}`);
   if (!fb.success) return fb as ApiResponse<Attendee[]>;
-  const fbBody = fb.data as any;
-  const fbPaginator = fbBody?.data ?? fbBody;
-  const rawFb: any[] = Array.isArray(fbPaginator?.data) ? fbPaginator.data
-    : Array.isArray(fbBody?.data) ? fbBody.data
-    : Array.isArray(fb.data) ? fb.data
-    : [];
-  return { success: true, data: rawFb.map(normalizeAttendee) };
+  const rawFb = extractRawList(fb);
+  return { success: true, data: rawFb.map(normalizeAttendee).filter(a => a.isCheckedIn) };
 }
 
 export async function getAttendee(userId: string): Promise<ApiResponse<Attendee>> {
   const eventId = getEventId();
   if (__DEV__) console.log(`[Users] getAttendee(${userId}) eventId=${eventId}`);
   if (!eventId) return { success: false, error: { code: 'NO_EVENT', message: 'No active event' } };
-  // Backend returns Cache-Control: no-store — always fetch fresh.
   const res = await request<any>(`/api/v1/events/${eventId}/attendees/${userId}`);
   if (!res.success) return res as ApiResponse<Attendee>;
   const raw = res.data?.data ?? res.data;
@@ -214,15 +223,8 @@ export async function listSpeakers(): Promise<ApiResponse<Speaker[]>> {
     );
     if (!res.success) break;
 
-    const body = res.data as Record<string, unknown>;
-    const paginator = (body?.data ?? body) as Record<string, unknown>;
-    const list: any[] = Array.isArray(paginator?.data)
-      ? (paginator.data as any[])
-      : Array.isArray(body?.data)
-        ? (body.data as any[])
-        : [];
-
-    for (const m of list) {
+    const rawList = extractRawList(res);
+    for (const m of rawList) {
       const roles: string[] = Array.isArray(m.roles) ? m.roles : [];
       const isSpeaker = roles.some((r) => String(r).toLowerCase() === 'speaker') ||
         String(m.member_type ?? m.memberType ?? '').toLowerCase() === 'speaker' ||
@@ -230,7 +232,7 @@ export async function listSpeakers(): Promise<ApiResponse<Speaker[]>> {
       if (isSpeaker) speakers.push(normalizeSpeaker(m));
     }
 
-    if (list.length < PAGE_SIZE) break;
+    if (rawList.length < PAGE_SIZE) break;
   }
 
   return { success: true, data: speakers };

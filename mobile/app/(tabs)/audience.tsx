@@ -8,20 +8,21 @@ import {
   TextInput,
   Modal,
   ScrollView,
-  Image,
   ImageBackground,
   StatusBar,
-  Platform,
+  RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAuth } from '@/context/AuthContext';
 import { useEvent } from '@/context/EventContext';
 import { useEvents } from '@/hooks/useEvents';
 import { useAudience } from '@/hooks/useAudience';
 import { colors, spacing, radius } from '@/constants/theme';
 import type { Attendee } from '@/lib/api/types';
+
+const PAGE_SIZE = 10;
 
 const AVATAR_COLORS = [
   '#6366f1', '#8b5cf6', '#ec4899', '#10b981',
@@ -40,18 +41,6 @@ function getInitials(name: string): string {
   if (parts.length === 1) return parts[0][0]?.toUpperCase() ?? '?';
   return ((parts[0][0] ?? '') + (parts[parts.length - 1][0] ?? '')).toUpperCase();
 }
-
-const ROLE_BADGE: Record<string, { bg: string; text: string; label: string }> = {
-  Sponsor:   { bg: '#00b861', text: '#fff', label: 'SPONSOR' },
-  Speaker:   { bg: '#7c3aed', text: '#fff', label: 'SPEAKER' },
-  VIP:       { bg: '#f59e0b', text: '#fff', label: 'VIP' },
-  Organizer: { bg: '#06b6d4', text: '#fff', label: 'ORGANIZER' },
-  Staff:     { bg: '#64748b', text: '#fff', label: 'STAFF' },
-};
-
-const ROLE_FILTERS = ['All roles', 'Attendee', 'Sponsor', 'Speaker', 'VIP'];
-
-type StatusFilter = 'All' | 'Checked In';
 
 function AvatarView({ name, id, size }: { name: string; id: string; size: number }) {
   const bg = getAvatarColor(id);
@@ -89,34 +78,42 @@ function DetailRow({ icon, iconBg, label, value }: { icon: string; iconBg: strin
 
 export default function AudienceScreen() {
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
   const { currentEventId } = useEvent();
   const { data: events = [] } = useEvents();
   const currentEvent = events.find((e) => String(e.id) === String(currentEventId)) ?? null;
 
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('All');
-  const [roleFilter, setRoleFilter] = useState('All roles');
   const [selected, setSelected] = useState<Attendee | null>(null);
   const [detailVisible, setDetailVisible] = useState(false);
+  const [displayCount, setDisplayCount] = useState(PAGE_SIZE);
 
-  const { data: members = [], isLoading, isError, error, refetch } = useAudience();
+  const { data: members = [], isLoading, isError, error, refetch, isRefetching } = useAudience();
 
-  const checkedInCount = useMemo(() => members.filter((m) => m.isCheckedIn).length, [members]);
+  // Only checked-in members are shown (API already filters; client-side as safety net)
+  const checkedIn = useMemo(() => members.filter((m) => m.isCheckedIn), [members]);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    return members.filter((m) => {
-      const matchSearch =
-        !q ||
-        m.name.toLowerCase().includes(q) ||
-        m.company.toLowerCase().includes(q) ||
-        (m.title ?? '').toLowerCase().includes(q);
-      const matchStatus = statusFilter === 'All' || (statusFilter === 'Checked In' && m.isCheckedIn);
-      const matchRole = roleFilter === 'All roles' || m.role === roleFilter;
-      return matchSearch && matchStatus && matchRole;
-    });
-  }, [search, statusFilter, roleFilter, members]);
+    if (!q) return checkedIn;
+    return checkedIn.filter((m) =>
+      m.name.toLowerCase().includes(q) ||
+      m.company.toLowerCase().includes(q) ||
+      (m.title ?? '').toLowerCase().includes(q),
+    );
+  }, [search, checkedIn]);
+
+  // Paginated slice — 10 at a time
+  const displayed = useMemo(() => filtered.slice(0, displayCount), [filtered, displayCount]);
+  const hasMore = displayCount < filtered.length;
+
+  const handleEndReached = useCallback(() => {
+    if (hasMore) setDisplayCount((prev) => prev + PAGE_SIZE);
+  }, [hasMore]);
+
+  const handleRefresh = useCallback(() => {
+    setDisplayCount(PAGE_SIZE);
+    refetch();
+  }, [refetch]);
 
   const openProfile = useCallback((a: Attendee) => {
     setSelected(a);
@@ -147,18 +144,12 @@ export default function AudienceScreen() {
             <Text style={styles.bannerTitle} numberOfLines={2}>
               {currentEvent?.name ?? 'Event Attendees'}
             </Text>
-            <Text style={styles.bannerSubtitle}>Attendees at this event</Text>
+            <Text style={styles.bannerSubtitle}>Checked-in attendees</Text>
             <View style={styles.statsRow}>
               <View style={styles.statPill}>
                 <Ionicons name="checkmark-circle" size={14} color="#00c97a" />
-                <Text style={[styles.statNum, { color: '#00c97a' }]}>{checkedInCount}</Text>
+                <Text style={[styles.statNum, { color: '#00c97a' }]}>{checkedIn.length}</Text>
                 <Text style={styles.statLabel}>checked in</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statPill}>
-                <Ionicons name="people-outline" size={14} color="rgba(255,255,255,0.7)" />
-                <Text style={styles.statNum}>{members.length}</Text>
-                <Text style={styles.statLabel}>registered</Text>
               </View>
             </View>
           </View>
@@ -170,109 +161,91 @@ export default function AudienceScreen() {
           <Ionicons name="search-outline" size={16} color={colors.textMuted} style={{ marginRight: spacing.sm }} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search by name, company, or role..."
+            placeholder="Search by name, company, or title…"
             placeholderTextColor={colors.textMuted}
             value={search}
-            onChangeText={setSearch}
+            onChangeText={(t) => { setSearch(t); setDisplayCount(PAGE_SIZE); }}
             autoCorrect={false}
           />
           {search.length > 0 && (
-            <TouchableOpacity onPress={() => setSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <TouchableOpacity onPress={() => { setSearch(''); setDisplayCount(PAGE_SIZE); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
               <Ionicons name="close-circle" size={16} color={colors.textMuted} />
             </TouchableOpacity>
           )}
         </View>
 
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterRow}
-        >
-          {(['All', 'Checked In'] as StatusFilter[]).map((s) => (
-            <TouchableOpacity
-              key={s}
-              style={[styles.chip, statusFilter === s && styles.chipActive]}
-              onPress={() => setStatusFilter(s)}
-            >
-              {s === 'Checked In' && (
-                <Ionicons name="checkmark-circle-outline" size={12} color={statusFilter === s ? colors.primary : colors.textMuted} />
-              )}
-              {s === 'All' && (
-                <Ionicons name="list-outline" size={12} color={statusFilter === s ? colors.primary : colors.textMuted} />
-              )}
-              <Text style={[styles.chipText, statusFilter === s && styles.chipTextActive]}>
-                {s === 'All' ? 'All Registrations' : s}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterRow}
-        >
-          {ROLE_FILTERS.map((r) => (
-            <TouchableOpacity
-              key={r}
-              style={[styles.chip, roleFilter === r && styles.chipActive]}
-              onPress={() => setRoleFilter(r)}
-            >
-              <Text style={[styles.chipText, roleFilter === r && styles.chipTextActive]}>{r}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        <Text style={styles.countLabel}>{filtered.length} registered attendees</Text>
+        <Text style={styles.countLabel}>
+          {filtered.length} checked-in attendee{filtered.length !== 1 ? 's' : ''}
+          {search ? ' found' : ''}
+        </Text>
       </View>
     </View>
-  ), [currentEvent, insets.top, checkedInCount, members.length, search, statusFilter, roleFilter, filtered.length]);
+  ), [currentEvent, insets.top, checkedIn.length, search, filtered.length]);
 
-  const renderItem = useCallback(({ item }: { item: Attendee }) => {
-    const badge = ROLE_BADGE[item.role];
-    return (
-      <TouchableOpacity style={styles.card} onPress={() => openProfile(item)} activeOpacity={0.75}>
-        <AvatarView name={item.name} id={item.id} size={46} />
-        <View style={styles.cardInfo}>
-          <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
-          {item.title ? <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text> : null}
-          {item.company ? (
-            <View style={styles.cardCompanyRow}>
-              <Ionicons name="business-outline" size={11} color={colors.textMuted} />
-              <Text style={styles.cardCompany} numberOfLines={1}>{item.company}</Text>
-            </View>
-          ) : null}
-          {item.isCheckedIn && (
-            <View style={styles.checkedInBadge}>
-              <Ionicons name="checkmark-circle" size={11} color="#00c97a" />
-              <Text style={styles.checkedInText}>Checked in</Text>
-            </View>
-          )}
+  const renderItem = useCallback(({ item }: { item: Attendee }) => (
+    <TouchableOpacity style={styles.card} onPress={() => openProfile(item)} activeOpacity={0.75}>
+      <AvatarView name={item.name} id={item.id} size={46} />
+      <View style={styles.cardInfo}>
+        <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
+        {item.title ? <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text> : null}
+        {item.company ? (
+          <View style={styles.cardCompanyRow}>
+            <Ionicons name="business-outline" size={11} color={colors.textMuted} />
+            <Text style={styles.cardCompany} numberOfLines={1}>{item.company}</Text>
+          </View>
+        ) : null}
+        <View style={styles.checkedInBadge}>
+          <Ionicons name="checkmark-circle" size={11} color="#00c97a" />
+          <Text style={styles.checkedInText}>Checked in</Text>
         </View>
-        <View style={styles.cardRight}>
-          {badge ? (
-            <View style={[styles.roleBadge, { backgroundColor: badge.bg }]}>
-              <Text style={[styles.roleBadgeText, { color: badge.text }]}>{badge.label}</Text>
-            </View>
-          ) : null}
-          <Ionicons name="chevron-forward" size={16} color={colors.textMuted} style={{ marginTop: badge ? 6 : 0 }} />
+      </View>
+      <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+    </TouchableOpacity>
+  ), [openProfile]);
+
+  const ListFooter = useMemo(() => {
+    if (isRefetching) {
+      return (
+        <View style={styles.footer}>
+          <ActivityIndicator size="small" color={colors.primary} />
         </View>
-      </TouchableOpacity>
-    );
-  }, [openProfile]);
+      );
+    }
+    if (hasMore) {
+      return (
+        <TouchableOpacity style={styles.loadMoreBtn} onPress={() => setDisplayCount((p) => p + PAGE_SIZE)} activeOpacity={0.7}>
+          <Text style={styles.loadMoreText}>Load more</Text>
+          <Ionicons name="chevron-down" size={14} color={colors.primary} />
+        </TouchableOpacity>
+      );
+    }
+    return null;
+  }, [isRefetching, hasMore]);
 
   return (
     <View style={styles.root}>
       <FlatList
-        data={filtered}
+        data={displayed}
         keyExtractor={(i) => i.id}
         renderItem={renderItem}
         ListHeaderComponent={ListHeader}
+        ListFooterComponent={ListFooter}
         contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 100 }]}
         showsVerticalScrollIndicator={false}
+        onEndReached={handleEndReached}
+        onEndReachedThreshold={0.3}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefetching && !isLoading}
+            onRefresh={handleRefresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
+        }
         ListEmptyComponent={
           isLoading ? (
             <View style={styles.empty}>
+              <ActivityIndicator size="large" color={colors.primary} />
               <Text style={styles.emptyText}>Loading attendees…</Text>
             </View>
           ) : isError ? (
@@ -291,8 +264,10 @@ export default function AudienceScreen() {
             </View>
           ) : (
             <View style={styles.empty}>
-              <Ionicons name="people-outline" size={40} color={colors.textMuted} />
-              <Text style={styles.emptyText}>No attendees found</Text>
+              <Ionicons name="checkmark-circle-outline" size={40} color={colors.textMuted} />
+              <Text style={styles.emptyText}>
+                {search ? 'No attendees match your search' : 'No checked-in attendees yet'}
+              </Text>
             </View>
           )
         }
@@ -318,7 +293,6 @@ function AttendeeDetailView({ attendee, onBack, insets }: {
   insets: ReturnType<typeof import('react-native-safe-area-context').useSafeAreaInsets>;
 }) {
   const bg = getAvatarColor(attendee.id);
-  const roleBadge = ROLE_BADGE[attendee.role];
 
   return (
     <View style={styles.detailRoot}>
@@ -335,11 +309,10 @@ function AttendeeDetailView({ attendee, onBack, insets }: {
           <DetailAvatarView name={attendee.name} id={attendee.id} />
           <Text style={styles.detailName}>{attendee.name}</Text>
           <Text style={styles.detailTitle}>{attendee.title || attendee.role}</Text>
-          {roleBadge && (
-            <View style={[styles.detailRoleBadge, { backgroundColor: roleBadge.bg + '30', borderColor: roleBadge.bg + '80' }]}>
-              <Text style={[styles.detailRoleBadgeText, { color: roleBadge.text }]}>{roleBadge.label}</Text>
-            </View>
-          )}
+          <View style={styles.checkedInPill}>
+            <Ionicons name="checkmark-circle" size={13} color="#00c97a" />
+            <Text style={styles.checkedInPillText}>Checked in</Text>
+          </View>
         </View>
       </LinearGradient>
 
@@ -409,7 +382,7 @@ const styles = StyleSheet.create({
   retryBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: spacing.sm, paddingHorizontal: 24, paddingVertical: 13, borderRadius: radius.full, backgroundColor: colors.primary },
   retryBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
 
-  bannerBg: { width: '100%', height: 220 },
+  bannerBg: { width: '100%', height: 200 },
   bannerGrad: { flex: 1 },
   bannerContent: { flex: 1, paddingHorizontal: spacing.xl, paddingBottom: spacing.xl, justifyContent: 'flex-end' },
   bannerLabel: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
@@ -420,17 +393,11 @@ const styles = StyleSheet.create({
   statPill: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   statNum: { color: '#fff', fontSize: 16, fontWeight: '800' },
   statLabel: { color: 'rgba(255,255,255,0.6)', fontSize: 12 },
-  statDivider: { width: 1, height: 14, backgroundColor: 'rgba(255,255,255,0.2)' },
 
   controls: { paddingTop: spacing.lg },
-  searchWrap: { flexDirection: 'row', alignItems: 'center', marginHorizontal: spacing.xl, paddingHorizontal: spacing.lg, paddingVertical: 11, borderRadius: radius.xl, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.md },
+  searchWrap: { flexDirection: 'row', alignItems: 'center', marginHorizontal: spacing.xl, paddingHorizontal: spacing.lg, paddingVertical: 11, borderRadius: radius.xl, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.sm },
   searchInput: { flex: 1, color: colors.textPrimary, fontSize: 14, paddingVertical: 0 },
-  filterRow: { paddingHorizontal: spacing.xl, gap: spacing.sm, paddingBottom: spacing.sm },
-  chip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 13, paddingVertical: 7, borderRadius: radius.full, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border },
-  chipActive: { backgroundColor: colors.primary + '20', borderColor: colors.primary },
-  chipText: { color: colors.textSecondary, fontSize: 12, fontWeight: '600' },
-  chipTextActive: { color: colors.primary },
-  countLabel: { color: colors.textMuted, fontSize: 12, paddingHorizontal: spacing.xl, paddingTop: spacing.sm, paddingBottom: spacing.md },
+  countLabel: { color: colors.textMuted, fontSize: 12, paddingHorizontal: spacing.xl, paddingTop: spacing.xs, paddingBottom: spacing.md },
 
   listContent: { gap: 0 },
   card: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: spacing.lg, backgroundColor: colors.bgCard, borderBottomWidth: 1, borderBottomColor: colors.border },
@@ -443,12 +410,13 @@ const styles = StyleSheet.create({
   cardCompany: { color: colors.textMuted, fontSize: 11, flex: 1 },
   checkedInBadge: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 },
   checkedInText: { color: '#00c97a', fontSize: 11, fontWeight: '600' },
-  cardRight: { alignItems: 'flex-end', justifyContent: 'center', gap: 4, minWidth: 24 },
-  roleBadge: { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 4 },
-  roleBadgeText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
+
+  footer: { paddingVertical: 20, alignItems: 'center' },
+  loadMoreBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 16, marginHorizontal: spacing.xl, marginVertical: spacing.md, borderRadius: radius.xl, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border },
+  loadMoreText: { color: colors.primary, fontSize: 13, fontWeight: '700' },
 
   empty: { alignItems: 'center', paddingVertical: 64, gap: spacing.md },
-  emptyText: { color: colors.textMuted, fontSize: 14 },
+  emptyText: { color: colors.textMuted, fontSize: 14, textAlign: 'center', paddingHorizontal: spacing.xl },
 
   detailRoot: { flex: 1, backgroundColor: colors.bg },
   detailHeader: { paddingHorizontal: spacing.xl, paddingBottom: spacing.xl },
@@ -459,8 +427,8 @@ const styles = StyleSheet.create({
   detailAvatarText: { fontSize: 30, fontWeight: '800' },
   detailName: { color: '#fff', fontSize: 22, fontWeight: '800', textAlign: 'center' },
   detailTitle: { color: 'rgba(255,255,255,0.75)', fontSize: 14, textAlign: 'center' },
-  detailRoleBadge: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: radius.full, borderWidth: 1 },
-  detailRoleBadgeText: { fontSize: 11, fontWeight: '700' },
+  checkedInPill: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 4, borderRadius: radius.full, backgroundColor: 'rgba(0,201,122,0.15)', borderWidth: 1, borderColor: 'rgba(0,201,122,0.3)' },
+  checkedInPillText: { color: '#00c97a', fontSize: 12, fontWeight: '700' },
 
   detailBody: { flex: 1 },
   sectionTitle: { color: colors.textPrimary, fontSize: 15, fontWeight: '700', marginHorizontal: spacing.xl, marginTop: spacing.xl, marginBottom: spacing.sm },
