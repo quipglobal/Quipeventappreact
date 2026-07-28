@@ -105,12 +105,16 @@ function extractRawList(res: { success: boolean; data?: unknown }): any[] {
 const AUDIENCE_PAGE_SIZE = 15;
 
 /**
- * Fetches one page of checked-in attendees for the current event.
- * Primary:  GET /api/v1/events/:id/attendees?checked_in_only=true&per_page=15&page=N
- * Fallback: GET /api/v1/events/:id/members?checked_in_only=true&per_page=15&page=N
+ * Fetches one page of checked-in attendees from the event_members table.
+ * GET /api/v1/events/:id/members?checked_in_only=true&per_page=15&page=N
  *
- * ALL members returned are trusted as checked-in (server filters).
- * Returns { data, hasMore } so callers can drive server-side pagination.
+ * Uses /members (not /attendees) because only /members is backed by
+ * event_members and returns `status` + `joined_at` — the fields that
+ * record true check-in state. /attendees omits these fields entirely.
+ *
+ * Defense-in-depth: server sends checked_in_only=true; client also filters
+ * by isCheckedIn (status=ACTIVE || joined_at≠null) in case the backend
+ * hasn't implemented the param yet.
  */
 export async function listAttendees(
   filters?: { page?: number; search?: string },
@@ -126,25 +130,16 @@ export async function listAttendees(
   params.set('checked_in_only', 'true');
   if (filters?.search) params.set('search', filters.search);
 
-  // Try /attendees first (role-filtered endpoint)
-  const res = await request<any>(`/api/v1/events/${eventId}/attendees?${params.toString()}`);
+  // /members is backed by event_members — the table that stores check-in
+  // status (status=ACTIVE, joined_at). /attendees does not expose these fields.
+  const res = await request<any>(`/api/v1/events/${eventId}/members?${params.toString()}`);
+  if (!res.success) return { success: false, data: [], hasMore: false, error: res.error };
+
   const rawList = extractRawList(res);
-  if (res.success && rawList.length > 0) {
-    return { success: true, data: rawList.map(normalizeAttendee), hasMore: rawList.length >= AUDIENCE_PAGE_SIZE };
-  }
-
-  // Fall back to /members if /attendees fails or returns empty
-  if (__DEV__) console.log('[Users] /attendees failed or empty — falling back to /members');
-  const fbParams = new URLSearchParams();
-  fbParams.set('per_page', String(AUDIENCE_PAGE_SIZE));
-  fbParams.set('page', String(page));
-  fbParams.set('checked_in_only', 'true');
-  if (filters?.search) fbParams.set('search', filters.search);
-
-  const fb = await request<any>(`/api/v1/events/${eventId}/members?${fbParams.toString()}`);
-  if (!fb.success) return { ...(fb as ApiResponse<Attendee[]>), hasMore: false };
-  const rawFb = extractRawList(fb);
-  return { success: true, data: rawFb.map(normalizeAttendee), hasMore: rawFb.length >= AUDIENCE_PAGE_SIZE };
+  // Normalize and apply client-side check-in filter as defense-in-depth.
+  // /members returns status + joined_at so isCheckedIn is reliably computed.
+  const data = rawList.map(normalizeAttendee).filter(a => a.isCheckedIn);
+  return { success: true, data, hasMore: rawList.length >= AUDIENCE_PAGE_SIZE };
 }
 
 export async function getAttendee(userId: string): Promise<ApiResponse<Attendee>> {

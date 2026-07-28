@@ -331,21 +331,17 @@ function extractRawList(res: { success: boolean; data?: unknown }): unknown[] {
 }
 
 /**
- * GET /api/v1/events/:id/attendees?per_page=200[&checked_in_only=true]
+ * GET /api/v1/events/:id/members?per_page=15&page=N[&checked_in_only=true]
  *
- * Sequential strategy — no wasted parallel requests:
- *   1. Try /attendees (role-filtered: Attendee / Speaker / Moderator / Sponsor)
- *   2. Fall back to /members if /attendees fails OR returns empty
+ * Uses /members (backed by the event_members table) rather than /attendees.
+ * Only /members returns `status` and `joined_at` — the fields that record
+ * true check-in status. /attendees omits them, making client-side isCheckedIn
+ * always false and forcing blind trust in the server filter.
  *
- * When checkedInOnly=true the server-side filter is used and ALL returned
- * members are treated as checked-in. Do NOT further filter by isCheckedIn
- * client-side — the attendees listing endpoint does not return joined_at or
- * status=ACTIVE, so the client-side derivation is always false for every
- * member, incorrectly wiping out the entire result set.
- *
- * isCheckedIn on each EventMember is still set (from raw.isCheckedIn if
- * present, or derived from joined_at/status for backends that include them)
- * so other consumers (SponsorScannerPage) continue to work.
+ * Defense-in-depth when checkedInOnly=true:
+ *   1. Server-side: checked_in_only=true query param
+ *   2. Client-side: filter by isCheckedIn (status=ACTIVE or joined_at≠null)
+ *      — guards against backends that haven't implemented the param yet.
  */
 const AUDIENCE_PAGE_SIZE = 15;
 
@@ -357,26 +353,8 @@ export async function getEventMembersApi(
   const base = `per_page=${AUDIENCE_PAGE_SIZE}&page=${page}`;
   const qs = checkedInOnly ? `${base}&checked_in_only=true` : base;
 
-  // Primary: /attendees (excludes organizers/staff)
-  const attendeesRes = await apiGet<unknown>(`/api/v1/events/${eventId}/attendees?${qs}`, HEADERS);
-  if (attendeesRes.success) {
-    const rawList = extractRawList(attendeesRes);
-    // Fall through to /members if /attendees returned an empty list — some
-    // events return 200 OK with [] from /attendees but have data in /members.
-    if (rawList.length > 0) {
-      const body = attendeesRes.data as Record<string, unknown>;
-      const paginator = (body?.data ?? body) as Record<string, unknown>;
-      const total = typeof paginator?.total === 'number' ? paginator.total : rawList.length;
-      return {
-        success: true,
-        data: rawList.map(m => normalizeFlatMember(m as RawFlatMember, eventId)),
-        total,
-      };
-    }
-  }
-
-  // Fallback: /members (all roles — useful for sponsors / organizers, and
-  // for events where /attendees returns empty or is not yet deployed)
+  // /members is backed by event_members — the only table that stores check-in
+  // status (status=ACTIVE, joined_at). /attendees does not expose these fields.
   const membersRes = await apiGet<unknown>(`/api/v1/events/${eventId}/members?${qs}`, HEADERS);
   if (!membersRes.success) {
     return { success: false, error: { message: 'Failed to fetch audience.' } };
@@ -385,11 +363,15 @@ export async function getEventMembersApi(
   const body = membersRes.data as Record<string, unknown>;
   const paginator = (body?.data ?? body) as Record<string, unknown>;
   const total = typeof paginator?.total === 'number' ? paginator.total : rawList.length;
-  return {
-    success: true,
-    data: rawList.map(m => normalizeFlatMember(m as RawFlatMember, eventId)),
-    total,
-  };
+
+  let data = rawList.map(m => normalizeFlatMember(m as RawFlatMember, eventId));
+  if (checkedInOnly) {
+    // Defense-in-depth: /members returns status + joined_at, so isCheckedIn
+    // is reliably set. Filter out anyone the server missed.
+    data = data.filter(m => m.isCheckedIn);
+  }
+
+  return { success: true, data, total };
 }
 
 /**
