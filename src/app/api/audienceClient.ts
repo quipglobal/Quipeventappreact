@@ -347,11 +347,15 @@ function extractRawList(res: { success: boolean; data?: unknown }): unknown[] {
  * present, or derived from joined_at/status for backends that include them)
  * so other consumers (SponsorScannerPage) continue to work.
  */
+const AUDIENCE_PAGE_SIZE = 15;
+
 export async function getEventMembersApi(
   eventId: string | number,
   checkedInOnly: boolean = false,
+  page: number = 1,
 ): Promise<EventMembersResponse> {
-  const qs = checkedInOnly ? `per_page=200&checked_in_only=true` : `per_page=200`;
+  const base = `per_page=${AUDIENCE_PAGE_SIZE}&page=${page}`;
+  const qs = checkedInOnly ? `${base}&checked_in_only=true` : base;
 
   // Primary: /attendees (excludes organizers/staff)
   const attendeesRes = await apiGet<unknown>(`/api/v1/events/${eventId}/attendees?${qs}`, HEADERS);

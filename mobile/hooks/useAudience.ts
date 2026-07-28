@@ -1,31 +1,89 @@
-import { useAuthedQuery } from '@/hooks/useAuthedQuery';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useEvent } from '@/context/EventContext';
 import { listAttendees, getLeaderboard, listSpeakers } from '@/lib/api/users';
+import { useAuthedQuery } from '@/hooks/useAuthedQuery';
+import type { Attendee } from '@/lib/api/types';
 
-export function useAudience(filters?: { tier?: string; search?: string }) {
+/**
+ * Paginated audience hook — fetches 15 checked-in attendees per page.
+ * Page 1 is fetched on mount (or event change). Call loadMore() to append
+ * the next page. Pull-to-refresh calls refetch() which resets to page 1.
+ */
+export function useAudience() {
   const { currentEventId } = useEvent();
-  return useAuthedQuery({
-    queryKey: ['attendees', currentEventId, filters],
-    queryFn: () => listAttendees(filters),
-    select: (res) => {
-      // Surface backend errors (e.g. 403 "not a member") so isError becomes
-      // true and the audience screen can show a meaningful message + Retry.
-      if (!res.success) {
-        throw new Error(res.error?.message ?? 'Failed to load audience');
+  const [attendees, setAttendees] = useState<Attendee[]>([]);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefetching, setIsRefetching] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [isError, setIsError] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+  const fetchingRef = useRef(false);
+
+  const fetchPage = useCallback(
+    async (p: number, mode: 'initial' | 'refresh' | 'more') => {
+      if (!currentEventId) return;
+      if (fetchingRef.current && mode === 'more') return;
+      fetchingRef.current = true;
+
+      if (mode === 'initial') setIsLoading(true);
+      if (mode === 'refresh') setIsRefetching(true);
+      if (mode === 'more') setIsLoadingMore(true);
+      setIsError(false);
+
+      try {
+        const res = await listAttendees({ page: p });
+        const data = res.data ?? [];
+        if (mode === 'more') {
+          setAttendees(prev => [...prev, ...data]);
+        } else {
+          setAttendees(data);
+        }
+        setPage(p);
+        setHasMore(res.hasMore);
+        if (!res.success) {
+          setIsError(true);
+          setError(new Error(res.error?.message ?? 'Failed to load audience'));
+        }
+      } catch (e) {
+        setIsError(true);
+        setError(e instanceof Error ? e : new Error('Unknown error'));
+      } finally {
+        fetchingRef.current = false;
+        setIsLoading(false);
+        setIsRefetching(false);
+        setIsLoadingMore(false);
       }
-      return res.data ?? [];
     },
-    enabled: !!currentEventId,
-    // 60-second stale window: the attendee list changes infrequently and the
-    // old staleTime:0 / gcTime:0 combo guaranteed a full network round-trip
-    // on every tab switch. Under high user load (100+ concurrent sessions)
-    // that caused a burst of simultaneous GET /attendees calls with zero
-    // coalescing. Now repeated visits within 60 s are served from cache and
-    // a background refetch runs silently after the window lapses — the list
-    // stays fresh without amplifying backend pressure. gcTime uses the React
-    // Query default (5 min), keeping the cache warm across brief navigations.
-    staleTime: 60_000,
-  });
+    [currentEventId],
+  );
+
+  useEffect(() => {
+    setAttendees([]);
+    setPage(1);
+    setHasMore(false);
+    fetchPage(1, 'initial');
+  }, [currentEventId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const refetch = useCallback(() => fetchPage(1, 'refresh'), [fetchPage]);
+
+  const loadMore = useCallback(() => {
+    if (!hasMore || isLoadingMore || isLoading || isRefetching) return;
+    fetchPage(page + 1, 'more');
+  }, [hasMore, isLoadingMore, isLoading, isRefetching, page, fetchPage]);
+
+  return {
+    data: attendees,
+    isLoading,
+    isRefetching,
+    isLoadingMore,
+    isError,
+    error,
+    refetch,
+    loadMore,
+    hasMore,
+  };
 }
 
 export function useLeaderboard() {

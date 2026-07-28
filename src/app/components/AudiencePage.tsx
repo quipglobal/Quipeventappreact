@@ -4,7 +4,7 @@ import {
   Building2, ChevronRight, UserCheck,
   Globe, X, Wifi, WifiOff,
   Loader2, BadgeCheck,
-  RefreshCw, User,
+  RefreshCw, User, ChevronDown,
 } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
@@ -450,6 +450,10 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMember, setSelectedMember] = useState<EventMember | null>(null);
   const [connectedIds, setConnectedIds] = useState<Set<number>>(new Set());
+  const [total, setTotal] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const hasMore = total > 0 && members.length < total;
 
   useEffect(() => {
     if (selectedMember) {
@@ -460,35 +464,45 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
   const eventId = eventConfig?.eventId;
   const eventName = eventConfig?.name ?? 'This Event';
 
-  const fetchMembers = useCallback(async (force = false) => {
+  const fetchMembers = useCallback(async (page = 1, force = false) => {
     if (!eventId) { setLoading(false); return; }
 
-    const cached = getCached<EventMember[]>('members:checkedIn', eventId);
-    if (cached && !force) {
-      setMembers(cached);
-      setLoading(false);
-      return;
+    if (page === 1) {
+      const cached = getCached<EventMember[]>('members:checkedIn', eventId);
+      if (cached && !force) {
+        setMembers(cached);
+        setLoading(false);
+        return;
+      }
+      if (!cached) setLoading(true);
+    } else {
+      setIsLoadingMore(true);
     }
-
-    if (!cached) setLoading(true);
     setError(null);
 
-    // Always fetch checked-in only — single API call, no toggle needed.
-    const listRes = await getEventMembersApi(eventId, true);
+    const listRes = await getEventMembersApi(eventId, true, page);
     if (listRes.success && listRes.data) {
-      // Trust the server's checked_in_only=true filter — do NOT additionally
-      // filter client-side. The attendees listing endpoint does not include
-      // joined_at / status=ACTIVE, so client-side isCheckedIn is always false,
-      // which would silently wipe out all returned members.
-      setCached('members:checkedIn', eventId, listRes.data);
-      setMembers(listRes.data);
-    } else {
+      if (page === 1) {
+        setCached('members:checkedIn', eventId, listRes.data);
+        setMembers(listRes.data);
+      } else {
+        setMembers(prev => [...prev, ...listRes.data!]);
+      }
+      setTotal(listRes.total ?? 0);
+      setCurrentPage(page);
+    } else if (page === 1) {
       setError(listRes.error?.message ?? 'Failed to load audience');
     }
-    setLoading(false);
+    if (page === 1) setLoading(false);
+    else setIsLoadingMore(false);
   }, [eventId]);
 
   useEffect(() => { fetchMembers(); }, [fetchMembers]);
+
+  const loadMore = useCallback(() => {
+    if (!hasMore || isLoadingMore) return;
+    fetchMembers(currentPage + 1);
+  }, [hasMore, isLoadingMore, currentPage, fetchMembers]);
 
   const filteredMembers = useMemo(() => {
     const q = searchQuery.toLowerCase();
@@ -624,7 +638,7 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
             <div>
               <h3 style={{ color: t.text, fontSize: 16, fontWeight: 700, marginBottom: 6 }}>Couldn't load audience</h3>
               <p style={{ color: t.textMuted, fontSize: 13, marginBottom: 16 }}>{error}</p>
-              <button onClick={() => fetchMembers(true)}
+              <button onClick={() => fetchMembers(1, true)}
                 className="flex items-center gap-2 mx-auto px-5 py-2.5 rounded-xl"
                 style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', color: '#fff', fontSize: 13, fontWeight: 700 }}>
                 <RefreshCw style={{ width: 14, height: 14 }} /> Retry
@@ -650,8 +664,8 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
         {!loading && !error && filteredMembers.length > 0 && (
           <div className="py-3">
             <p style={{ color: t.textMuted, fontSize: 12, fontWeight: 600 }}>
-              {filteredMembers.length} checked-in attendee{filteredMembers.length !== 1 ? 's' : ''}
-              {searchQuery ? ' found' : ''}
+              {filteredMembers.length}{!searchQuery && hasMore ? '+' : ''} checked-in attendee{filteredMembers.length !== 1 ? 's' : ''}
+              {searchQuery ? ' found' : total > 0 ? ` of ${total}` : ''}
             </p>
           </div>
         )}
@@ -667,6 +681,20 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
               onClick={() => setSelectedMember(member)}
             />
           ))}
+
+          {/* Load more */}
+          {!loading && !error && !searchQuery && hasMore && (
+            <button
+              onClick={loadMore}
+              disabled={isLoadingMore}
+              className="w-full flex items-center justify-center gap-2 mt-4 py-3 rounded-xl transition-opacity"
+              style={{ background: t.surface2, border: `1px solid ${t.border}`, color: t.textMuted, fontSize: 13, fontWeight: 700, opacity: isLoadingMore ? 0.6 : 1 }}>
+              {isLoadingMore
+                ? <><Loader2 style={{ width: 14, height: 14, animation: 'spin 1s linear infinite' }} /> Loading…</>
+                : <>Load more <ChevronDown style={{ width: 14, height: 14 }} /></>
+              }
+            </button>
+          )}
 
           {/* Search empty */}
           {!loading && !error && filteredMembers.length === 0 && searchQuery && (

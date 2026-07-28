@@ -22,8 +22,6 @@ import { useAudience } from '@/hooks/useAudience';
 import { colors, spacing, radius } from '@/constants/theme';
 import type { Attendee } from '@/lib/api/types';
 
-const PAGE_SIZE = 10;
-
 const AVATAR_COLORS = [
   '#6366f1', '#8b5cf6', '#ec4899', '#10b981',
   '#f59e0b', '#06b6d4', '#7c3aed', '#f43f5e',
@@ -85,33 +83,20 @@ export default function AudienceScreen() {
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Attendee | null>(null);
   const [detailVisible, setDetailVisible] = useState(false);
-  const [displayCount, setDisplayCount] = useState(PAGE_SIZE);
 
-  const { data: members = [], isLoading, isError, error, refetch, isRefetching } = useAudience();
-
-  // Only checked-in members are shown (API already filters; client-side as safety net)
-  const checkedIn = useMemo(() => members.filter((m) => m.isCheckedIn), [members]);
+  const { data: members = [], isLoading, isError, error, refetch, isRefetching, loadMore, hasMore, isLoadingMore } = useAudience();
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    if (!q) return checkedIn;
-    return checkedIn.filter((m) =>
+    if (!q) return members;
+    return members.filter((m) =>
       m.name.toLowerCase().includes(q) ||
       m.company.toLowerCase().includes(q) ||
       (m.title ?? '').toLowerCase().includes(q),
     );
-  }, [search, checkedIn]);
-
-  // Paginated slice — 10 at a time
-  const displayed = useMemo(() => filtered.slice(0, displayCount), [filtered, displayCount]);
-  const hasMore = displayCount < filtered.length;
-
-  const handleEndReached = useCallback(() => {
-    if (hasMore) setDisplayCount((prev) => prev + PAGE_SIZE);
-  }, [hasMore]);
+  }, [search, members]);
 
   const handleRefresh = useCallback(() => {
-    setDisplayCount(PAGE_SIZE);
     refetch();
   }, [refetch]);
 
@@ -148,7 +133,7 @@ export default function AudienceScreen() {
             <View style={styles.statsRow}>
               <View style={styles.statPill}>
                 <Ionicons name="checkmark-circle" size={14} color="#00c97a" />
-                <Text style={[styles.statNum, { color: '#00c97a' }]}>{checkedIn.length}</Text>
+                <Text style={[styles.statNum, { color: '#00c97a' }]}>{members.length}{hasMore ? '+' : ''}</Text>
                 <Text style={styles.statLabel}>checked in</Text>
               </View>
             </View>
@@ -164,23 +149,23 @@ export default function AudienceScreen() {
             placeholder="Search by name, company, or title…"
             placeholderTextColor={colors.textMuted}
             value={search}
-            onChangeText={(t) => { setSearch(t); setDisplayCount(PAGE_SIZE); }}
+            onChangeText={(t) => setSearch(t)}
             autoCorrect={false}
           />
           {search.length > 0 && (
-            <TouchableOpacity onPress={() => { setSearch(''); setDisplayCount(PAGE_SIZE); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <TouchableOpacity onPress={() => setSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
               <Ionicons name="close-circle" size={16} color={colors.textMuted} />
             </TouchableOpacity>
           )}
         </View>
 
         <Text style={styles.countLabel}>
-          {filtered.length} checked-in attendee{filtered.length !== 1 ? 's' : ''}
+          {filtered.length}{!search && hasMore ? '+' : ''} checked-in attendee{filtered.length !== 1 ? 's' : ''}
           {search ? ' found' : ''}
         </Text>
       </View>
     </View>
-  ), [currentEvent, insets.top, checkedIn.length, search, filtered.length]);
+  ), [currentEvent, insets.top, members.length, hasMore, search, filtered.length]);
 
   const renderItem = useCallback(({ item }: { item: Attendee }) => (
     <TouchableOpacity style={styles.card} onPress={() => openProfile(item)} activeOpacity={0.75}>
@@ -204,7 +189,7 @@ export default function AudienceScreen() {
   ), [openProfile]);
 
   const ListFooter = useMemo(() => {
-    if (isRefetching) {
+    if (isLoadingMore) {
       return (
         <View style={styles.footer}>
           <ActivityIndicator size="small" color={colors.primary} />
@@ -213,26 +198,26 @@ export default function AudienceScreen() {
     }
     if (hasMore) {
       return (
-        <TouchableOpacity style={styles.loadMoreBtn} onPress={() => setDisplayCount((p) => p + PAGE_SIZE)} activeOpacity={0.7}>
+        <TouchableOpacity style={styles.loadMoreBtn} onPress={loadMore} activeOpacity={0.7}>
           <Text style={styles.loadMoreText}>Load more</Text>
           <Ionicons name="chevron-down" size={14} color={colors.primary} />
         </TouchableOpacity>
       );
     }
     return null;
-  }, [isRefetching, hasMore]);
+  }, [isLoadingMore, hasMore, loadMore]);
 
   return (
     <View style={styles.root}>
       <FlatList
-        data={displayed}
+        data={filtered}
         keyExtractor={(i) => i.id}
         renderItem={renderItem}
         ListHeaderComponent={ListHeader}
         ListFooterComponent={ListFooter}
         contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 100 }]}
         showsVerticalScrollIndicator={false}
-        onEndReached={handleEndReached}
+        onEndReached={loadMore}
         onEndReachedThreshold={0.3}
         refreshControl={
           <RefreshControl

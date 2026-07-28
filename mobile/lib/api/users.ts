@@ -102,23 +102,27 @@ function extractRawList(res: { success: boolean; data?: unknown }): any[] {
   return [];
 }
 
+const AUDIENCE_PAGE_SIZE = 15;
+
 /**
- * Fetches checked-in attendees for the current event.
- * Primary: GET /api/v1/events/:id/attendees?checked_in_only=true&per_page=200
- * Fallback: GET /api/v1/events/:id/members?checked_in_only=true&per_page=200
+ * Fetches one page of checked-in attendees for the current event.
+ * Primary:  GET /api/v1/events/:id/attendees?checked_in_only=true&per_page=15&page=N
+ * Fallback: GET /api/v1/events/:id/members?checked_in_only=true&per_page=15&page=N
  *
- * ALL members returned by the server are trusted as checked-in. Do NOT
- * additionally filter client-side by isCheckedIn — the attendees listing
- * endpoint does not include joined_at or status=ACTIVE, so the client-side
- * derivation is always false, incorrectly hiding every attendee.
+ * ALL members returned are trusted as checked-in (server filters).
+ * Returns { data, hasMore } so callers can drive server-side pagination.
  */
-export async function listAttendees(filters?: { tier?: string; search?: string }): Promise<ApiResponse<Attendee[]>> {
+export async function listAttendees(
+  filters?: { page?: number; search?: string },
+): Promise<ApiResponse<Attendee[]> & { hasMore: boolean }> {
   const eventId = getEventId();
-  if (__DEV__) console.log(`[Users] listAttendees eventId=${eventId} filters=`, filters);
-  if (!eventId) return { success: true, data: [] };
+  const page = filters?.page ?? 1;
+  if (__DEV__) console.log(`[Users] listAttendees eventId=${eventId} page=${page}`);
+  if (!eventId) return { success: true, data: [], hasMore: false };
 
   const params = new URLSearchParams();
-  params.set('per_page', '200');
+  params.set('per_page', String(AUDIENCE_PAGE_SIZE));
+  params.set('page', String(page));
   params.set('checked_in_only', 'true');
   if (filters?.search) params.set('search', filters.search);
 
@@ -126,22 +130,21 @@ export async function listAttendees(filters?: { tier?: string; search?: string }
   const res = await request<any>(`/api/v1/events/${eventId}/attendees?${params.toString()}`);
   const rawList = extractRawList(res);
   if (res.success && rawList.length > 0) {
-    // Trust the server's checked_in_only=true filter — all returned members are checked-in
-    return { success: true, data: rawList.map(normalizeAttendee) };
+    return { success: true, data: rawList.map(normalizeAttendee), hasMore: rawList.length >= AUDIENCE_PAGE_SIZE };
   }
 
   // Fall back to /members if /attendees fails or returns empty
   if (__DEV__) console.log('[Users] /attendees failed or empty — falling back to /members');
   const fbParams = new URLSearchParams();
-  fbParams.set('per_page', '200');
+  fbParams.set('per_page', String(AUDIENCE_PAGE_SIZE));
+  fbParams.set('page', String(page));
   fbParams.set('checked_in_only', 'true');
   if (filters?.search) fbParams.set('search', filters.search);
 
   const fb = await request<any>(`/api/v1/events/${eventId}/members?${fbParams.toString()}`);
-  if (!fb.success) return fb as ApiResponse<Attendee[]>;
+  if (!fb.success) return { ...(fb as ApiResponse<Attendee[]>), hasMore: false };
   const rawFb = extractRawList(fb);
-  // Trust server filter — all returned members are checked-in
-  return { success: true, data: rawFb.map(normalizeAttendee) };
+  return { success: true, data: rawFb.map(normalizeAttendee), hasMore: rawFb.length >= AUDIENCE_PAGE_SIZE };
 }
 
 export async function getAttendee(userId: string): Promise<ApiResponse<Attendee>> {
