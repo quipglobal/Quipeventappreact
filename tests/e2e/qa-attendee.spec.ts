@@ -64,6 +64,11 @@ async function installMocks(page: Page) {
       { rank: 2, name: 'Bob Smith',    points: 180, tier: 'Bronze', id: 'a1' },
     ]});
     if (p.startsWith('/api/v1/events/21/challenges'))  return ok({ success: true, data: [{ id: 'ch1', title: 'Visit 3 booths', points: 50, completed: false }] });
+    if (p.startsWith('/api/v1/events/21/members')) return ok({ success: true, data: { data: [
+      { id: 'a1', membership_id: 101, name: 'Bob Smith',   company_name: 'TechCo',       title: 'Engineer', roles: ['attendee'], status: 'active', joined_at: '2026-07-14T09:00:00Z', email: 'bob@techco.com' },
+      { id: 'a2', membership_id: 102, name: 'Carol Jones', company_name: 'StartupX',     title: 'Designer', roles: ['attendee'], status: 'active', joined_at: '2026-07-14T09:30:00Z', email: 'carol@startupx.com' },
+      { id: 'sp1', membership_id: 103, name: 'Jane Doe',   company_name: 'Visionary Inc', title: 'CEO',     roles: ['speaker'],  status: 'active', joined_at: '2026-07-14T08:00:00Z', email: 'jane@visionary.com' },
+    ], total: 3, per_page: 15, current_page: 1 } });
     if (p.startsWith('/api/v1/events/21/conversations')) return ok({ success: false }, 404);
     if (p.startsWith('/api/v1/events/21/'))             return ok({ success: true, data: [] });
     return ok({ success: true, data: null });
