@@ -372,6 +372,15 @@ export default function EventsScreen() {
     // use for the check-in step. It is idempotent for already-members.
     findAndJoin(c, {
       onSuccess: async (ev) => {
+        // If the popup was opened for a specific event, the code must match
+        // exactly that event — reject codes that belong to a different event.
+        if (selectedEvent && String(ev.id) !== String(selectedEvent.id)) {
+          Alert.alert(
+            'Wrong Code',
+            `That code is for a different event. Please enter the correct code for "${selectedEvent.name}".`,
+          );
+          return;
+        }
         setSelectedEvent(null);
         if (ev.id) {
           setCurrentEventId(ev.id);
@@ -381,21 +390,26 @@ export default function EventsScreen() {
         Alert.alert('Joined!', `You've joined "${ev.name}".`, [{ text: 'Enter Event', onPress: goToFeed }]);
       },
       onError: (err) => {
-        // If the join API fails (e.g. network), fall back to local event list
-        // so the user can still enter an event they were pre-registered for.
-        const local = allEvents.find((e) => (e.code ?? '').toUpperCase() === c || String(e.id) === c);
-        if (local) {
+        // If the join API fails (e.g. network), fall back to local event list —
+        // but only for the exact event whose popup is open (match by code, not ID).
+        const local = allEvents.find((e) => (e.code ?? '').toUpperCase() === c);
+        if (local && (!selectedEvent || String(local.id) === String(selectedEvent.id))) {
           setSelectedEvent(null);
           setCurrentEventId(local.id);
           refreshEventRole(local.id);
           saveJoinedEvent(local.id);
           Alert.alert('Joined!', `You've joined "${local.name}".`, [{ text: 'Enter Event', onPress: goToFeed }]);
+        } else if (local && selectedEvent && String(local.id) !== String(selectedEvent.id)) {
+          Alert.alert(
+            'Wrong Code',
+            `That code is for a different event. Please enter the correct code for "${selectedEvent.name}".`,
+          );
         } else {
           Alert.alert('Not Found', err instanceof Error ? err.message : `No event found for "${c}".`);
         }
       },
     });
-  }, [allEvents, findAndJoin, setCurrentEventId, goToFeed, refreshEventRole, saveJoinedEvent]);
+  }, [allEvents, findAndJoin, setCurrentEventId, goToFeed, refreshEventRole, saveJoinedEvent, selectedEvent]);
 
   const activeCats = feedSubTab === 'videos' ? videoCats : articleCats;
   const activeCat = feedSubTab === 'videos' ? selectedVideoCat : selectedArticleCat;
