@@ -143,6 +143,11 @@ export function useGiveaways() {
     queryFn: listGiveaways,
     select: (res) => res.data ?? [],
     enabled: !!currentEventId,
+    // Poll every 30 s so users already on the screen see new/updated
+    // giveaways from other devices without needing a navigate-away.
+    // 30 s is a comfortable upper bound for a live-event "just added"
+    // expectation without hammering the backend.
+    refetchInterval: 30_000,
   });
 
   // Merge the per-event AsyncStorage winners overlay into the cached
@@ -275,6 +280,8 @@ export function useUpdateGiveaway() {
             g.id === id ? { ...saved, winners: g.winners ?? saved.winners } : g,
           ),
         }));
+        // Background refetch so other devices pick up the edit immediately.
+        queryClient.invalidateQueries({ queryKey: key });
         return;
       }
       if (res.error?.code === 'NOT_IMPLEMENTED') return; // keep optimistic edit
@@ -303,7 +310,12 @@ export function useRemoveGiveaway() {
     },
     onSuccess: (res, _giveawayId, ctx) => {
       if (!ctx) return;
-      if (res.success || res.error?.code === 'NOT_IMPLEMENTED') return;
+      if (res.success) {
+        // Background refetch so other devices see the deletion immediately.
+        queryClient.invalidateQueries({ queryKey: key });
+        return;
+      }
+      if (res.error?.code === 'NOT_IMPLEMENTED') return; // keep optimistic removal
       if (ctx.previous) queryClient.setQueryData(key, ctx.previous);
     },
     onError: (_err, _giveawayId, ctx) => {
