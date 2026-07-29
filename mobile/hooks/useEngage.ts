@@ -227,12 +227,17 @@ export function useCreateGiveaway() {
       if (res.success && res.data) {
         const saved = res.data;
         await migrateGiveawayWinnersKey(ctx.eventId, ctx.tempId, saved.id);
+        // Swap temp row → saved row immediately (zero-delay for the sponsor).
         queryClient.setQueryData<ApiResponse<Giveaway[]>>(key, (prev) => ({
           success: true,
           data: (prev?.data ?? []).map((g) =>
             g.id === ctx.tempId ? { ...saved, winners: g.winners } : g,
           ),
         }));
+        // Trigger a background refetch so every other screen (including the
+        // attendee-facing "Giveaways & Offers" view) picks up the server state
+        // immediately — without waiting for a focus event or next mount.
+        queryClient.invalidateQueries({ queryKey: key });
         return;
       }
       if (res.error?.code === 'NOT_IMPLEMENTED') return; // keep local row

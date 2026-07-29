@@ -384,6 +384,16 @@ export async function createGiveaway(payload: CreateGiveawayPayload): Promise<Ap
     sponsorName: payload.sponsorName,
     sponsor_id: payload.sponsorId,
     sponsorId: payload.sponsorId,
+    // Ensure the backend stores the giveaway as active immediately.
+    // Laravel models often use `status` (string), `is_active` (bool),
+    // or a `status_id` integer (1=draft, 2=active/open). Send all
+    // common shapes so whichever column the controller reads picks
+    // up the active/open intent — no manual backend publish step needed.
+    status: 'active',
+    status_id: 2,
+    is_active: true,
+    is_published: true,
+    published: true,
   };
   const res = await request<any>(`/api/v1/events/${eventId}/giveaways`, {
     method: 'POST',
