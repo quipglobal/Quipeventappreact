@@ -92,8 +92,10 @@ export interface ProfileUpdatePayload {
   social_links?: SocialLinks;
   avatar_url?: string;
   profile_image?: string;
+  photo?: string;
   interests?: string[];
   interested_topic_ids?: number[];
+  topic_ids?: number[];
 }
 
 // ─── Normalizer ───────────────────────────────────────────────────────────────
@@ -283,7 +285,12 @@ export async function uploadAvatarApi(file: File): Promise<AvatarUploadResponse>
   }
 
   const data = (body.data ?? body) as Record<string, unknown>;
-  const avatarUrl = String(data.avatar_url ?? data.avatarUrl ?? '');
+  // Backend may return the URL under various field names — try all common ones.
+  const avatarUrl = String(
+    data.avatar_url ?? data.avatarUrl ??
+    data.url ?? data.image_url ?? data.image ??
+    data.path ?? data.file_url ?? data.link ?? ''
+  );
   if (!avatarUrl) {
     return { success: false, error: { message: 'Upload succeeded but no URL was returned.' } };
   }

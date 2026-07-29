@@ -52,44 +52,26 @@ export const EditProfilePage: React.FC<EditProfilePageProps> = ({ onBack }) => {
   const [topics, setTopics] = useState<Lookup[]>([]);
   const [companyQuery, setCompanyQuery] = useState('');
   const [companyOpen, setCompanyOpen] = useState(false);
+  // Name hints: used to match industry/topics by name when the backend returns
+  // strings or objects without IDs. Cleared once matched to the lookup lists.
+  const [industryNameHint, setIndustryNameHint] = useState('');
+  const [topicNameHints, setTopicNameHints] = useState<string[]>([]);
 
-  // Load current profile + lookups in parallel.
-  // Use allSettled so a single rejection can't strand the UI in "loading".
+  // Load profile first so the form renders immediately — no waiting on lookups.
+  // Lookups (industries, tags, companies) load concurrently in the background
+  // and update the dropdowns/chip-pickers as they arrive.
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
 
-    Promise.allSettled([
-      getUserProfileApi(),
-      listIndustriesApi(),
-      listTagsApi(),
-      listCompaniesApi(500),
-    ]).then(([profileR, industriesR, tagsR, companiesR]) => {
+    getUserProfileApi().then(profileR => {
       if (cancelled) return;
-      const partialErrors: string[] = [];
 
-      if (industriesR.status === 'fulfilled' && industriesR.value.success && industriesR.value.data) {
-        setIndustries(industriesR.value.data);
-      } else partialErrors.push('industries');
-
-      if (tagsR.status === 'fulfilled' && tagsR.value.success && tagsR.value.data) {
-        setTopics(tagsR.value.data);
-      } else partialErrors.push('topics');
-
-      if (companiesR.status === 'fulfilled' && companiesR.value.success && companiesR.value.data) {
-        setCompanies(companiesR.value.data);
-      } else partialErrors.push('companies');
-
-      const liveProfile = profileR.status === 'fulfilled' && profileR.value.success
-        ? profileR.value.data
-        : null;
-
-      if (liveProfile) {
-        applyProfile(liveProfile);
+      if (profileR.success && profileR.data) {
+        applyProfile(profileR.data);
       } else if (user) {
-        // Fallback to whatever we already have on the user object so the form
-        // is never blank.
+        // Fallback: use whatever the auth context already has so the form is never blank.
         applyProfile({
           id: user.id, name: user.name, firstName: user.firstName ?? '', lastName: user.lastName ?? '',
           email: user.email, phone: user.phone ?? '', company: user.company,
@@ -100,18 +82,61 @@ export const EditProfilePage: React.FC<EditProfilePageProps> = ({ onBack }) => {
           points: user.points, tier: user.tier, role: user.role,
           interests: user.interests, profileComplete: user.profileComplete,
         });
-        partialErrors.unshift('profile');
+        setError("Couldn't load your latest profile. Showing cached data — you can still edit and save.");
       }
 
-      if (partialErrors.length) {
-        setError(`Couldn't load ${partialErrors.join(', ')}. You can still edit and save.`);
-      }
+      // Form is ready — show it while lookups continue loading in the background.
       setLoading(false);
+
+      const partialErrors: string[] = [];
+      Promise.allSettled([
+        listIndustriesApi(),
+        listTagsApi(),
+        listCompaniesApi(500),
+      ]).then(([industriesR, tagsR, companiesR]) => {
+        if (cancelled) return;
+        if (industriesR.status === 'fulfilled' && industriesR.value.success && industriesR.value.data) {
+          setIndustries(industriesR.value.data);
+        } else partialErrors.push('industries');
+        if (tagsR.status === 'fulfilled' && tagsR.value.success && tagsR.value.data) {
+          setTopics(tagsR.value.data);
+        } else partialErrors.push('topics');
+        if (companiesR.status === 'fulfilled' && companiesR.value.success && companiesR.value.data) {
+          setCompanies(companiesR.value.data);
+        } else partialErrors.push('companies');
+        if (partialErrors.length) {
+          setError(prev =>
+            prev
+              ? prev
+              : `Some dropdowns couldn't load (${partialErrors.join(', ')}). You can still edit and save.`
+          );
+        }
+      });
     });
 
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // After industries arrive: if we only have a name (no ID), find the matching entry.
+  useEffect(() => {
+    if (!industryNameHint || industryId !== null || !industries.length) return;
+    const match = industries.find(i => i.name.toLowerCase() === industryNameHint.toLowerCase());
+    if (match) setIndustryId(match.id);
+  }, [industries, industryId, industryNameHint]);
+
+  // After tags arrive: match any string-only topics (id=0) by name.
+  useEffect(() => {
+    if (!topicNameHints.length || !topics.length) return;
+    const matchedIds = topicNameHints
+      .map(name => topics.find(t => t.name.toLowerCase() === name.toLowerCase()))
+      .filter((t): t is Lookup => t !== undefined)
+      .map(t => t.id);
+    setTopicNameHints([]); // clear so this effect doesn't re-run
+    if (matchedIds.length) {
+      setTopicIds(prev => [...prev, ...matchedIds.filter(id => !prev.includes(id))]);
+    }
+  }, [topics, topicNameHints]);
 
   function applyProfile(p: UserProfile) {
     setFirstName(p.firstName);
@@ -120,13 +145,21 @@ export const EditProfilePage: React.FC<EditProfilePageProps> = ({ onBack }) => {
     setPhone(p.phone);
     setTitle(p.title);
     setBio(p.bio);
-    setCompanyId(p.companyId);
-    setIndustryId(p.industryId);
+    setCompanyId(p.companyId ?? null);
+    setIndustryId(p.industryId ?? null);
+    // Keep the industry name as a hint so we can match it to the lookup list by
+    // name if the backend doesn't return a numeric industryId.
+    setIndustryNameHint(p.industry ?? '');
     setLinkedinUrl(p.linkedinUrl);
     setSocialLinks(p.socialLinks ?? {});
     setAvatarUrl(p.avatar || p.profileImage || '');
-    setTopicIds((p.interestedTopics ?? []).map(t => t.id).filter(Boolean));
-    setCompanyQuery(p.company);
+    // Fix: filter(id => id > 0) instead of filter(Boolean) — 0 is falsy but valid
+    // as a sentinel meaning "string-only topic"; we collect those names separately.
+    const withIds = (p.interestedTopics ?? []).filter(t => t.id > 0);
+    const nameOnly = (p.interestedTopics ?? []).filter(t => t.id <= 0).map(t => t.name);
+    setTopicIds(withIds.map(t => t.id));
+    setTopicNameHints(nameOnly); // will be matched once the tags list loads
+    setCompanyQuery(p.company ?? '');
   }
 
   const filteredCompanies = useMemo(() => {
@@ -212,11 +245,14 @@ export const EditProfilePage: React.FC<EditProfilePageProps> = ({ onBack }) => {
       company_name: companyText || undefined,
       industry_id: industryId,
       social_links: Object.keys(cleanedSocial).length ? cleanedSocial : undefined,
+      // Send avatar on all three field names the backend may look at.
       avatar_url: avatarUrl || undefined,
-      // Send IDs (canonical pivot shape) AND names (legacy shape)
-      // so the backend can accept either. This was the suspected
-      // reason interests weren't being persisted.
+      profile_image: avatarUrl || undefined,
+      photo: avatarUrl || undefined,
+      // Send topic IDs on all three aliases the backend may accept.
       interested_topic_ids: topicIds.length ? topicIds : undefined,
+      topic_ids: topicIds.length ? topicIds : undefined,
+      // Also send names for backward-compat with backends that store interests as strings.
       interests: selectedTopicNames.length ? selectedTopicNames : undefined,
     };
 

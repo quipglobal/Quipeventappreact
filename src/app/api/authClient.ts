@@ -82,18 +82,54 @@ function normalizeUser(raw: Record<string, unknown>): AuthUser {
     roleStr === 'exhibitor' || roleStr === 'exhibitor_rep' ||
     rolesArray.includes('sponsor') || rolesArray.includes('sponsor_rep') ||
     rolesArray.includes('exhibitor') || rolesArray.includes('exhibitor_rep');
+
+  // Company — may be a string or an object { id, name }
+  const companyRaw = raw.company as Record<string, unknown> | string | null | undefined;
+  const companyName = typeof companyRaw === 'string'
+    ? companyRaw
+    : (companyRaw && typeof companyRaw === 'object' ? String(companyRaw.name ?? '') : '') ||
+      String(raw.company_name ?? raw.organization ?? '');
+  const companyId: number | undefined =
+    companyRaw && typeof companyRaw === 'object' && companyRaw.id != null
+      ? Number(companyRaw.id)
+      : raw.company_id != null ? Number(raw.company_id) : undefined;
+
+  // Industry — may be a string or an object { id, name }
+  const industryRaw = raw.industry as Record<string, unknown> | string | null | undefined;
+  const industryName = typeof industryRaw === 'string'
+    ? industryRaw
+    : (industryRaw && typeof industryRaw === 'object' ? String(industryRaw.name ?? '') : '');
+  const industryId: number | undefined =
+    industryRaw && typeof industryRaw === 'object' && industryRaw.id != null
+      ? Number(industryRaw.id)
+      : raw.industry_id != null ? Number(raw.industry_id) : undefined;
+
+  // Interested topics — array of strings or { id, name } objects
+  const topicsRaw = raw.interested_topics ?? raw.interestedTopics;
+  const interestedTopics = Array.isArray(topicsRaw)
+    ? (topicsRaw as unknown[]).map((t) => {
+        if (typeof t === 'string') return { id: 0, name: t, slug: undefined as string | undefined };
+        const o = t as Record<string, unknown>;
+        return { id: Number(o.id ?? 0), name: String(o.name ?? ''), slug: o.slug ? String(o.slug) : undefined };
+      }).filter(t => t.name)
+    : undefined;
+
   return {
     id: String(raw.id ?? ''),
     name: (raw.name as string) ?? `${raw.first_name ?? ''} ${raw.last_name ?? ''}`.trim(),
     email: (raw.email as string) ?? '',
     phone: (raw.phone as string | undefined),
     title: (raw.title ?? raw.job_title ?? raw.position ?? '') as string,
-    company: (raw.company ?? raw.organization ?? '') as string,
+    company: companyName,
+    companyId,
+    industry: industryName || undefined,
+    industryId,
     role: isSponsor ? 'sponsor' : 'attendee',
     avatar: (raw.avatar ?? raw.avatar_url ?? raw.photo ?? undefined) as string | undefined,
     points: Number(raw.points ?? raw.gamification_points ?? 0),
     tier: (raw.tier ?? raw.membership_tier ?? 'Bronze') as string,
     interests: Array.isArray(raw.interests) ? raw.interests as string[] : [],
+    interestedTopics,
     profileComplete: Boolean(raw.profile_complete ?? raw.profileComplete ?? true),
     emailVerified: Boolean(raw.email_verified ?? raw.emailVerified ?? true),
     badgeCode: (raw.badge_code ?? raw.badgeCode ?? undefined) as string | undefined,
