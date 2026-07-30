@@ -9,7 +9,8 @@
     "dev": "vite",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
-    "test:load:node": "node tests/load/api-perf.js"
+    "test:load:node": "node tests/load/api-perf.js",
+    "test:load-1k": "node tests/load/api-1k-concurrency.js"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",

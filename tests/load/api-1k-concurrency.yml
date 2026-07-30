@@ -1,0 +1,134 @@
+# CXO API — 1 000-VU Concurrency Load Test (Artillery config)
+#
+# This YAML mirrors the phases and scenarios in api-1k-concurrency.js.
+# Use it when Artillery is available:
+#
+#   npm install -g artillery
+#   export LOAD_TEST_TOKEN="<bearer>"
+#   export LOAD_TEST_EVENT_ID=21
+#   artillery run tests/load/api-1k-concurrency.yml
+#
+# Or with a custom target:
+#   artillery run --target https://staging.cxocollaborate.com tests/load/api-1k-concurrency.yml
+#
+# The npm run test:load-1k script uses the zero-dependency Node.js runner
+# (api-1k-concurrency.js) which requires no Artillery install and produces
+# an identical report.
+
+config:
+  target: "https://app.cxocollaborate.com"
+  http:
+    timeout: 15
+    # Keep-alive pool — Artillery defaults to 1 socket/VU which is fine
+    # for up to ~1 000 VUs; increase if Artillery warns about connections.
+    pool: 100
+  defaults:
+    headers:
+      Authorization: "Bearer {{ $processEnvironment.LOAD_TEST_TOKEN }}"
+      X-Tenant-ID: "3"
+      Accept: "application/json"
+      Connection: "keep-alive"
+
+  # ── Load phases ─────────────────────────────────────────────────────────────
+  # arrivalRate = new VUs arriving per second.
+  # At sustained arrivalRate:1000 each VU fires ~1 req → ~1 000 req/s.
+  phases:
+    - name: "warm-up"
+      duration: 30
+      arrivalRate: 1
+      rampTo: 200
+
+    - name: "ramp-to-peak"
+      duration: 60
+      arrivalRate: 200
+      rampTo: 1000
+
+    - name: "sustained-peak"
+      duration: 60
+      arrivalRate: 1000
+
+    - name: "ramp-down"
+      duration: 30
+      arrivalRate: 1000
+      rampTo: 1
+
+  plugins:
+    ensure: {}
+
+  # ── Pass/fail thresholds ────────────────────────────────────────────────────
+  ensure:
+    maxErrorRate: 1          # HTTP error rate < 1 %
+    thresholds:
+      - http.response_time.p95: 3000   # p95 < 3 000 ms
+
+scenarios:
+  # ── Audience / attendees ───────────────────────────────────────────────────
+  - name: "GET attendees"
+    weight: 25
+    flow:
+      - get:
+          url: "/api/v1/events/{{ $processEnvironment.LOAD_TEST_EVENT_ID }}/attendees"
+          expect:
+            - statusCode: 200
+
+  # ── Polls ──────────────────────────────────────────────────────────────────
+  - name: "GET polls"
+    weight: 20
+    flow:
+      - get:
+          url: "/api/v1/events/{{ $processEnvironment.LOAD_TEST_EVENT_ID }}/mobile-polls"
+          expect:
+            - statusCode: 200
+
+  # ── Surveys ────────────────────────────────────────────────────────────────
+  - name: "GET surveys"
+    weight: 15
+    flow:
+      - get:
+          url: "/api/v1/events/{{ $processEnvironment.LOAD_TEST_EVENT_ID }}/mobile-surveys"
+          expect:
+            - statusCode: 200
+
+  # ── Event listing ──────────────────────────────────────────────────────────
+  - name: "GET events"
+    weight: 15
+    flow:
+      - get:
+          url: "/api/v1/tenants/3/events"
+          expect:
+            - statusCode:
+                - 200
+                - 404
+
+  # ── Giveaways ──────────────────────────────────────────────────────────────
+  - name: "GET giveaways"
+    weight: 10
+    flow:
+      - get:
+          url: "/api/v1/events/{{ $processEnvironment.LOAD_TEST_EVENT_ID }}/giveaways"
+          expect:
+            - statusCode:
+                - 200
+                - 404
+
+  # ── Leaderboard ───────────────────────────────────────────────────────────
+  - name: "GET leaderboard"
+    weight: 10
+    flow:
+      - get:
+          url: "/api/v1/events/{{ $processEnvironment.LOAD_TEST_EVENT_ID }}/leaderboard"
+          expect:
+            - statusCode:
+                - 200
+                - 404
+
+  # ── Members (checked-in) ──────────────────────────────────────────────────
+  - name: "GET members"
+    weight: 5
+    flow:
+      - get:
+          url: "/api/v1/events/{{ $processEnvironment.LOAD_TEST_EVENT_ID }}/members?checked_in_only=true&per_page=20"
+          expect:
+            - statusCode:
+                - 200
+                - 404
