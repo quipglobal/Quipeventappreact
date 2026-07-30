@@ -445,14 +445,12 @@ export async function request<T>(
 ): Promise<ApiResponse<T>> {
   const method = (options.method ?? 'GET').toUpperCase();
   let res = await requestOnce<T>(path, options);
-  const isRetryableError = (r: typeof res) =>
-    r.error?.code === 'NETWORK_ERROR' || r.error?.code === 'TIMEOUT';
-  if (res.success || !isRetryableError(res)) return res;
+  if (res.success || res.error?.code !== 'NETWORK_ERROR') return res;
 
   if (isRetrySafe(path, method)) {
     await sleep(NETWORK_RETRY_DELAY_MS);
     res = await requestOnce<T>(path, options);
-    if (res.success || !isRetryableError(res)) return res;
+    if (res.success || res.error?.code !== 'NETWORK_ERROR') return res;
   }
 
   const diag = await diagnoseNetwork();

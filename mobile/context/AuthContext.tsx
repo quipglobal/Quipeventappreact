@@ -46,8 +46,6 @@ export function useAuth(): AppContextValue {
 const TOKEN_KEY = 'cxo_auth_token';
 const CACHED_USER_KEY = 'cxo_cached_user';
 const CHECKED_IN_EVENTS_KEY = 'cxo_checked_in_events';
-const SESSION_EXPIRES_KEY = 'cxo_session_expires';
-const SESSION_DURATION_MS = 10 * 60 * 60 * 1000; // 10 hours
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
@@ -98,7 +96,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setVotedPolls({});
       setCompletedSurveys([]);
       setCheckedInEvents([]);
-      AsyncStorage.multiRemove([TOKEN_KEY, CACHED_USER_KEY, SESSION_EXPIRES_KEY]).catch(() => {});
+      AsyncStorage.multiRemove([TOKEN_KEY, CACHED_USER_KEY]).catch(() => {});
       router.replace('/(auth)/welcome');
     });
     return () => clearUnauthorizedHandler();
@@ -119,16 +117,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // Check local 10-hour session expiry. If expired, clear and send to login.
-      const sessionExpiresRaw = await AsyncStorage.getItem(SESSION_EXPIRES_KEY);
-      const sessionExpires = sessionExpiresRaw ? parseInt(sessionExpiresRaw, 10) : 0;
-      if (sessionExpires > 0 && Date.now() > sessionExpires) {
-        await clearToken();
-        await AsyncStorage.multiRemove([TOKEN_KEY, CACHED_USER_KEY, SESSION_EXPIRES_KEY]);
-        setIsLoading(false);
-        return;
-      }
-
       await setToken(storedToken);
       setTokenState(storedToken);
 
@@ -142,10 +130,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         } catch {}
       }
 
-      // Let the user into the app immediately with cached data while we
-      // verify the token in the background. This prevents a slow/hung
-      // backend from holding the user on a blank screen or (worse) logging
-      // them out due to a timeout.
       if (hasCachedUser) {
         setIsLoading(false);
       }
@@ -169,41 +153,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUserState(freshUser);
         setIsOffline(false);
         await AsyncStorage.setItem(CACHED_USER_KEY, JSON.stringify(freshUser));
-      } else if (res.error?.code === 'UNAUTHORIZED') {
-        // Backend explicitly rejected the token (401) — must re-authenticate.
+      } else if (res.error?.code === 'NETWORK_ERROR') {
+        // Network issue — keep cached user and flag as offline
+        setIsOffline(true);
+      } else {
+        // Auth failure — clear token and session
         await clearToken();
-        await AsyncStorage.multiRemove([TOKEN_KEY, CACHED_USER_KEY, SESSION_EXPIRES_KEY]);
+        await AsyncStorage.multiRemove([TOKEN_KEY, CACHED_USER_KEY]);
         setTokenState(null);
         setUserState(null);
-      } else {
-        // NETWORK_ERROR, TIMEOUT, PARSE_ERROR, REQUEST_FAILED, RATE_LIMITED, etc.
-        // These are server/network failures — NOT proof the token is invalid.
-        // Keep the cached session so the user isn't logged out by a slow server.
-        if (res.error?.code === 'NETWORK_ERROR') setIsOffline(true);
       }
     } catch {
-      // Unexpected error during restore. Only clear the session if we have no
-      // cached user to fall back on — avoids logging users out because of a
-      // transient AsyncStorage or JSON hiccup.
-      if (!userRef.current) {
-        await clearToken().catch(() => {});
-        await AsyncStorage.multiRemove([TOKEN_KEY, CACHED_USER_KEY, SESSION_EXPIRES_KEY]).catch(() => {});
-        setTokenState(null);
-        setUserState(null);
-      }
+      // Unexpected error — clear for safety
+      await clearToken().catch(() => {});
+      await AsyncStorage.multiRemove([TOKEN_KEY, CACHED_USER_KEY]).catch(() => {});
+      setTokenState(null);
+      setUserState(null);
     } finally {
       setIsLoading(false);
     }
   }
 
   const login = useCallback(async (tok: string, u: AuthUser) => {
-    const sessionExpires = String(Date.now() + SESSION_DURATION_MS);
     await setToken(tok);
-    await AsyncStorage.multiSet([
-      [TOKEN_KEY, tok],
-      [CACHED_USER_KEY, JSON.stringify(u)],
-      [SESSION_EXPIRES_KEY, sessionExpires],
-    ]);
+    await AsyncStorage.setItem(TOKEN_KEY, tok);
+    await AsyncStorage.setItem(CACHED_USER_KEY, JSON.stringify(u));
     setTokenState(tok);
     setUserState(u);
     setIsOffline(false);
@@ -218,7 +192,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // still be there for that event. Wiping on logout was the cause
     // of the "all my leads disappeared after I signed out" report.
     await clearToken();
-    await AsyncStorage.multiRemove([TOKEN_KEY, CACHED_USER_KEY, SESSION_EXPIRES_KEY]);
+    await AsyncStorage.multiRemove([TOKEN_KEY, CACHED_USER_KEY]);
     setTokenState(null);
     setUserState(null);
     setCompletedChallenges([]);
