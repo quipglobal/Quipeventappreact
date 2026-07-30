@@ -224,7 +224,23 @@ function normalizeLead(raw: any): Lead {
     notes: typeof raw?.notes === 'string' ? raw.notes : '',
     timestamp: isNaN(timestamp.getTime()) ? new Date() : timestamp,
     avatar,
-    tags: Array.isArray(raw?.tags) ? raw.tags.filter((t: unknown): t is string => typeof t === 'string') : [],
+    tags: (() => {
+      const rawTags = raw?.tags;
+      if (Array.isArray(rawTags)) {
+        return rawTags.filter((t: unknown): t is string => typeof t === 'string');
+      }
+      // Laravel JSON columns are sometimes serialized as a JSON string instead
+      // of a parsed array when using certain query builders or resource transforms.
+      if (typeof rawTags === 'string' && rawTags.trim().startsWith('[')) {
+        try {
+          const parsed = JSON.parse(rawTags);
+          return Array.isArray(parsed)
+            ? parsed.filter((t: unknown): t is string => typeof t === 'string')
+            : [];
+        } catch { return []; }
+      }
+      return [];
+    })(),
     priority,
     pendingSync: raw?.pendingSync === true ? true : undefined,
     email,
@@ -447,8 +463,13 @@ export async function listLeads(eventId: string | number): Promise<ListLeadsResp
 }
 
 /**
- * PUT /api/v1/events/:eventId/leads/:id
+ * PATCH /api/v1/events/:eventId/leads/:id
  * Updates notes, tags, or priority for an existing lead.
+ *
+ * NOTE: The backend registers this route as PATCH, not PUT. A live probe of
+ * PUT /events/:id/leads/:id returns HTTP 405 — PATCH is the only allowed verb.
+ * The BACKEND_SCAN_ENDPOINTS.md contract incorrectly shows PUT; the actual
+ * Laravel controller uses PATCH via MobileEventController::leadsUpdate.
  */
 export async function updateLeadApi(
   eventId: string | number,
@@ -465,10 +486,9 @@ export async function updateLeadApi(
     return { success: true };
   }
 
-  const res = await apiPut<Lead>(
+  const res = await apiPatch<Lead>(
     `/api/v1/events/${eventId}/leads/${id}`,
     updates,
-    HEADERS,
   );
   if (!res.success) {
     return { success: false, error: res.error ?? { code: 'UPDATE_FAILED', message: 'Failed to update lead.' } };

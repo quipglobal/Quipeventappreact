@@ -219,8 +219,10 @@ GET /api/v1/events/:eventId/leads
 ### 4. Update a Lead
 
 ```
-PUT /api/v1/events/:eventId/leads/:id
+PATCH /api/v1/events/:eventId/leads/:id
 ```
+
+> **Note:** The live Laravel backend registers this route as `PATCH` (not `PUT`). A `PUT` request returns HTTP 405. The client must use `PATCH`.
 
 **Headers:** `Authorization: Bearer <token>`, `X-Tenant-ID: 3`, `Content-Type: application/json`
 

@@ -73,6 +73,32 @@ const LeadDetailView: React.FC<{
     setIsEditing(false);
   };
 
+  const handleExport = () => {
+    const esc = (s: string) => `"${String(s ?? '').replace(/"/g, '""')}"`;
+    const headers = ['Name', 'Company', 'Title', 'Email', 'Badge Code', 'Priority', 'Tags', 'Notes', 'Scanned At'];
+    const row = [
+      lead.name,
+      lead.company,
+      lead.title,
+      lead.email ?? '',
+      lead.code,
+      lead.priority,
+      lead.tags.join('; '),
+      lead.notes,
+      lead.timestamp.toISOString(),
+    ].map(esc);
+    const csv = [headers.join(','), row.join(',')].join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `lead-${lead.name.replace(/\s+/g, '-').toLowerCase()}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const toggleTag = (tag: string) => {
     setEditTags(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]);
   };
@@ -163,7 +189,9 @@ const LeadDetailView: React.FC<{
             <Edit3 style={{ width: 15, height: 15 }} />
             <span style={{ fontSize: 13, fontWeight: 700 }}>{isEditing ? 'Editing…' : 'Edit Lead'}</span>
           </button>
-          <button className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl active:scale-[0.97]"
+          <button
+            onClick={handleExport}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl active:scale-[0.97]"
             style={{ background: t.surface2, border: `1px solid ${t.border}` }}>
             <Download style={{ width: 15, height: 15, color: t.accentSoft }} />
             <span style={{ color: t.text, fontSize: 13, fontWeight: 600 }}>Export</span>
