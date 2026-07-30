@@ -1,11 +1,9 @@
-import express from 'express';
+import http from 'http';
 import path from 'path';
 import https from 'https';
-import http from 'http';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const app = express();
 const PORT = process.env.PORT || 5000;
 
 const BACKEND =
@@ -14,13 +12,33 @@ const BACKEND =
 
 const backendUrl = new URL(BACKEND);
 
-// Minimal shell returned when dist/index.html isn't readable yet (e.g. during
-// the brief window right after container start when the Cloud Run layer is
-// still being mounted). The browser will load the real JS bundle once it's
-// available. A 200 here is all we need to pass the autoscale startup probe.
 const FALLBACK_HTML =
   '<!doctype html><html><head><meta charset="utf-8"><title>Loading…</title></head>' +
   '<body><div id="root"></div></body></html>';
+
+// Placeholder request handler — replaced with the full Express app once it
+// finishes loading. Any health-check probe that fires during startup gets an
+// immediate 200 so the autoscale promote step does not see "connection refused"
+// or 500.
+let handle = (_req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/html' });
+  res.end(FALLBACK_HTML);
+};
+
+// Bind the port immediately using only built-in modules (no package loading
+// needed). This keeps the startup window — before Express has loaded — short
+// enough for the autoscale health-check probe to succeed.
+const server = http.createServer((req, res) => handle(req, res));
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log(`Proxying /api → ${BACKEND}`);
+});
+
+// ── Dynamic Express setup ────────────────────────────────────────────────────
+// Top-level await suspends this module's execution and yields to the event
+// loop, so the http server above can start accepting connections while Express
+// (and its dependencies) finish loading from disk.
+const { default: express } = await import('express');
 
 function proxyTo(prefix) {
   return (req, res) => {
@@ -56,25 +74,13 @@ function proxyTo(prefix) {
   };
 }
 
+const app = express();
+
 app.use('/api',     proxyTo('/api'));
 app.use('/storage', proxyTo('/storage'));
 
-// ── SPA root handler ───────────────────────────────────────────────────────
-// IMPORTANT: this must come BEFORE express.static so that GET / is always
-// handled here rather than by the static middleware.
-//
-// Why: express.static pipes dist/index.html into the response. If the Cloud
-// Run filesystem layer containing dist/ hasn't finished mounting yet, the pipe
-// can fail *after* response headers have already been sent (status 200 header
-// sent, then the body stream errors out). Express then sends a 500 fragment.
-// The health-check probe sees 500 and the promote step fails.
-//
-// By intercepting GET / ourselves we get an explicit sendFile + error callback.
-// If the file isn't readable we fall back to an inline 200 shell immediately,
-// which is enough for the startup probe to pass. The !res.headersSent guard
-// ensures we never try to set headers twice — the only case where headers
-// could already be sent here is if something else in the pipeline wrote them,
-// in which case we leave the response alone.
+// ── SPA root handler ─────────────────────────────────────────────────────────
+// Must come before express.static so GET / is always handled here.
 app.get('/', (req, res) => {
   const indexPath = path.join(__dirname, 'dist', 'index.html');
   res.sendFile(indexPath, (err) => {
@@ -87,9 +93,7 @@ app.get('/', (req, res) => {
 // Static assets (JS bundles, CSS, images, etc.)
 app.use(express.static(path.join(__dirname, 'dist')));
 
-// SPA catch-all: any path not matched above (deep links, direct navigation)
-// gets the index.html shell so client-side routing takes over.
-// Error callback prevents unhandled 500s when dist/ is momentarily unavailable.
+// SPA catch-all: deep links and direct navigation get the index.html shell.
 app.use((_req, res) => {
   const indexPath = path.join(__dirname, 'dist', 'index.html');
   res.sendFile(indexPath, (err) => {
@@ -99,7 +103,5 @@ app.use((_req, res) => {
   });
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Proxying /api → ${BACKEND}`);
-});
+// Hand off: all subsequent requests are handled by Express.
+handle = (req, res) => app(req, res);
