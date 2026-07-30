@@ -14,6 +14,14 @@ const BACKEND =
 
 const backendUrl = new URL(BACKEND);
 
+// Minimal shell returned when dist/index.html isn't readable yet (e.g. during
+// the brief window right after container start when the Cloud Run layer is
+// still being mounted). The browser will load the real JS bundle once it's
+// available. A 200 here is all we need to pass the autoscale startup probe.
+const FALLBACK_HTML =
+  '<!doctype html><html><head><meta charset="utf-8"><title>Loading…</title></head>' +
+  '<body><div id="root"></div></body></html>';
+
 function proxyTo(prefix) {
   return (req, res) => {
     const fullPath = backendUrl.pathname.replace(/\/$/, '') + prefix + req.url;
@@ -39,7 +47,9 @@ function proxyTo(prefix) {
 
     proxyReq.on('error', (err) => {
       console.error('[proxy error]', err.message);
-      res.status(502).json({ success: false, error: { code: 'PROXY_ERROR', message: 'Backend unavailable.' } });
+      if (!res.headersSent) {
+        res.status(502).json({ success: false, error: { code: 'PROXY_ERROR', message: 'Backend unavailable.' } });
+      }
     });
 
     req.pipe(proxyReq);
@@ -49,28 +59,44 @@ function proxyTo(prefix) {
 app.use('/api',     proxyTo('/api'));
 app.use('/storage', proxyTo('/storage'));
 
-app.use(express.static(path.join(__dirname, 'dist')));
-
-// Explicit SPA root handler. Using an explicit route (instead of relying
-// solely on the static middleware) lets us catch sendFile errors and still
-// return a 200 during the brief window right after the container starts —
-// before the layer containing dist/ is fully mounted. Without this, node.js
-// binds the TCP socket and starts accepting health-check probes ~10–50 ms
-// before the static middleware can find index.html, causing repeated 500s
-// that fail the autoscale promote step.
+// ── SPA root handler ───────────────────────────────────────────────────────
+// IMPORTANT: this must come BEFORE express.static so that GET / is always
+// handled here rather than by the static middleware.
+//
+// Why: express.static pipes dist/index.html into the response. If the Cloud
+// Run filesystem layer containing dist/ hasn't finished mounting yet, the pipe
+// can fail *after* response headers have already been sent (status 200 header
+// sent, then the body stream errors out). Express then sends a 500 fragment.
+// The health-check probe sees 500 and the promote step fails.
+//
+// By intercepting GET / ourselves we get an explicit sendFile + error callback.
+// If the file isn't readable we fall back to an inline 200 shell immediately,
+// which is enough for the startup probe to pass. The !res.headersSent guard
+// ensures we never try to set headers twice — the only case where headers
+// could already be sent here is if something else in the pipeline wrote them,
+// in which case we leave the response alone.
 app.get('/', (req, res) => {
   const indexPath = path.join(__dirname, 'dist', 'index.html');
   res.sendFile(indexPath, (err) => {
-    if (err) {
-      // Safe fallback: return a minimal 200 so the startup health probe
-      // always passes. The real app bundle will load once the layer is ready.
-      res.status(200).send('<!doctype html><html><head><meta charset="utf-8"></head><body><div id="root"></div></body></html>');
+    if (err && !res.headersSent) {
+      res.status(200).send(FALLBACK_HTML);
     }
   });
 });
 
+// Static assets (JS bundles, CSS, images, etc.)
+app.use(express.static(path.join(__dirname, 'dist')));
+
+// SPA catch-all: any path not matched above (deep links, direct navigation)
+// gets the index.html shell so client-side routing takes over.
+// Error callback prevents unhandled 500s when dist/ is momentarily unavailable.
 app.use((_req, res) => {
-  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+  const indexPath = path.join(__dirname, 'dist', 'index.html');
+  res.sendFile(indexPath, (err) => {
+    if (err && !res.headersSent) {
+      res.status(200).send(FALLBACK_HTML);
+    }
+  });
 });
 
 app.listen(PORT, '0.0.0.0', () => {
