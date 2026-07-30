@@ -517,27 +517,54 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
     onJoinEvent();
   };
 
-  // Two-strategy flow:
+  // Three-strategy flow:
   // 1. Backend membership check (GET /events/:id/access) → if is_member, enter directly.
-  // 2. Not a member (or check unavailable) → show the key-entry gate modal so the
-  //    user must supply their unique event code.  We deliberately do NOT silently
-  //    re-join using ev.code — that would allow any authenticated user to bypass the
-  //    code requirement entirely.
+  // 2. If the access-check endpoint errored (not "confirmed non-member"), try a silent
+  //    idempotent join with ev.code. A 409 (already member) or 200 success means the
+  //    user can enter without typing their code again. This is safe: ev.code comes from
+  //    the authenticated event list, not user input.
+  // 3. All strategies failed → show the key-entry gate modal so the user can supply
+  //    their code. We pre-fill the input with ev.code (if known) so they only need to
+  //    tap "Join Event" rather than retype a code they already have.
   const handleEventCardClick = async (ev: OrganizerEvent) => {
     setCheckingEventId(ev.id);
     try {
-      // Strategy 1: verify existing membership via backend
-      try {
-        const res = await checkEventAccess(ev.id);
-        if (res.success && res.data?.is_member) {
-          enterEvent(ev); // enterEvent calls switchEvent + joinEvent + selfCheckInApi
+      // Strategy 1: backend membership check.
+      // apiGet never throws — it always returns { success } regardless of HTTP status.
+      const accessRes = await checkEventAccess(ev.id);
+      if (accessRes.success) {
+        if (accessRes.data?.is_member) {
+          // Confirmed member → enter directly.
+          enterEvent(ev);
           return;
         }
-      } catch {}
+        // Confirmed non-member → skip Strategy 2, go straight to gate.
+      } else {
+        // Backend errored (500 / network / parse) — we cannot trust the result.
+        // Try a silent idempotent join with the event's own code so that existing
+        // members whose session is valid don't get blocked by a temporarily-broken
+        // access-check endpoint.
+        if (ev.code) {
+          const joinRes = await joinEventWithCode(ev.code);
+          const is409 =
+            !joinRes.success &&
+            (joinRes.error?.code === '409' ||
+              (joinRes.error?.message ?? '').toLowerCase().includes('already'));
+          if (joinRes.success || is409) {
+            if (joinRes.success && joinRes.data?.eventId) {
+              selfCheckInApi(joinRes.data.eventId).catch(() => {});
+            }
+            enterEvent(ev);
+            return;
+          }
+        }
+      }
 
-      // Strategy 2: not a member (or access check unavailable) — require code entry
+      // Strategy 3: show the code-entry gate. Pre-fill the input with the event's
+      // known code (from the event list) so the user only needs to tap "Join Event"
+      // rather than retype a code they already have.
       setGateEvent(ev);
-      setEventKey('');
+      setEventKey(ev.code ?? '');
       setKeyError('');
     } finally {
       setCheckingEventId(null);
@@ -551,7 +578,10 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
     const res = await joinEventWithCode(eventKey.trim());
     setIsJoiningEvent(false);
     // 409 = user is already a member — still enter the event
-    const is409 = !res.success && res.error?.code === '409';
+    const is409 =
+      !res.success &&
+      (res.error?.code === '409' ||
+        (res.error?.message ?? '').toLowerCase().includes('already'));
     if (res.success || is409) {
       // Use eventId from response; fall back to the gate event's own id so
       // self-check-in always fires even if the backend omits the field.
@@ -560,7 +590,13 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
       setGateEvent(null);
       enterEvent(gateEvent);
     } else {
-      setKeyError(res.error?.message ?? 'Invalid event key. Please try again.');
+      const backendMsg = res.error?.message ?? '';
+      const isNotAvailable = backendMsg.toLowerCase().includes('not available');
+      const displayMsg = backendMsg ||
+        (isNotAvailable
+          ? 'This event is currently not accepting new members. Please contact the organiser.'
+          : 'Invalid event key. Please try again.');
+      setKeyError(displayMsg);
     }
   };
 
@@ -1420,7 +1456,7 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
                 <input
                   type="text"
                   autoFocus
-                  placeholder="e.g. CISO2026"
+                  placeholder={gateEvent?.code ?? 'e.g. CISO2026'}
                   value={eventKey}
                   onChange={e => { setEventKey(e.target.value.toUpperCase()); setKeyError(''); }}
                   onKeyDown={e => e.key === 'Enter' && handleJoinWithKey()}
