@@ -22,6 +22,9 @@ const REFRESH_MS = 15 * 60 * 1000;
 // on-demand when the user taps a survey row (each page checks the cache first
 // so a cache-hit is still instant).
 const SURVEY_DETAIL_PREFETCH_LIMIT = 3;
+// Max poll details to prefetch per wave; mirrors the survey cap above.
+// Remaining polls are fetched on-demand (cache-first) when the user taps a row.
+const POLL_DETAIL_PREFETCH_LIMIT = 5;
 
 export function usePreloader(
   eventId: string | number | undefined,
@@ -66,13 +69,16 @@ export function usePreloader(
         );
       }),
       // Polls list + details — pre-warm the list for EngagePage badge counts
-      // AND prefetch each poll's full detail (options) so PollsListPage never
-      // has to fire the N-poll fan-out on page open. Without this, every user
-      // opening PollsListPage fires one API call per live poll simultaneously.
+      // AND prefetch the first N poll details so PollsListPage never has to
+      // fire the full fan-out on page open. Capped to match the survey limit;
+      // remaining poll details are fetched on-demand (cache-first) when the
+      // user taps a row.
       listEventPollsApi(eid).then(async r => {
         if (!r.success || !r.data) return;
         setCached('polls', eid, r.data);
-        const actionable = r.data.filter(p => p.status === 'LIVE' || p.status === 'CLOSED');
+        const actionable = r.data
+          .filter(p => p.status === 'LIVE' || p.status === 'CLOSED')
+          .slice(0, POLL_DETAIL_PREFETCH_LIMIT);
         await Promise.allSettled(
           actionable.map(p =>
             getEventPollApi(eid, p.id).then(dr => {
