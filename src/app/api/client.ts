@@ -100,13 +100,20 @@ async function parseResponse<T>(res: Response): Promise<ApiEnvelope<T>> {
 
 const MAX_RETRIES = 2;
 
+// Only retry safe, idempotent methods. Retrying POST/PUT/PATCH/DELETE on a
+// transient error can duplicate mutations (e.g. create the same lead twice,
+// send the same connection request twice, etc.).
+const RETRYABLE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
 async function fetchWithRetry(url: string, options: RequestInit, retries = MAX_RETRIES): Promise<Response> {
+  const method = (typeof options.method === 'string' ? options.method : 'GET').toUpperCase();
+  const allowedRetries = RETRYABLE_METHODS.has(method) ? retries : 0;
   try {
     return await fetch(url, options);
   } catch (err) {
-    if (retries > 0) {
+    if (allowedRetries > 0) {
       await new Promise(r => setTimeout(r, 600));
-      return fetchWithRetry(url, options, retries - 1);
+      return fetchWithRetry(url, options, allowedRetries - 1);
     }
     throw err;
   }
