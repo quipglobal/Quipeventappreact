@@ -821,7 +821,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     void syncPoints();
 
-    const interval = setInterval(syncPoints, 2 * 60 * 1000);
+    // Skip the tick while the tab is hidden — the user can't see the
+    // updated points anyway, and it mirrors the visibility gate used by
+    // the meetings poller and the leads reconciler.
+    const syncIfVisible = () => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      void syncPoints();
+    };
+    const interval = setInterval(syncIfVisible, 2 * 60 * 1000);
     return () => clearInterval(interval);
   }, [user?.id, activeEventConfig?.eventId]);
 
