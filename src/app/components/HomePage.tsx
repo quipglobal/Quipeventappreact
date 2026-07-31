@@ -93,6 +93,9 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
 
   useEffect(() => {
     if (!eventConfig?.eventId) return;
+    // Skip the network trip when the preloader (or a prior mount) already
+    // populated the cache — state was seeded by the useState initializer above.
+    if (getCached<Session[]>('sessions', eventConfig.eventId) !== null) return;
     let cancelled = false;
     setLoadingSessions(true);
     listSessionsApi(eventConfig.eventId)
@@ -116,12 +119,16 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   // Pull the actual people in the event with the SPEAKER role so we can show
   // them on the home page even if the agenda doesn't link to user profiles.
   useEffect(() => {
-    // Only clear speakers when there is no cached data for this event to avoid a flash
-    const hasCached = getCached<EventMember[]>('speakers:home', eventConfig.eventId ?? '') !== null
-                   || getCached<EventMember[]>('speakers', eventConfig.eventId ?? '') !== null;
-    if (!hasCached) setAudienceSpeakers([]);
     if (!eventConfig?.eventId) return;
     const targetEventId = eventConfig.eventId;
+    // Skip the network trip when either cache key already has data — state
+    // was seeded by the useState initializer above.
+    const hasCached =
+      getCached<EventMember[]>('speakers', targetEventId) !== null ||
+      getCached<EventMember[]>('speakers:home', targetEventId) !== null;
+    if (hasCached) return;
+    // No cached data — clear any stale state before fetching.
+    setAudienceSpeakers([]);
     let cancelled = false;
     getEventSpeakersApi(targetEventId, 24)
       .then((res) => {

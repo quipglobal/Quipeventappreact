@@ -1,0 +1,25 @@
+### HIGH — F-02: HomePage fires duplicate requests already handled by preloader
+**File:** `src/app/components/HomePage.tsx` (lines 88–142)  
+**Severity:** 🟠 High
+
+`HomePage` fires `listSessionsApi` and `getEventSpeakersApi` unconditionally on every mount — even though `usePreloader` already fetched and cached both on event join. Two sub-problems compound each other:
+
+**Sub-problem A — Sessions:** The component checks `getCached('sessions', eventId)` and skips the network call if the cache hits. However, the cache check and network dispatch happen in the same synchronous tick, so if the preloader is still in-flight (e.g. the user navigated to home immediately after joining), the cache check returns `null` and a duplicate network call fires.
+
+**Sub-problem B — Speakers cache key mismatch (always misses):** The preloader stores speakers under key `'speakers'` (via `setCached('speakers', eid, r.data)`). `HomePage` checks `getCached('speakers:home', eventId)` first, then falls back to `getCached('speakers', eventId)`. On initial page load the `'speakers:home'` key is always empty, so the component reads `'speakers'` correctly — but then it still unconditionally fires `getEventSpeakersApi(targetEventId, 24)` after the check (the cache check is only used to decide whether to clear the state, not to skip the network call). The `'speakers:home'` key is only populated by the HomePage's own fetch, creating a parallel, redundant speaker dataset.
+
+**Net effect:** Every `HomePage` mount fires 1 network call that the preloader already covered (speakers, always). Sessions may also duplicate during the preloader's warm-up window.
+
+**Fix:** Respect the preloader cache before initiating any network request:
+```typescript
+// Before firing listSessionsApi:
+const cached = getCached<Session[]>('sessions', eventId);
+if (cached) { setSessions(cached); return; }
+// Only then: listSessionsApi(...)
+
+// Before firing getEventSpeakersApi:
+const cachedSpeakers = getCached<EventMember[]>('speakers', eventId)
+                     ?? getCached<EventMember[]>('speakers:home', eventId);
+if (cachedSpeakers) { setAudienceSpeakers(cachedSpeakers); return; }
+// Only then: getEventSpeakersApi(...)
+```
