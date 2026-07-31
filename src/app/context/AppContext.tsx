@@ -35,7 +35,7 @@ import {
   appendGiveawayWinner,
   migrateGiveawayWinnersKey,
 } from '@/app/lib/giveawayWinnersStorage';
-import { listLeads as listLeadsApi, scanBadgeLead, resetScanEndpointMissing } from '@/app/api/leadsClient';
+import { listLeads as listLeadsApi, scanBadgeLead, resetScanEndpointMissing, type ListLeadsResponse } from '@/app/api/leadsClient';
 import {
   listGiveaways as listGiveawaysApi,
   createGiveaway as createGiveawayApi,
@@ -221,7 +221,7 @@ interface AppContextType extends AppState {
    *  the in-context background timer; an internal in-flight guard
    *  prevents the two paths from double-pushing the same lead. Resolves
    *  to the number of pending leads that successfully synced. */
-  reconcilePendingLeadsNow: () => Promise<number>;
+  reconcilePendingLeadsNow: (opts?: { probeResult?: ListLeadsResponse }) => Promise<number>;
   showToast: (message: string, points?: number) => void;
   updateTier: () => void;
   switchEvent: (config: EventConfig) => void;
@@ -907,7 +907,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // server confirmed (so callers can decide whether to surface a toast).
   // Skips any lead already in the per-id in-flight set, and probes the
   // list endpoint first — same gate the on-mount flow used historically.
-  const reconcilePendingLeadsNow = React.useCallback(async (): Promise<number> => {
+  const reconcilePendingLeadsNow = React.useCallback(async (opts?: { probeResult?: ListLeadsResponse }): Promise<number> => {
     const eventId = activeEventIdRef.current;
     const pending = leadsRef.current.filter(
       l => l.pendingSync && !!l.code && !reconcileInFlightRef.current.has(l.id),
@@ -917,7 +917,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Probe — if the leads-list endpoint isn't reachable, skip the push
     // entirely (the backend likely can't accept scans either) so we
     // don't burn cycles or pollute logs with predictable failures.
-    const probe = await listLeadsApi(eventId);
+    // Accept a pre-fetched result from the caller to avoid a duplicate GET
+    // when LeadsPage has just hydrated from the same endpoint.
+    const probe = opts?.probeResult ?? await listLeadsApi(eventId);
     if (!probe.success) return 0;
     resetScanEndpointMissing();
 

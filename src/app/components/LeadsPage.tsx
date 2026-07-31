@@ -462,7 +462,9 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
 
       setReconciling(true);
       try {
-        const synced = await reconcilePendingLeadsNow();
+        // Pass the already-fetched list response as the probe so the
+        // reconciler can skip its own duplicate GET on this endpoint.
+        const synced = await reconcilePendingLeadsNow({ probeResult: initial });
         if (cancelled) return;
         if (synced > 0) {
           // Re-fetch so freshly-pushed leads come back with their
