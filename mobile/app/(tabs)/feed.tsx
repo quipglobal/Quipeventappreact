@@ -16,7 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
 import { useEvent } from '@/context/EventContext';
 import { useAgenda } from '@/hooks/useAgenda';
-import { useSpeakers, useAudience, useLeaderboard } from '@/hooks/useAudience';
+import { useSpeakers, useAudienceSummary, useLeaderboard } from '@/hooks/useAudience';
 import { useGiveaways } from '@/hooks/useEngage';
 import { useEvents } from '@/hooks/useEvents';
 import { colors, spacing, radius, typography } from '@/constants/theme';
@@ -98,7 +98,7 @@ export default function HomeScreen() {
   const { data: speakers = [], isLoading: speakersLoading, refetch: refetchSpeakers } = useSpeakers();
   const { data: giveaways = [], isLoading: giveawaysLoading, refetch: refetchGiveaways } = useGiveaways();
   const { data: leaderboard = [], isLoading: leaderboardLoading, refetch: refetchLeaderboard } = useLeaderboard();
-  const { data: attendees = [], isLoading: attendeesLoading, refetch: refetchAttendees } = useAudience();
+  const { data: attendees = [], isLoading: attendeesLoading, refetch: refetchAttendees } = useAudienceSummary();
 
   useEffect(() => {
     if (currentEventId) markEventCheckedIn(currentEventId);

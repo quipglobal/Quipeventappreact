@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
+import { recordRequest } from '@/lib/requestInstrumentation';
 
 /**
  * On native (iOS/Android) use the full backend URL — no CORS restrictions.
@@ -444,12 +445,17 @@ export async function request<T>(
   options: RequestInit = {}
 ): Promise<ApiResponse<T>> {
   const method = (options.method ?? 'GET').toUpperCase();
+
+  let _t = Date.now();
   let res = await requestOnce<T>(path, options);
+  if (__DEV__) recordRequest(method, path, _t, Date.now() - _t, res.success);
   if (res.success || res.error?.code !== 'NETWORK_ERROR') return res;
 
   if (isRetrySafe(path, method)) {
     await sleep(NETWORK_RETRY_DELAY_MS);
+    _t = Date.now();
     res = await requestOnce<T>(path, options);
+    if (__DEV__) recordRequest(method, path, _t, Date.now() - _t, res.success);
     if (res.success || res.error?.code !== 'NETWORK_ERROR') return res;
   }
 

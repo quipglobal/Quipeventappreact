@@ -10,6 +10,11 @@ export function useAgenda(filters?: { day?: number; track?: string }) {
     queryFn: () => listSessions(filters),
     select: (res) => res.data ?? [],
     enabled: !!currentEventId,
+    // Sessions are stable — they change only when the organiser edits the
+    // agenda. A 2-minute cache window eliminates the most common storm:
+    // simultaneously mounted screens (feed + dashboard) each calling
+    // invalidateQueries on every tab focus even though the data is fresh.
+    staleTime: 2 * 60_000,
   });
 }
 
@@ -20,6 +25,7 @@ export function useSession(id: string) {
     queryFn: () => getSession(id),
     select: (res) => res.data,
     enabled: !!id && !!currentEventId,
+    staleTime: 5 * 60_000,
   });
 }
 

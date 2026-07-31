@@ -41,6 +41,12 @@ export function useVideoFeeds() {
       hasMore: data.pages[data.pages.length - 1]?.data?.hasMore ?? false,
     }),
     enabled: !!currentEventId,
+    // Without a staleTime the infinite query refetches every time the feed
+    // tab gains focus, replaying all fetched pages in sequence and
+    // re-downloading data the user already has. 60 s matches the feed's
+    // own staleTime below — enough freshness for a live event feed without
+    // hammering the backend on every tab switch.
+    staleTime: 60_000,
   });
 
   return {
@@ -60,6 +66,7 @@ export function useVideoFeed(feedId: string | null | undefined) {
     queryFn: () => getVideoFeed(feedId!),
     select: (res) => res.data,
     enabled: !!feedId && !!currentEventId,
+    staleTime: 60_000,
   });
 }
 

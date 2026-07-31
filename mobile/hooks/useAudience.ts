@@ -5,6 +5,29 @@ import { useAuthedQuery } from '@/hooks/useAuthedQuery';
 import type { Attendee } from '@/lib/api/types';
 
 /**
+ * React Query–backed attendee summary for screens that only need a flat
+ * list for display (event-dashboard, feed hero strip) and don't need
+ * pagination controls. Unlike the raw useState in `useAudience`, this
+ * version is deduplicated by React Query: when multiple screens mount at
+ * the same time (dashboard + feed), only one network request is issued and
+ * both screens share the cached result for the staleTime window.
+ *
+ * This eliminates the most severe audience-fetch storm: 30 concurrent users
+ * navigating between dashboard and feed previously generated 2–3 independent
+ * GET /audience requests per user per navigation.
+ */
+export function useAudienceSummary() {
+  const { currentEventId } = useEvent();
+  return useAuthedQuery({
+    queryKey: ['audience-summary', currentEventId],
+    queryFn: () => listAttendees({ page: 1 }),
+    select: (res) => res.data ?? [],
+    enabled: !!currentEventId,
+    staleTime: 60_000,
+  });
+}
+
+/**
  * Paginated audience hook — fetches 15 checked-in attendees per page.
  * Page 1 is fetched on mount (or event change). Call loadMore() to append
  * the next page. Pull-to-refresh calls refetch() which resets to page 1.
@@ -93,6 +116,11 @@ export function useLeaderboard() {
     queryFn: getLeaderboard,
     select: (res) => res.data ?? [],
     enabled: !!currentEventId,
+    // Leaderboard updates as users complete challenges, but sub-minute
+    // precision is not required. A 60-second cache avoids the leaderboard
+    // being the single most-fetched endpoint (it is mounted on feed,
+    // engage, and event-dashboard simultaneously).
+    staleTime: 60_000,
   });
 }
 

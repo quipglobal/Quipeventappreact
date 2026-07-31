@@ -10,6 +10,9 @@ export function usePartners(tier?: Sponsor['tier']) {
     queryFn: () => listSponsors(tier),
     select: (res) => res.data ?? [],
     enabled: !!currentEventId,
+    // Sponsor list changes infrequently. 2-minute cache prevents the
+    // dashboard + feed double-fetch storm on every tab-focus event.
+    staleTime: 2 * 60_000,
   });
 }
 
@@ -20,5 +23,6 @@ export function useSponsor(id: string) {
     queryFn: () => getSponsor(id),
     select: (res) => res.data,
     enabled: !!id && !!currentEventId,
+    staleTime: 2 * 60_000,
   });
 }

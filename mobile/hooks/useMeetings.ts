@@ -53,7 +53,11 @@ export function useMeetings() {
     queryKey: ['meetings', currentEventId],
     queryFn: () => listMeetings(currentUserId),
     select: (res) => res.data ?? [],
-    staleTime: 0,
+    // Match staleTime to the poll interval: this prevents refetchOnFocus
+    // from firing a second fetch within seconds of the 30-second timer
+    // firing (a double-trigger that previously doubled meeting-list load
+    // under concurrent users on the connects tab).
+    staleTime: 30_000,
     refetchInterval: 30_000,
     enabled: appActive && !!currentEventId,
   });

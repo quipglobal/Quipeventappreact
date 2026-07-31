@@ -19,7 +19,7 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/AuthContext';
 import { useEvent } from '@/context/EventContext';
-import { useLeaderboard, useAudience } from '@/hooks/useAudience';
+import { useLeaderboard, useAudienceSummary } from '@/hooks/useAudience';
 import { useEvents, useJoinEvent } from '@/hooks/useEvents';
 import { usePolls, useGiveaways } from '@/hooks/useEngage';
 import { useAgenda } from '@/hooks/useAgenda';
@@ -86,7 +86,7 @@ export default function EventDashboardScreen() {
   // (842 attendees, 3 live sessions, 24 sponsors, 2 giveaways, fixed
   // session list) and bled across event switches.
   const { data: pollsData = [], isLoading: pollsLoading } = usePolls();
-  const { data: attendeesData = [], isLoading: attendeesLoading } = useAudience();
+  const { data: attendeesData = [], isLoading: attendeesLoading } = useAudienceSummary();
   const { data: sessionsData = [], isLoading: sessionsLoading } = useAgenda();
   const { data: sponsorsData = [], isLoading: sponsorsLoading } = usePartners();
   const { data: giveawaysData = [], isLoading: giveawaysLoading } = useGiveaways();

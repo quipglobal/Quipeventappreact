@@ -22,6 +22,9 @@ export function useChallenges() {
     queryFn: listChallenges,
     select: (res) => res.data ?? [],
     enabled: !!currentEventId,
+    // Challenges are authored by the organiser and don't change mid-event.
+    // 2-minute cache stops the engage tab from re-fetching on every focus.
+    staleTime: 2 * 60_000,
   });
 }
 
@@ -148,6 +151,12 @@ export function useGiveaways() {
     // 30 s is a comfortable upper bound for a live-event "just added"
     // expectation without hammering the backend.
     refetchInterval: 30_000,
+    // Without a staleTime the 30-second timer AND refetchOnFocus fire
+    // independently. If a user focuses the engage tab at second 28 of the
+    // interval, both paths trigger within 2 seconds — doubling the load.
+    // Setting staleTime to the poll period prevents the focus-refetch from
+    // firing when a poll just ran.
+    staleTime: 30_000,
   });
 
   // Merge the per-event AsyncStorage winners overlay into the cached
