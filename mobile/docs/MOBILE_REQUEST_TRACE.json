@@ -1,0 +1,53 @@
+{
+  "_comment": "Schema for mobile request trace entries. Populated at runtime by requestInstrumentation.ts. Call exportTrace() in a dev build to get real data. This file documents the shape — replace with actual exported data from a diagnostic session.",
+  "_howToCapture": [
+    "1. Run a dev build: npx expo start --go",
+    "2. Navigate through the app performing the actions under test",
+    "3. In Metro console or shake menu, call: import { exportTrace } from '@/lib/requestInstrumentation'; console.log(exportTrace());",
+    "4. Paste the JSON output here"
+  ],
+  "schema": {
+    "id": "number — monotonic request counter",
+    "method": "string — HTTP verb (GET|POST|PATCH|PUT|DELETE)",
+    "pattern": "string — path with IDs normalised to placeholders",
+    "path": "string — raw request path",
+    "startMs": "number — epoch ms when request started",
+    "durationMs": "number — elapsed ms until response or error",
+    "success": "boolean — whether ApiResponse.success === true",
+    "requestId": "string — unique per request (X-Request-ID header value)",
+    "screenName": "string — screen that initiated the request",
+    "triggerType": "string — one of: user_action|screen_mount|screen_focus|component_render|pull_to_refresh|pagination|polling_timer|retry|network_reconnect|app_foreground|auth_refresh",
+    "parentActionId": "string|null — shared by all requests from same user action (X-Parent-Action-ID)",
+    "retryNumber": "number — 0 for first attempt, 1 for single retry"
+  },
+  "sampleEntries": [
+    {
+      "id": 0,
+      "method": "POST",
+      "pattern": "POST /api/v1/auth/send-otp",
+      "path": "/api/v1/auth/send-otp",
+      "startMs": 1753920000000,
+      "durationMs": 312,
+      "success": true,
+      "requestId": "lf3kx2-a1b2c3",
+      "screenName": "Login",
+      "triggerType": "user_action",
+      "parentActionId": "lf3kw9-x9y8z7",
+      "retryNumber": 0
+    },
+    {
+      "id": 1,
+      "method": "POST",
+      "pattern": "POST /api/v1/auth/verify-otp",
+      "path": "/api/v1/auth/verify-otp",
+      "startMs": 1753920045000,
+      "durationMs": 284,
+      "success": true,
+      "requestId": "lf3kx9-d4e5f6",
+      "screenName": "Login",
+      "triggerType": "user_action",
+      "parentActionId": "lf3kw9-g7h8i9",
+      "retryNumber": 0
+    }
+  ]
+}

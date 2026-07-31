@@ -642,10 +642,12 @@ export function WelcomeScreen() {
     }
   }, [email, startResendCountdown]);
 
-  // OTP auto-verify when 6 digits entered
+  // OTP auto-verify when 6 digits entered.
+  // Guard against otpLoading to prevent a second concurrent request if
+  // otpValue somehow changes while a verify is already in-flight.
   useEffect(() => {
-    if (otpValue.length === 6 && sheetView === 'otp') handleVerifyOtp();
-  }, [otpValue]);
+    if (otpValue.length === 6 && sheetView === 'otp' && !otpLoading) handleVerifyOtp();
+  }, [otpValue, otpLoading, handleVerifyOtp]);
 
   const handleVerifyOtp = useCallback(async () => {
     setOtpLoading(true);

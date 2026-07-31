@@ -1,0 +1,21 @@
+Screen,Route,Component,Unique APIs,Total Calls on Mount,Focus Refetch,Has Polling,Polling Interval,Max Concurrent,Retry (queries),Retry (mutations),Main Risk
+Login / Send OTP,(auth)/welcome,WelcomeScreen.tsx,4,0,No,No,—,1,1 (network only),0,verify-OTP fallback has no timeout (FIXED)
+OTP Verification,(auth)/welcome,WelcomeScreen.tsx,1,0,No,No,—,1,0,0,Auto-verify stale closure (FIXED)
+Event List,events,app/events.tsx,5,1,Yes,No,—,1,2,0,Multiple access checks on rapid selection
+Event Dashboard,event-dashboard,app/event-dashboard.tsx,6,6,Yes,No,—,6,2,0,6 parallel GETs per visit
+CXO Feed,(tabs)/feed,app/(tabs)/feed.tsx,4,2,Yes,No,—,2,2,0,Pagination + focus both fire feed GETs
+Video Feed,(tabs)/feed,app/(tabs)/feed.tsx,2,1,Yes,No,—,1,2,0,Low risk
+Attendee Directory,(tabs)/audience,app/(tabs)/audience.tsx,3,3,Yes,No,—,3,2,0,3 parallel GETs; large member lists
+Attendee Profile,lead-detail,app/lead-detail.tsx,2,1,Yes,No,—,1,2,0,Low risk
+Sponsor Directory,(tabs)/partners,app/(tabs)/partners.tsx,1,1,Yes,No,—,1,2,0,Low risk
+Engage / Polls / Surveys,(tabs)/engage,app/(tabs)/engage.tsx,10,5,Yes,No,—,5,2,0,5 parallel GETs; survey detail per visible survey
+Networking / Connections,meetings,app/meetings.tsx,4,1,Yes,Yes,30 000 ms,1,2,0,Correctly AppState-gated
+Messages,messages,app/messages.tsx,3,1,No,No,—,1,2,0,Low risk
+Leaderboard,leaderboard,app/leaderboard.tsx,1,1,Yes,No,—,1,2,0,Low risk
+QR Badge Scanner,qr-badge,app/qr-badge.tsx,0,0,No,No,—,0,—,—,No API calls
+Sponsor Lead Scanner,(tabs)/scan,app/(tabs)/scan.tsx,3,0,No,No,—,1,0,0,800 ms scan debounce correct
+My Leads,(tabs)/leads,app/(tabs)/leads.tsx,2,1,Yes,No,—,1,2,0,Low risk
+Profile,profile,app/profile.tsx,3,1,Yes,No,—,1,2,0,Low risk
+Article Reader,article-reader,app/article-reader.tsx,3,1,No,Analytics only,Reading duration,1,2,0,Analytics interval correctly cleaned up
+Switch Event,switch-event,app/switch-event.tsx,2,1,Yes,No,—,1,2,0,Low risk
+Join Event,join,app/join.tsx,1,1,No,No,—,1,0,0,Low risk

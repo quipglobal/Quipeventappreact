@@ -1,0 +1,6 @@
+RequestId,ParentActionId,Endpoint,Method,TotalQueries,DuplicateQueries,TotalDurationMs,SlowestQueryMs,AvgQueryMs,RowsReturned,PossibleNPlusOne,HighQueryCount,SlowDb,Notes
+SAMPLE-001,ACTION-001,/api/v1/events/:id/members,GET,?,?,?,?,?,?,?,?,?,"Populate from Phase 4 Laravel middleware logs. See BACKEND_REQUEST_TRACE.json for schema."
+SAMPLE-002,ACTION-001,/api/v1/events/:id/leaderboard,GET,?,?,?,?,?,?,?,?,?,"Replace ? with real values from staging middleware"
+SAMPLE-003,ACTION-002,/api/v1/events/:id/leads/scan,POST,?,?,?,?,?,?,?,?,?,"High-risk endpoint — check for N+1 on badge lookup"
+SAMPLE-004,ACTION-003,/api/v1/auth/send-otp,POST,?,?,?,?,?,?,?,?,?,"Check for synchronous email sending (should be queued)"
+SAMPLE-005,ACTION-003,/api/v1/auth/verify-otp,POST,?,?,?,?,?,?,?,?,?,"Check for duplicate OTP lookups"

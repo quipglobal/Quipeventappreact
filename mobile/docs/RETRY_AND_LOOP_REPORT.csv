@@ -1,0 +1,9 @@
+Endpoint,Method,RetryAllowed,RetryTrigger,MaxRetries,RetryDelayMs,LoopRisk,LoopCondition,Notes
+/api/v1/auth/send-otp,POST,YES — network error only,NETWORK_ERROR,1,1200,None,"Single retry only; 429/5xx not retried","isRetrySafe() explicitly allows send-otp"
+/api/v1/auth/verify-otp,POST,NO,—,0,—,None,—,"Explicitly excluded from isRetrySafe() — correct"
+/api/v1/auth/register,POST,NO,—,0,—,None,—,
+GET *,GET,YES — network error only,NETWORK_ERROR,1,1200,Low,"Retry could re-fire on reconnect","React Query also retries=2 independently"
+POST * (mutations),POST,NO (apiClient),—,0,—,None,—,"React Query mutations retry=0"
+PATCH * (mutations),PATCH,NO (apiClient),—,0,—,None,—,
+/api/v1/events/:id/meeting-requests,GET,React Query 2,query stale,2,React Query default,Low,"refetchInterval=30s resets on each focus",AppState-gated — stops when backgrounded
+/api/v1/mobile/reader/analytics,POST,NO,—,0,—,Low,"setInterval sends analytics","Not data-fetching; cleaned up on unmount"

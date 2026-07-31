@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
-import { recordRequest } from '@/lib/requestInstrumentation';
+import { recordRequest, getRequestHeaders } from '@/lib/requestInstrumentation';
 
 /**
  * On native (iOS/Android) use the full backend URL — no CORS restrictions.
@@ -118,6 +118,8 @@ async function requestOnce<T>(
       'Content-Type': 'application/json',
       Accept: 'application/json',
       'X-Tenant-ID': TENANT_ID,
+      // Dev-only diagnostic headers (empty object in production — zero overhead)
+      ...getRequestHeaders(),
       ...(options.headers as Record<string, string>),
     };
     if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -649,14 +651,25 @@ export async function verifyOtp(identifier: string, otp: string): Promise<ApiRes
   }
 
   try {
-    const meRes = await fetch(`${BASE_URL}/api/v1/me`, {
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-        'X-Tenant-ID': TENANT_ID,
-      },
-    });
+    // Apply the same 10 s timeout used by requestOnce — without this the
+    // fallback can hang indefinitely if the backend is slow, leaving the
+    // OTP screen stuck on the loading spinner forever.
+    const meController = new AbortController();
+    const meTimeoutId = setTimeout(() => meController.abort(), 10_000);
+    let meRes: Response;
+    try {
+      meRes = await fetch(`${BASE_URL}/api/v1/me`, {
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          'X-Tenant-ID': TENANT_ID,
+        },
+        signal: meController.signal,
+      });
+    } finally {
+      clearTimeout(meTimeoutId);
+    }
     if (meRes.ok) {
       const meJson = await meRes.json();
       const envelope = meJson.data ?? meJson.user ?? meJson;

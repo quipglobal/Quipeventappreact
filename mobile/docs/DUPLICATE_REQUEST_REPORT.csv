@@ -1,0 +1,5 @@
+Pattern,GapMs,ScreenName,TriggerType,ParentActionId,At,Severity,Notes
+GET /api/v1/events/:eventId/members,<800,Audience,screen_focus+screen_mount,,"Potential storm on rapid tab switching — staleTime=30s should prevent most cases",LOW,"Observed via requestInstrumentation dedup window. Fill with real data from exportTrace()."
+GET /api/v1/events/:eventId/mobile-polls,<800,Engage,screen_focus+screen_mount,,"Same pattern as members",LOW,
+POST /api/v1/auth/send-otp,0,Login,user_action,,"Should never appear — button is disabled while pending. If seen: CRITICAL",CRITICAL,"Should never occur — button disabled={loading}"
+POST /api/v1/auth/verify-otp,0,Login,user_action,,"Should never appear post-fix. Pre-fix: stale closure could cause second fire",HIGH,"Fixed in Phase 10 FIX-2"
