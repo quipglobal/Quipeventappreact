@@ -828,6 +828,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (typeof document !== 'undefined' && document.hidden) return;
       void syncPoints();
     };
+    // eslint-disable-next-line local/no-raw-timers -- auth-gated by useEffect dep on user?.id; candidate for useAuthedInterval migration (Task #29)
     const interval = setInterval(syncIfVisible, 2 * 60 * 1000);
     return () => clearInterval(interval);
   }, [user?.id, activeEventConfig?.eventId]);
@@ -1001,6 +1002,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const schedule = (ms?: number) => {
       if (cancelled) return;
       if (timer) clearTimeout(timer);
+      // eslint-disable-next-line local/no-raw-timers -- inside useAuthedEffect body; auth gate is the enclosing hook
       timer = setTimeout(() => { void tick(); }, ms ?? computeDelay());
     };
 
@@ -1092,6 +1094,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const showToast = (message: string, points?: number) => {
     setToast({ message, points });
+    // eslint-disable-next-line local/no-raw-timers -- UI: auto-dismisses toast after display period, no polling
     setTimeout(() => setToast(null), 3000);
   };
 
@@ -1131,6 +1134,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       scheduleSyncPoints(newPoints);
 
       if (newTier !== user.tier) {
+        // eslint-disable-next-line local/no-raw-timers -- UI: staggers tier-upgrade toast after points toast, no polling
         setTimeout(() => showToast(`🎉 Upgraded to ${newTier} tier!`), 3500);
       }
     }
@@ -1397,6 +1401,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Defer the actual encrypted POST so the user has a real
     // window to hit Undo. Once the timer fires, encrypt → POST →
     // swap the temp id for the server-issued canonical id.
+    // eslint-disable-next-line local/no-raw-timers -- UI: undo-window delay before encrypting + sending message; cancelled on unmount via pendingSendTimersRef
     const timer = setTimeout(async () => {
       pendingSendTimersRef.current.delete(tempId);
       const enc = await encryptForConversation(conversationId, trimmed).catch(() => null);

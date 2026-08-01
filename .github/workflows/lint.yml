@@ -1,0 +1,31 @@
+name: Lint
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  no-raw-timers:
+    name: "No raw setInterval / setTimeout"
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # --max-warnings 0 turns any warning into a failure so the job blocks
+      # the merge when new violations sneak in.
+      # The rule targets src/app/components/** and src/app/context/** only;
+      # the safe-hook implementations (src/app/hooks/) are excluded in
+      # eslint.config.js and are always allowed to call setInterval/setTimeout.
+      - name: Check for raw timer usage
+        run: npm run lint:ci

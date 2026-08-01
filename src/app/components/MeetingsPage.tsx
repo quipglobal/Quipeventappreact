@@ -205,6 +205,7 @@ const ChatDetailView: React.FC<{
   useEffect(() => {
     const hasPending = conversation.messages.some(m => m.pendingSendUntil && m.pendingSendUntil > Date.now());
     if (!hasPending) return;
+    // eslint-disable-next-line local/no-raw-timers -- UI clock: drives the pending-send countdown display, no auth gate needed
     const id = window.setInterval(() => setNowTick(n => n + 1), 1000);
     return () => window.clearInterval(id);
   }, [conversation.messages]);

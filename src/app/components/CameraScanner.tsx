@@ -34,6 +34,7 @@ export const CameraScanner: React.FC<CameraScannerProps> = ({
     // Brief delay so the <video> element is fully committed to the DOM
     // and has non-zero layout dimensions before qr-scanner reads them
     // for scan-region calculation.
+    // eslint-disable-next-line local/no-raw-timers -- UI-only: waits for <video> layout before QR scanner init, no auth gate needed
     const tid = window.setTimeout(async () => {
       if (cancelled || !videoRef.current) return;
 

@@ -105,6 +105,7 @@ export const SwitchEventModal: React.FC<SwitchEventModalProps> = ({
   // Reset on open/close
   useEffect(() => {
     if (!isOpen) {
+      // eslint-disable-next-line local/no-raw-timers -- UI: defers state reset until close animation finishes, no auth gate needed
       setTimeout(() => {
         setStep('entry');
         setChars(Array(MAX_CHARS).fill(''));
@@ -115,6 +116,7 @@ export const SwitchEventModal: React.FC<SwitchEventModalProps> = ({
         setSwitching(false);
       }, 300);
     } else {
+      // eslint-disable-next-line local/no-raw-timers -- UI: defers focus until modal open animation completes, no auth gate needed
       setTimeout(() => inputRefs.current[0]?.focus(), 200);
     }
   }, [isOpen]);
@@ -197,6 +199,7 @@ export const SwitchEventModal: React.FC<SwitchEventModalProps> = ({
       setError(res.error?.message ?? 'Invalid event code. Please check and try again.');
       setVerifying(false);
       setChars(Array(MAX_CHARS).fill(''));
+      // eslint-disable-next-line local/no-raw-timers -- UI: re-focuses first input after validation error clears, no auth gate needed
       setTimeout(() => inputRefs.current[0]?.focus(), 50);
       return;
     }
@@ -242,6 +245,7 @@ export const SwitchEventModal: React.FC<SwitchEventModalProps> = ({
 
     setStep('success');
     setSwitching(false);
+    // eslint-disable-next-line local/no-raw-timers -- UI: auto-dismisses modal after success animation, no auth gate needed
     setTimeout(() => onClose(), 1800);
   }, [matchedConfig, switchEvent, joinEvent, onClose, joinedEventId]);
 

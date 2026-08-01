@@ -21,6 +21,7 @@ export const FeedPost: React.FC<FeedPostProps> = ({ post }) => {
       setIsLiked(true);
       setLikesCount(prev => prev + 1);
       setShowHeartAnim(true);
+      // eslint-disable-next-line local/no-raw-timers -- UI animation: hides heart burst, no auth gate needed
       setTimeout(() => setShowHeartAnim(false), 1000);
       // Small gamification reward occasionally?
       if (Math.random() > 0.7) addPoints(1, 'Liked a post'); 

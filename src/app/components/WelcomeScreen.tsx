@@ -140,6 +140,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
 
   const startResendCountdown = useCallback(() => {
     setResendCountdown(30);
+    // eslint-disable-next-line local/no-raw-timers -- UI: OTP resend countdown timer, fires before user is authenticated
     resendRef.current = setInterval(() => {
       setResendCountdown(p => {
         if (p <= 1) { if (resendRef.current) clearInterval(resendRef.current); return 0; }
@@ -327,6 +328,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onLogin }) => {
   // ── Reset and close sheet ─────────────────────────────────────────────
   const closeSheet = () => {
     setSheetOpen(false);
+    // eslint-disable-next-line local/no-raw-timers -- UI: defers auth-sheet state reset until close animation completes, no auth gate needed
     setTimeout(() => {
       setView('phone');
       setEmailInput('');

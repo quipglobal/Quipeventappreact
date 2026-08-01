@@ -73,6 +73,7 @@ export const FeedVideoPost: React.FC<FeedVideoPostProps> = React.memo(({ post })
       setShowEarnedBurst(true);
       addPoints(post.pointsReward, `Watched "${post.user.name}" video`);
       showToast(`+${post.pointsReward} pts for watching!`, post.pointsReward);
+      // eslint-disable-next-line local/no-raw-timers -- UI animation: hides points-earned burst, no auth gate needed
       setTimeout(() => setShowEarnedBurst(false), 2200);
       markVideoWatchedApi(eventConfig.eventId, post.id, post.pointsReward).catch(() => {/* silent */});
     }

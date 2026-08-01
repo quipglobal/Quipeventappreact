@@ -248,12 +248,14 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
     const totalCycles = 30 + Math.floor(Math.random() * 15);
 
     const runShuffle = () => {
+      // eslint-disable-next-line local/no-raw-timers -- UI animation: prize-draw shuffle loop, no auth gate needed
       shuffleRef.current = setInterval(() => {
         count++;
         setShuffleIndex(Math.floor(Math.random() * eligiblePool.length));
 
         if (count > totalCycles - 10) {
           clearInterval(shuffleRef.current);
+          // eslint-disable-next-line local/no-raw-timers -- UI animation: prize-draw slow-down loop, no auth gate needed
           shuffleRef.current = setInterval(() => {
             count++;
             setShuffleIndex(Math.floor(Math.random() * eligiblePool.length));
@@ -329,6 +331,7 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
                     eventIdAtDrawStart,
                   );
                 }
+                // eslint-disable-next-line local/no-raw-timers -- UI animation: brief delay before showing winner, no auth gate needed
                 setTimeout(() => setPhase('winner'), 300);
                 drawInFlightRef.current = false;
               });

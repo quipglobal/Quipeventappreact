@@ -263,6 +263,7 @@ const SponsorReviewsSection: React.FC<{ companyId: number; companyName: string }
 
     setSubmitting(false);
     setJustSubmitted(true);
+    // eslint-disable-next-line local/no-raw-timers -- UI feedback: clears "submitted" banner after delay, no auth gate needed
     setTimeout(() => setJustSubmitted(false), 2400);
   };
 

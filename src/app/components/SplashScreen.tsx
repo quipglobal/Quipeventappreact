@@ -9,8 +9,11 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onComplete }) => {
   const [phase, setPhase] = useState<'enter' | 'hold' | 'exit'>('enter');
 
   useEffect(() => {
+    // eslint-disable-next-line local/no-raw-timers -- UI animation: splash-screen phase sequence, no auth gate needed
     const t1 = setTimeout(() => setPhase('hold'), 400);
+    // eslint-disable-next-line local/no-raw-timers -- UI animation: splash-screen phase sequence, no auth gate needed
     const t2 = setTimeout(() => setPhase('exit'), 1900);
+    // eslint-disable-next-line local/no-raw-timers -- UI animation: splash-screen phase sequence, no auth gate needed
     const t3 = setTimeout(() => onComplete(), 2400);
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
   }, [onComplete]);
