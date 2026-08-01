@@ -153,7 +153,9 @@ test('C3: Invalid event code shows error, stays on join page', async ({ page }) 
   // Click event card → gate modal appears (is_member=false)
   await page.getByText('CXO Summit 2026').first().click({ timeout: 10_000 });
   // Fill invalid code in gate modal and submit
-  await page.getByPlaceholder(/e\.g\. CISO2026/i).fill('XXXXX');
+  // Placeholder shows gateEvent.code when the event has one ('CXO26' from EVENT21),
+  // falling back to 'e.g. CISO2026' only when code is absent.
+  await page.locator('input[placeholder]').nth(0).fill('XXXXX');
   await page.getByRole('button', { name: /Join Event/i }).click();
   await expect(page.getByText(/not found|invalid|error/i).first()).toBeVisible({ timeout: 8_000 });
   await expect(page.getByRole('button', { name: /^Home$/i })).not.toBeVisible({ timeout: 3_000 });
