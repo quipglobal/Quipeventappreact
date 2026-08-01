@@ -46,7 +46,15 @@ export const MyBadgePage: React.FC = () => {
 
   // 30s silent refresh, also gated on auth via the shared hook so the
   // poll tears down on sign-out and re-arms on the next sign-in.
-  useAuthedInterval(userId, () => fetchBadge(true), 30_000, { runOnMount: false });
+  // `pauseWhenHidden: true` additionally tears the interval down while
+  // `document.hidden` is true (so a user who leaves the app open in a
+  // background tab doesn't keep firing `GET /me/badge` every 30s) and
+  // fires an immediate refetch on `visibilitychange` back to visible
+  // so the badge data is fresh on return.
+  useAuthedInterval(userId, () => fetchBadge(true), 30_000, {
+    runOnMount: false,
+    pauseWhenHidden: true,
+  });
 
   // When there is no signed-in user the auth-gated effects above don't
   // fire, so make sure the loading spinner clears and the "no user"
