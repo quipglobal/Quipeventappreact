@@ -26,6 +26,7 @@ import {
 import { fetchPointsFromBackend, scheduleSyncPoints, cancelPendingSyncPoints } from '@/app/api/pointsClient';
 import { getUserPointsApi } from '@/app/api/userClient';
 import { getMyEventRoleApi } from '@/app/api/audienceClient';
+import { invalidateEvent } from '@/app/lib/pageCache';
 import { loadLeadsFromStorage, saveLeadsToStorage, clearLeadsStorage } from '@/app/lib/leadsStorage';
 import { saveLeadEdit } from '@/app/lib/leadEditsStorage';
 import {
@@ -1909,6 +1910,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const switchEvent = (config: EventConfig) => {
+    // Invalidate the outgoing event's page cache so the per-event role (and any
+    // other cached data) is resolved fresh if the user ever returns to it.
+    if (activeEventConfig?.eventId) {
+      invalidateEvent(activeEventConfig.eventId);
+    }
     setActiveEventConfig(config);
     // Each event requires its own join code — reset so the user must verify
     // access to the new event via EventJoinPage or SwitchEventModal's real API.

@@ -26,6 +26,7 @@
  */
 
 import { apiGet, apiPost } from './client';
+import { getCached, setCached, TTL_MS } from '@/app/lib/pageCache';
 
 const TENANT_ID = (import.meta.env.VITE_TENANT_ID ?? '3') as string;
 const HEADERS: Record<string, string> = { 'X-Tenant-ID': TENANT_ID };
@@ -274,12 +275,19 @@ export type MyEventRoleResult =
 const ROLE_LOOKUP_PAGE_SIZE = 500;
 const ROLE_LOOKUP_MAX_PAGES = 10;
 
+const MY_ROLE_CACHE_KEY = 'my-event-role';
+
 export async function getMyEventRoleApi(
   eventId: string | number,
   email: string,
 ): Promise<MyEventRoleResult> {
   if (!email) return { ok: true, found: false };
   const target = email.trim().toLowerCase();
+
+  // Return the cached role immediately — avoids a full audience scan on
+  // every mount/re-render while the user stays in the same event session.
+  const cached = getCached<MyEventRoleResult>(MY_ROLE_CACHE_KEY, eventId);
+  if (cached) return cached;
 
   for (let page = 1; page <= ROLE_LOOKUP_MAX_PAGES; page++) {
     let res;
@@ -306,15 +314,21 @@ export async function getMyEventRoleApi(
     ) as RawFlatMember | undefined;
 
     if (me) {
-      return { ok: true, found: true, role: pickRole(me.roles ?? []) };
+      const result: MyEventRoleResult = { ok: true, found: true, role: pickRole(me.roles ?? []) };
+      setCached(MY_ROLE_CACHE_KEY, eventId, result, TTL_MS);
+      return result;
     }
 
     if (list.length < ROLE_LOOKUP_PAGE_SIZE) {
-      return { ok: true, found: false };
+      const result: MyEventRoleResult = { ok: true, found: false };
+      setCached(MY_ROLE_CACHE_KEY, eventId, result, TTL_MS);
+      return result;
     }
   }
 
-  return { ok: true, found: false };
+  const result: MyEventRoleResult = { ok: true, found: false };
+  setCached(MY_ROLE_CACHE_KEY, eventId, result, TTL_MS);
+  return result;
 }
 
 // ─── API Methods ──────────────────────────────────────────────────────────────
