@@ -15,6 +15,22 @@ export interface UseAuthedIntervalOptions {
    * call-sites preserve their previous behaviour.
    */
   pauseWhenHidden?: boolean;
+  /**
+   * One-time random delay (ms) before the first tick and interval start.
+   *
+   * Pass a pre-computed stable random value — e.g. via `useRef`:
+   *   `const jitter = useRef(Math.floor(Math.random() * 30_000)).current`
+   * — so the value doesn't change across renders (which would re-run the
+   * effect and reset the timer).
+   *
+   * Why this matters: 300 sessions mounting at the same instant all start
+   * their 30-second polling timers together, producing a synchronized load
+   * spike every 30 s. A per-session random offset in [0, intervalMs) spreads
+   * those ticks uniformly across the full interval window.
+   *
+   * Defaults to `0` (no delay) so existing call-sites are unaffected.
+   */
+  initialDelayMs?: number;
 }
 
 /**
@@ -46,7 +62,7 @@ export function useAuthedInterval(
   intervalMs: number | null,
   options: UseAuthedIntervalOptions = {},
 ): void {
-  const { runOnMount = true, pauseWhenHidden = false } = options;
+  const { runOnMount = true, pauseWhenHidden = false, initialDelayMs = 0 } = options;
 
   // Stable ref so we don't tear down + restart the interval every render
   // when callers pass an inline arrow function for `callback`.
@@ -60,52 +76,66 @@ export function useAuthedInterval(
 
     let cancelled = false;
     let timer: ReturnType<typeof setInterval> | null = null;
+    let startDelayTimer: ReturnType<typeof setTimeout> | null = null;
+    // Set inside setup() when pauseWhenHidden=true so the cleanup below can
+    // remove it even when setup() ran asynchronously via startDelayTimer.
+    let removeVisibilityListener: (() => void) | null = null;
 
     const fire = () => {
       if (cancelled) return;
       void callbackRef.current();
     };
 
-    const start = () => {
+    const startInterval = () => {
       if (timer) return;
       timer = setInterval(fire, intervalMs);
     };
 
-    const stop = () => {
-      if (timer) {
-        clearInterval(timer);
-        timer = null;
-      }
+    const stopInterval = () => {
+      if (timer) { clearInterval(timer); timer = null; }
     };
 
-    if (pauseWhenHidden && typeof document !== 'undefined') {
-      const onVisibilityChange = () => {
-        if (document.hidden) {
-          stop();
-        } else {
-          // Fresh tick on return to foreground so the user sees up-to-date
-          // data without waiting for the next interval.
-          fire();
-          start();
+    /** Core setup — runs immediately or after `initialDelayMs`. */
+    const setup = () => {
+      if (cancelled) return;
+
+      if (pauseWhenHidden && typeof document !== 'undefined') {
+        const onVisibilityChange = () => {
+          if (document.hidden) {
+            stopInterval();
+          } else {
+            // Fresh tick on return to foreground so the user sees up-to-date
+            // data without waiting for the next interval.
+            fire();
+            startInterval();
+          }
+        };
+        removeVisibilityListener = () =>
+          document.removeEventListener('visibilitychange', onVisibilityChange);
+
+        if (!document.hidden) {
+          if (runOnMount) fire();
+          startInterval();
         }
-      };
-      if (!document.hidden) {
-        if (runOnMount) fire();
-        start();
+        document.addEventListener('visibilitychange', onVisibilityChange);
+        return;
       }
-      document.addEventListener('visibilitychange', onVisibilityChange);
-      return () => {
-        cancelled = true;
-        stop();
-        document.removeEventListener('visibilitychange', onVisibilityChange);
-      };
+
+      if (runOnMount) fire();
+      startInterval();
+    };
+
+    if (initialDelayMs > 0) {
+      startDelayTimer = setTimeout(setup, initialDelayMs);
+    } else {
+      setup();
     }
 
-    if (runOnMount) fire();
-    start();
     return () => {
       cancelled = true;
-      stop();
+      if (startDelayTimer) clearTimeout(startDelayTimer);
+      stopInterval();
+      if (removeVisibilityListener) removeVisibilityListener();
     };
-  }, [userId, intervalMs, runOnMount, pauseWhenHidden]);
+  }, [userId, intervalMs, runOnMount, pauseWhenHidden, initialDelayMs]);
 }

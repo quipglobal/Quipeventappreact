@@ -345,6 +345,14 @@ function extractRawList(res: { success: boolean; data?: unknown }): unknown[] {
  */
 const AUDIENCE_PAGE_SIZE = 15;
 
+/**
+ * Maximum number of member-detail records to pre-fetch on initial load.
+ * Detail is fetched on-demand when the user taps a row — this cap prevents
+ * any future eager-prefetch loop from producing N requests for N visible rows
+ * (the same guard pattern used for polls and surveys in the preloader).
+ */
+export const AUDIENCE_DETAIL_PREFETCH_LIMIT = 5;
+
 export async function getEventMembersApi(
   eventId: string | number,
   checkedInOnly: boolean = false,

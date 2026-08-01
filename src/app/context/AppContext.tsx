@@ -828,9 +828,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (typeof document !== 'undefined' && document.hidden) return;
       void syncPoints();
     };
+
+    // Stagger the interval start by a random 0–30 s offset so 300 sessions
+    // that join at the same time don't all hit /my-rank at the same 2-minute
+    // mark. The immediate `void syncPoints()` above is intentionally NOT
+    // jittered — the user needs fresh points on arrival regardless.
     // eslint-disable-next-line local/no-raw-timers -- auth-gated by useEffect dep on user?.id; candidate for useAuthedInterval migration (Task #29)
-    const interval = setInterval(syncIfVisible, 2 * 60 * 1000);
-    return () => clearInterval(interval);
+    let syncInterval: ReturnType<typeof setInterval> | null = null;
+    const initialOffset = Math.floor(Math.random() * 30_000);
+    // eslint-disable-next-line local/no-raw-timers
+    const startTimer = setTimeout(() => {
+      // eslint-disable-next-line local/no-raw-timers
+      syncInterval = setInterval(syncIfVisible, 2 * 60 * 1000);
+    }, initialOffset);
+    return () => {
+      clearTimeout(startTimer);
+      if (syncInterval) clearInterval(syncInterval);
+    };
   }, [user?.id, activeEventConfig?.eventId]);
 
   // ── Background pendingSync reconciliation ──────────────────────────────

@@ -105,18 +105,57 @@ const MAX_RETRIES = 2;
 // send the same connection request twice, etc.).
 const RETRYABLE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
-async function fetchWithRetry(url: string, options: RequestInit, retries = MAX_RETRIES): Promise<Response> {
-  const method = (typeof options.method === 'string' ? options.method : 'GET').toUpperCase();
-  const allowedRetries = RETRYABLE_METHODS.has(method) ? retries : 0;
+// Methods eligible for in-flight deduplication: safe & idempotent, so sharing
+// a single in-flight Promise across multiple concurrent callers is correct.
+const DEDUP_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+/**
+ * In-flight request registry.
+ *
+ * When two or more React components mount simultaneously and issue the same
+ * GET (same URL), only the first call fires on the wire. All subsequent callers
+ * receive the same Promise and share the response, eliminating the "concurrent
+ * mount stampede" that would otherwise amplify backend load N-fold.
+ *
+ * Key format: `${METHOD}::${url}`
+ * Entry is removed as soon as the Promise settles (success OR error), so a
+ * failed request is not cached — the next caller starts fresh.
+ */
+const _inflight = new Map<string, Promise<Response>>();
+
+/** Inner retry loop — does NOT dedup; called by `fetchWithRetry`. */
+async function fetchWithRetryInner(
+  url: string,
+  options: RequestInit,
+  allowedRetries: number,
+): Promise<Response> {
   try {
     return await fetch(url, options);
   } catch (err) {
     if (allowedRetries > 0) {
       await new Promise(r => setTimeout(r, 600));
-      return fetchWithRetry(url, options, allowedRetries - 1);
+      return fetchWithRetryInner(url, options, allowedRetries - 1);
     }
     throw err;
   }
+}
+
+async function fetchWithRetry(url: string, options: RequestInit, retries = MAX_RETRIES): Promise<Response> {
+  const method = (typeof options.method === 'string' ? options.method : 'GET').toUpperCase();
+  const allowedRetries = RETRYABLE_METHODS.has(method) ? retries : 0;
+
+  if (DEDUP_METHODS.has(method)) {
+    const key = `${method}::${url}`;
+    const existing = _inflight.get(key);
+    if (existing) return existing;
+    const promise = fetchWithRetryInner(url, options, allowedRetries).finally(() => {
+      _inflight.delete(key);
+    });
+    _inflight.set(key, promise);
+    return promise;
+  }
+
+  return fetchWithRetryInner(url, options, allowedRetries);
 }
 
 export async function apiGet<T>(path: string, extraHeaders?: Record<string, string>): Promise<ApiEnvelope<T>> {

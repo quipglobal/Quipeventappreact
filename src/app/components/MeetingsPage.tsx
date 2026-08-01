@@ -460,6 +460,12 @@ export const MeetingsPage: React.FC = () => {
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const eventId = eventConfig?.eventId;
 
+  // Stable per-session random offset — spreads 300 sessions' 30-second polling
+  // intervals across the full window so they don't all fire in lockstep.
+  // useRef ensures this is computed once on mount; passing Math.random() inline
+  // would recompute on every render and reset the timer useEffect.
+  const pollJitterMs = useRef(Math.floor(Math.random() * 30_000)).current;
+
   const handleOpenChat = (convId: string) => {
     // Belt-and-suspenders gate: only open the chat when its
     // connection has been mutually accepted. The conversations array
@@ -505,6 +511,7 @@ export const MeetingsPage: React.FC = () => {
   useAuthedInterval(user?.id, fetchRequests, 30_000, {
     runOnMount: true,
     pauseWhenHidden: true,
+    initialDelayMs: pollJitterMs,
   });
 
   const handleAccept = async (requestId: string) => {

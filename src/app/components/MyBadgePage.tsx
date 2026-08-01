@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import { QRCodeCanvas } from 'qrcode.react';
 import { useApp } from '@/app/context/AppContext';
@@ -51,9 +51,13 @@ export const MyBadgePage: React.FC = () => {
   // background tab doesn't keep firing `GET /me/badge` every 30s) and
   // fires an immediate refetch on `visibilitychange` back to visible
   // so the badge data is fresh on return.
+  // Stable per-session random offset — spreads 300 sessions' 30-second badge
+  // polls across the full window so they don't all fire in lockstep.
+  const pollJitterMs = useRef(Math.floor(Math.random() * 30_000)).current;
   useAuthedInterval(userId, () => fetchBadge(true), 30_000, {
     runOnMount: false,
     pauseWhenHidden: true,
+    initialDelayMs: pollJitterMs,
   });
 
   // When there is no signed-in user the auth-gated effects above don't

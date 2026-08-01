@@ -17,6 +17,13 @@ import { setCached } from '@/app/lib/pageCache';
 // get fresh data via the focus-refetch path in each page component.
 const REFRESH_MS = 15 * 60 * 1000;
 
+// Jitter constants — spread 300 simultaneous joins across a 5-second window
+// instead of hitting the backend (and Redis) in a single burst.
+// The refresh cycle gets ±30 s of per-session jitter so ticks don't
+// synchronize across sessions over time.
+const PRELOAD_START_JITTER_MS = 5_000;
+const REFRESH_JITTER_MS = 30_000;
+
 // Survey detail fan-out: prefetch only the first few entries on join so the
 // initial network burst stays manageable.  Remaining details are fetched
 // on-demand when the user taps a survey row (each page checks the cache first
@@ -31,6 +38,7 @@ export function usePreloader(
   enabled: boolean,
 ): void {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const prefetch = useCallback(async (eid: string | number) => {
     await Promise.allSettled([
@@ -97,18 +105,33 @@ export function usePreloader(
   useEffect(() => {
     if (!enabled || !eventId) return;
 
-    void prefetch(eventId);
+    let cancelled = false;
 
-    if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = setInterval(() => {
+    // Clear any prior timers from a previous event/enabled change.
+    if (startTimerRef.current) { clearTimeout(startTimerRef.current); startTimerRef.current = null; }
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+
+    // Per-session jitter: spread 300 simultaneous event-joins across a 5-second
+    // window so they don't all hit the backend in the same instant.
+    const startDelay = Math.floor(Math.random() * PRELOAD_START_JITTER_MS);
+
+    // Per-session refresh jitter: each session picks a slightly different cycle
+    // length (±30 s) so ticks desynchronize over time.
+    const refreshJitter = Math.floor(Math.random() * REFRESH_JITTER_MS * 2) - REFRESH_JITTER_MS;
+    const effectiveRefreshMs = REFRESH_MS + refreshJitter;
+
+    startTimerRef.current = setTimeout(() => {
+      if (cancelled) return;
       void prefetch(eventId);
-    }, REFRESH_MS);
+      timerRef.current = setInterval(() => {
+        if (!cancelled) void prefetch(eventId);
+      }, effectiveRefreshMs);
+    }, startDelay);
 
     return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
+      cancelled = true;
+      if (startTimerRef.current) { clearTimeout(startTimerRef.current); startTimerRef.current = null; }
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     };
   }, [eventId, enabled, prefetch]);
 }

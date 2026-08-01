@@ -25,6 +25,10 @@ import {
 import { getCached, setCached } from "@/app/lib/pageCache";
 import type { Session, Speaker } from "@/app/types/config";
 
+// How many speakers to display on the home page. Must match the preloader's
+// fetch limit so both code paths share the same Redis cache key on the backend.
+const HOME_SPEAKER_DISPLAY_LIMIT = 24;
+
 interface HomePageProps {
   onNavigate: (page: string) => void;
 }
@@ -84,11 +88,10 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   const [sessions, setSessions] = useState<Session[]>(() => getCached<Session[]>('sessions', eventConfig.eventId ?? '') ?? []);
   const [, setLoadingSessions] = useState(false);
   const [audienceSpeakers, setAudienceSpeakers] = useState<EventMember[]>(() => {
-    // Prefer the home-page-specific cache; fall back to slicing the full preloaded set
-    const home = getCached<EventMember[]>('speakers:home', eventConfig.eventId ?? '');
-    if (home) return home;
+    // Seed from the shared 'speakers' cache (populated by the preloader or a
+    // prior fetch). Slice for display; the full set is kept in the cache.
     const full = getCached<EventMember[]>('speakers', eventConfig.eventId ?? '');
-    return full ? full.slice(0, 24) : [];
+    return full ? full.slice(0, HOME_SPEAKER_DISPLAY_LIMIT) : [];
   });
 
   useEffect(() => {
@@ -121,23 +124,27 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
   useEffect(() => {
     if (!eventConfig?.eventId) return;
     const targetEventId = eventConfig.eventId;
-    // Skip the network trip when either cache key already has data — state
-    // was seeded by the useState initializer above.
-    const hasCached =
-      getCached<EventMember[]>('speakers', targetEventId) !== null ||
-      getCached<EventMember[]>('speakers:home', targetEventId) !== null;
-    if (hasCached) return;
+    // Skip the network trip when the shared 'speakers' cache already has data
+    // — populated by the preloader or a prior fetch (either source works since
+    // both use the same cache key and the same backend URL).
+    if (getCached<EventMember[]>('speakers', targetEventId) !== null) return;
     // No cached data — clear any stale state before fetching.
     setAudienceSpeakers([]);
     let cancelled = false;
-    getEventSpeakersApi(targetEventId, 24)
+    // Fetch with the same limit as the preloader (200) so both code paths hit
+    // an identical backend URL and share the same Redis cache key.  The extra
+    // members beyond HOME_SPEAKER_DISPLAY_LIMIT are stored in the cache for
+    // use by the SpeakersPage without an extra round-trip.
+    getEventSpeakersApi(targetEventId, 200)
       .then((res) => {
         // Guard against stale async races if the user switched events
         // before this request resolved.
         if (cancelled || targetEventId !== eventConfig.eventId) return;
         if (res.success && res.data) {
-          setAudienceSpeakers(res.data);
-          setCached('speakers:home', targetEventId, res.data);
+          // Store the full set under the shared key — the preloader will
+          // see this on its next tick and skip its own fetch.
+          setCached('speakers', targetEventId, res.data);
+          setAudienceSpeakers(res.data.slice(0, HOME_SPEAKER_DISPLAY_LIMIT));
         }
       })
       .catch(() => {
