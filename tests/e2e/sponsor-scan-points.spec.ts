@@ -403,6 +403,80 @@ test.describe('SponsorScannerPage — scan points', () => {
   });
 
   /**
+   * Path B duplicate guard: first scan fails (badge not recognized), user
+   * presses Save, and the second /leads/scan call at Save time returns
+   * `pointsAwarded: 0` — signalling the backend already has a lead for this
+   * badge (duplicate). The guard at SponsorScannerPage.tsx lines 362–369
+   * checks `if (pts > 0)` before calling `addPoints`, so neither `addPoints`
+   * nor the points toast should fire.
+   *
+   * This exercises the Save-time duplicate branch in handleSave
+   * (the `!scannedData.leadId` → `res.success && res.data` path).
+   */
+  test('Path B duplicate — no points toast when Save-time scan returns pointsAwarded: 0', async ({ page }) => {
+    test.setTimeout(120_000);
+
+    let scanCallCount = 0;
+
+    await installMocks(page, async (route) => {
+      scanCallCount++;
+      if (scanCallCount === 1) {
+        // First scan: backend cannot resolve — triggers audience-list fallback
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          headers: { 'Access-Control-Allow-Origin': '*' },
+          body: JSON.stringify({
+            success: false,
+            error: { code: 'SCAN_FAILED', message: 'Badge not recognized.' },
+          }),
+        });
+      }
+      // Second scan (from Save): duplicate detected — pointsAwarded: 0
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({
+          success: true,
+          data: { ...ATTENDEE_LEAD, pointsAwarded: 0 },
+        }),
+      });
+    });
+
+    await loginAndOpenScanner(page);
+
+    // Snapshot the header points total before the scan
+    const headerBadge = page.locator('span.text-violet-400').filter({ hasText: /pts/ }).first();
+    await expect(headerBadge).toBeVisible({ timeout: 8_000 });
+    const beforeText = await headerBadge.textContent();
+    const beforePoints = parseInt(beforeText!.trim(), 10);
+
+    // Type the badge code and submit — first scan fails, "Unknown Attendee" shown
+    await page.getByPlaceholder(/ATT-/i).fill('ATT-9001');
+    await page.getByRole('button', { name: /find attendee/i }).click();
+
+    // The unrecognized-code placeholder must appear
+    await expect(page.getByText('Unknown Attendee')).toBeVisible({ timeout: 10_000 });
+
+    // No points toast yet
+    await expect(page.getByText('+25')).not.toBeVisible({ timeout: 1_500 });
+
+    // Press Save Lead — triggers the second /leads/scan which returns pointsAwarded: 0
+    await page.getByRole('button', { name: /save lead/i }).click();
+
+    // ── Assert NO points toast ─────────────────────────────────────────────
+    // Wait briefly to allow any spurious toast to render, then assert absence.
+    await expect(page.getByText(/points earned/i)).not.toBeVisible({ timeout: 2_000 });
+    // Check that no "+N pts" badge appears (any positive number)
+    await expect(page.locator('text=/^\\+\\d+$/')).not.toBeVisible({ timeout: 2_000 });
+
+    // ── Assert header total is unchanged ──────────────────────────────────
+    // addPoints must NOT have been called, so the header badge stays the same.
+    await expect(headerBadge).toHaveText(`${beforePoints} pts`, { timeout: 3_000 });
+  });
+
+  /**
    * Header points badge: after a successful scan the running total displayed
    * in the app's persistent top-bar header must reflect the newly awarded points.
    *
