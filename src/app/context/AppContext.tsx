@@ -1,4 +1,3 @@
-// @refresh reset
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { EventConfig, GamificationConfig } from '@/app/types/config';
 import { getMeApi } from '@/app/api/authClient';
