@@ -320,16 +320,18 @@ function ScannerView({ onBack, onScanSuccess }: { onBack: () => void; onScanSucc
 interface SurveyDetailViewProps {
   survey: Survey;
   alreadyDone: boolean;
+  initialAnswers?: Record<string, string>;
   onBack: () => void;
 }
 
-function SurveyDetailView({ survey, alreadyDone, onBack }: SurveyDetailViewProps) {
+function SurveyDetailView({ survey, alreadyDone, initialAnswers, onBack }: SurveyDetailViewProps) {
   const insets = useSafeAreaInsets();
-  const { markSurveyDone, showToast } = useAuth();
+  const { markSurveyDone, saveSurveyAnswers, showToast } = useAuth();
   const { data: detail, isLoading } = useGetSurveyDetail(survey.id);
   const { mutate: submitSurveyMutation, isPending: submitting } = useSubmitSurvey();
 
-  const [answers, setAnswers] = useState<Record<string, string>>({});
+  // Pre-populate with the last-submitted answers when editing a completed survey.
+  const [answers, setAnswers] = useState<Record<string, string>>(initialAnswers ?? {});
   const [submitted, setSubmitted] = useState(false);
 
   const questions: SurveyQuestion[] = detail?.questionList?.length
@@ -361,6 +363,7 @@ function SurveyDetailView({ survey, alreadyDone, onBack }: SurveyDetailViewProps
         onSuccess: (res) => {
           const firstTime = !alreadyDone;
           markSurveyDone(survey.id);
+          saveSurveyAnswers(survey.id, answers);
           const pts = res.data?.points ?? survey.points;
           showToast?.(firstTime ? `Survey submitted! +${pts} pts` : 'Answers updated!', firstTime ? pts : undefined);
           setSubmitted(true);
@@ -369,6 +372,7 @@ function SurveyDetailView({ survey, alreadyDone, onBack }: SurveyDetailViewProps
         onError: () => {
           // Fallback for demo mode/offline
           markSurveyDone(survey.id);
+          saveSurveyAnswers(survey.id, answers);
           const firstTime = !alreadyDone;
           showToast?.(firstTime ? `Saved! +${survey.points} pts` : 'Answers updated!', firstTime ? survey.points : undefined);
           setSubmitted(true);
@@ -547,7 +551,7 @@ function SurveyDetailView({ survey, alreadyDone, onBack }: SurveyDetailViewProps
 type EngageSection = 'hub' | 'polls' | 'surveys' | 'challenges' | 'leaderboard' | 'giveaways' | 'reviews';
 
 function AttendeeEngage() {
-  const { user, completedChallenges, completeChallenge, votedPolls, markPollVoted, markSurveyDone, completedSurveys, showToast } = useAuth();
+  const { user, completedChallenges, completeChallenge, votedPolls, markPollVoted, markSurveyDone, completedSurveys, savedSurveyAnswers, showToast } = useAuth();
   const { currentEventId } = useEvent();
   const { data: events = [] } = useEvents();
   const currentEvent = events.find((e) => String(e.id) === String(currentEventId)) ?? null;
@@ -607,10 +611,12 @@ function AttendeeEngage() {
   }
 
   if (activeSurvey) {
+    const alreadyDone = completedSurveys.includes(activeSurvey.id);
     return (
       <SurveyDetailView
         survey={activeSurvey}
-        alreadyDone={completedSurveys.includes(activeSurvey.id)}
+        alreadyDone={alreadyDone}
+        initialAnswers={alreadyDone ? savedSurveyAnswers[activeSurvey.id] : undefined}
         onBack={() => setActiveSurvey(null)}
       />
     );

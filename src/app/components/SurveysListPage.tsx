@@ -44,6 +44,8 @@ export const SurveysListPage: React.FC<SurveysListPageProps> = ({ onBack }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   // True when the user is updating an already-completed survey.
   const [isEditing, setIsEditing] = useState(false);
+  // Stores the last-submitted answers per survey so re-opens are pre-populated.
+  const [savedSurveyAnswers, setSavedSurveyAnswers] = useState<Record<string, Record<number, unknown>>>({});
 
   const filterSurveys = (list: BackendSurveySummary[]) => {
     return list.filter(s => {
@@ -83,9 +85,11 @@ export const SurveysListPage: React.FC<SurveysListPageProps> = ({ onBack }) => {
 
   const openSurvey = async (surveyId: number) => {
     if (!eventId) return;
-    setAnswers({});
+    const editing = completedSurveys.includes(String(surveyId));
+    setIsEditing(editing);
     setCurrentQuestion(0);
-    setIsEditing(completedSurveys.includes(String(surveyId)));
+    // Restore previously submitted answers so the user sees what they picked.
+    setAnswers(editing ? (savedSurveyAnswers[String(surveyId)] ?? {}) : {});
 
     const cached = getCached<BackendSurveyDetail>(`survey-detail:${surveyId}`, eventId);
     if (cached) {
@@ -128,6 +132,8 @@ export const SurveysListPage: React.FC<SurveysListPageProps> = ({ onBack }) => {
     setIsSubmitting(false);
 
     if (res.success || res.error?.code === 'ALREADY_SUBMITTED') {
+      // Persist the submitted answers so re-opens are pre-populated.
+      setSavedSurveyAnswers(prev => ({ ...prev, [String(selectedDetail.id)]: answers }));
       if (isEditing) {
         // Updating an existing response — no points awarded.
         showToast('Answers updated!');

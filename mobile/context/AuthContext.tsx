@@ -26,6 +26,9 @@ interface AppContextValue {
   markPollVoted: (id: string, optionId: string) => void;
   completedSurveys: string[];
   markSurveyDone: (id: string) => void;
+  /** Last-submitted answers per survey, keyed by surveyId. Used to pre-populate on re-open. */
+  savedSurveyAnswers: Record<string, Record<string, string>>;
+  saveSurveyAnswers: (id: string, answers: Record<string, string>) => void;
   /** Event IDs for which the user has already received check-in points. Persisted across app restarts. */
   checkedInEvents: string[];
   /** Award check-in points once per event, ever. No-op if already checked in. */
@@ -72,6 +75,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [bookmarkedSessions, setBookmarkedSessions] = useState<string[]>([]);
   const [votedPolls, setVotedPolls] = useState<Record<string, string>>({});
   const [completedSurveys, setCompletedSurveys] = useState<string[]>([]);
+  const [savedSurveyAnswers, setSavedSurveyAnswers] = useState<Record<string, Record<string, string>>>({});
   const [checkedInEvents, setCheckedInEvents] = useState<string[]>([]);
   const [toast, setToast] = useState<{ message: string; points?: number } | null>(null);
 
@@ -95,6 +99,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setBookmarkedSessions([]);
       setVotedPolls({});
       setCompletedSurveys([]);
+      setSavedSurveyAnswers({});
       setCheckedInEvents([]);
       AsyncStorage.multiRemove([TOKEN_KEY, CACHED_USER_KEY]).catch(() => {});
       router.replace('/(auth)/welcome');
@@ -277,6 +282,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
   }, [addPoints]);
 
+  const saveSurveyAnswers = useCallback((id: string, answers: Record<string, string>) => {
+    setSavedSurveyAnswers(prev => ({ ...prev, [id]: answers }));
+  }, []);
+
   const markEventCheckedIn = useCallback((eventId: string) => {
     setCheckedInEvents((prev) => {
       if (prev.includes(eventId)) return prev;
@@ -345,7 +354,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       completedChallenges, completeChallenge,
       bookmarkedSessions, toggleBookmark,
       votedPolls, markPollVoted,
-      completedSurveys, markSurveyDone,
+      completedSurveys, markSurveyDone, savedSurveyAnswers, saveSurveyAnswers,
       checkedInEvents, markEventCheckedIn,
       addPoints, toast, showToast,
     }}>
