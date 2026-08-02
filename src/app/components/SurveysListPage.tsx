@@ -42,6 +42,8 @@ export const SurveysListPage: React.FC<SurveysListPageProps> = ({ onBack }) => {
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [answers, setAnswers] = useState<Record<number, unknown>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // True when the user is updating an already-completed survey.
+  const [isEditing, setIsEditing] = useState(false);
 
   const filterSurveys = (list: BackendSurveySummary[]) => {
     return list.filter(s => {
@@ -83,6 +85,7 @@ export const SurveysListPage: React.FC<SurveysListPageProps> = ({ onBack }) => {
     if (!eventId) return;
     setAnswers({});
     setCurrentQuestion(0);
+    setIsEditing(completedSurveys.includes(String(surveyId)));
 
     const cached = getCached<BackendSurveyDetail>(`survey-detail:${surveyId}`, eventId);
     if (cached) {
@@ -106,9 +109,15 @@ export const SurveysListPage: React.FC<SurveysListPageProps> = ({ onBack }) => {
 
   const handleAnswer = (qId: number, val: unknown) => setAnswers(prev => ({ ...prev, [qId]: val }));
 
+  const closeDetail = () => {
+    setSelectedDetail(null);
+    setCurrentQuestion(0);
+    setAnswers({});
+    setIsEditing(false);
+  };
+
   const handleSubmit = async () => {
     if (!eventId || !selectedDetail || isSubmitting) return;
-    if (completedSurveys.includes(String(selectedDetail.id))) return;
 
     const payload: SurveyAnswer[] = selectedDetail.questions
       .filter(q => answers[q.id] !== undefined && answers[q.id] !== '' && (!Array.isArray(answers[q.id]) || (answers[q.id] as unknown[]).length > 0))
@@ -118,16 +127,16 @@ export const SurveysListPage: React.FC<SurveysListPageProps> = ({ onBack }) => {
     const res = await submitEventSurveyApi(eventId, selectedDetail.id, payload);
     setIsSubmitting(false);
 
-    if (res.success) {
-      setCompletedSurveys([...completedSurveys, String(selectedDetail.id)]);
-      addPoints(gamificationConfig.pointActions.completeSurvey, 'Survey completed!');
-      setSelectedDetail(null);
-      setCurrentQuestion(0);
-      setAnswers({});
-    } else if (res.error?.code === 'ALREADY_SUBMITTED') {
-      setCompletedSurveys([...completedSurveys, String(selectedDetail.id)]);
-      showToast('You already submitted this survey.');
-      setSelectedDetail(null);
+    if (res.success || res.error?.code === 'ALREADY_SUBMITTED') {
+      if (isEditing) {
+        // Updating an existing response — no points awarded.
+        showToast('Answers updated!');
+      } else {
+        // First-time submission — award points.
+        setCompletedSurveys([...completedSurveys, String(selectedDetail.id)]);
+        addPoints(gamificationConfig.pointActions.completeSurvey, 'Survey completed!');
+      }
+      closeDetail();
     } else {
       showToast(res.error?.message ?? 'Failed to submit survey. Please try again.');
     }
@@ -241,7 +250,7 @@ export const SurveysListPage: React.FC<SurveysListPageProps> = ({ onBack }) => {
     return (
       <div className="min-h-screen pb-20" style={{ background: t.bgPage }}>
         <div className="sticky top-0 z-10 px-5 pt-12 pb-5 text-white" style={{ background: 'linear-gradient(135deg,#10b981,#0d9488)' }}>
-          <button onClick={() => { setSelectedDetail(null); setCurrentQuestion(0); }} className="mb-3">
+          <button onClick={closeDetail} className="mb-3">
             <ArrowLeft style={{ width: 22, height: 22, color: '#fff' }} />
           </button>
           <h1 style={{ fontSize: 20, fontWeight: 800 }}>{selectedDetail.title}</h1>
@@ -275,7 +284,11 @@ export const SurveysListPage: React.FC<SurveysListPageProps> = ({ onBack }) => {
                 opacity: !canProceed || isSubmitting ? 0.5 : 1,
                 cursor: !canProceed || isSubmitting ? 'not-allowed' : 'pointer',
               }}>
-              {isLast ? (isSubmitting ? 'Submitting…' : `Submit (+${gamificationConfig.pointActions.completeSurvey} pts)`) : 'Next'}
+              {isLast
+                ? (isSubmitting
+                    ? (isEditing ? 'Updating…' : 'Submitting…')
+                    : (isEditing ? 'Update answers' : `Submit (+${gamificationConfig.pointActions.completeSurvey} pts)`))
+                : 'Next'}
             </button>
           </div>
         </div>
@@ -316,17 +329,21 @@ export const SurveysListPage: React.FC<SurveysListPageProps> = ({ onBack }) => {
         {!loading && !detailLoading && surveys.map(survey => {
           const isDone = completedSurveys.includes(String(survey.id));
           return (
-            <button key={survey.id} onClick={() => !isDone && openSurvey(survey.id)}
+            <button key={survey.id} onClick={() => openSurvey(survey.id)}
               className="w-full rounded-2xl p-5 text-left transition-all"
               style={{
                 background: t.surface, boxShadow: t.shadow,
                 border: `1px solid ${isDone ? t.borderAcc : t.border}`,
-                opacity: isDone ? 0.75 : 1, cursor: isDone ? 'default' : 'pointer',
               }}>
               <div className="flex items-start justify-between gap-3 mb-2">
                 <h3 style={{ color: t.text, fontSize: 16, fontWeight: 700 }}>{survey.title}</h3>
                 {isDone
-                  ? <CheckCircle style={{ width: 22, height: 22, color: t.successText, flexShrink: 0 }} />
+                  ? (
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <CheckCircle style={{ width: 18, height: 18, color: t.successText }} />
+                      <span style={{ color: t.successText, fontSize: 12, fontWeight: 600 }}>Edit</span>
+                    </div>
+                  )
                   : <div className="px-2.5 py-1 rounded-full flex-shrink-0" style={{ background: t.successBg }}>
                       <span style={{ color: t.successText, fontSize: 12, fontWeight: 700 }}>+{gamificationConfig.pointActions.completeSurvey} pts</span>
                     </div>}
