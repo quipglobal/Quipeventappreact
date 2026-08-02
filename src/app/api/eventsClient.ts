@@ -12,7 +12,7 @@ import { apiGet, apiPost, apiPut } from './client';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type EventStatus = 'live' | 'upcoming' | 'past';
-export type EventCategory = 'conference' | 'workshop' | 'webinar' | 'meetup' | 'hackathon' | 'summit';
+export type EventCategory = 'ciomeet' | 'cisomeet' | 'cfomeet' | 'ctomeet' | 'grcmeet';
 
 export interface OrganizerEvent {
   id: string;
@@ -125,11 +125,16 @@ function deriveDateStatus(
 }
 
 function normalizeCategory(raw: string | undefined): EventCategory {
+  // Collapse separators so "cio-meet", "cio_meet", "CIO Meet" all match.
+  const s = (raw ?? '').toLowerCase().replace(/[\s_\-]/g, '');
   const map: Record<string, EventCategory> = {
-    conference: 'conference', workshop: 'workshop', webinar: 'webinar',
-    meetup: 'meetup', hackathon: 'hackathon', summit: 'summit',
+    ciomeet:  'ciomeet',  cio:  'ciomeet',
+    cisomeet: 'cisomeet', ciso: 'cisomeet',
+    cfomeet:  'cfomeet',  cfo:  'cfomeet',
+    ctomeet:  'ctomeet',  cto:  'ctomeet',
+    grcmeet:  'grcmeet',  grc:  'grcmeet',
   };
-  return map[raw?.toLowerCase() ?? ''] ?? 'conference';
+  return map[s] ?? 'ciomeet';
 }
 
 function formatDateRange(start: string, end: string): string {

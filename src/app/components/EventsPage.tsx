@@ -19,12 +19,11 @@ const statusConfig: Record<EventStatus, { label: string; color: string; bg: stri
 };
 
 const categoryConfig: Record<EventCategory, { label: string; gradient: string }> = {
-  conference: { label: 'Conference', gradient: 'linear-gradient(135deg,#7c3aed,#4f46e5)' },
-  workshop:   { label: 'Workshop',   gradient: 'linear-gradient(135deg,#10b981,#0d9488)' },
-  webinar:    { label: 'Webinar',    gradient: 'linear-gradient(135deg,#06b6d4,#0284c7)' },
-  meetup:     { label: 'Meetup',     gradient: 'linear-gradient(135deg,#ec4899,#db2777)' },
-  hackathon:  { label: 'Hackathon',  gradient: 'linear-gradient(135deg,#f59e0b,#ea580c)' },
-  summit:     { label: 'Summit',     gradient: 'linear-gradient(135deg,#3b82f6,#6366f1)' },
+  ciomeet:  { label: 'CIOMeet',  gradient: 'linear-gradient(135deg,#7c3aed,#4f46e5)' },
+  cisomeet: { label: 'CISOMeet', gradient: 'linear-gradient(135deg,#dc2626,#b91c1c)' },
+  cfomeet:  { label: 'CFOMeet',  gradient: 'linear-gradient(135deg,#0369a1,#0284c7)' },
+  ctomeet:  { label: 'CTOMeet',  gradient: 'linear-gradient(135deg,#059669,#0d9488)' },
+  grcmeet:  { label: 'GRCMeet',  gradient: 'linear-gradient(135deg,#d97706,#b45309)' },
 };
 
 type TabFilter = 'all' | 'live' | 'upcoming' | 'past';

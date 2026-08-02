@@ -21,23 +21,22 @@ import {
 } from '@/app/api/readerClient';
 
 type EventStatus = 'live' | 'upcoming' | 'past';
-type EventCategory = 'conference' | 'workshop' | 'webinar' | 'meetup' | 'hackathon' | 'summit';
+// EventCategory imported from eventsClient — brand-specific values only
 type ActiveTab = 'feeds' | 'events';
 type FeedSubTab = 'videos' | 'articles';
 
 const statusConfig: Record<EventStatus, { label: string; color: string; dotColor: string }> = {
-  live:     { label: 'Happening Now', color: '#10b981', dotColor: '#34d399' },
-  upcoming: { label: 'Upcoming',      color: '#3b82f6', dotColor: '#60a5fa' },
-  past:     { label: 'Completed',     color: '#6b7280', dotColor: '#9ca3af' },
+  live:     { label: 'Live Now',   color: '#10b981', dotColor: '#34d399' },
+  upcoming: { label: 'Upcoming',   color: '#3b82f6', dotColor: '#60a5fa' },
+  past:     { label: 'Completed',  color: '#6b7280', dotColor: '#9ca3af' },
 };
 
-const categoryConfig: Record<EventCategory, { label: string; gradient: string }> = {
-  conference: { label: 'Conference', gradient: 'linear-gradient(135deg,#7c3aed,#4f46e5)' },
-  workshop:   { label: 'Workshop',   gradient: 'linear-gradient(135deg,#10b981,#0d9488)' },
-  webinar:    { label: 'Webinar',    gradient: 'linear-gradient(135deg,#06b6d4,#0284c7)' },
-  meetup:     { label: 'Meetup',     gradient: 'linear-gradient(135deg,#ec4899,#db2777)' },
-  hackathon:  { label: 'Hackathon',  gradient: 'linear-gradient(135deg,#f59e0b,#ea580c)' },
-  summit:     { label: 'Summit',     gradient: 'linear-gradient(135deg,#3b82f6,#6366f1)' },
+const categoryConfig: Record<import('@/app/api/eventsClient').EventCategory, { label: string; gradient: string }> = {
+  ciomeet:  { label: 'CIOMeet',  gradient: 'linear-gradient(135deg,#7c3aed,#4f46e5)' },
+  cisomeet: { label: 'CISOMeet', gradient: 'linear-gradient(135deg,#dc2626,#b91c1c)' },
+  cfomeet:  { label: 'CFOMeet',  gradient: 'linear-gradient(135deg,#0369a1,#0284c7)' },
+  ctomeet:  { label: 'CTOMeet',  gradient: 'linear-gradient(135deg,#059669,#0d9488)' },
+  grcmeet:  { label: 'GRCMeet',  gradient: 'linear-gradient(135deg,#d97706,#b45309)' },
 };
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -604,7 +603,7 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
 
   const EventCard: React.FC<{ event: OrganizerEvent; compact?: boolean }> = ({ event, compact }) => {
     const stCfg = statusConfig[event.status] ?? statusConfig.upcoming;
-    const catCfg = categoryConfig[event.category] ?? categoryConfig.conference;
+    const catCfg = categoryConfig[event.category] ?? categoryConfig.ciomeet;
     const isChecking = checkingEventId === event.id;
     return (
       <button
