@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import {
   ArrowLeft, Search, Users, Clock, Building2, ChevronRight,
   Flame, ThermometerSun, Snowflake, Tag, ScanLine, FileText,
@@ -559,6 +559,45 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
   // A ref updates synchronously so a second invocation aborts immediately.
   const inFlightRetriesRef = useRef<Set<string>>(new Set());
 
+  // ── "Just Synced" flash ─────────────────────────────────────────────────
+  // Tracks IDs of leads that just transitioned from pendingSync → synced so
+  // we can flash a brief green "Synced ✓" badge on the row.
+  const [justSyncedIds, setJustSyncedIds] = useState<Set<string>>(new Set());
+  // Snapshot of each lead's pendingSync value from the previous render so we
+  // can detect the false-positive edge (true → false).
+  const prevPendingSyncRef = useRef<Map<string, boolean>>(new Map());
+
+  useEffect(() => {
+    const prev = prevPendingSyncRef.current;
+    const newlySynced: string[] = [];
+    for (const lead of allLeads) {
+      if (prev.get(lead.id) === true && !lead.pendingSync) {
+        newlySynced.push(lead.id);
+      }
+    }
+    // Always keep the snapshot current.
+    prevPendingSyncRef.current = new Map(allLeads.map(l => [l.id, !!l.pendingSync]));
+
+    if (newlySynced.length === 0) return;
+    setJustSyncedIds(prev => {
+      const next = new Set(prev);
+      newlySynced.forEach(id => next.add(id));
+      return next;
+    });
+    // Remove the flash after 1.8 s.  The timers are fire-and-forget; if the
+    // component unmounts before they fire the setState is a no-op.
+    newlySynced.forEach(id => {
+      setTimeout(() => {
+        setJustSyncedIds(prev => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }, 1800);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allLeads]);
+
   const handleRetrySync = async (lead: Lead, e?: React.MouseEvent) => {
     e?.stopPropagation();
     if (inFlightRetriesRef.current.has(lead.id)) return;
@@ -819,6 +858,7 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
         {filteredLeads.map((lead, index) => {
           const pc = priorityConfig[lead.priority];
           const PIcon = pc.icon;
+          const justSynced = justSyncedIds.has(lead.id);
           return (
             // Outer container is a div (not a button) so the inner
             // pending-sync Retry control can be a real <button> without
@@ -831,7 +871,12 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: Math.min(index * 0.04, 0.3), duration: 0.3 }}
               className="rounded-2xl p-4"
-              style={{ background: t.surface, boxShadow: t.shadow, border: `1px solid ${t.border}` }}
+              style={{
+                background: justSynced ? 'rgba(16,185,129,0.06)' : t.surface,
+                boxShadow: t.shadow,
+                border: `1px solid ${justSynced ? 'rgba(16,185,129,0.45)' : t.border}`,
+                transition: 'border-color 0.4s ease, background 0.4s ease',
+              }}
             >
               <button
                 type="button"
@@ -862,21 +907,47 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5">
                     <h3 className="truncate" style={{ color: t.text, fontSize: 14, fontWeight: 700 }}>{lead.name}</h3>
-                    {lead.pendingSync && (
-                      <span
-                        className="flex items-center gap-1 px-1.5 py-0.5 rounded-md flex-shrink-0"
-                        style={{
-                          background: 'rgba(245,158,11,0.12)',
-                          border: '1px solid rgba(245,158,11,0.35)',
-                        }}
-                        title="Saved locally — will sync to the server when the leads endpoint is reachable"
-                      >
-                        <CloudOff style={{ width: 9, height: 9, color: '#b45309' }} />
-                        <span style={{ color: '#b45309', fontSize: 9, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-                          Sync
-                        </span>
-                      </span>
-                    )}
+                    <AnimatePresence mode="wait">
+                      {justSynced ? (
+                        <motion.span
+                          key="synced"
+                          initial={{ opacity: 0, scale: 0.8 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.8 }}
+                          transition={{ duration: 0.2 }}
+                          className="flex items-center gap-1 px-1.5 py-0.5 rounded-md flex-shrink-0"
+                          style={{
+                            background: 'rgba(16,185,129,0.12)',
+                            border: '1px solid rgba(16,185,129,0.4)',
+                          }}
+                          aria-label="Just synced to server"
+                        >
+                          <CheckCircle style={{ width: 9, height: 9, color: '#10b981' }} />
+                          <span style={{ color: '#059669', fontSize: 9, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                            Synced
+                          </span>
+                        </motion.span>
+                      ) : lead.pendingSync ? (
+                        <motion.span
+                          key="pending"
+                          initial={{ opacity: 0, scale: 0.8 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.8 }}
+                          transition={{ duration: 0.2 }}
+                          className="flex items-center gap-1 px-1.5 py-0.5 rounded-md flex-shrink-0"
+                          style={{
+                            background: 'rgba(245,158,11,0.12)',
+                            border: '1px solid rgba(245,158,11,0.35)',
+                          }}
+                          title="Saved locally — will sync to the server when the leads endpoint is reachable"
+                        >
+                          <CloudOff style={{ width: 9, height: 9, color: '#b45309' }} />
+                          <span style={{ color: '#b45309', fontSize: 9, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                            Sync
+                          </span>
+                        </motion.span>
+                      ) : null}
+                    </AnimatePresence>
                   </div>
                   <p className="truncate" style={{ color: t.textSec, fontSize: 12, marginBottom: 2 }}>{lead.title}</p>
                   <div className="flex items-center gap-2">

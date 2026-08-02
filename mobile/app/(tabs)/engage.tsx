@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Platform,
   TextInput,
   KeyboardAvoidingView,
+  Animated,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -67,6 +68,58 @@ function LeadsView({ leads, onBack }: { leads: Lead[]; onBack: () => void }) {
   // slip through the `retryingIds.has(...)` check before React re-renders.
   // A ref updates synchronously so a second invocation aborts immediately.
   const inFlightRetriesRef = React.useRef<Set<string>>(new Set());
+
+  // ── "Just Synced" flash ─────────────────────────────────────────────────
+  // Track IDs of leads that just transitioned pendingSync true → false so
+  // we can show a brief green "Synced ✓" badge on the row.
+  const [justSyncedIds, setJustSyncedIds] = useState<Set<string>>(new Set());
+  // Per-lead animated opacity values for the synced badge (created lazily).
+  const syncedAnims = useRef<Map<string, Animated.Value>>(new Map());
+  const prevPendingSyncRef = useRef<Map<string, boolean>>(new Map());
+
+  useEffect(() => {
+    const prev = prevPendingSyncRef.current;
+    const newlySynced: string[] = [];
+    for (const lead of leads) {
+      if (prev.get(lead.id) === true && !lead.pendingSync) {
+        newlySynced.push(lead.id);
+      }
+    }
+    prevPendingSyncRef.current = new Map(leads.map((l) => [l.id, !!l.pendingSync]));
+
+    if (newlySynced.length === 0) return;
+
+    // Initialise an Animated.Value for each newly-synced lead if needed.
+    newlySynced.forEach((id) => {
+      if (!syncedAnims.current.has(id)) {
+        syncedAnims.current.set(id, new Animated.Value(0));
+      }
+    });
+
+    setJustSyncedIds((prev) => {
+      const next = new Set(prev);
+      newlySynced.forEach((id) => next.add(id));
+      return next;
+    });
+
+    // Animate each badge: fade in, hold, fade out.
+    newlySynced.forEach((id) => {
+      const anim = syncedAnims.current.get(id)!;
+      anim.setValue(0);
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 1, duration: 250, useNativeDriver: true }),
+        Animated.delay(1200),
+        Animated.timing(anim, { toValue: 0, duration: 350, useNativeDriver: true }),
+      ]).start(() => {
+        setJustSyncedIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      });
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leads]);
 
   const handleRetry = async (lead: Lead) => {
     if (inFlightRetriesRef.current.has(lead.id)) return;
@@ -128,8 +181,16 @@ function LeadsView({ leads, onBack }: { leads: Lead[]; onBack: () => void }) {
       )}
       {leads.map((l) => {
         const isRetrying = retryingIds.has(l.id);
+        const justSynced = justSyncedIds.has(l.id);
+        const syncedAnim = justSynced ? (syncedAnims.current.get(l.id) ?? null) : null;
         return (
-          <View key={l.id} style={styles.leadCard}>
+          <View
+            key={l.id}
+            style={[
+              styles.leadCard,
+              justSynced && styles.leadCardSynced,
+            ]}
+          >
             <View style={styles.leadCardRow}>
               <View style={[styles.leadAvatar, { backgroundColor: l.color + '22', borderColor: l.color + '44' }]}>
                 <Text style={[styles.leadAvatarText, { color: l.color }]}>{l.name[0]}</Text>
@@ -156,6 +217,19 @@ function LeadsView({ leads, onBack }: { leads: Lead[]; onBack: () => void }) {
                   </View>
                 ))}
               </View>
+            )}
+            {/* "Just Synced" flash badge — shown for ~1.8 s after a lead
+                transitions from pendingSync → synced. Fades in/out via
+                Animated so reduced-motion users still see the text change. */}
+            {justSynced && syncedAnim && (
+              <Animated.View
+                style={[styles.justSyncedBar, { opacity: syncedAnim }]}
+                accessibilityLiveRegion="polite"
+                accessibilityLabel={`${l.name} synced to server`}
+              >
+                <Ionicons name="checkmark-circle" size={14} color="#059669" />
+                <Text style={styles.justSyncedText}>Synced to server</Text>
+              </Animated.View>
             )}
             {l.pendingSync && (
               <View style={styles.pendingSyncBar}>
@@ -1577,6 +1651,20 @@ const styles = StyleSheet.create({
   scanHintText: { color: 'rgba(255,255,255,0.4)', fontSize: 13 },
 
   leadCard: { padding: spacing.lg, borderRadius: radius.xl, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.sm },
+  leadCardSynced: { backgroundColor: 'rgba(16,185,129,0.06)', borderColor: 'rgba(16,185,129,0.40)' },
+  justSyncedBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.lg,
+    backgroundColor: 'rgba(16,185,129,0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(16,185,129,0.30)',
+  },
+  justSyncedText: { color: '#059669', fontSize: 11, fontWeight: '600', flex: 1 },
   leadCardRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   leadAvatar: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
   leadAvatarText: { fontSize: 18, fontWeight: '700' },
