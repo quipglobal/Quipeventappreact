@@ -443,8 +443,17 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
     }
   }, [readingArticle]);
 
-  const upcomingEvents = events.filter(e => e.status === 'upcoming' || e.status === 'live');
-  const pastEvents = events.filter(e => e.status === 'past');
+  const [selectedEventCategory, setSelectedEventCategory] = useState<string>('all');
+
+  const ALL_EVENT_CATEGORIES: import('@/app/api/eventsClient').EventCategory[] =
+    ['ciomeet', 'cisomeet', 'cfomeet', 'ctomeet', 'grcmeet'];
+
+  const eventsByCat = selectedEventCategory === 'all'
+    ? events
+    : events.filter(e => e.category === selectedEventCategory);
+
+  const upcomingEvents = eventsByCat.filter(e => e.status === 'upcoming' || e.status === 'live');
+  const pastEvents = eventsByCat.filter(e => e.status === 'past');
 
   const handleSubmitCode = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1348,6 +1357,42 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
       {/* ── EVENTS TAB ────────────────────────────────────────────────────── */}
       {activeTab === 'events' && (
         <div className="flex-1 pb-8">
+
+          {/* ── Category filter chips ────────────────────────────────────── */}
+          <div className="flex gap-2 mt-5 mb-1 overflow-x-auto pb-0.5 -mx-0 px-5" style={{ scrollbarWidth: 'none' }}>
+            <button
+              onClick={() => setSelectedEventCategory('all')}
+              className="px-3 py-1.5 rounded-full flex-shrink-0 transition-all"
+              style={{
+                background: selectedEventCategory === 'all' ? 'linear-gradient(135deg,#7c3aed,#4f46e5)' : t.surface2,
+                color: selectedEventCategory === 'all' ? '#fff' : t.textSec,
+                fontSize: 12, fontWeight: 600,
+                border: `1px solid ${selectedEventCategory === 'all' ? 'transparent' : t.border}`,
+              }}
+            >
+              All Types
+            </button>
+            {ALL_EVENT_CATEGORIES.map(cat => {
+              const cfg = categoryConfig[cat];
+              const isActive = selectedEventCategory === cat;
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setSelectedEventCategory(isActive ? 'all' : cat)}
+                  className="px-3 py-1.5 rounded-full flex-shrink-0 transition-all"
+                  style={{
+                    background: isActive ? cfg.gradient : t.surface2,
+                    color: isActive ? '#fff' : t.textSec,
+                    fontSize: 12, fontWeight: 600,
+                    border: `1px solid ${isActive ? 'transparent' : t.border}`,
+                  }}
+                >
+                  {cfg.label}
+                </button>
+              );
+            })}
+          </div>
+
           {/* Upcoming events */}
           <div className="px-5 mt-6">
             <div className="flex items-center justify-between mb-3">
