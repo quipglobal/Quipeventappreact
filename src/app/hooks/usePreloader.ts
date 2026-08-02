@@ -98,10 +98,8 @@ export function usePreloader(
           )
         );
       }),
-      // Challenges — pre-warm for EngagePage badge counts
-      listEventChallengesApi(eid).then(r => {
-        if (r.success && r.data) setCached('challenges', eid, r.data);
-      }),
+      // Challenges are NOT pre-warmed — is_active can be toggled at any
+      // time via the backend admin PUT; EngagePage always fetches fresh.
     ]);
   }, []);
 

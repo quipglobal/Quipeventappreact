@@ -24,20 +24,18 @@ export const EngagePage: React.FC<EngagePageProps> = ({ onNavigate }) => {
     if (!eventId) return;
     let stale = false;
 
-    // Serve immediately from preloader cache when available — no network hit
+    // Surveys and polls served from preloader cache when available.
+    // Challenges are NEVER cached — is_active can be toggled at any time
+    // via the backend admin PUT endpoint; always fetch fresh.
     const cs = getCached<BackendSurveySummary[]>('surveys', eventId);
     const cp = getCached<BackendPollSummary[]>('polls', eventId);
-    const cc = getCached<BackendChallenge[]>('challenges', eventId);
     if (cs) setSurveyIds(cs.filter(s => s.status === 'PUBLISHED' || s.status === 'OPEN').map(s => String(s.id)));
     if (cp) setLivePollIds(cp.filter(p => p.status === 'LIVE').map(p => String(p.id)));
-    if (cc) setActiveChallengeIds(cc.filter(c => c.is_active).map(c => String(c.id)));
 
-    // Only fetch for endpoints that had a cache miss
-    if (cs && cp && cc) return;
     Promise.all([
       cs ? Promise.resolve({ success: true as const, data: cs }) : listEventSurveysApi(eventId),
       cp ? Promise.resolve({ success: true as const, data: cp }) : listEventPollsApi(eventId),
-      cc ? Promise.resolve({ success: true as const, data: cc }) : listEventChallengesApi(eventId),
+      listEventChallengesApi(eventId), // always fresh — no cache
     ]).then(([sRes, pRes, cRes]) => {
       if (stale) return;
       if (!cs && sRes.success && sRes.data) {
@@ -48,9 +46,9 @@ export const EngagePage: React.FC<EngagePageProps> = ({ onNavigate }) => {
         setLivePollIds(pRes.data.filter(p => p.status === 'LIVE').map(p => String(p.id)));
         setCached('polls', eventId, pRes.data);
       }
-      if (!cc && cRes.success && cRes.data) {
+      // Only show challenges where is_active === true — toggled server-side via PUT.
+      if (cRes.success && cRes.data) {
         setActiveChallengeIds(cRes.data.filter(c => c.is_active).map(c => String(c.id)));
-        setCached('challenges', eventId, cRes.data);
       }
     });
     return () => { stale = true; };
