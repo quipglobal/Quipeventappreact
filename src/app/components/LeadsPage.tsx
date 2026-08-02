@@ -73,31 +73,6 @@ const LeadDetailView: React.FC<{
     setIsEditing(false);
   };
 
-  const handleExport = () => {
-    const esc = (s: string) => `"${String(s ?? '').replace(/"/g, '""')}"`;
-    const headers = ['Name', 'Company', 'Title', 'Email', 'Badge Code', 'Priority', 'Tags', 'Notes', 'Scanned At'];
-    const row = [
-      lead.name,
-      lead.company,
-      lead.title,
-      lead.email ?? '',
-      lead.code,
-      lead.priority,
-      lead.tags.join('; '),
-      lead.notes,
-      lead.timestamp.toISOString(),
-    ].map(esc);
-    const csv = [headers.join(','), row.join(',')].join('\r\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `lead-${lead.name.replace(/\s+/g, '-').toLowerCase()}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
 
   const toggleTag = (tag: string) => {
     setEditTags(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]);
@@ -188,13 +163,6 @@ const LeadDetailView: React.FC<{
             }}>
             <Edit3 style={{ width: 15, height: 15 }} />
             <span style={{ fontSize: 13, fontWeight: 700 }}>{isEditing ? 'Editing…' : 'Edit Lead'}</span>
-          </button>
-          <button
-            onClick={handleExport}
-            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl active:scale-[0.97]"
-            style={{ background: t.surface2, border: `1px solid ${t.border}` }}>
-            <Download style={{ width: 15, height: 15, color: t.accentSoft }} />
-            <span style={{ color: t.text, fontSize: 13, fontWeight: 600 }}>Export</span>
           </button>
         </div>
       </div>
@@ -662,6 +630,32 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
     }
   };
 
+  const handleExportAll = () => {
+    if (allLeads.length === 0) return;
+    const esc = (s: string) => `"${String(s ?? '').replace(/"/g, '""')}"`;
+    const headers = ['Name', 'Company', 'Title', 'Badge Code', 'Priority', 'Tags', 'Notes', 'Scanned At'];
+    const rows = allLeads.map(lead => [
+      lead.name,
+      lead.company,
+      lead.title,
+      lead.code,
+      lead.priority,
+      lead.tags.join('; '),
+      lead.notes,
+      lead.timestamp.toISOString(),
+    ].map(esc).join(','));
+    const csv = [headers.join(','), ...rows].join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `my-leads-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="min-h-screen relative" style={{ background: t.bgPage }}>
       {/* ── Header ──────────────────────────────────────────── */}
@@ -696,14 +690,24 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
                 My Leads
               </h1>
             </div>
-            {onNavigateToScan && (
-              <button onClick={onNavigateToScan}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl active:scale-95 transition-transform"
-                style={{ background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)' }}>
-                <ScanLine style={{ width: 16, height: 16, color: '#fff' }} />
-                <span style={{ color: '#fff', fontSize: 12, fontWeight: 700 }}>Scan</span>
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {allLeads.length > 0 && (
+                <button onClick={handleExportAll}
+                  className="flex items-center gap-2 px-3 py-2.5 rounded-xl active:scale-95 transition-transform"
+                  style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.18)' }}>
+                  <Download style={{ width: 15, height: 15, color: '#fff' }} />
+                  <span style={{ color: '#fff', fontSize: 12, fontWeight: 700 }}>Export</span>
+                </button>
+              )}
+              {onNavigateToScan && (
+                <button onClick={onNavigateToScan}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl active:scale-95 transition-transform"
+                  style={{ background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)' }}>
+                  <ScanLine style={{ width: 16, height: 16, color: '#fff' }} />
+                  <span style={{ color: '#fff', fontSize: 12, fontWeight: 700 }}>Scan</span>
+                </button>
+              )}
+            </div>
           </div>
 
               {/* Stats */}

@@ -56,7 +56,7 @@ function attendeeFromMember(m: EventMember): ScannedAttendee {
   };
 }
 
-export const SponsorScannerPage: React.FC = () => {
+export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved }) => {
   const { t, isDark } = useTheme();
   const { saveLead, updateLead, leads, eventConfig, addPoints, gamificationConfig, showToast, user } = useApp();
 
@@ -298,6 +298,7 @@ export const SponsorScannerPage: React.FC = () => {
         console.warn('[Lead update] backend sync failed:', upd.error);
       }
       resetScanner();
+      onSaved?.();
       return;
     }
 
@@ -373,6 +374,7 @@ export const SponsorScannerPage: React.FC = () => {
       }
 
       resetScanner();
+      onSaved?.();
       return;
     }
 
@@ -414,6 +416,7 @@ export const SponsorScannerPage: React.FC = () => {
       console.warn('[Lead save] backend sync failed:', res.error);
     }
     resetScanner();
+    onSaved?.();
   };
 
   const resetScanner = () => {
