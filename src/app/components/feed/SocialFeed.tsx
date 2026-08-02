@@ -5,6 +5,8 @@ import { FeedVideoPost as FeedVideoPostType, FeedPoll as FeedPollType, FeedItem 
 import { useTheme } from '@/app/context/ThemeContext';
 import { useApp } from '@/app/context/AppContext';
 import { getFeedApi } from '@/app/api/feedClient';
+import type { FeedPage } from '@/app/api/feedClient';
+import { getCached, setCached, SHORT_TTL_MS } from '@/app/lib/pageCache';
 import { Loader2, Video, AlertTriangle, RefreshCw } from 'lucide-react';
 
 // ─── Responsive page size ─────────────────────────────────────────────────────
@@ -63,10 +65,23 @@ export const SocialFeed: React.FC<SocialFeedProps> = () => {
   // Compute page size once on mount (stable — viewport doesn't change mid-session)
   const [pageSize] = useState<number>(getPageSize);
 
-  const [items, setItems] = useState<FeedItem[]>([]);
+  // Seed initial state from the short-TTL cache so navigating back renders instantly.
+  // The cache key embeds pageSize so a mobile cache (4 items) is never served to a
+  // desktop layout (10 items), which would create offset-pagination gaps on page 2+.
+  const feedCacheKey = `feed-page1-ps${pageSize}`;
+  const [items, setItems] = useState<FeedItem[]>(() => {
+    const cached = getCached<FeedPage>(feedCacheKey, eventConfig.eventId ?? '');
+    return cached?.items ?? [];
+  });
   const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [hasMore, setHasMore] = useState(() => {
+    const cached = getCached<FeedPage>(feedCacheKey, eventConfig.eventId ?? '');
+    return cached?.hasMore ?? false;
+  });
+  // Skip the loading spinner when we already have cached content.
+  const [loading, setLoading] = useState(() => {
+    return getCached<FeedPage>(feedCacheKey, eventConfig.eventId ?? '') === null;
+  });
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -93,6 +108,12 @@ export const SocialFeed: React.FC<SocialFeedProps> = () => {
 
       if (!res.success || !res.data) {
         throw new Error(res.error?.message ?? 'Failed to load video feeds');
+      }
+
+      // Cache page 1 with the short TTL so the next navigation renders instantly.
+      // Key includes pageSize so mobile and desktop caches never collide.
+      if (pageNum === 1 && eventConfig.eventId) {
+        setCached(feedCacheKey, eventConfig.eventId, res.data, SHORT_TTL_MS);
       }
 
       // Deduplicate by video ID across pages
@@ -122,6 +143,22 @@ export const SocialFeed: React.FC<SocialFeedProps> = () => {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
+    // If we have a fresh cache hit for page 1, skip the network request entirely.
+    // Explicitly hydrate all feed state so an event-id change also gets the right
+    // content — the useState lazy initialisers only run on first mount.
+    const cached = getCached<FeedPage>(feedCacheKey, eventConfig.eventId ?? '');
+    if (cached) {
+      setItems(cached.items);
+      setHasMore(cached.hasMore);
+      setPage(1);
+      pageRef.current = 1;
+      setLoading(false);
+      setError(null);
+      loadedIdsRef.current = new Set(cached.items.map(i => i.id));
+      isLoadingMoreRef.current = false;
+      return () => { ctrl.abort(); };
+    }
+
     setLoading(true);
     setItems([]);
     setPage(1);
@@ -138,7 +175,7 @@ export const SocialFeed: React.FC<SocialFeedProps> = () => {
     return () => {
       ctrl.abort();
     };
-  }, [fetchPage]);
+  }, [fetchPage, eventConfig.eventId]);
 
   // ─── IntersectionObserver — infinite scroll ─────────────────────────────────
 
