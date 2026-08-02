@@ -52,6 +52,7 @@ import {
   type LeaderboardPeriod,
 } from '@/app/api/leaderboardClient';
 import { useAuthedEffect } from '@/app/hooks/useAuthedEffect';
+import { useAuthedInterval } from '@/app/hooks/useAuthedInterval';
 
 interface User {
   id: string;
@@ -400,6 +401,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // depend on it and avoid clobbering a freshly-loaded array with the
   // pre-hydration empty default on the same render.
   const [hydratedForUserId, setHydratedForUserId] = useState<string | null>(null);
+
+  // Stable jitter for the points-sync interval start — computed once per
+  // mount so the value never changes across renders (re-computing would
+  // restart the timer on every render).
+  const pointsSyncJitter = useRef(Math.floor(Math.random() * 30_000)).current;
 
   // Hydrate the user's persisted leads as soon as the current user is
   // known. Storage keys are namespaced by user id, so no other user's
@@ -803,11 +809,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // addPoints() only handles actions the user explicitly takes, so we
   // periodically pull /my-rank and take Math.max(local, backend) to surface
   // server-awarded points without clobbering in-flight optimistic updates.
-  useEffect(() => {
-    const eventId = activeEventConfig?.eventId;
-    if (!user?.id || !eventId) return;
-
-    const syncPoints = async () => {
+  //
+  // useAuthedInterval handles:
+  //   • auth-gating  — tears down on sign-out, restarts on sign-in
+  //   • pauseWhenHidden — skips ticks while the tab is in the background
+  //   • initialDelayMs  — per-session jitter so 300 sessions that mount
+  //     simultaneously don't all hit /my-rank at the same 2-minute mark
+  useAuthedInterval(
+    user?.id && activeEventConfig?.eventId ? user.id : null,
+    async () => {
+      const eventId = activeEventConfig?.eventId;
+      if (!eventId) return;
       const res = await getUserPointsApi(eventId).catch(() => null);
       if (!res?.success || !res.data) return;
       const backendPts = res.data.points;
@@ -818,35 +830,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (merged === prev.points && (!backendTier || backendTier === prev.tier)) return prev;
         return { ...prev, points: merged, tier: backendTier || prev.tier };
       });
-    };
-
-    void syncPoints();
-
-    // Skip the tick while the tab is hidden — the user can't see the
-    // updated points anyway, and it mirrors the visibility gate used by
-    // the meetings poller and the leads reconciler.
-    const syncIfVisible = () => {
-      if (typeof document !== 'undefined' && document.hidden) return;
-      void syncPoints();
-    };
-
-    // Stagger the interval start by a random 0–30 s offset so 300 sessions
-    // that join at the same time don't all hit /my-rank at the same 2-minute
-    // mark. The immediate `void syncPoints()` above is intentionally NOT
-    // jittered — the user needs fresh points on arrival regardless.
-    // eslint-disable-next-line local/no-raw-timers -- auth-gated by useEffect dep on user?.id; candidate for useAuthedInterval migration (Task #29)
-    let syncInterval: ReturnType<typeof setInterval> | null = null;
-    const initialOffset = Math.floor(Math.random() * 30_000);
-    // eslint-disable-next-line local/no-raw-timers
-    const startTimer = setTimeout(() => {
-      // eslint-disable-next-line local/no-raw-timers
-      syncInterval = setInterval(syncIfVisible, 2 * 60 * 1000);
-    }, initialOffset);
-    return () => {
-      clearTimeout(startTimer);
-      if (syncInterval) clearInterval(syncInterval);
-    };
-  }, [user?.id, activeEventConfig?.eventId]);
+    },
+    2 * 60 * 1000,
+    { runOnMount: true, pauseWhenHidden: true, initialDelayMs: pointsSyncJitter },
+  );
 
   // ── Background pendingSync reconciliation ──────────────────────────────
   // Periodically retry pushing locally-saved (`pendingSync: true`) leads to
