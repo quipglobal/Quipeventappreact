@@ -56,7 +56,10 @@ export function usePreloader(
       // isCheckedIn derivation would incorrectly mark everyone as not checked in.
       getEventMembersApi(eid, true).then(r => {
         if (!r.success || !r.data) return;
-        setCached('members:checkedIn', eid, r.data);
+        // Store members + total together so cache hits also restore the
+        // authoritative checked-in count (prevents the header falling back
+        // to members.length when the Audience screen mounts from cache).
+        setCached('members:checkedIn', eid, { members: r.data, total: r.total ?? 0 });
       }),
       // Sponsors / partners list
       getEventCompaniesApi(eid).then(r => {

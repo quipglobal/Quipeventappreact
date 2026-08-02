@@ -10,7 +10,8 @@ import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { getEventMembersApi, getMemberDetailApi, getMeProfileApi, EventMember, MemberDetail } from '@/app/api/audienceClient';
-import { getCached, setCached } from '@/app/lib/pageCache';
+import { getCached, setCached, SHORT_TTL_MS } from '@/app/lib/pageCache';
+import { useAuthedInterval } from '@/app/hooks/useAuthedInterval';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -432,25 +433,56 @@ const MemberCard: React.FC<{
 
 // ─── AudiencePage ─────────────────────────────────────────────────────────────
 
+/**
+ * Merge two member arrays, deduplicating by userId.
+ *
+ * @param base     The existing member list whose ordering is the baseline.
+ * @param incoming The new records to fold in.
+ * @param freshFirst When true, `incoming` leads (used by silentRefresh so the
+ *                   newest page-1 check-ins appear first).  When false,
+ *                   `base` leads (used by Load More so the prior list order
+ *                   is preserved and only genuinely new pages are appended).
+ *
+ * A single Set pass keeps the first occurrence of each userId in the
+ * concatenated order and silently drops any later duplicate — this prevents
+ * double cards when a poll refresh races with an in-flight Load More.
+ */
+function mergeUnique(
+  base: EventMember[],
+  incoming: EventMember[],
+  freshFirst = false,
+): EventMember[] {
+  const seen = new Set<number>();
+  const ordered = freshFirst ? [...incoming, ...base] : [...base, ...incoming];
+  return ordered.filter(m => {
+    if (seen.has(m.userId)) return false;
+    seen.add(m.userId);
+    return true;
+  });
+}
+
 interface AudiencePageProps {
   onBack?: () => void;
 }
 
 export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
-  const { eventConfig, addPoints, sendConnectionRequest } = useApp();
+  const { eventConfig, addPoints, sendConnectionRequest, user } = useApp();
   const { t, isDark } = useTheme();
 
-  const [members, setMembers] = useState<EventMember[]>(() =>
-    getCached<EventMember[]>('members:checkedIn', eventConfig.eventId ?? '') ?? [],
-  );
-  const [loading, setLoading] = useState<boolean>(() =>
-    !getCached<EventMember[]>('members:checkedIn', eventConfig.eventId ?? ''),
-  );
+  // Cache shape for the checked-in list — member array + server total stored
+  // together so the authoritative count survives a cache-hit path (where the
+  // API is not called and total would otherwise remain 0).
+  type CheckedInCache = { members: EventMember[]; total: number };
+  const _initCache = getCached<CheckedInCache>('members:checkedIn', eventConfig.eventId ?? '', SHORT_TTL_MS);
+  const [members, setMembers] = useState<EventMember[]>(_initCache?.members ?? []);
+  const [loading, setLoading] = useState<boolean>(!_initCache);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedMember, setSelectedMember] = useState<EventMember | null>(null);
   const [connectedIds, setConnectedIds] = useState<Set<number>>(new Set());
-  const [total, setTotal] = useState(0);
+  // Initialise total from the cache so the header shows the correct count
+  // immediately on a cache-hit mount, before any API call completes.
+  const [total, setTotal] = useState(_initCache?.total ?? 0);
   const [currentPage, setCurrentPage] = useState(1);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const hasMore = total > 0 && members.length < total;
@@ -468,9 +500,12 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
     if (!eventId) { setLoading(false); return; }
 
     if (page === 1) {
-      const cached = getCached<EventMember[]>('members:checkedIn', eventId);
+      // Use the short TTL so a 90-second-old cache is considered stale and
+      // a fresh fetch fires when the user returns after a brief absence.
+      const cached = getCached<{ members: EventMember[]; total: number }>('members:checkedIn', eventId, SHORT_TTL_MS);
       if (cached && !force) {
-        setMembers(cached);
+        setMembers(cached.members);
+        setTotal(cached.total);
         setLoading(false);
         return;
       }
@@ -483,10 +518,15 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
     const listRes = await getEventMembersApi(eventId, true, page);
     if (listRes.success && listRes.data) {
       if (page === 1) {
-        setCached('members:checkedIn', eventId, listRes.data);
+        // Store members + total together so cache hits also restore the
+        // authoritative count (prevents header falling back to members.length).
+        setCached('members:checkedIn', eventId, { members: listRes.data, total: listRes.total ?? 0 }, SHORT_TTL_MS);
         setMembers(listRes.data);
       } else {
-        setMembers(prev => [...prev, ...listRes.data!]);
+        // Deduplicate against the current list so a poll that already pulled
+        // a record into page 1 (freshFirst) doesn't create a duplicate card
+        // when this Load More response resolves concurrently.
+        setMembers(prev => mergeUnique(prev, listRes.data!));
       }
       setTotal(listRes.total ?? 0);
       setCurrentPage(page);
@@ -497,7 +537,50 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
     else setIsLoadingMore(false);
   }, [eventId]);
 
+  /**
+   * Silent page-1 refresh used by the background poller.
+   *
+   * Differs from fetchMembers(1, true) in two ways:
+   *  1. Never sets setLoading(true) — no spinner flicker while the user
+   *     is actively reading the list.
+   *  2. Merges the fresh page-1 results into the front of the existing list
+   *     rather than replacing it, so extra pages loaded via "Load more" are
+   *     preserved and the user's scroll position is unaffected.
+   */
+  const silentRefresh = useCallback(async () => {
+    if (!eventId) return;
+    const listRes = await getEventMembersApi(eventId, true, 1);
+    if (listRes.success && listRes.data) {
+      setCached('members:checkedIn', eventId, { members: listRes.data, total: listRes.total ?? 0 }, SHORT_TTL_MS);
+      setTotal(listRes.total ?? 0);
+      // freshFirst=true: newest page-1 check-ins lead; any prior member whose
+      // userId already appeared in a previous Load More page is deduplicated
+      // away, preventing duplicate cards in either race direction.
+      setMembers(prev => mergeUnique(prev, listRes.data!, true));
+    }
+  }, [eventId]);
+
+  // Initial load (shows spinner when cache is cold or expired).
   useEffect(() => { fetchMembers(); }, [fetchMembers]);
+
+  // Background poll: silently refresh page 1 every 60 s while the screen is
+  // foregrounded. The interval tears down automatically on component unmount
+  // (navigation away), so no background work happens on other screens.
+  // pauseWhenHidden skips ticks while the browser tab is in the background.
+  //
+  // runOnMount: true ensures a fresh API call fires immediately when the user
+  // opens (or returns to) the Audience screen, even when the local cache is
+  // still within its 90-second window.  Without this, a user who leaves and
+  // returns within 90 s sees cache-only data for up to another 60 s before
+  // the first poll tick — up to 150 s stale overall.
+  //
+  // The initial fetchMembers() call (useEffect above) still runs in parallel:
+  // it serves the cached list instantly so the screen is never blank, then
+  // silentRefresh overlays the live results without a spinner once they arrive.
+  useAuthedInterval(user?.id ?? null, silentRefresh, 60_000, {
+    runOnMount: true,
+    pauseWhenHidden: true,
+  });
 
   const loadMore = useCallback(() => {
     if (!hasMore || isLoadingMore) return;
@@ -579,8 +662,19 @@ export const AudiencePage: React.FC<AudiencePageProps> = ({ onBack }) => {
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg"
                 style={{ background: 'rgba(16,185,129,0.2)' }}>
                 <BadgeCheck style={{ width: 13, height: 13, color: '#34d399' }} />
-                <span style={{ color: '#34d399', fontSize: 12, fontWeight: 700 }}>{members.length}</span>
+                {/* Show the server's authoritative total so organizers see the
+                    real check-in count even before all pages are loaded.
+                    Fall back to members.length before the first API response. */}
+                <span style={{ color: '#34d399', fontSize: 12, fontWeight: 700 }}>
+                  {total > 0 ? total : members.length}
+                </span>
                 <span style={{ color: 'rgba(52,211,153,0.7)', fontSize: 11 }}>checked in</span>
+                {/* Secondary "showing N" label when not all records are loaded */}
+                {total > members.length && (
+                  <span style={{ color: 'rgba(52,211,153,0.5)', fontSize: 10 }}>
+                    · showing {members.length}
+                  </span>
+                )}
               </div>
               {networkingCount > 0 && (
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg"
