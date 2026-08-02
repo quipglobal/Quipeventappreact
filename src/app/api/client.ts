@@ -170,16 +170,36 @@ export async function apiGet<T>(path: string, extraHeaders?: Record<string, stri
   }
 }
 
-export async function apiPost<T>(path: string, body: unknown, extraHeaders?: Record<string, string>): Promise<ApiEnvelope<T>> {
+export async function apiPost<T>(
+  path: string,
+  body: unknown,
+  extraHeaders?: Record<string, string>,
+  options?: { timeoutMs?: number },
+): Promise<ApiEnvelope<T>> {
+  const { timeoutMs } = options ?? {};
+  const controller = timeoutMs != null ? new AbortController() : undefined;
+  const timerId =
+    controller != null && timeoutMs != null
+      ? setTimeout(() => controller.abort(), timeoutMs)
+      : undefined;
   try {
     const res = await fetchWithRetry(`${API_BASE_URL}${path}`, {
       method: 'POST',
       headers: buildHeaders(extraHeaders),
       body: JSON.stringify(body),
+      ...(controller ? { signal: controller.signal } : {}),
     });
     return parseResponse<T>(res);
-  } catch {
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      return {
+        success: false,
+        error: { code: 'TIMEOUT', message: 'Request timed out. Please try again.' },
+      };
+    }
     return { success: false, error: { code: 'NETWORK_ERROR', message: 'Network error. Please check your connection.' } };
+  } finally {
+    if (timerId !== undefined) clearTimeout(timerId);
   }
 }
 

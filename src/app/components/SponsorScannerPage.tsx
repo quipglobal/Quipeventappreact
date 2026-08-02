@@ -208,9 +208,21 @@ export const SponsorScannerPage: React.FC = () => {
 
       // 2. Backend could not resolve the code — fall back to the audience
       //    members list and (if found) call the check-in endpoint directly.
+      //
+      // When the scan-time request timed out (TIMEOUT error code), the server
+      // MAY have already processed it and awarded points. Setting
+      // `pointsCreditedAtScan: true` on the fallback attendee prevents the
+      // Save-time failure path from double-awarding local fallback points.
+      // The Path B scanBadgeLead retry in handleSave is idempotent by badge
+      // code — if the server processed the first request it returns
+      // `pointsAwarded: 0`; otherwise it returns the full points, so the
+      // success branch of handleSave always awards points exactly once.
+      const scanTimedOut = scan.error?.code === 'TIMEOUT';
+
       const member = await findMemberByBadgeCodeApi(eventId, badgeCode);
       if (member) {
         const attendee = attendeeFromMember(member);
+        if (scanTimedOut) attendee.pointsCreditedAtScan = true;
         setScannedData(attendee);
 
         if (member.memberId && !member.isCheckedIn) {
@@ -230,6 +242,7 @@ export const SponsorScannerPage: React.FC = () => {
           company: '',
           avatar: avatarFor(badgeCode),
           unrecognized: true,
+          ...(scanTimedOut ? { pointsCreditedAtScan: true } : {}),
         });
       }
     } finally {
