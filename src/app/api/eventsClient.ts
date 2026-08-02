@@ -84,6 +84,46 @@ function normalizeStatus(raw: string | undefined): EventStatus {
   return 'upcoming';
 }
 
+/**
+ * Return a local-time YYYY-MM-DD key for a Date, used for calendar-day
+ * comparisons that are immune to UTC-midnight parsing artefacts.
+ */
+function toDateKey(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Override the API-provided status with a client-side calendar-day check so
+ * that events the backend hasn't transitioned yet show the correct badge:
+ *  - end calendar day < today        → "past"   (completed but still tagged "upcoming")
+ *  - start ≤ today ≤ end (days)      → "live"   (ongoing but not yet marked live)
+ *
+ * We intentionally compare YYYY-MM-DD date prefixes rather than parsed
+ * Date objects to avoid JavaScript's UTC-midnight parsing behaviour: a bare
+ * "2026-08-02" is parsed as 2026-08-02T00:00:00Z which is yesterday in any
+ * timezone west of UTC, incorrectly flagging today's events as past.
+ *
+ * Falls back to `apiStatus` when dates are absent.
+ */
+function deriveDateStatus(
+  start: string,
+  end: string,
+  apiStatus: EventStatus,
+): EventStatus {
+  const todayKey = toDateKey(new Date());
+  // Extract the YYYY-MM-DD prefix; handles both "2026-08-02" and full ISO strings.
+  const startKey = start ? start.slice(0, 10) : null;
+  const endKey   = end   ? end.slice(0, 10)   : null;
+  // Past: end calendar day is strictly before today
+  if (endKey && endKey < todayKey) return 'past';
+  // Live: today falls within [start, end] calendar days (inclusive)
+  if (startKey && endKey && startKey <= todayKey && endKey >= todayKey) return 'live';
+  return apiStatus;
+}
+
 function normalizeCategory(raw: string | undefined): EventCategory {
   const map: Record<string, EventCategory> = {
     conference: 'conference', workshop: 'workshop', webinar: 'webinar',
@@ -115,7 +155,7 @@ function normalizeEvent(raw: Record<string, unknown>): OrganizerEvent {
     title: (raw.name ?? raw.title ?? '') as string,
     organizer: (raw.organizer ?? raw.organizer_name ?? raw.organization ?? 'CXO Inc') as string,
     cover: (raw.banner_url ?? raw.bannerUrl ?? raw.image ?? raw.photo ?? raw.cover ?? '') as string,
-    status: normalizeStatus(raw.status as string),
+    status: deriveDateStatus(startDate, endDate, normalizeStatus(raw.status as string)),
     category: normalizeCategory(raw.category as string),
     dates: formatDateRange(startDate, endDate),
     dateRange: { start: startDate, end: endDate },

@@ -78,14 +78,25 @@ export const EventsPage: React.FC<EventsPageProps> = ({ onNavigate, compact = fa
     return matchesTab && matchesSearch && matchesCat;
   });
 
-  const liveCount = events.filter(e => e.status === 'live').length;
+  // Sort: Live first → Upcoming (soonest start) → Past (most recent end).
+  const STATUS_ORDER: Record<EventStatus, number> = { live: 0, upcoming: 1, past: 2 };
+  const sorted = [...filtered].sort((a, b) => {
+    const ord = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
+    if (ord !== 0) return ord;
+    if (a.status === 'upcoming') return (a.dateRange.start || '').localeCompare(b.dateRange.start || '');
+    if (a.status === 'past')     return (b.dateRange.end   || '').localeCompare(a.dateRange.end   || '');
+    return 0;
+  });
+
+  const liveCount     = events.filter(e => e.status === 'live').length;
   const upcomingCount = events.filter(e => e.status === 'upcoming').length;
+  const pastCount     = events.filter(e => e.status === 'past').length;
 
   const tabs: { id: TabFilter; label: string; count?: number }[] = [
     { id: 'all',      label: 'All' },
-    { id: 'live',     label: 'Live',     count: liveCount },
-    { id: 'upcoming', label: 'Upcoming', count: upcomingCount },
-    { id: 'past',     label: 'Past' },
+    { id: 'live',     label: 'Live',     count: liveCount     || undefined },
+    { id: 'upcoming', label: 'Upcoming', count: upcomingCount || undefined },
+    { id: 'past',     label: 'Past',     count: pastCount     || undefined },
   ];
 
   const categories = Array.from(new Set(events.map(e => e.category)));
@@ -370,9 +381,51 @@ export const EventsPage: React.FC<EventsPageProps> = ({ onNavigate, compact = fa
             <p style={{ color: t.textSec, fontSize: 14 }}>Try adjusting your search or filters</p>
           </div>
         ) : (
-          filtered
-            .filter(ev => ev.id !== heroEvent?.id || activeTab !== 'all')
-            .map(ev => {
+          (() => {
+            // Build a mixed render list. On the "All" tab with no active
+            // search or category filter, inject section-header items between
+            // the Live / Upcoming / Past groups so the user sees clear headings.
+            const showSections =
+              activeTab === 'all' && !searchQuery && selectedCategory === 'all';
+            const displayList = sorted.filter(
+              ev => ev.id !== heroEvent?.id || activeTab !== 'all',
+            );
+
+            type RenderItem =
+              | { kind: 'section'; label: string; accent: string }
+              | { kind: 'event'; ev: OrganizerEvent };
+
+            const items: RenderItem[] = showSections
+              ? [
+                  ...(displayList.some(e => e.status === 'live')
+                    ? [{ kind: 'section' as const, label: 'Live Now',    accent: '#10b981' }] : []),
+                  ...displayList.filter(e => e.status === 'live').map(ev => ({ kind: 'event' as const, ev })),
+                  ...(displayList.some(e => e.status === 'upcoming')
+                    ? [{ kind: 'section' as const, label: 'Upcoming',    accent: '#3b82f6' }] : []),
+                  ...displayList.filter(e => e.status === 'upcoming').map(ev => ({ kind: 'event' as const, ev })),
+                  ...(displayList.some(e => e.status === 'past')
+                    ? [{ kind: 'section' as const, label: 'Past Events', accent: '#6b7280' }] : []),
+                  ...displayList.filter(e => e.status === 'past').map(ev => ({ kind: 'event' as const, ev })),
+                ]
+              : displayList.map(ev => ({ kind: 'event' as const, ev }));
+
+            return items.map(item => {
+              if (item.kind === 'section') {
+                return (
+                  <div key={`section-${item.label}`} className="flex items-center gap-2.5 pt-2 pb-0.5">
+                    <div className="w-2 h-2 rounded-full flex-shrink-0"
+                      style={{ background: item.accent, boxShadow: `0 0 6px ${item.accent}80` }} />
+                    <span style={{
+                      color: item.accent, fontSize: 11, fontWeight: 800,
+                      textTransform: 'uppercase', letterSpacing: '0.09em',
+                    }}>
+                      {item.label}
+                    </span>
+                    <div className="flex-1 h-px" style={{ background: item.accent, opacity: 0.18 }} />
+                  </div>
+                );
+              }
+              const { ev } = item;
               const stCfg = statusConfig[ev.status];
               const catCfg = categoryConfig[ev.category];
               const isExpanded = expandedId === ev.id;
@@ -561,7 +614,8 @@ export const EventsPage: React.FC<EventsPageProps> = ({ onNavigate, compact = fa
                   </div>
                 </button>
               );
-            })
+            });
+          })()
         )}
       </div>
 
