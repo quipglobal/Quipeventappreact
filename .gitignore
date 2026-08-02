@@ -1,4 +1,7 @@
 
+# Next.js build output — contains generated keys/credentials, never commit
+.next/
+
 # Playwright
 /test-results/
 /playwright-report/
