@@ -282,7 +282,9 @@ function AppContent() {
       case 'engage-sponsors':  return <SponsorsListPage variant="reviews" onBack={() => setActivePage('engage')} />;
       case 'engage-surveys':   return <SurveysListPage  onBack={() => setActivePage('engage')} />;
       case 'engage-polls':     return <PollsListPage     onBack={() => setActivePage('engage')} />;
-      case 'engage-challenges':return <ChallengesPage    onBack={() => setActivePage('engage')} />;
+      case 'engage-challenges':return user?.role === 'sponsor'
+          ? <EngagePage onNavigate={handleNavigate} />
+          : <ChallengesPage onBack={() => setActivePage('engage')} />;
       case 'engage-audience':  return <AudiencePage />;
       case 'engage-giveaways': return <GiveawaysPage onBack={() => setActivePage('home')} />;
       case 'leaderboard':      return <LeaderboardPage />;
