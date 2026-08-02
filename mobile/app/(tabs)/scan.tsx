@@ -39,11 +39,11 @@ function ScannerView({ onBack, onScanSuccess }: { onBack: () => void; onScanSucc
       const res = await submitScanAsync({ badgeData: code });
       if (res.success && res.data) {
         const name = res.data.name || 'attendee';
-        // points_awarded now reflects points earned by the scanned attendee,
-        // not the rep. Do NOT credit the rep's balance.
-        const pts = typeof res.data.pointsAwarded === 'number' ? res.data.pointsAwarded : 0;
-        const ptsSuffix = pts > 0 ? ` · +${pts} pts for attendee` : '';
-        showToast(`Saved ${name} to your leads${ptsSuffix}`);
+        showToast(`Saved ${name} to your leads`);
+        const attendeePts = typeof res.data.attendeePointsAwarded === 'number' ? res.data.attendeePointsAwarded : 0;
+        if (attendeePts > 0) {
+          setTimeout(() => showToast(`Partner connected — ${name} earned +${attendeePts} pts`), 1800);
+        }
         onScanSuccess();
       } else {
         const msg = res.error?.message || 'We couldn\'t recognize that badge. Please try again.';

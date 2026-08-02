@@ -150,6 +150,8 @@ function normalizeLead(raw: any, index = 0): Lead {
  */
 export interface ScanResultExtras {
   pointsAwarded?: number;
+  /** Points awarded to the scanned attendee (connectPartner action). */
+  attendeePointsAwarded?: number;
   checkedIn?: boolean;
   isCheckedIn?: boolean;
   memberId?: number;
@@ -282,6 +284,10 @@ export async function submitScan(
       typeof raw.pointsAwarded === 'number' ? raw.pointsAwarded :
       typeof raw.points_awarded === 'number' ? raw.points_awarded :
       undefined;
+    const attendeePointsAwarded =
+      typeof raw.attendeePointsAwarded === 'number' ? raw.attendeePointsAwarded :
+      typeof raw.attendee_points_awarded === 'number' ? raw.attendee_points_awarded :
+      undefined;
     const checkedIn =
       typeof raw.checkedIn === 'boolean' ? raw.checkedIn :
       typeof raw.checked_in === 'boolean' ? raw.checked_in :
@@ -295,7 +301,7 @@ export async function submitScan(
       typeof raw.memberId === 'number' ? raw.memberId :
       typeof raw.member_id === 'number' ? raw.member_id :
       undefined;
-    return { success: true, data: { ...lead, pointsAwarded, checkedIn, isCheckedIn, memberId } };
+    return { success: true, data: { ...lead, pointsAwarded, attendeePointsAwarded, checkedIn, isCheckedIn, memberId } };
   }
 
   // Server rejected the badge code. If it's the specific "no attendee found"
