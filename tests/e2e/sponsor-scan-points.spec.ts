@@ -344,6 +344,65 @@ test.describe('SponsorScannerPage — scan points', () => {
   });
 
   /**
+   * Duplicate scan guard: backend returns `pointsAwarded: 0` to signal that
+   * this badge was already scanned and no points should be awarded again.
+   *
+   * The component's guard at SponsorScannerPage.tsx lines 167–182 checks
+   *   `if (pts > 0)` before calling `addPoints`, so when the server returns 0
+   * neither `addPoints` nor the points toast should fire.
+   *
+   * This test ensures that a future refactor cannot accidentally award points
+   * on a duplicate scan by asserting:
+   *   1. The attendee profile card still appears (the scan itself succeeded).
+   *   2. No "+N pts" badge is shown in the DOM.
+   *   3. The "Points earned!" sub-label is absent.
+   *   4. The global header points total is unchanged.
+   */
+  test('duplicate scan — no points toast when backend returns pointsAwarded: 0', async ({ page }) => {
+    test.setTimeout(120_000);
+
+    await installMocks(page, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({
+          success: true,
+          data: {
+            ...ATTENDEE_LEAD,
+            pointsAwarded: 0, // duplicate scan — backend awards nothing
+          },
+        }),
+      }),
+    );
+
+    await loginAndOpenScanner(page);
+
+    // Snapshot the header points total before the scan
+    const headerBadge = page.locator('span.text-violet-400').filter({ hasText: /pts/ }).first();
+    await expect(headerBadge).toBeVisible({ timeout: 8_000 });
+    const beforeText = await headerBadge.textContent();
+    const beforePoints = parseInt(beforeText!.trim(), 10);
+
+    // Type the badge code and submit
+    await page.getByPlaceholder(/ATT-/i).fill('ATT-9001');
+    await page.getByRole('button', { name: /find attendee/i }).click();
+
+    // The attendee card must still appear — the scan resolved successfully
+    await expect(page.getByText('Alex Rivera')).toBeVisible({ timeout: 10_000 });
+
+    // ── Assert NO points toast ─────────────────────────────────────────────
+    // Wait briefly to allow any spurious toast to render, then assert absence.
+    await expect(page.getByText(/points earned/i)).not.toBeVisible({ timeout: 2_000 });
+    // Check that no "+N pts" badge appears (any positive number)
+    await expect(page.locator('text=/^\\+\\d+$/')).not.toBeVisible({ timeout: 2_000 });
+
+    // ── Assert header total is unchanged ──────────────────────────────────
+    // addPoints must NOT have been called, so the header badge stays the same.
+    await expect(headerBadge).toHaveText(`${beforePoints} pts`, { timeout: 3_000 });
+  });
+
+  /**
    * Header points badge: after a successful scan the running total displayed
    * in the app's persistent top-bar header must reflect the newly awarded points.
    *
