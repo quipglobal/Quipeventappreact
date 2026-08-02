@@ -342,4 +342,62 @@ test.describe('SponsorScannerPage — scan points', () => {
     await expect(page.getByText('+25')).toBeVisible({ timeout: 8_000 });
     await expect(page.getByText(/points earned/i)).toBeVisible({ timeout: 6_000 });
   });
+
+  /**
+   * Header points badge: after a successful scan the running total displayed
+   * in the app's persistent top-bar header must reflect the newly awarded points.
+   *
+   * The global App header always renders:
+   *   <span className="... text-violet-400">{user.points} pts</span>
+   * This span is live in the DOM throughout the whole session — no navigation
+   * needed.  We snapshot the value before the scan, perform the scan, then
+   * assert the span text has increased by exactly 25.
+   *
+   * This guards against a broken `addPoints` implementation that fires the
+   * toast but never updates AppContext state — the toast passing alone would
+   * not catch that regression.
+   */
+  test('header points badge shows incremented total after scan', async ({ page }) => {
+    test.setTimeout(120_000);
+
+    await installMocks(page, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        headers: { 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({
+          success: true,
+          data: { ...ATTENDEE_LEAD, pointsAwarded: 25 },
+        }),
+      }),
+    );
+
+    await loginAndOpenScanner(page);
+
+    // ── Snapshot initial points from the global header ───────────────────────
+    // App.tsx always renders a span like "100 pts" in the violet header badge;
+    // we capture its numeric value before the scan so the assertion doesn't
+    // need to hard-code what the mocked startup total happens to be.
+    const headerBadge = page.locator('span.text-violet-400').filter({ hasText: /pts/ }).first();
+    await expect(headerBadge).toBeVisible({ timeout: 8_000 });
+    const beforeText = await headerBadge.textContent();
+    const beforePoints = parseInt(beforeText!.trim(), 10); // e.g. "100 pts" → 100
+
+    // ── Perform the scan ─────────────────────────────────────────────────────
+    await page.getByPlaceholder(/ATT-/i).fill('ATT-9001');
+    await page.getByRole('button', { name: /find attendee/i }).click();
+
+    // Wait for attendee card — confirms scan resolved and addPoints was called
+    await expect(page.getByText('Alex Rivera')).toBeVisible({ timeout: 10_000 });
+
+    // Toast must appear (existing guard — ensures the points path was taken)
+    await expect(page.getByText('+25')).toBeVisible({ timeout: 6_000 });
+    await expect(page.getByText(/points earned/i)).toBeVisible({ timeout: 6_000 });
+
+    // ── Assert header badge reflects the updated total ───────────────────────
+    // addPoints(25) updates user.points in AppContext → the header span
+    // re-renders with the new value. Expected: beforePoints + 25.
+    const expectedText = `${beforePoints + 25} pts`;
+    await expect(headerBadge).toHaveText(expectedText, { timeout: 8_000 });
+  });
 });
