@@ -1,27 +1,26 @@
 /**
- * E2E guard: scan points are awarded exactly once when the network is slow.
+ * E2E guard: slow-network / timeout behaviour of SponsorScannerPage.
  *
- * Task #72 added:
- *   - A 10 s AbortController timeout on the /leads/scan fetch inside apiPost
- *   - A `pointsCreditedAtScan` flag on the fallback ScannedAttendee that fires
- *     when the scan returned a TIMEOUT error code, preventing Save from
- *     double-awarding local fallback points if the server processed the request
- *     before the client gave up.
+ * Key behaviour under test:
+ *   - Scanner (sponsor) earns NO points, even when the retry succeeds.
+ *   - Scanned attendee earns points server-side; `attendeePointsAwarded > 0`
+ *     in the retry response shows "Attendee earned N pts" plain toast.
+ *   - When both the initial scan AND the Save-time retry fail, no points toast
+ *     fires at all (no attendee toast, no scanner toast).
+ *   - The scanner's header points badge must stay unchanged throughout.
  *
  * These tests simulate a slow backend by hanging the first /leads/scan route
  * indefinitely. The AbortController inside apiPost fires after 10 s, returning
  * `{ error: { code: 'TIMEOUT' } }`. handleCodeDetected then:
  *   1. Falls back to the audience-member lookup (mocked empty → Unknown Attendee)
- *   2. Sets `pointsCreditedAtScan: true` on the fallback scannedData
- *   3. Awards NO local points at scan time
+ *   2. Awards NO points to the scanner at scan time
  *
  * On Save (Path B) the component fires a second /leads/scan call (the retry):
- *   - Retry succeeds (pointsAwarded: 25) → server value used; no extra local points
- *   - Retry fails                        → pointsCreditedAtScan guard blocks local
- *                                          fallback; no double-award
+ *   - Retry succeeds (attendeePointsAwarded: 25) → "Attendee earned 25 pts" toast
+ *   - Retry fails                                → no toast at all
  *
- * Navigation / auth helpers are copied from sponsor-scan-points.spec.ts so this
- * file is fully self-contained and can run independently.
+ * Navigation / auth helpers mirror sponsor-scan-points.spec.ts so this file
+ * is fully self-contained and can run independently.
  */
 
 import { test, expect, type Page } from '@playwright/test';
@@ -77,7 +76,7 @@ const ATTENDEE_LEAD = {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
- * Install route stubs.  `scanHandler` receives every POST /leads/scan route
+ * Install route stubs. `scanHandler` receives every POST /leads/scan route
  * so each test can control what happens per call.
  */
 async function installMocks(
@@ -130,26 +129,14 @@ async function installMocks(
           role: 'sponsor', status: 'active', joined_at: '2026-07-01T00:00:00Z',
         },
       });
+    // Members list — return empty so the audience badge-code lookup falls
+    // through to the "Unknown Attendee" placeholder in handleCodeDetected.
     if (p.startsWith(`/api/v1/events/${EVENT.id}/members`))
-      return ok({
-        success: true,
-        data: {
-          data: [{
-            id: 'sp-1', membership_id: 9, name: 'Sam Sponsor',
-            email: 'sam@acme.com', roles: ['sponsor'], status: 'active',
-            joined_at: '2026-07-01T00:00:00Z',
-          }],
-          total: 1,
-        },
-      });
+      return ok({ success: true, data: { data: [], total: 0 } });
 
     // ── Leads list ────────────────────────────────────────────────────────
     if (m === 'GET' && (p.includes('/my-leads') || (p.includes('/leads') && !p.includes('/scan'))))
       return ok({ success: true, data: [] });
-
-    // ── Audience members — return empty so code falls to "Unknown Attendee" ─
-    if (p.startsWith(`/api/v1/events/${EVENT.id}/attendees`))
-      return ok({ success: true, data: { data: [], total: 0 } });
 
     // ── Leads scan endpoint — delegated to caller ─────────────────────────
     if (m === 'POST' && p.includes('/leads/scan')) {
@@ -198,11 +185,10 @@ async function loginAndOpenScanner(page: Page) {
   await sideMenuDrawer.getByRole('button', { name: /^Scan Badge$/i }).click();
 
   const scannerHeader = page.locator('div.sticky, [class*="sticky"]').filter({
-    hasText: /badges scanned.*earn points per scan/,
+    hasText: /badges scanned/,
   });
   await expect(scannerHeader).toBeVisible({ timeout: 8_000 });
 
-  // Switch to manual-entry mode (the last icon button in the header toggle)
   await scannerHeader.locator('button').last().click();
   await expect(page.getByPlaceholder(/ATT-/i)).toBeVisible({ timeout: 5_000 });
 }
@@ -212,94 +198,96 @@ async function loginAndOpenScanner(page: Page) {
 test.describe('SponsorScannerPage — slow network / timeout guard', () => {
   /**
    * Timeout path: first /leads/scan hangs → AbortController fires after 10 s →
-   * handleCodeDetected sets pointsCreditedAtScan: true on the Unknown Attendee
-   * fallback. Save fires the Path B retry which succeeds with pointsAwarded: 25.
-   * The points toast must show +25 (server value), and addPoints must NOT have
-   * been called before Save (no scan-time award).
+   * handleCodeDetected falls back to the audience-member lookup (empty →
+   * Unknown Attendee). No points are awarded at scan time.
    *
-   * This test needs ~10–12 s for the real AbortController to fire, so the
-   * timeout is set to 90 s.
+   * Save fires the Path B retry, which succeeds with attendeePointsAwarded: 25.
+   * The "Attendee earned 25 pts" toast must appear. The scanner's header badge
+   * must stay unchanged (scanner earns nothing).
+   *
+   * This test needs ~10–12 s for the real AbortController to fire.
    */
   test(
-    'timeout at scan time → pointsCreditedAtScan set → Save retry uses server pointsAwarded',
+    'timeout at scan time → Save retry succeeds → attendee earns points, scanner earns nothing',
     async ({ page }) => {
       test.setTimeout(90_000);
 
       await installMocks(page, async (route, callNumber) => {
         if (callNumber === 1) {
-          // First call: hang indefinitely — the 10 s AbortController in
-          // apiPost will fire and reject the fetch with an AbortError, which
-          // apiPost maps to { error: { code: 'TIMEOUT' } }.
-          // Do NOT call route.fulfill / route.abort / route.continue here.
+          // First call: hang indefinitely — the 10 s AbortController fires and
+          // resolves to { error: { code: 'TIMEOUT' } }.
           return;
         }
-        // Second call (Save-time retry): succeed with pointsAwarded: 25
+        // Second call (Save-time retry): succeed with attendeePointsAwarded: 25
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
           headers: { 'Access-Control-Allow-Origin': '*' },
-          body: JSON.stringify({ success: true, data: { ...ATTENDEE_LEAD, pointsAwarded: 25 } }),
+          body: JSON.stringify({
+            success: true,
+            data: {
+              ...ATTENDEE_LEAD,
+              pointsAwarded: 25,           // backend value; scanner must NOT earn this
+              attendeePointsAwarded: 25,   // attendee earns; shown as plain toast
+            },
+          }),
         });
       });
 
       await loginAndOpenScanner(page);
 
-      // ── Snapshot header points before any scan ────────────────────────────
       const headerBadge = page.locator('span.text-violet-400').filter({ hasText: /pts/ }).first();
       await expect(headerBadge).toBeVisible({ timeout: 8_000 });
       const beforeText = await headerBadge.textContent();
       const beforePoints = parseInt(beforeText!.trim(), 10);
 
-      // ── Trigger the scan — first call will hang for 10 s ─────────────────
       await page.getByPlaceholder(/ATT-/i).fill('ATT-9001');
       await page.getByRole('button', { name: /find attendee/i }).click();
 
-      // After the 10 s timeout fires, handleCodeDetected falls through to the
-      // audience-member lookup (empty → Unknown Attendee) with
-      // pointsCreditedAtScan: true. Give it 20 s to appear.
+      // After the 10 s timeout, audience lookup is empty → Unknown Attendee.
       await expect(page.getByText('Unknown Attendee')).toBeVisible({ timeout: 20_000 });
 
-      // No points must have been awarded at scan time — addPoints is guarded by
-      // `if (pts > 0)` and the timeout path never calls addPoints.
-      await expect(page.getByText(/points earned/i)).not.toBeVisible({ timeout: 1_500 });
-      await expect(page.locator('text=/^\\+\\d+$/')).not.toBeVisible({ timeout: 1_000 });
+      // No points toast at scan time (scanner earns nothing; attendee toast
+      // only fires when the backend confirms attendeePointsAwarded > 0).
+      await expect(page.getByText(/attendee earned/i)).not.toBeVisible({ timeout: 1_500 });
+      await expect(page.getByText(/points earned/i)).not.toBeVisible({ timeout: 500 });
 
-      // Header total must be unchanged before Save
+      // Header unchanged before Save.
       await expect(headerBadge).toHaveText(`${beforePoints} pts`, { timeout: 3_000 });
 
-      // ── Press Save — triggers the Path B retry ─────────────────────────────
+      // Press Save — triggers the Path B retry.
       await page.getByRole('button', { name: /save lead/i }).click();
 
-      // Server returns pointsAwarded: 25 — that value must be used in addPoints.
-      // The toast renders "+25" and "Points earned!" only when pts > 0.
-      await expect(page.getByText('+25')).toBeVisible({ timeout: 10_000 });
-      await expect(page.getByText(/points earned/i)).toBeVisible({ timeout: 6_000 });
+      // Attendee toast must appear (server confirmed attendeePointsAwarded: 25).
+      await expect(page.getByText(/attendee earned 25 pts/i)).toBeVisible({ timeout: 10_000 });
 
-      // Header badge must reflect exactly beforePoints + 25 (no double-count).
-      await expect(headerBadge).toHaveText(`${beforePoints + 25} pts`, { timeout: 8_000 });
+      // Scanner header must remain unchanged — addPoints was never called.
+      await expect(headerBadge).toHaveText(`${beforePoints} pts`, { timeout: 8_000 });
+
+      // No scanner "Points earned!" label.
+      await expect(page.getByText(/points earned/i)).not.toBeVisible({ timeout: 1_000 });
     },
   );
 
   /**
    * Timeout path + Save-time retry also fails:
-   * First /leads/scan hangs → timeout → pointsCreditedAtScan: true on fallback.
-   * Second /leads/scan (Save) also fails. handleSave falls into the local-only
-   * save branch, but the `pointsCreditedAtScan` guard prevents addPoints from
-   * being called a second time. No points toast must appear.
+   * First /leads/scan hangs → timeout → Unknown Attendee shown.
+   * Second /leads/scan (Save) also fails. No attendee toast fires and no
+   * scanner points toast fires. Header stays unchanged.
    *
-   * This confirms the double-award protection works even when the retry fails.
+   * This confirms the failure path is clean — no double-award, no stale toast.
    */
   test(
-    'timeout at scan time → Save retry also fails → no double-award of local points',
+    'timeout at scan time → Save retry also fails → no points toast at all',
     async ({ page }) => {
       test.setTimeout(90_000);
 
       await installMocks(page, async (route, callNumber) => {
         if (callNumber === 1) {
-          // First call: hang → AbortController fires after 10 s → TIMEOUT
+          // First call: hang → TIMEOUT
           return;
         }
-        // Second call (Save): also fail (backend still unreachable)
+        // Second call (Save): also fail
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -313,61 +301,62 @@ test.describe('SponsorScannerPage — slow network / timeout guard', () => {
 
       await loginAndOpenScanner(page);
 
-      // Snapshot header points
       const headerBadge = page.locator('span.text-violet-400').filter({ hasText: /pts/ }).first();
       await expect(headerBadge).toBeVisible({ timeout: 8_000 });
       const beforeText = await headerBadge.textContent();
       const beforePoints = parseInt(beforeText!.trim(), 10);
 
-      // Trigger the scan — first call hangs for 10 s
       await page.getByPlaceholder(/ATT-/i).fill('ATT-9001');
       await page.getByRole('button', { name: /find attendee/i }).click();
 
-      // After timeout + empty audience lookup → Unknown Attendee with
-      // pointsCreditedAtScan: true
+      // After timeout + empty audience lookup → Unknown Attendee.
       await expect(page.getByText('Unknown Attendee')).toBeVisible({ timeout: 20_000 });
 
-      // No points yet
-      await expect(page.getByText(/points earned/i)).not.toBeVisible({ timeout: 1_500 });
+      // No points toast at scan time.
+      await expect(page.getByText(/attendee earned/i)).not.toBeVisible({ timeout: 1_500 });
+      await expect(page.getByText(/points earned/i)).not.toBeVisible({ timeout: 500 });
 
-      // Header unchanged
+      // Header unchanged.
       await expect(headerBadge).toHaveText(`${beforePoints} pts`, { timeout: 3_000 });
 
-      // Press Save — retry also fails
+      // Press Save — retry also fails.
       await page.getByRole('button', { name: /save lead/i }).click();
 
-      // The local-only fallback path runs, BUT pointsCreditedAtScan: true
-      // prevents addPoints from being called. No "+N" badge or "Points earned!"
-      // toast must appear.
-      await expect(page.getByText(/points earned/i)).not.toBeVisible({ timeout: 3_000 });
-      await expect(page.locator('text=/^\\+\\d+$/')).not.toBeVisible({ timeout: 2_000 });
+      // Local-only save path runs (lead saved to context), but no attendee
+      // toast fires because no attendeePointsAwarded was ever returned.
+      await expect(page.getByText(/attendee earned/i)).not.toBeVisible({ timeout: 3_000 });
+      await expect(page.getByText(/points earned/i)).not.toBeVisible({ timeout: 500 });
+      await expect(page.locator('text=/^\\+\\d+$/')).not.toBeVisible({ timeout: 500 });
 
-      // Header total must remain unchanged — addPoints was never called
+      // Header total must remain unchanged — addPoints was never called.
       await expect(headerBadge).toHaveText(`${beforePoints} pts`, { timeout: 5_000 });
     },
   );
 
   /**
    * Sanity / contrast test: a scan that completes within the timeout is NOT
-   * affected by the pointsCreditedAtScan guard. The attendee is resolved by
-   * the backend, pointsAwarded: 25 is returned, addPoints fires immediately
-   * (before Save), and the header reflects the increment.
-   *
-   * This confirms the timeout guard doesn't accidentally suppress points on a
-   * normal fast scan.
+   * affected by any guards. Backend returns attendeePointsAwarded: 25;
+   * the "Attendee earned 25 pts" toast fires immediately (before Save).
+   * The scanner's header badge stays unchanged.
    */
   test(
-    'fast scan (within timeout) — points awarded immediately, not suppressed',
+    'fast scan (within timeout) — attendee earns points immediately, scanner earns nothing',
     async ({ page }) => {
       test.setTimeout(120_000);
 
       await installMocks(page, async (route) => {
-        // Scan resolves immediately with pointsAwarded: 25
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
           headers: { 'Access-Control-Allow-Origin': '*' },
-          body: JSON.stringify({ success: true, data: { ...ATTENDEE_LEAD, pointsAwarded: 25 } }),
+          body: JSON.stringify({
+            success: true,
+            data: {
+              ...ATTENDEE_LEAD,
+              pointsAwarded: 25,           // scanner must ignore this for its own total
+              attendeePointsAwarded: 25,   // attendee earns; shown immediately
+            },
+          }),
         });
       });
 
@@ -381,15 +370,18 @@ test.describe('SponsorScannerPage — slow network / timeout guard', () => {
       await page.getByPlaceholder(/ATT-/i).fill('ATT-9001');
       await page.getByRole('button', { name: /find attendee/i }).click();
 
-      // Attendee resolves fast — profile card appears
+      // Attendee resolves fast — profile card appears.
       await expect(page.getByText('Alex Rivera')).toBeVisible({ timeout: 10_000 });
 
-      // Points toast fires immediately (before Save) — Path A behavior
-      await expect(page.getByText('+25')).toBeVisible({ timeout: 6_000 });
-      await expect(page.getByText(/points earned/i)).toBeVisible({ timeout: 6_000 });
+      // Attendee toast fires immediately (before Save) — Path A behavior.
+      await expect(page.getByText(/attendee earned 25 pts/i)).toBeVisible({ timeout: 6_000 });
 
-      // Header reflects the increment
-      await expect(headerBadge).toHaveText(`${beforePoints + 25} pts`, { timeout: 8_000 });
+      // Scanner earns nothing — no "+N" badge, no "Points earned!" label.
+      await expect(page.getByText(/points earned/i)).not.toBeVisible({ timeout: 1_000 });
+      await expect(page.locator('text=/^\\+\\d+$/')).not.toBeVisible({ timeout: 500 });
+
+      // Header must stay at the pre-scan value.
+      await expect(headerBadge).toHaveText(`${beforePoints} pts`, { timeout: 8_000 });
     },
   );
 });

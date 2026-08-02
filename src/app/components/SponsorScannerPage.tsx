@@ -35,10 +35,6 @@ interface ScannedAttendee {
   leadId?: string;
   /** True when the badge code didn't match any event member. */
   unrecognized?: boolean;
-  /** True when scan-time gamification points were already credited (so
-   *  Save doesn't double-award even if the Save-time backend call also
-   *  reports points). */
-  pointsCreditedAtScan?: boolean;
 }
 
 const avatarFor = (name: string, palette = '6b7280') =>
@@ -158,34 +154,14 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
           attendee.isCheckedIn = true;
         }
 
-        // Award scan points immediately (the backend already created the lead).
-        // The server is the source of truth — `pointsAwarded` reflects the
-        // event's lead_scan gamification config, and is 0 when the scan was
-        // a duplicate (no double points). If the server omits the field we
-        // fall back to the client-side gamification config; otherwise 0 (no
-        // toast, no points).
-        // If we also auto checked-in, fold that into the same toast so the
-        // points feedback doesn't immediately overwrite a separate
-        // "Auto checked-in" toast.
-        const pts =
-          typeof d.pointsAwarded === 'number'
-            ? d.pointsAwarded
-            : (gamificationConfig?.pointActions as Record<string, number> | undefined)?.scanBadge
-              ?? 0;
-        const reason = didCheckIn
-          ? `Auto checked-in & scanned ${attendee.name}`
-          : `Scanned ${attendee.name}'s badge`;
-        if (pts > 0) {
-          addPoints(pts, reason);
-          // Tag the form so handleSave doesn't double-award in Path B if the
-          // backend rejects the second /leads/scan call (it's the same scan).
-          attendee.pointsCreditedAtScan = true;
-        } else if (didCheckIn) {
+        // The scanner (sponsor) earns no points for scanning — only the
+        // scanned attendee earns points, and the backend credits them
+        // server-side. Show the attendee's awarded total as confirmation.
+        if (didCheckIn) {
           showToast(`Auto checked-in ${attendee.name}`);
         }
-        // Notify the sponsor that the scanned attendee also earned points.
         if (typeof d.attendeePointsAwarded === 'number' && d.attendeePointsAwarded > 0) {
-          showToast(`Partner connected — attendee earned ${d.attendeePointsAwarded} pts`);
+          showToast(`Attendee earned ${d.attendeePointsAwarded} pts`);
         }
         setScannedData(attendee);
 
@@ -213,19 +189,15 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
       //    members list and (if found) call the check-in endpoint directly.
       //
       // When the scan-time request timed out (TIMEOUT error code), the server
-      // MAY have already processed it and awarded points. Setting
-      // `pointsCreditedAtScan: true` on the fallback attendee prevents the
-      // Save-time failure path from double-awarding local fallback points.
-      // The Path B scanBadgeLead retry in handleSave is idempotent by badge
+      // MAY have already processed it and credited attendee points. The
+      // Path B scanBadgeLead retry in handleSave is idempotent by badge
       // code — if the server processed the first request it returns
-      // `pointsAwarded: 0`; otherwise it returns the full points, so the
-      // success branch of handleSave always awards points exactly once.
+      // `attendeePointsAwarded: 0` on the duplicate, preventing double toasts.
       const scanTimedOut = scan.error?.code === 'TIMEOUT';
 
       const member = await findMemberByBadgeCodeApi(eventId, badgeCode);
       if (member) {
         const attendee = attendeeFromMember(member);
-        if (scanTimedOut) attendee.pointsCreditedAtScan = true;
         setScannedData(attendee);
 
         if (member.memberId && !member.isCheckedIn) {
@@ -245,7 +217,6 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
           company: '',
           avatar: avatarFor(badgeCode),
           unrecognized: true,
-          ...(scanTimedOut ? { pointsCreditedAtScan: true } : {}),
         });
       }
     } finally {
@@ -364,20 +335,10 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
           }
         }
 
-        // Use the server's awarded points; 0 means duplicate scan (no toast,
-        // no double credit). Only fall back to the local config when the
-        // server omits the field entirely.
-        const pts =
-          typeof res.data.pointsAwarded === 'number'
-            ? res.data.pointsAwarded
-            : (gamificationConfig?.pointActions as Record<string, number> | undefined)?.scanBadge
-              ?? 0;
-        if (pts > 0) {
-          addPoints(pts, `Scanned ${res.data.name}'s badge`);
-        }
-        // Notify the sponsor that the scanned attendee also earned points.
+        // The scanner earns no points — only the scanned attendee does.
+        // The backend credits attendee points server-side; show confirmation.
         if (typeof res.data.attendeePointsAwarded === 'number' && res.data.attendeePointsAwarded > 0) {
-          showToast(`Partner connected — attendee earned ${res.data.attendeePointsAwarded} pts`);
+          showToast(`Attendee earned ${res.data.attendeePointsAwarded} pts`);
         }
 
         resetScanner();
@@ -405,18 +366,7 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
         priority,
         pendingSync: true,
       });
-      // Only award local fallback points if scan-time didn't already credit
-      // them (e.g. when the badge wasn't recognized by the backend at scan
-      // time, so no points were given). This prevents double-counting when
-      // handleCodeDetected already awarded points but the backend later
-      // rejects the second /leads/scan with the full payload.
-      if (!scannedData.pointsCreditedAtScan) {
-        const localPts =
-          (gamificationConfig?.pointActions as Record<string, number> | undefined)?.scanBadge ?? 0;
-        if (localPts > 0) {
-          addPoints(localPts, `Scanned ${scannedData.name}'s badge`);
-        }
-      }
+      // The scanner earns no points — no local fallback points needed.
       if (res.error?.code && res.error.code !== 'NOT_IMPLEMENTED' && res.error.code !== 'SCAN_FAILED') {
         // Surface real backend errors quietly in the console for debugging
         // without alarming the user — their lead is captured.

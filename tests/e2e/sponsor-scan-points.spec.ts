@@ -1,23 +1,27 @@
 /**
- * E2E guard: Sponsor rep earns points on the first badge scan of a new event.
+ * E2E guard: the scanned ATTENDEE earns points; the scanner (sponsor) earns
+ * nothing.
+ *
+ * Points are credited to the attendee server-side. The frontend confirms this
+ * by showing a plain "Attendee earned N pts" toast when the backend response
+ * includes `attendeePointsAwarded > 0`. The sponsor's own header points badge
+ * must NOT change after any scan.
  *
  * Two paths through SponsorScannerPage are exercised:
  *
- *  Path A — backend resolves the badge at scan time and returns `pointsAwarded`
- *    in the POST /leads/scan response. The points toast must appear immediately
- *    after the attendee profile is shown (before the user presses Save).
+ *  Path A — backend resolves the badge at scan time and returns
+ *    `attendeePointsAwarded` in the POST /leads/scan response. The attendee
+ *    toast must appear immediately after the attendee profile is shown (before
+ *    the user presses Save).
  *
- *  Path B — backend omits `pointsAwarded` (field not in response). The
- *    component falls back to `gamificationConfig.pointActions.scanBadge`
- *    (hard-coded to 25 in AppContext's mock config). Points toast must appear
- *    when the user presses Save and the second /leads/scan call returns the
- *    lead row (still without `pointsAwarded`).
+ *  Path B — backend omits `attendeePointsAwarded` on the first call (badge
+ *    not recognized). When the user presses Save the second /leads/scan call
+ *    returns `attendeePointsAwarded: 25`, triggering the toast.
  *
- * Both tests use the manual-entry mode (Type icon → "Find Attendee") because
+ * Both tests use manual-entry mode (Type icon → "Find Attendee") because
  * camera-based QR scanning cannot be exercised in a headless Playwright run.
  *
- * The tests are fully self-contained: every /api/v1/** call is stubbed via
- * page.route so no live backend is required.
+ * Every /api/v1/** call is stubbed via page.route — no live backend required.
  */
 
 import { test, expect, type Page } from '@playwright/test';
@@ -73,7 +77,7 @@ const ATTENDEE_LEAD = {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Install the base route stubs shared between both tests.
+ * Install the base route stubs shared between all tests.
  * `scanHandler` receives the POST /leads/scan route so each test can
  * return a different payload for it.
  */
@@ -129,32 +133,14 @@ async function installMocks(
           joined_at: '2026-07-01T00:00:00Z',
         },
       });
+    // Members list — return only the sponsor; badge-code lookups for the
+    // attendee badge return empty so the app falls back to "Unknown Attendee".
     if (p.startsWith(`/api/v1/events/${EVENT.id}/members`))
-      return ok({
-        success: true,
-        data: {
-          data: [
-            {
-              id: 'sp-1',
-              membership_id: 9,
-              name: 'Sam Sponsor',
-              email: 'sam@acme.com',
-              roles: ['sponsor'],
-              status: 'active',
-              joined_at: '2026-07-01T00:00:00Z',
-            },
-          ],
-          total: 1,
-        },
-      });
+      return ok({ success: true, data: { data: [], total: 0 } });
 
     // ── Leads list ────────────────────────────────────────────────────────
     if (m === 'GET' && (p.includes('/my-leads') || (p.includes('/leads') && !p.includes('/scan'))))
       return ok({ success: true, data: [] });
-
-    // ── Audience members (badge-code lookup fallback) ─────────────────────
-    if (p.startsWith(`/api/v1/events/${EVENT.id}/attendees`))
-      return ok({ success: true, data: { data: [], total: 0 } });
 
     // ── Leads scan endpoint — delegated to caller ─────────────────────────
     if (m === 'POST' && p.includes('/leads/scan'))
@@ -176,15 +162,10 @@ async function installMocks(
 }
 
 /**
- * Log in as the sponsor, join the event, open the SponsorScannerPage,
- * and switch to manual-entry mode so tests can type a badge code.
- *
- * Navigation path: sign-in → event list → enter event → More → side-menu
- * "Scan Badge" → SponsorScannerPage → click the keyboard (Type) icon button
- * to switch from camera scan mode to manual mode.
+ * Log in as sponsor, join the event, open SponsorScannerPage, switch to
+ * manual-entry mode.
  */
 async function loginAndOpenScanner(page: Page) {
-  // ── Sign in ────────────────────────────────────────────────────────────
   await page.goto('/');
   await page.getByRole('button', { name: /sign in/i }).click({ timeout: 15_000 });
   await page.getByPlaceholder('you@example.com').fill('sam@acme.com');
@@ -196,39 +177,21 @@ async function loginAndOpenScanner(page: Page) {
   await page.keyboard.type('123456', { delay: 30 });
   await page.getByRole('button', { name: /looks good,?\s*continue/i }).click({ timeout: 15_000 });
 
-  // ── Enter event ────────────────────────────────────────────────────────
   await page.getByRole('button', { name: /^Events$/i }).click({ timeout: 10_000 });
   await page.getByText('TechSummit 2026').first().click({ timeout: 10_000 });
-  // Wait for the event home screen (bottom nav visible)
   await expect(page.getByRole('button', { name: /^Home$/i })).toBeVisible({ timeout: 15_000 });
 
-  // ── Navigate to SponsorScannerPage via the "More" side menu ───────────
-  // The side menu has a "Scan Badge" item that calls go('scan') → the
-  // standalone SponsorScannerPage, distinct from the Engage-tab scanner.
   await page.getByRole('button', { name: /^More$/i }).click({ timeout: 8_000 });
-  // The side menu drawer renders inside a div.z-[61] container.
-  // Scope to that container to avoid matching the "Scan Badge" quick-action
-  // button that may still be visible in the background page behind the overlay.
   const sideMenuDrawer = page.locator('[class*="z-\\[61\\]"]');
   await expect(sideMenuDrawer.getByRole('button', { name: /^Scan Badge$/i })).toBeVisible({ timeout: 8_000 });
   await sideMenuDrawer.getByRole('button', { name: /^Scan Badge$/i }).click();
 
-  // ── Confirm we're on SponsorScannerPage ───────────────────────────────
-  // The page has a sticky header with an h1 "Scan Badge" and a subtitle
-  // "N badges scanned · earn points per scan" — unique to this page.
   const scannerHeader = page.locator('div.sticky, [class*="sticky"]').filter({
-    hasText: /badges scanned.*earn points per scan/,
+    hasText: /badges scanned/,
   });
   await expect(scannerHeader).toBeVisible({ timeout: 8_000 });
 
-  // ── Switch to manual-entry mode ────────────────────────────────────────
-  // The sticky header has exactly two icon-only toggle buttons:
-  //   1st  QrCode icon  → camera scan mode (default)
-  //   2nd  Type icon    → manual badge-code entry mode
-  // We click the last button (Type) to switch.
   await scannerHeader.locator('button').last().click();
-
-  // Confirm the manual input field appeared
   await expect(page.getByPlaceholder(/ATT-/i)).toBeVisible({ timeout: 5_000 });
 }
 
@@ -236,13 +199,12 @@ async function loginAndOpenScanner(page: Page) {
 
 test.describe('SponsorScannerPage — scan points', () => {
   /**
-   * Path A: backend returns `pointsAwarded: 25` in the /leads/scan response.
-   *
-   * The points toast must appear immediately after the attendee card is shown
-   * (before the user presses Save), because `handleCodeDetected` awards points
-   * as soon as the scan response comes back.
+   * Path A: backend returns `attendeePointsAwarded: 25` in the /leads/scan
+   * response. The attendee toast "Attendee earned 25 pts" must appear
+   * immediately after the attendee profile card is shown (before Save).
+   * The scanner's own header points badge must NOT change.
    */
-  test('Path A — toast appears immediately when backend returns pointsAwarded', async ({ page }) => {
+  test('Path A — attendee earns points when backend returns attendeePointsAwarded', async ({ page }) => {
     test.setTimeout(120_000);
 
     await installMocks(page, (route) =>
@@ -254,7 +216,8 @@ test.describe('SponsorScannerPage — scan points', () => {
           success: true,
           data: {
             ...ATTENDEE_LEAD,
-            pointsAwarded: 25,
+            pointsAwarded: 0,            // scanner earns nothing
+            attendeePointsAwarded: 25,   // attendee earns 25
           },
         }),
       }),
@@ -262,44 +225,43 @@ test.describe('SponsorScannerPage — scan points', () => {
 
     await loginAndOpenScanner(page);
 
-    // Type the badge code and submit
+    // Snapshot the scanner's header points — must stay unchanged after scan.
+    const headerBadge = page.locator('span.text-violet-400').filter({ hasText: /pts/ }).first();
+    await expect(headerBadge).toBeVisible({ timeout: 8_000 });
+    const beforeText = await headerBadge.textContent();
+    const beforePoints = parseInt(beforeText!.trim(), 10);
+
     await page.getByPlaceholder(/ATT-/i).fill('ATT-9001');
     await page.getByRole('button', { name: /find attendee/i }).click();
 
-    // Wait for the attendee profile card to appear (scan resolved successfully)
+    // Attendee profile card appears.
     await expect(page.getByText('Alex Rivera')).toBeVisible({ timeout: 10_000 });
 
-    // ── Assert points toast ────────────────────────────────────────────────
-    // The toast renders "+25" in a green badge (span text) and the activity
-    // message in a <p>. "Points earned!" is the sub-label shown only when
-    // points > 0 — it confirms the points path, not a plain toast.
-    await expect(page.getByText('+25')).toBeVisible({ timeout: 6_000 });
-    await expect(page.getByText(/points earned/i)).toBeVisible({ timeout: 6_000 });
+    // ── Assert attendee points toast ───────────────────────────────────────
+    // showToast("Attendee earned 25 pts") renders a plain text toast — no
+    // "+N" badge, no "Points earned!" label (those come from addPoints only).
+    await expect(page.getByText(/attendee earned 25 pts/i)).toBeVisible({ timeout: 6_000 });
+
+    // ── Assert scanner earns nothing ───────────────────────────────────────
+    await expect(page.getByText(/points earned/i)).not.toBeVisible({ timeout: 1_500 });
+    await expect(page.locator('text=/^\\+\\d+$/')).not.toBeVisible({ timeout: 1_000 });
+    await expect(headerBadge).toHaveText(`${beforePoints} pts`, { timeout: 3_000 });
   });
 
   /**
-   * Path B: the first /leads/scan call fails (badge not recognized by the
-   * backend), so no leadId is stored on the attendee. The audience-member
-   * lookup also finds no match, leaving an "Unknown Attendee" placeholder
-   * with `pointsCreditedAtScan = false`. When the user presses Save the
-   * component sends a second /leads/scan call with the full payload; that
-   * call returns `pointsAwarded: 25`, which must trigger the points toast.
-   *
-   * This exercises the explicit Save-time points path in handleSave
-   * (the `!scannedData.leadId` branch in SponsorScannerPage).
+   * Path B: the first /leads/scan call fails (badge not recognized), leaving
+   * an "Unknown Attendee" placeholder. When the user presses Save, the second
+   * /leads/scan call returns `attendeePointsAwarded: 25`, triggering the
+   * attendee toast. The scanner's header badge stays unchanged throughout.
    */
-  test('Path B — toast appears on Save when backend creates lead at Save time', async ({ page }) => {
+  test('Path B — attendee earns points on Save when backend returns attendeePointsAwarded', async ({ page }) => {
     test.setTimeout(120_000);
 
-    // Differentiate the two /leads/scan calls by call count:
-    //   call 1 (from handleCodeDetected): fail → no leadId set
-    //   call 2 (from handleSave):         succeed with pointsAwarded: 25
     let scanCallCount = 0;
 
     await installMocks(page, async (route) => {
       scanCallCount++;
       if (scanCallCount === 1) {
-        // First scan: backend cannot resolve — triggers audience-list fallback
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -310,55 +272,60 @@ test.describe('SponsorScannerPage — scan points', () => {
           }),
         });
       }
-      // Second scan (from Save): lead created, pointsAwarded returned
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
         headers: { 'Access-Control-Allow-Origin': '*' },
         body: JSON.stringify({
           success: true,
-          data: { ...ATTENDEE_LEAD, pointsAwarded: 25 },
+          data: {
+            ...ATTENDEE_LEAD,
+            pointsAwarded: 0,
+            attendeePointsAwarded: 25,
+          },
         }),
       });
     });
 
     await loginAndOpenScanner(page);
 
-    // Type the badge code and submit — first scan fails, audience lookup
-    // also misses (mock returns empty attendees), so "Unknown Attendee" shown.
+    const headerBadge = page.locator('span.text-violet-400').filter({ hasText: /pts/ }).first();
+    await expect(headerBadge).toBeVisible({ timeout: 8_000 });
+    const beforeText = await headerBadge.textContent();
+    const beforePoints = parseInt(beforeText!.trim(), 10);
+
     await page.getByPlaceholder(/ATT-/i).fill('ATT-9001');
     await page.getByRole('button', { name: /find attendee/i }).click();
 
-    // The unrecognized-code placeholder must appear (no backend resolution)
+    // First scan failed — audience lookup also empty → Unknown Attendee.
     await expect(page.getByText('Unknown Attendee')).toBeVisible({ timeout: 10_000 });
 
-    // No points toast yet — nothing was awarded at scan time
-    await expect(page.getByText('+25')).not.toBeVisible({ timeout: 1_500 });
+    // The join-event toast ("Joined the event! · Points earned!") auto-dismisses
+    // after a few seconds. Wait for it to clear before asserting no scan toast.
+    await expect(page.getByText(/joined the event/i)).not.toBeVisible({ timeout: 8_000 });
 
-    // Press Save Lead — triggers the second /leads/scan which returns pointsAwarded
+    // No scan-related toast before Save.
+    await expect(page.getByText(/attendee earned/i)).not.toBeVisible({ timeout: 1_500 });
+    await expect(page.getByText(/points earned/i)).not.toBeVisible({ timeout: 1_000 });
+
+    // Press Save — triggers the second /leads/scan.
     await page.getByRole('button', { name: /save lead/i }).click();
 
-    // Points toast must appear after Save (awarded from the backend response)
-    await expect(page.getByText('+25')).toBeVisible({ timeout: 8_000 });
-    await expect(page.getByText(/points earned/i)).toBeVisible({ timeout: 6_000 });
+    // Attendee toast must appear after Save.
+    await expect(page.getByText(/attendee earned 25 pts/i)).toBeVisible({ timeout: 8_000 });
+
+    // Scanner header unchanged throughout.
+    await expect(headerBadge).toHaveText(`${beforePoints} pts`, { timeout: 5_000 });
+    await expect(page.getByText(/points earned/i)).not.toBeVisible({ timeout: 1_000 });
   });
 
   /**
-   * Duplicate scan guard: backend returns `pointsAwarded: 0` to signal that
-   * this badge was already scanned and no points should be awarded again.
-   *
-   * The component's guard at SponsorScannerPage.tsx lines 167–182 checks
-   *   `if (pts > 0)` before calling `addPoints`, so when the server returns 0
-   * neither `addPoints` nor the points toast should fire.
-   *
-   * This test ensures that a future refactor cannot accidentally award points
-   * on a duplicate scan by asserting:
-   *   1. The attendee profile card still appears (the scan itself succeeded).
-   *   2. No "+N pts" badge is shown in the DOM.
-   *   3. The "Points earned!" sub-label is absent.
-   *   4. The global header points total is unchanged.
+   * No attendee toast when `attendeePointsAwarded` is absent or 0 (backend
+   * signals a duplicate scan or intentionally awards nothing). Neither the
+   * attendee toast nor any scanner points toast should appear; the header
+   * must remain unchanged.
    */
-  test('duplicate scan — no points toast when backend returns pointsAwarded: 0', async ({ page }) => {
+  test('no toast when backend returns no attendeePointsAwarded (or 0)', async ({ page }) => {
     test.setTimeout(120_000);
 
     await installMocks(page, (route) =>
@@ -370,7 +337,8 @@ test.describe('SponsorScannerPage — scan points', () => {
           success: true,
           data: {
             ...ATTENDEE_LEAD,
-            pointsAwarded: 0, // duplicate scan — backend awards nothing
+            pointsAwarded: 0,
+            attendeePointsAwarded: 0,  // duplicate / no award
           },
         }),
       }),
@@ -378,42 +346,31 @@ test.describe('SponsorScannerPage — scan points', () => {
 
     await loginAndOpenScanner(page);
 
-    // Snapshot the header points total before the scan
     const headerBadge = page.locator('span.text-violet-400').filter({ hasText: /pts/ }).first();
     await expect(headerBadge).toBeVisible({ timeout: 8_000 });
     const beforeText = await headerBadge.textContent();
     const beforePoints = parseInt(beforeText!.trim(), 10);
 
-    // Type the badge code and submit
     await page.getByPlaceholder(/ATT-/i).fill('ATT-9001');
     await page.getByRole('button', { name: /find attendee/i }).click();
 
-    // The attendee card must still appear — the scan resolved successfully
     await expect(page.getByText('Alex Rivera')).toBeVisible({ timeout: 10_000 });
 
-    // ── Assert NO points toast ─────────────────────────────────────────────
-    // Wait briefly to allow any spurious toast to render, then assert absence.
-    await expect(page.getByText(/points earned/i)).not.toBeVisible({ timeout: 2_000 });
-    // Check that no "+N pts" badge appears (any positive number)
-    await expect(page.locator('text=/^\\+\\d+$/')).not.toBeVisible({ timeout: 2_000 });
+    // No toasts.
+    await expect(page.getByText(/attendee earned/i)).not.toBeVisible({ timeout: 2_000 });
+    await expect(page.getByText(/points earned/i)).not.toBeVisible({ timeout: 500 });
+    await expect(page.locator('text=/^\\+\\d+$/')).not.toBeVisible({ timeout: 500 });
 
-    // ── Assert header total is unchanged ──────────────────────────────────
-    // addPoints must NOT have been called, so the header badge stays the same.
+    // Header unchanged.
     await expect(headerBadge).toHaveText(`${beforePoints} pts`, { timeout: 3_000 });
   });
 
   /**
    * Path B duplicate guard: first scan fails (badge not recognized), user
-   * presses Save, and the second /leads/scan call at Save time returns
-   * `pointsAwarded: 0` — signalling the backend already has a lead for this
-   * badge (duplicate). The guard at SponsorScannerPage.tsx lines 362–369
-   * checks `if (pts > 0)` before calling `addPoints`, so neither `addPoints`
-   * nor the points toast should fire.
-   *
-   * This exercises the Save-time duplicate branch in handleSave
-   * (the `!scannedData.leadId` → `res.success && res.data` path).
+   * presses Save, and the second /leads/scan returns `attendeePointsAwarded: 0`
+   * — signalling a duplicate. No attendee toast and no scanner toast must fire.
    */
-  test('Path B duplicate — no points toast when Save-time scan returns pointsAwarded: 0', async ({ page }) => {
+  test('Path B — no toast when Save-time scan returns attendeePointsAwarded: 0', async ({ page }) => {
     test.setTimeout(120_000);
 
     let scanCallCount = 0;
@@ -421,7 +378,6 @@ test.describe('SponsorScannerPage — scan points', () => {
     await installMocks(page, async (route) => {
       scanCallCount++;
       if (scanCallCount === 1) {
-        // First scan: backend cannot resolve — triggers audience-list fallback
         return route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -432,65 +388,48 @@ test.describe('SponsorScannerPage — scan points', () => {
           }),
         });
       }
-      // Second scan (from Save): duplicate detected — pointsAwarded: 0
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
         headers: { 'Access-Control-Allow-Origin': '*' },
         body: JSON.stringify({
           success: true,
-          data: { ...ATTENDEE_LEAD, pointsAwarded: 0 },
+          data: {
+            ...ATTENDEE_LEAD,
+            pointsAwarded: 0,
+            attendeePointsAwarded: 0,
+          },
         }),
       });
     });
 
     await loginAndOpenScanner(page);
 
-    // Snapshot the header points total before the scan
     const headerBadge = page.locator('span.text-violet-400').filter({ hasText: /pts/ }).first();
     await expect(headerBadge).toBeVisible({ timeout: 8_000 });
     const beforeText = await headerBadge.textContent();
     const beforePoints = parseInt(beforeText!.trim(), 10);
 
-    // Type the badge code and submit — first scan fails, "Unknown Attendee" shown
     await page.getByPlaceholder(/ATT-/i).fill('ATT-9001');
     await page.getByRole('button', { name: /find attendee/i }).click();
 
-    // The unrecognized-code placeholder must appear
     await expect(page.getByText('Unknown Attendee')).toBeVisible({ timeout: 10_000 });
 
-    // No points toast yet
-    await expect(page.getByText('+25')).not.toBeVisible({ timeout: 1_500 });
-
-    // Press Save Lead — triggers the second /leads/scan which returns pointsAwarded: 0
     await page.getByRole('button', { name: /save lead/i }).click();
 
-    // ── Assert NO points toast ─────────────────────────────────────────────
-    // Wait briefly to allow any spurious toast to render, then assert absence.
-    await expect(page.getByText(/points earned/i)).not.toBeVisible({ timeout: 2_000 });
-    // Check that no "+N pts" badge appears (any positive number)
-    await expect(page.locator('text=/^\\+\\d+$/')).not.toBeVisible({ timeout: 2_000 });
-
-    // ── Assert header total is unchanged ──────────────────────────────────
-    // addPoints must NOT have been called, so the header badge stays the same.
+    await expect(page.getByText(/attendee earned/i)).not.toBeVisible({ timeout: 2_000 });
+    await expect(page.getByText(/points earned/i)).not.toBeVisible({ timeout: 500 });
+    await expect(page.locator('text=/^\\+\\d+$/')).not.toBeVisible({ timeout: 500 });
     await expect(headerBadge).toHaveText(`${beforePoints} pts`, { timeout: 3_000 });
   });
 
   /**
-   * Header points badge: after a successful scan the running total displayed
-   * in the app's persistent top-bar header must reflect the newly awarded points.
-   *
-   * The global App header always renders:
-   *   <span className="... text-violet-400">{user.points} pts</span>
-   * This span is live in the DOM throughout the whole session — no navigation
-   * needed.  We snapshot the value before the scan, perform the scan, then
-   * assert the span text has increased by exactly 25.
-   *
-   * This guards against a broken `addPoints` implementation that fires the
-   * toast but never updates AppContext state — the toast passing alone would
-   * not catch that regression.
+   * Scanner header badge must stay unchanged after every scan regardless of
+   * what the backend returns in `pointsAwarded` — the scanner earns nothing.
+   * The attendee earns points server-side; `attendeePointsAwarded: 25` in the
+   * response shows the confirmation toast without touching the sponsor's total.
    */
-  test('header points badge shows incremented total after scan', async ({ page }) => {
+  test('scanner header badge stays unchanged — scanner earns no points', async ({ page }) => {
     test.setTimeout(120_000);
 
     await installMocks(page, (route) =>
@@ -500,37 +439,34 @@ test.describe('SponsorScannerPage — scan points', () => {
         headers: { 'Access-Control-Allow-Origin': '*' },
         body: JSON.stringify({
           success: true,
-          data: { ...ATTENDEE_LEAD, pointsAwarded: 25 },
+          data: {
+            ...ATTENDEE_LEAD,
+            pointsAwarded: 25,           // server-side value; frontend must ignore for scanner
+            attendeePointsAwarded: 25,   // attendee earns; toast confirms this
+          },
         }),
       }),
     );
 
     await loginAndOpenScanner(page);
 
-    // ── Snapshot initial points from the global header ───────────────────────
-    // App.tsx always renders a span like "100 pts" in the violet header badge;
-    // we capture its numeric value before the scan so the assertion doesn't
-    // need to hard-code what the mocked startup total happens to be.
     const headerBadge = page.locator('span.text-violet-400').filter({ hasText: /pts/ }).first();
     await expect(headerBadge).toBeVisible({ timeout: 8_000 });
     const beforeText = await headerBadge.textContent();
-    const beforePoints = parseInt(beforeText!.trim(), 10); // e.g. "100 pts" → 100
+    const beforePoints = parseInt(beforeText!.trim(), 10);
 
-    // ── Perform the scan ─────────────────────────────────────────────────────
     await page.getByPlaceholder(/ATT-/i).fill('ATT-9001');
     await page.getByRole('button', { name: /find attendee/i }).click();
 
-    // Wait for attendee card — confirms scan resolved and addPoints was called
     await expect(page.getByText('Alex Rivera')).toBeVisible({ timeout: 10_000 });
 
-    // Toast must appear (existing guard — ensures the points path was taken)
-    await expect(page.getByText('+25')).toBeVisible({ timeout: 6_000 });
-    await expect(page.getByText(/points earned/i)).toBeVisible({ timeout: 6_000 });
+    // Attendee toast confirms the attendee earned points.
+    await expect(page.getByText(/attendee earned 25 pts/i)).toBeVisible({ timeout: 6_000 });
 
-    // ── Assert header badge reflects the updated total ───────────────────────
-    // addPoints(25) updates user.points in AppContext → the header span
-    // re-renders with the new value. Expected: beforePoints + 25.
-    const expectedText = `${beforePoints + 25} pts`;
-    await expect(headerBadge).toHaveText(expectedText, { timeout: 8_000 });
+    // Scanner's own header MUST NOT change — addPoints was never called.
+    await expect(headerBadge).toHaveText(`${beforePoints} pts`, { timeout: 8_000 });
+
+    // No "+N" badge or "Points earned!" label for the scanner.
+    await expect(page.getByText(/points earned/i)).not.toBeVisible({ timeout: 1_000 });
   });
 });
