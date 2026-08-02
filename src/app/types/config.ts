@@ -40,6 +40,10 @@ export interface GamificationConfig {
     dailyLogin: number;
     completeProfile: number;
     completeChallenge: number;
+    /** Points awarded to the scanner when they scan an attendee badge. */
+    scanBadge?: number;
+    /** Points awarded to an attendee for connecting with a sponsor/partner. */
+    connectPartner?: number;
   };
   badges: {
     name: string;

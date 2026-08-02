@@ -339,6 +339,8 @@ const mockGamificationConfig: GamificationConfig = {
     dailyLogin: 5,
     completeProfile: 25,
     completeChallenge: 100,
+    scanBadge: 25,
+    connectPartner: 25,
   },
   badges: [
     { name: 'Early Bird', threshold: 0, icon: 'calendar', color: 'blue' },
