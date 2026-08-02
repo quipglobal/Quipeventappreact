@@ -119,8 +119,8 @@ function deriveDateStatus(
   const endKey   = end   ? end.slice(0, 10)   : null;
   // Past: end calendar day is strictly before today
   if (endKey && endKey < todayKey) return 'past';
-  // Live: today falls within [start, end] calendar days (inclusive)
-  if (startKey && endKey && startKey <= todayKey && endKey >= todayKey) return 'live';
+  // Live: started today or earlier, and either no end date or end is today or later
+  if (startKey && startKey <= todayKey && (!endKey || endKey >= todayKey)) return 'live';
   return apiStatus;
 }
 

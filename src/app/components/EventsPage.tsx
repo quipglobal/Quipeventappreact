@@ -13,7 +13,7 @@ import { DataState } from '@/app/components/ui/DataState';
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const statusConfig: Record<EventStatus, { label: string; color: string; bg: string; dotColor: string }> = {
-  live:     { label: 'Happening Now', color: '#10b981', bg: 'rgba(16,185,129,0.12)', dotColor: '#34d399' },
+  live:     { label: 'Live Now',      color: '#10b981', bg: 'rgba(16,185,129,0.12)', dotColor: '#34d399' },
   upcoming: { label: 'Upcoming',      color: '#3b82f6', bg: 'rgba(59,130,246,0.12)', dotColor: '#60a5fa' },
   past:     { label: 'Completed',     color: '#6b7280', bg: 'rgba(107,114,128,0.12)', dotColor: '#9ca3af' },
 };
