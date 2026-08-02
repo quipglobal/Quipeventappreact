@@ -1,0 +1,142 @@
+Challenges API Reference
+All mobile routes require Bearer token (Sanctum) and event membership. No X-Tenant-ID header is needed for the mobile paths.
+
+Base prefix: https://<host>/api/v1
+
+1 — List Challenges
+GET /events/{eventId}/gamification/challenges
+
+Auth: Sanctum
+Headers: Authorization: Bearer <token>
+No request body or query params.
+
+Automatically seeds the 5 default challenges and backfills the current user's eligibility before returning.
+
+Response 200
+
+{
+  "success": true,
+  "data": [
+    {
+      "id": 12,
+      "title": "Survey & Poll Champion",
+      "description": "Complete a poll and a survey",
+      "points": 100,
+      "criteria_type": "SURVEY_AND_POLL",
+      "is_active": true,
+      "is_default": true,
+      "max_completions": null,
+      "completions_count": 0,
+      "starts_at": null,
+      "ends_at": null,
+      "created_at": "2026-08-01T10:00:00Z",
+      "user_status": "not_started",
+      "can_claim": false
+    }
+  ]
+}
+
+user_status values:
+
+Value	Meaning
+not_started	User has not met the criteria yet
+eligible	Criteria met — Claim button should appear
+claimed	Points already awarded — show as complete
+can_claim mirrors user_status === "eligible" and is true only when the user may tap Claim right now.
+
+Headers on response: Cache-Control: private, no-store — do not cache this response.
+
+2 — Claim a Challenge
+POST /events/{eventId}/gamification/challenges/{challengeId}/claim
+
+Auth: Sanctum
+No request body.
+
+Call when the user taps the Claim button. The backend awards points atomically.
+
+Response 200 — awarded
+
+{
+  "success": true,
+  "data": {
+    "awarded": true,
+    "points_earned": 100,
+    "summary": { /* user gamification summary object */ }
+  }
+}
+
+Response 409 — already claimed
+
+{
+  "success": false,
+  "error": { "code": "ALREADY_CLAIMED", "message": "..." }
+}
+
+Response 422 — not yet eligible
+
+{
+  "success": false,
+  "error": { "code": "NOT_ELIGIBLE", "message": "..." }
+}
+
+3 — The 5 Default Challenges
+These are seeded automatically. The criteria_type values the mobile app should display labels for:
+
+criteria_type	Challenge name	How eligibility is earned
+SURVEY_AND_POLL	Survey & Poll Champion	Vote in ≥1 poll and submit ≥1 survey
+PARTNER_MEETING	Partner Meeting	Complete a meeting with a sponsor rep
+SPONSOR_FEEDBACK	Sponsor Feedback	Submit ≥1 sponsor review
+EXTERNAL_ACTION	External Action	Admin manually marks the user eligible
+VISIT_ALL_SPONSORS	Visit All Partners	Get scanned by a rep from every partner company at the event
+VISIT_ALL_SPONSORS note: eligibility is updated automatically each time the user is scanned by a confirmed sponsor rep. If the event has zero registered companies the challenge stays permanently locked.
+
+4 — Admin: Mark User Eligible (External Action only)
+POST /api/v1/gamification/challenges/{challengeId}/mark-eligible
+
+Auth: Sanctum + admin role (superadmin / system ADMIN / tenant_admin / organizer)
+Body:
+
+{ "user_id": 456 }
+
+Only works for challenges with criteria_type = "EXTERNAL_ACTION". For all other types eligibility is set automatically by backend events.
+
+Response 200
+
+{
+  "success": true,
+  "data": { "marked": true, "message": "User marked eligible" }
+}
+
+Response 403 — caller is not an admin
+Response 422 — user_id missing / invalid
+
+5 — Eligibility is Automatic — No Polling Needed
+The mobile app never needs to call a separate "check eligibility" endpoint. Eligibility is set server-side the moment a qualifying action occurs:
+
+User action	Triggered by
+Votes in a poll	Poll vote endpoint
+Submits a survey	Survey submit endpoint
+Completes a meeting	Meeting complete endpoint
+Submits a sponsor review	Review submit endpoint
+Gets scanned by a sponsor rep	Any scan endpoint (both /events/{id}/scan and /events/{id}/leads/scan)
+After any of these, the next call to List Challenges (endpoint 1) will return user_status: "eligible" for the newly unlocked challenge.
+
+6 — Recommended Mobile Flow
+┌─────────────────────────────────────────────────┐
+│  Screen opens                                   │
+│  GET /events/{id}/gamification/challenges       │
+│  → render list, highlight eligible rows         │
+└─────────────────────────────────────────────────┘
+         │  user taps Claim
+         ▼
+┌─────────────────────────────────────────────────┐
+│  POST /events/{id}/gamification/challenges      │
+│       /{challengeId}/claim                      │
+│  200 → mark row as "claimed", show points toast │
+│  409 → already claimed, refresh list            │
+│  422 → no longer eligible, refresh list         │
+└─────────────────────────────────────────────────┘
+
+Re-fetch the list after any action that could unlock a challenge (scan, poll vote, survey, review, meeting complete) so the UI stays in sync.
+
+

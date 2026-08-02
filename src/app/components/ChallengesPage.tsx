@@ -1,109 +1,98 @@
-import React, { useEffect, useState } from 'react';
-import { ArrowLeft, Trophy, CheckCircle2, Loader2, Lock, Users, Building2 } from 'lucide-react';
+import React, { useEffect, useState, useCallback } from 'react';
+import {
+  ArrowLeft, Trophy, CheckCircle2, Loader2, Lock,
+  Users, ClipboardList, Star, Zap, Building2,
+} from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import {
   listEventChallengesApi,
-  completeEventChallengeApi,
+  claimEventChallengeApi,
   BackendChallenge,
+  ChallengeCriteriaType,
 } from '@/app/api/engageClient';
 
 interface ChallengesPageProps { onBack: () => void; }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Criteria metadata ────────────────────────────────────────────────────────
 
-/**
- * True when the user is allowed to press "Mark Complete" for this challenge.
- *
- * Logic:
- *   - If the backend sends `can_complete`, that is authoritative.
- *   - If absent (older API), fall back to the pre-existing behaviour: always
- *     enabled unless the challenge is already done or fully claimed.
- */
-function canMarkComplete(c: BackendChallenge, isDone: boolean, isFull: boolean): boolean {
-  if (isDone || isFull) return false;
-  if (typeof c.can_complete === 'boolean') return c.can_complete;
-  return true; // graceful degradation for older backend
+interface CriteriaConfig {
+  label: string;
+  hint: string;         // shown when criteria not yet met
+  icon: React.ElementType;
+  color: string;
+  gradient: string;
 }
 
-/** True when the server has already counted this challenge as completed. */
-function isServerDone(c: BackendChallenge, localDoneIds: string[]): boolean {
-  return localDoneIds.includes(String(c.id)) || c.user_completed === true;
+const CRITERIA: Record<string, CriteriaConfig> = {
+  SURVEY_AND_POLL: {
+    label: 'Survey & Poll',
+    hint: 'Vote in a poll and submit a survey to unlock.',
+    icon: ClipboardList,
+    color: '#8b5cf6',
+    gradient: 'linear-gradient(135deg,#8b5cf6,#6366f1)',
+  },
+  PARTNER_MEETING: {
+    label: 'Partner Meeting',
+    hint: 'Complete a meeting with a sponsor rep to unlock.',
+    icon: Users,
+    color: '#06b6d4',
+    gradient: 'linear-gradient(135deg,#06b6d4,#0ea5e9)',
+  },
+  SPONSOR_FEEDBACK: {
+    label: 'Sponsor Feedback',
+    hint: 'Submit a sponsor review to unlock.',
+    icon: Star,
+    color: '#f59e0b',
+    gradient: 'linear-gradient(135deg,#f59e0b,#f97316)',
+  },
+  EXTERNAL_ACTION: {
+    label: 'Special Action',
+    hint: 'An organiser will mark you eligible when the criteria is met.',
+    icon: Zap,
+    color: '#ec4899',
+    gradient: 'linear-gradient(135deg,#ec4899,#f43f5e)',
+  },
+  VISIT_ALL_SPONSORS: {
+    label: 'Visit All Partners',
+    hint: 'Get scanned by a rep from every partner company at the event.',
+    icon: Building2,
+    color: '#10b981',
+    gradient: 'linear-gradient(135deg,#10b981,#0d9488)',
+  },
+};
+
+const DEFAULT_CRITERIA: CriteriaConfig = {
+  label: 'Challenge',
+  hint: 'Complete the required criteria to unlock.',
+  icon: Trophy,
+  color: '#3b82f6',
+  gradient: 'linear-gradient(135deg,#3b82f6,#06b6d4)',
+};
+
+function getCriteria(type?: ChallengeCriteriaType): CriteriaConfig {
+  return (type && CRITERIA[type]) ? CRITERIA[type] : DEFAULT_CRITERIA;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function isDone(c: BackendChallenge, localIds: string[]): boolean {
+  return c.user_status === 'claimed' || localIds.includes(String(c.id));
+}
+
+function isEligible(c: BackendChallenge, localIds: string[]): boolean {
+  if (isDone(c, localIds)) return false;
+  return c.can_claim || c.user_status === 'eligible';
 }
 
 function isFull(c: BackendChallenge): boolean {
   return typeof c.max_completions === 'number' && c.completions_count >= c.max_completions;
 }
 
-/** Friendly label for the challenge type. */
-function typeLabel(type?: string): string | null {
-  if (!type) return null;
-  switch (type) {
-    case 'partner_scan': return 'Partner Visit';
-    case 'session_checkin': return 'Session';
-    case 'manual': return null; // no pill for plain manual challenges
-    default: return type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-  }
-}
-
-// ─── Progress bar for partner_scan and other progress-based challenges ───────
-
-const ChallengeProgressBar: React.FC<{
-  current: number;
-  required: number;
-  label?: string;
-  completedItems?: { id: number | string; name: string }[];
-}> = ({ current, required, label, completedItems }) => {
-  const { t } = useTheme();
-  const pct = required > 0 ? Math.min(100, Math.round((current / required) * 100)) : 0;
-  const done = current >= required;
-
-  return (
-    <div className="mt-3 mb-1">
-      {/* Bar */}
-      <div className="flex items-center justify-between mb-1.5">
-        <span style={{ color: t.textMuted, fontSize: 12, fontWeight: 600 }}>
-          {label ? `${current} / ${required} ${label}` : `${current} / ${required}`}
-        </span>
-        <span style={{ color: done ? t.successText : t.accent, fontSize: 12, fontWeight: 700 }}>
-          {pct}%
-        </span>
-      </div>
-      <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: t.surface2 }}>
-        <div
-          className="h-full rounded-full transition-all duration-500"
-          style={{
-            width: `${pct}%`,
-            background: done
-              ? 'linear-gradient(90deg,#10b981,#0d9488)'
-              : 'linear-gradient(90deg,#3b82f6,#06b6d4)',
-          }}
-        />
-      </div>
-
-      {/* Completed item chips (companies visited, etc.) */}
-      {completedItems && completedItems.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mt-2.5">
-          {completedItems.map(item => (
-            <div
-              key={item.id}
-              className="flex items-center gap-1 px-2 py-1 rounded-lg"
-              style={{ background: t.successBg, border: `1px solid ${t.successText}30` }}
-            >
-              <CheckCircle2 style={{ width: 11, height: 11, color: t.successText }} />
-              <span style={{ color: t.successText, fontSize: 11, fontWeight: 600 }}>{item.name}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
-
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export const ChallengesPage: React.FC<ChallengesPageProps> = ({ onBack }) => {
-  const { completedChallenges, completeChallenge, addPoints, showToast, eventConfig } = useApp();
+  const { completedChallenges, completeChallenge, addPoints, showToast, eventConfig, refreshLeaderboard } = useApp();
   const { t } = useTheme();
   const eventId = eventConfig?.eventId;
 
@@ -112,51 +101,68 @@ export const ChallengesPage: React.FC<ChallengesPageProps> = ({ onBack }) => {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [claimingId, setClaimingId] = useState<number | null>(null);
 
-  useEffect(() => {
+  // Always fetch fresh — API is Cache-Control: private, no-store.
+  const fetchChallenges = useCallback(async (silent = false) => {
     if (!eventId) return;
-    let stale = false;
-    setLoading(true);
-    setLoadError(null);
-    setChallenges([]);
-    listEventChallengesApi(eventId).then(res => {
-      if (stale) return;
-      if (res.success && res.data) {
-        setChallenges(res.data.filter(c => c.is_active));
-      } else {
-        setLoadError(res.error?.message ?? 'Failed to load challenges.');
-      }
-      setLoading(false);
-    });
-    return () => { stale = true; };
+    if (!silent) { setLoading(true); setLoadError(null); }
+    const res = await listEventChallengesApi(eventId);
+    if (!silent) setLoading(false);
+    if (res.success && res.data) {
+      setChallenges(res.data.filter(c => c.is_active));
+    } else if (!silent) {
+      setLoadError(res.error?.message ?? 'Failed to load challenges.');
+    }
   }, [eventId]);
 
-  const handleComplete = async (c: BackendChallenge) => {
+  // Fresh fetch every time the screen opens.
+  useEffect(() => { fetchChallenges(); }, [fetchChallenges]);
+
+  const handleClaim = async (c: BackendChallenge) => {
     if (!eventId || claimingId !== null) return;
-    const done = isServerDone(c, completedChallenges);
-    if (done || !canMarkComplete(c, done, isFull(c))) return;
+    if (!isEligible(c, completedChallenges)) return;
 
     setClaimingId(c.id);
-    const res = await completeEventChallengeApi(eventId, c.id);
+    const res = await claimEventChallengeApi(eventId, c.id);
     setClaimingId(null);
 
     if (res.success && res.data) {
       const pts = res.data.points_earned || c.points;
       if (res.data.awarded && pts > 0) {
-        addPoints(pts, `Challenge complete: ${c.title}`);
-      } else {
-        showToast('Challenge already counted.');
+        addPoints(pts, `Challenge: ${c.title}`);
       }
+      // Mark locally so the UI updates instantly, then re-fetch to sync
+      // server state (including any newly eligible challenges unlocked by
+      // this action).
       completeChallenge(String(c.id), true);
-    } else {
-      showToast(res.error?.message ?? 'Failed to complete challenge. Please try again.');
+      // Refresh the leaderboard so updated points are reflected immediately.
+      refreshLeaderboard?.();
+      fetchChallenges(true);
+      return;
     }
+
+    // 409 — already claimed on the server; reconcile local state.
+    if (res.error?.code === 'ALREADY_CLAIMED') {
+      completeChallenge(String(c.id), true);
+      fetchChallenges(true);
+      return;
+    }
+
+    // 422 — not yet eligible; re-fetch to get the latest user_status.
+    if (res.error?.code === 'NOT_ELIGIBLE') {
+      showToast('Criteria not met yet — keep going!');
+      fetchChallenges(true);
+      return;
+    }
+
+    showToast(res.error?.message ?? 'Failed to claim challenge. Please try again.');
   };
 
-  const activeCount   = challenges.filter(c => !isServerDone(c, completedChallenges)).length;
-  const completedCount = challenges.filter(c =>  isServerDone(c, completedChallenges)).length;
+  const activeCount    = challenges.filter(c => !isDone(c, completedChallenges)).length;
+  const completedCount = challenges.filter(c =>  isDone(c, completedChallenges)).length;
 
   return (
     <div className="min-h-screen pb-20" style={{ background: t.bgPage }}>
+
       {/* ── Header ─────────────────────────────────────────────── */}
       <div className="sticky top-0 z-10 px-5 pt-12 pb-6 text-white"
         style={{ background: 'linear-gradient(135deg,#3b82f6,#06b6d4)' }}>
@@ -168,7 +174,7 @@ export const ChallengesPage: React.FC<ChallengesPageProps> = ({ onBack }) => {
           <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.03em' }}>Challenges</h1>
         </div>
         <p style={{ color: 'rgba(255,255,255,0.75)', fontSize: 13 }}>
-          Complete the criteria to unlock each challenge reward
+          Meet the criteria to claim bonus points
         </p>
       </div>
 
@@ -193,6 +199,7 @@ export const ChallengesPage: React.FC<ChallengesPageProps> = ({ onBack }) => {
 
       {/* ── List ───────────────────────────────────────────────── */}
       <div className="px-5 space-y-4 mb-5">
+
         {loading && (
           <div className="flex items-center justify-center py-16" style={{ color: t.textMuted }}>
             <Loader2 className="animate-spin" style={{ width: 28, height: 28 }} />
@@ -214,76 +221,76 @@ export const ChallengesPage: React.FC<ChallengesPageProps> = ({ onBack }) => {
         )}
 
         {!loading && challenges.map(c => {
-          const done      = isServerDone(c, completedChallenges);
-          const full      = isFull(c);
-          const eligible  = canMarkComplete(c, done, full);
-          const claiming  = claimingId === c.id;
-          const isPartnerScan = c.challenge_type === 'partner_scan';
-          const hasProgress   = !!c.progress;
-          const typePill      = typeLabel(c.challenge_type);
+          const done     = isDone(c, completedChallenges);
+          const eligible = isEligible(c, completedChallenges);
+          const full     = isFull(c);
+          const claiming = claimingId === c.id;
+          const cfg      = getCriteria(c.criteria_type);
+          const CfgIcon  = cfg.icon;
 
           return (
             <div key={c.id} className="rounded-2xl p-5"
               style={{
                 background: t.surface,
                 boxShadow: t.shadow,
-                border: `1px solid ${done ? t.successText + '40' : t.border}`,
+                border: `1px solid ${done ? t.successText + '50' : eligible ? cfg.color + '50' : t.border}`,
                 opacity: done ? 0.85 : 1,
+                transition: 'border-color 0.2s',
               }}>
 
               {/* ── Title row ── */}
               <div className="flex items-start justify-between gap-3 mb-3">
                 <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                     <h3 style={{ color: t.text, fontSize: 16, fontWeight: 700 }}>{c.title}</h3>
-                    {done && <CheckCircle2 style={{ width: 18, height: 18, color: t.successText, flexShrink: 0 }} />}
-                    {typePill && (
-                      <span className="px-2 py-0.5 rounded-md"
-                        style={{
-                          background: isPartnerScan ? 'rgba(99,102,241,0.12)' : 'rgba(59,130,246,0.1)',
-                          color: isPartnerScan ? '#818cf8' : '#60a5fa',
-                          fontSize: 10,
-                          fontWeight: 700,
-                          letterSpacing: '0.05em',
-                        }}>
-                        {isPartnerScan && <Building2 style={{ width: 9, height: 9, display: 'inline', marginRight: 3 }} />}
-                        {typePill}
-                      </span>
+                    {done && (
+                      <CheckCircle2 style={{ width: 17, height: 17, color: t.successText, flexShrink: 0 }} />
                     )}
+                    {/* Criteria type pill */}
+                    <span className="px-2 py-0.5 rounded-md"
+                      style={{
+                        background: cfg.color + '18',
+                        color: cfg.color,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        letterSpacing: '0.05em',
+                      }}>
+                      {cfg.label}
+                    </span>
                   </div>
-                  {c.description && (
-                    <p style={{ color: t.textSec, fontSize: 13, lineHeight: 1.5 }}>{c.description}</p>
+
+                  {/* Description from backend, or fallback criteria hint */}
+                  <p style={{ color: t.textSec, fontSize: 13, lineHeight: 1.5 }}>
+                    {c.description || cfg.hint}
+                  </p>
+
+                  {/* Extra hint when locked */}
+                  {!done && !eligible && c.description && (
+                    <p className="mt-1.5 flex items-center gap-1.5"
+                      style={{ color: t.textMuted, fontSize: 12 }}>
+                      <Lock style={{ width: 11, height: 11, flexShrink: 0 }} />
+                      {cfg.hint}
+                    </p>
                   )}
                 </div>
 
-                {/* Icon */}
+                {/* Icon orb */}
                 <div className="w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0"
-                  style={{
-                    background: isPartnerScan
-                      ? 'linear-gradient(135deg,#6366f1,#8b5cf6)'
-                      : 'linear-gradient(135deg,#3b82f6,#06b6d4)',
-                  }}>
-                  {isPartnerScan
-                    ? <Users style={{ width: 26, height: 26, color: '#fff' }} />
-                    : <Trophy style={{ width: 26, height: 26, color: '#fff' }} />}
+                  style={{ background: done ? t.successBg : cfg.gradient }}>
+                  {done
+                    ? <CheckCircle2 style={{ width: 26, height: 26, color: t.successText }} />
+                    : <CfgIcon style={{ width: 26, height: 26, color: '#fff' }} />}
                 </div>
               </div>
 
-              {/* ── Progress bar (partner_scan + any progress-tracked challenge) ── */}
-              {hasProgress && c.progress && (
-                <ChallengeProgressBar
-                  current={c.progress.current}
-                  required={c.progress.required}
-                  label={c.progress.label ?? (isPartnerScan ? 'companies visited' : undefined)}
-                  completedItems={c.progress.completed_items}
-                />
-              )}
-
-              {/* ── Footer row ── */}
+              {/* ── Footer ── */}
               <div className="flex items-center justify-between pt-3"
-                style={{ borderTop: `1px solid ${t.divider}`, marginTop: hasProgress ? 12 : 0 }}>
+                style={{ borderTop: `1px solid ${t.divider}` }}>
+
                 <div className="flex items-center gap-3">
-                  <span style={{ color: t.successText, fontWeight: 700, fontSize: 13 }}>+{c.points} pts</span>
+                  <span style={{ color: t.successText, fontWeight: 700, fontSize: 13 }}>
+                    +{c.points} pts
+                  </span>
                   {typeof c.max_completions === 'number' && (
                     <span style={{ color: t.textMuted, fontSize: 12 }}>
                       {c.completions_count}/{c.max_completions} claimed
@@ -291,37 +298,38 @@ export const ChallengesPage: React.FC<ChallengesPageProps> = ({ onBack }) => {
                   )}
                 </div>
 
-                {/* ── Action button ── */}
+                {/* Action area */}
                 {done ? (
-                  <div className="px-4 py-2 rounded-xl font-semibold"
-                    style={{ background: t.successBg, color: t.successText, fontSize: 13 }}>
+                  <div className="px-4 py-2 rounded-xl text-sm font-semibold"
+                    style={{ background: t.successBg, color: t.successText }}>
                     Completed ✓
                   </div>
                 ) : full ? (
-                  <div className="px-4 py-2 rounded-xl font-semibold"
-                    style={{ background: t.surface2, color: t.textMuted, fontSize: 13 }}>
+                  <div className="px-4 py-2 rounded-xl text-sm font-semibold"
+                    style={{ background: t.surface2, color: t.textMuted }}>
                     Fully claimed
                   </div>
                 ) : eligible ? (
                   <button
-                    onClick={() => handleComplete(c)}
+                    onClick={() => handleClaim(c)}
                     disabled={claiming}
-                    className="flex items-center gap-2 px-5 py-2 rounded-xl font-semibold text-white transition-opacity"
+                    className="flex items-center gap-2 px-5 py-2 rounded-xl font-semibold text-white transition-opacity active:scale-95"
                     style={{
                       background: 'linear-gradient(135deg,#10b981,#0d9488)',
                       boxShadow: '0 4px 16px rgba(16,185,129,0.3)',
                       opacity: claiming ? 0.7 : 1,
                     }}>
                     {claiming && <Loader2 className="animate-spin" style={{ width: 14, height: 14 }} />}
-                    {claiming ? 'Submitting…' : 'Mark Complete'}
+                    {claiming ? 'Claiming…' : 'Claim Points'}
                   </button>
                 ) : (
-                  /* Criteria not yet met — locked state */
                   <div className="flex items-center gap-2 px-4 py-2 rounded-xl"
                     style={{ background: t.surface2, border: `1px solid ${t.border}` }}>
-                    <Lock style={{ width: 13, height: 13, color: t.textMuted }} />
+                    <Lock style={{ width: 12, height: 12, color: t.textMuted }} />
                     <span style={{ color: t.textMuted, fontSize: 12, fontWeight: 600 }}>
-                      {isPartnerScan ? 'Visit more partners' : 'Criteria not met'}
+                      {c.criteria_type === 'VISIT_ALL_SPONSORS' ? 'Visit all partners' :
+                       c.criteria_type === 'EXTERNAL_ACTION'    ? 'Waiting for organiser' :
+                       'Criteria not met'}
                     </span>
                   </div>
                 )}

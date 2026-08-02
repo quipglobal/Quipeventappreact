@@ -151,55 +151,59 @@ export async function submitEventPollVoteApi(
 }
 
 // ─── Challenges ─────────────────────────────────────────────────────────────
+//
+// Backend contract (Challenges API Reference, updated):
+//   GET  /api/v1/events/:eventId/gamification/challenges
+//        → { success: true, data: BackendChallenge[] }
+//        Response is Cache-Control: private, no-store — always fetch fresh.
+//        Automatically seeds 5 default challenges and backfills eligibility.
+//
+//   POST /api/v1/events/:eventId/gamification/challenges/:id/claim
+//        → 200 { success:true, data:{ awarded, points_earned, summary } }
+//        → 409 { success:false, error:{ code:'ALREADY_CLAIMED', … } }
+//        → 422 { success:false, error:{ code:'NOT_ELIGIBLE', … } }
 
-export interface BackendChallengeProgress {
-  /** How many units (companies, actions, etc.) the user has met. */
-  current: number;
-  /** Total units required to satisfy the criteria. */
-  required: number;
-  /** Human-readable label, e.g. "companies visited". */
-  label?: string;
-  /** Which specific companies/items have been met (for partner_scan). */
-  completed_items?: { id: number | string; name: string }[];
-}
+/**
+ * Known criteria_type values seeded automatically by the backend.
+ * The mobile/web UI uses these to show appropriate descriptions and icons.
+ */
+export type ChallengeCriteriaType =
+  | 'SURVEY_AND_POLL'   // Vote in ≥1 poll AND submit ≥1 survey
+  | 'PARTNER_MEETING'   // Complete a meeting with a sponsor rep
+  | 'SPONSOR_FEEDBACK'  // Submit ≥1 sponsor review
+  | 'EXTERNAL_ACTION'   // Admin manually marks user eligible
+  | 'VISIT_ALL_SPONSORS'// Get scanned by a rep from every partner company
+  | (string & {});      // Forward-compat with future types
 
 export interface BackendChallenge {
   id: number;
   title: string;
   description: string | null;
   points: number;
+  /** Discriminates the completion criteria. Use this to show the right icon/description. */
+  criteria_type: ChallengeCriteriaType;
   is_active: boolean;
+  is_default: boolean;
   max_completions: number | null;
   completions_count: number;
   starts_at: string | null;
   ends_at: string | null;
+  created_at: string;
   /**
-   * Backend-evaluated flag: true when the user has satisfied all criteria
-   * and is allowed to call /complete. The "Mark Complete" button is only
-   * enabled when this is true (or when the field is absent, for graceful
-   * degradation with older API versions).
+   * Server-evaluated user state for this challenge.
+   *   'not_started' — criteria not yet met; Claim button must be locked.
+   *   'eligible'    — criteria met; Claim button should be active.
+   *   'claimed'     — points already awarded; show as complete.
    */
-  can_complete?: boolean;
+  user_status: 'not_started' | 'eligible' | 'claimed';
   /**
-   * True when the backend has already recorded this challenge as completed
-   * for the current user (may be set server-side without a client /complete
-   * call, e.g. for partner_scan challenges that auto-complete).
+   * Convenience mirror of user_status === 'eligible'.
+   * True only when the user may tap Claim right now.
    */
-  user_completed?: boolean;
-  /**
-   * Discriminates challenge types that have structured completion criteria.
-   * Known values: 'partner_scan' | 'manual' | 'session_checkin' | etc.
-   * Absent on older challenges that pre-date typed challenges.
-   */
-  challenge_type?: string;
-  /**
-   * Progress toward the completion criteria, populated for challenges where
-   * partial progress is trackable (e.g. partner_scan shows 3/5 companies).
-   */
-  progress?: BackendChallengeProgress;
+  can_claim: boolean;
 }
 
-export interface ChallengeCompleteResult {
+export interface ChallengeClaimResult {
   awarded: boolean;
   points_earned: number;
   summary?: {
@@ -209,25 +213,62 @@ export interface ChallengeCompleteResult {
   };
 }
 
+/**
+ * GET /api/v1/events/:eventId/gamification/challenges
+ *
+ * Always fetches fresh — do NOT use a client-side cache for this endpoint.
+ * The server sets Cache-Control: private, no-store and recomputes eligibility
+ * on every request based on the user's latest actions.
+ */
 export async function listEventChallengesApi(
   eventId: string | number
 ): Promise<{ success: boolean; data?: BackendChallenge[]; error?: { code?: string; message: string } }> {
-  const res = await apiGet<BackendChallenge[]>(`/api/v1/events/${eventId}/gamification/challenges`);
+  const res = await apiGet<
+    { success: boolean; data: BackendChallenge[] } | BackendChallenge[]
+  >(`/api/v1/events/${eventId}/gamification/challenges`);
+
   if (!res.success) return { success: false, error: res.error ?? { message: 'Failed to load challenges.' } };
-  return { success: true, data: res.data ?? [] };
+
+  // Normalise both envelope shapes: { success, data: [...] } and bare array.
+  const raw = res.data as ({ success: boolean; data: BackendChallenge[] } | BackendChallenge[]);
+  const challenges: BackendChallenge[] = Array.isArray(raw) ? raw : (raw?.data ?? []);
+  return { success: true, data: challenges };
 }
 
-export async function completeEventChallengeApi(
+/**
+ * POST /api/v1/events/:eventId/gamification/challenges/:challengeId/claim
+ *
+ * Only call when can_claim is true. The backend awards points atomically.
+ * 409 = already claimed (treat as success — mark done, refresh list).
+ * 422 = not yet eligible (criteria not met — refresh list to re-sync state).
+ */
+export async function claimEventChallengeApi(
   eventId: string | number,
   challengeId: string | number
-): Promise<{ success: boolean; data?: ChallengeCompleteResult; error?: { code?: string; message: string } }> {
-  const res = await apiPost<ChallengeCompleteResult>(
-    `/api/v1/events/${eventId}/gamification/challenges/${challengeId}/complete`,
+): Promise<{ success: boolean; data?: ChallengeClaimResult; error?: { code?: string; message: string } }> {
+  const res = await apiPost<
+    { success: boolean; data: ChallengeClaimResult } | ChallengeClaimResult
+  >(
+    `/api/v1/events/${eventId}/gamification/challenges/${challengeId}/claim`,
     {}
   );
-  if (!res.success || !res.data) return { success: false, error: res.error ?? { code: 'COMPLETE_FAILED', message: 'Failed to complete challenge.' } };
-  return { success: true, data: res.data };
+
+  if (!res.success) return { success: false, error: res.error ?? { code: 'CLAIM_FAILED', message: 'Failed to claim challenge.' } };
+
+  // Normalise both envelope shapes.
+  const raw = res.data as ({ success: boolean; data: ChallengeClaimResult } | ChallengeClaimResult);
+  const data: ChallengeClaimResult =
+    raw && 'data' in raw && typeof (raw as { data?: unknown }).data === 'object' && (raw as { data?: unknown }).data !== null
+      ? (raw as { success: boolean; data: ChallengeClaimResult }).data
+      : (raw as ChallengeClaimResult);
+  return { success: true, data };
 }
+
+/**
+ * @deprecated Use claimEventChallengeApi — the endpoint changed from /complete to /claim.
+ * Kept as an alias so any un-migrated callers don't break silently.
+ */
+export const completeEventChallengeApi = claimEventChallengeApi;
 
 // Giveaways live in `giveawaysClient.ts` and are sourced exclusively
 // from the backend (event-scoped). Attendees can no longer self-claim
