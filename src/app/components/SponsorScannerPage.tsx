@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   QrCode, Type, Save, X, ScanLine, Building2,
   Flame, ThermometerSun, Snowflake, CheckCircle2, AlertTriangle,
@@ -70,6 +70,9 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [priority, setPriority] = useState<Priority>('warm');
   const [isSaving, setIsSaving] = useState(false);
+  // Ref-based guard so rapid double-taps can't dispatch two concurrent saves
+  // even before the first setState re-render has disabled the button.
+  const savingRef = useRef(false);
 
   const eventId = eventConfig?.eventId ?? '0';
 
@@ -258,165 +261,175 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
 
   const handleSave = async () => {
     if (!scannedData) return;
+    // Synchronous ref check prevents a second invocation from racing through
+    // before the first setState re-render has disabled the button visually.
+    // The ref stays true until ALL async work (including post-save check-ins)
+    // completes so a tap during the success handler can't re-enter.
+    if (savingRef.current) return;
+    savingRef.current = true;
     setIsSaving(true);
 
-    // Path A: backend already created the lead at scan time. Update
-    // notes/tags/priority on the server, but ALWAYS apply them locally
-    // first so the user's input is never lost — backend failure (e.g. PUT
-    // /leads/:id 404'ing because the route isn't deployed yet) becomes a
-    // best-effort sync, not a hard error.
-    if (scannedData.leadId) {
-      // Apply locally first — source of truth for "My Leads".
-      updateLead(scannedData.leadId, { notes, tags: selectedTags, priority });
-      // Mirror to the per-user edits overlay under the badge code too,
-      // since `updateLead`'s code lookup misses on first-ever scans
-      // (the lead row hasn't been saved to context yet). The merge
-      // falls back to the code key when the server returns this lead
-      // under a different id.
-      if (user?.id) {
-        saveLeadEdit(
-          user.id,
-          scannedData.leadId,
-          { notes, tags: selectedTags, priority },
-          scannedData.code,
-        );
+    try {
+      // Path A: backend already created the lead at scan time. Update
+      // notes/tags/priority on the server, but ALWAYS apply them locally
+      // first so the user's input is never lost — backend failure (e.g. PUT
+      // /leads/:id 404'ing because the route isn't deployed yet) becomes a
+      // best-effort sync, not a hard error.
+      if (scannedData.leadId) {
+        // Apply locally first — source of truth for "My Leads".
+        updateLead(scannedData.leadId, { notes, tags: selectedTags, priority });
+        // Mirror to the per-user edits overlay under the badge code too,
+        // since `updateLead`'s code lookup misses on first-ever scans
+        // (the lead row hasn't been saved to context yet). The merge
+        // falls back to the code key when the server returns this lead
+        // under a different id.
+        if (user?.id) {
+          saveLeadEdit(
+            user.id,
+            scannedData.leadId,
+            { notes, tags: selectedTags, priority },
+            scannedData.code,
+          );
+        }
+
+        const upd = await updateLeadApi(eventId, scannedData.leadId, {
+          notes,
+          tags: selectedTags,
+          priority,
+        });
+
+        if (!upd.success && upd.error?.code !== '404' && upd.error?.code !== 'NOT_IMPLEMENTED') {
+          // Surface only genuine backend errors (validation, server failure).
+          // 404 means the update endpoint isn't deployed yet — local save
+          // already covered the user; don't alarm them.
+          // updateLead already called showToast; suppress the duplicate by
+          // logging instead.
+          console.warn('[Lead update] backend sync failed:', upd.error);
+        }
+        resetScanner();
+        onSaved?.();
+        return;
       }
 
-      const upd = await updateLeadApi(eventId, scannedData.leadId, {
+      // Path B: scan endpoint didn't create a lead (unknown code, audience
+      // fallback path, or no-id response). Submit the full payload now to
+      // create the lead and award points server-side, but ALWAYS persist
+      // locally so the user's notes survive backend hiccups.
+      const res = await scanBadgeLead(eventId, {
+        code: scannedData.code,
+        name: scannedData.name,
+        company: scannedData.company,
+        title: scannedData.title,
         notes,
+        avatar: scannedData.avatar,
         tags: selectedTags,
         priority,
       });
-      setIsSaving(false);
 
-      if (!upd.success && upd.error?.code !== '404' && upd.error?.code !== 'NOT_IMPLEMENTED') {
-        // Surface only genuine backend errors (validation, server failure).
-        // 404 means the update endpoint isn't deployed yet — local save
-        // already covered the user; don't alarm them.
-        // updateLead already called showToast; suppress the duplicate by
-        // logging instead.
-        console.warn('[Lead update] backend sync failed:', upd.error);
+      if (res.success && res.data) {
+        // Backend created (or re-resolved) the lead — use its canonical
+        // payload, but prefer the user's just-typed notes/tags/priority over
+        // whatever the server returned (it usually echoes empty defaults).
+        saveLead({
+          id: res.data.id,
+          code: res.data.code || scannedData.code,
+          name: res.data.name || scannedData.name,
+          company: res.data.company ?? scannedData.company,
+          title: res.data.title ?? scannedData.title,
+          notes,
+          avatar: res.data.avatar ?? scannedData.avatar,
+          tags: selectedTags,
+          priority,
+        });
+        // Mirror notes/tags/priority into the per-user overlay (keyed by
+        // both id and badge code) so a later GET /my-leads — which often
+        // echoes back null/empty for these fields — still surfaces what
+        // the user just typed.
+        if (user?.id) {
+          saveLeadEdit(
+            user.id,
+            res.data.id,
+            { notes, tags: selectedTags, priority },
+            res.data.code || scannedData.code,
+          );
+        }
+
+        // Auto check-in reconciliation for the fallback path
+        if (!autoCheckedIn) {
+          if (res.data.checkedIn) {
+            showToast(`Auto checked-in ${res.data.name}`);
+          } else if (typeof res.data.memberId === 'number') {
+            const ok = await checkInMemberApi(eventId, res.data.memberId);
+            if (ok) showToast(`Auto checked-in ${res.data.name}`);
+          }
+        }
+
+        // Use the server's awarded points; 0 means duplicate scan (no toast,
+        // no double credit). Only fall back to the local config when the
+        // server omits the field entirely.
+        const pts =
+          typeof res.data.pointsAwarded === 'number'
+            ? res.data.pointsAwarded
+            : (gamificationConfig?.pointActions as Record<string, number> | undefined)?.scanBadge
+              ?? 0;
+        if (pts > 0) {
+          addPoints(pts, `Scanned ${res.data.name}'s badge`);
+        }
+        // Notify the sponsor that the scanned attendee also earned points.
+        if (typeof res.data.attendeePointsAwarded === 'number' && res.data.attendeePointsAwarded > 0) {
+          showToast(`Partner connected — attendee earned ${res.data.attendeePointsAwarded} pts`);
+        }
+
+        resetScanner();
+        onSaved?.();
+        return;
       }
-      resetScanner();
-      onSaved?.();
-      return;
-    }
 
-    // Path B: scan endpoint didn't create a lead (unknown code, audience
-    // fallback path, or no-id response). Submit the full payload now to
-    // create the lead and award points server-side, but ALWAYS persist
-    // locally so the user's notes survive backend hiccups.
-    const res = await scanBadgeLead(eventId, {
-      code: scannedData.code,
-      name: scannedData.name,
-      company: scannedData.company,
-      title: scannedData.title,
-      notes,
-      avatar: scannedData.avatar,
-      tags: selectedTags,
-      priority,
-    });
-
-    setIsSaving(false);
-
-    if (res.success && res.data) {
-      // Backend created (or re-resolved) the lead — use its canonical
-      // payload, but prefer the user's just-typed notes/tags/priority over
-      // whatever the server returned (it usually echoes empty defaults).
+      // Backend rejected the save (route missing, duplicate, server error,
+      // etc). The user's notes are still valuable — persist locally so the
+      // lead lands in "My Leads" instead of vanishing. This mirrors the
+      // mobile audience-fallback behaviour.
+      //
+      // Mark as `pendingSync: true` so the LeadsPage reconciliation step can
+      // push it to the backend the next time the leads-list endpoint succeeds
+      // (or the user navigates back to the list). Until then, the UI can show
+      // a "syncing" indicator on the row.
       saveLead({
-        id: res.data.id,
-        code: res.data.code || scannedData.code,
-        name: res.data.name || scannedData.name,
-        company: res.data.company ?? scannedData.company,
-        title: res.data.title ?? scannedData.title,
+        code: scannedData.code,
+        name: scannedData.name,
+        company: scannedData.company,
+        title: scannedData.title,
         notes,
-        avatar: res.data.avatar ?? scannedData.avatar,
+        avatar: scannedData.avatar,
         tags: selectedTags,
         priority,
+        pendingSync: true,
       });
-      // Mirror notes/tags/priority into the per-user overlay (keyed by
-      // both id and badge code) so a later GET /my-leads — which often
-      // echoes back null/empty for these fields — still surfaces what
-      // the user just typed.
-      if (user?.id) {
-        saveLeadEdit(
-          user.id,
-          res.data.id,
-          { notes, tags: selectedTags, priority },
-          res.data.code || scannedData.code,
-        );
-      }
-
-      // Auto check-in reconciliation for the fallback path
-      if (!autoCheckedIn) {
-        if (res.data.checkedIn) {
-          showToast(`Auto checked-in ${res.data.name}`);
-        } else if (typeof res.data.memberId === 'number') {
-          const ok = await checkInMemberApi(eventId, res.data.memberId);
-          if (ok) showToast(`Auto checked-in ${res.data.name}`);
+      // Only award local fallback points if scan-time didn't already credit
+      // them (e.g. when the badge wasn't recognized by the backend at scan
+      // time, so no points were given). This prevents double-counting when
+      // handleCodeDetected already awarded points but the backend later
+      // rejects the second /leads/scan with the full payload.
+      if (!scannedData.pointsCreditedAtScan) {
+        const localPts =
+          (gamificationConfig?.pointActions as Record<string, number> | undefined)?.scanBadge ?? 0;
+        if (localPts > 0) {
+          addPoints(localPts, `Scanned ${scannedData.name}'s badge`);
         }
       }
-
-      // Use the server's awarded points; 0 means duplicate scan (no toast,
-      // no double credit). Only fall back to the local config when the
-      // server omits the field entirely.
-      const pts =
-        typeof res.data.pointsAwarded === 'number'
-          ? res.data.pointsAwarded
-          : (gamificationConfig?.pointActions as Record<string, number> | undefined)?.scanBadge
-            ?? 0;
-      if (pts > 0) {
-        addPoints(pts, `Scanned ${res.data.name}'s badge`);
+      if (res.error?.code && res.error.code !== 'NOT_IMPLEMENTED' && res.error.code !== 'SCAN_FAILED') {
+        // Surface real backend errors quietly in the console for debugging
+        // without alarming the user — their lead is captured.
+        console.warn('[Lead save] backend sync failed:', res.error);
       }
-      // Notify the sponsor that the scanned attendee also earned points.
-      if (typeof res.data.attendeePointsAwarded === 'number' && res.data.attendeePointsAwarded > 0) {
-        showToast(`Partner connected — attendee earned ${res.data.attendeePointsAwarded} pts`);
-      }
-
       resetScanner();
       onSaved?.();
-      return;
+    } finally {
+      // Always release the lock — even if an unexpected exception is thrown —
+      // so the button doesn't stay permanently disabled.
+      savingRef.current = false;
+      setIsSaving(false);
     }
-
-    // Backend rejected the save (route missing, duplicate, server error,
-    // etc). The user's notes are still valuable — persist locally so the
-    // lead lands in "My Leads" instead of vanishing. This mirrors the
-    // mobile audience-fallback behaviour.
-    //
-    // Mark as `pendingSync: true` so the LeadsPage reconciliation step can
-    // push it to the backend the next time the leads-list endpoint succeeds
-    // (or the user navigates back to the list). Until then, the UI can show
-    // a "syncing" indicator on the row.
-    saveLead({
-      code: scannedData.code,
-      name: scannedData.name,
-      company: scannedData.company,
-      title: scannedData.title,
-      notes,
-      avatar: scannedData.avatar,
-      tags: selectedTags,
-      priority,
-      pendingSync: true,
-    });
-    // Only award local fallback points if scan-time didn't already credit
-    // them (e.g. when the badge wasn't recognized by the backend at scan
-    // time, so no points were given). This prevents double-counting when
-    // handleCodeDetected already awarded points but the backend later
-    // rejects the second /leads/scan with the full payload.
-    if (!scannedData.pointsCreditedAtScan) {
-      const localPts =
-        (gamificationConfig?.pointActions as Record<string, number> | undefined)?.scanBadge ?? 0;
-      if (localPts > 0) {
-        addPoints(localPts, `Scanned ${scannedData.name}'s badge`);
-      }
-    }
-    if (res.error?.code && res.error.code !== 'NOT_IMPLEMENTED' && res.error.code !== 'SCAN_FAILED') {
-      // Surface real backend errors quietly in the console for debugging
-      // without alarming the user — their lead is captured.
-      console.warn('[Lead save] backend sync failed:', res.error);
-    }
-    resetScanner();
-    onSaved?.();
   };
 
   const resetScanner = () => {
