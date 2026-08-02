@@ -98,7 +98,9 @@ export const EventsPage: React.FC<EventsPageProps> = ({ onNavigate, compact = fa
     { id: 'past',     label: 'Past',     count: pastCount     || undefined },
   ];
 
-  const categories = Array.from(new Set(events.map(e => e.category)));
+  // Always show all 5 brand categories in a fixed order, regardless of what
+  // the API returns — users should always be able to filter by any type.
+  const ALL_CATEGORIES: EventCategory[] = ['ciomeet', 'cisomeet', 'cfomeet', 'ctomeet', 'grcmeet'];
 
   const handleRegister = (ev: OrganizerEvent) => {
     showToast(`Registered for ${ev.title}!`);
@@ -320,21 +322,8 @@ export const EventsPage: React.FC<EventsPageProps> = ({ onNavigate, compact = fa
           ))}
         </div>
 
-        {/* Search */}
-        <div className="relative">
-          <Search style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', width: 15, height: 15, color: t.textMuted }} />
-          <input
-            type="text"
-            placeholder="Search events, topics, locations…"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-4 py-2.5 rounded-xl outline-none"
-            style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}`, color: t.text, fontSize: 13 }}
-          />
-        </div>
-
-        {/* Category chips */}
-        <div className="flex gap-2 mt-3 overflow-x-auto pb-0.5 -mx-5 px-5" style={{ scrollbarWidth: 'none' }}>
+        {/* Category filter chips — all 5 brand types, always visible */}
+        <div className="flex gap-2 mb-3 overflow-x-auto pb-0.5 -mx-5 px-5" style={{ scrollbarWidth: 'none' }}>
           <button
             onClick={() => setSelectedCategory('all')}
             className="px-3 py-1.5 rounded-full flex-shrink-0 transition-all"
@@ -348,22 +337,39 @@ export const EventsPage: React.FC<EventsPageProps> = ({ onNavigate, compact = fa
           >
             All Types
           </button>
-          {categories.map(cat => (
-            <button
-              key={cat}
-              onClick={() => setSelectedCategory(cat)}
-              className="px-3 py-1.5 rounded-full flex-shrink-0 transition-all"
-              style={{
-                background: selectedCategory === cat ? t.accent : t.surface2,
-                color: selectedCategory === cat ? '#fff' : t.textSec,
-                fontSize: 12,
-                fontWeight: 600,
-                border: `1px solid ${selectedCategory === cat ? t.accent : t.border}`,
-              }}
-            >
-              {categoryConfig[cat]?.label ?? cat}
-            </button>
-          ))}
+          {ALL_CATEGORIES.map(cat => {
+            const cfg = categoryConfig[cat];
+            const isActive = selectedCategory === cat;
+            return (
+              <button
+                key={cat}
+                onClick={() => setSelectedCategory(isActive ? 'all' : cat)}
+                className="px-3 py-1.5 rounded-full flex-shrink-0 transition-all"
+                style={{
+                  background: isActive ? cfg.gradient : t.surface2,
+                  color: isActive ? '#fff' : t.textSec,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  border: `1px solid ${isActive ? 'transparent' : t.border}`,
+                }}
+              >
+                {cfg.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Search */}
+        <div className="relative">
+          <Search style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', width: 15, height: 15, color: t.textMuted }} />
+          <input
+            type="text"
+            placeholder="Search events, topics, locations…"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            className="w-full pl-9 pr-4 py-2.5 rounded-xl outline-none"
+            style={{ background: t.inputBg, border: `1px solid ${t.inputBorder}`, color: t.text, fontSize: 13 }}
+          />
         </div>
       </div>
 
