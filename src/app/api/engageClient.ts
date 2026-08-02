@@ -152,6 +152,17 @@ export async function submitEventPollVoteApi(
 
 // ─── Challenges ─────────────────────────────────────────────────────────────
 
+export interface BackendChallengeProgress {
+  /** How many units (companies, actions, etc.) the user has met. */
+  current: number;
+  /** Total units required to satisfy the criteria. */
+  required: number;
+  /** Human-readable label, e.g. "companies visited". */
+  label?: string;
+  /** Which specific companies/items have been met (for partner_scan). */
+  completed_items?: { id: number | string; name: string }[];
+}
+
 export interface BackendChallenge {
   id: number;
   title: string;
@@ -162,6 +173,30 @@ export interface BackendChallenge {
   completions_count: number;
   starts_at: string | null;
   ends_at: string | null;
+  /**
+   * Backend-evaluated flag: true when the user has satisfied all criteria
+   * and is allowed to call /complete. The "Mark Complete" button is only
+   * enabled when this is true (or when the field is absent, for graceful
+   * degradation with older API versions).
+   */
+  can_complete?: boolean;
+  /**
+   * True when the backend has already recorded this challenge as completed
+   * for the current user (may be set server-side without a client /complete
+   * call, e.g. for partner_scan challenges that auto-complete).
+   */
+  user_completed?: boolean;
+  /**
+   * Discriminates challenge types that have structured completion criteria.
+   * Known values: 'partner_scan' | 'manual' | 'session_checkin' | etc.
+   * Absent on older challenges that pre-date typed challenges.
+   */
+  challenge_type?: string;
+  /**
+   * Progress toward the completion criteria, populated for challenges where
+   * partial progress is trackable (e.g. partner_scan shows 3/5 companies).
+   */
+  progress?: BackendChallengeProgress;
 }
 
 export interface ChallengeCompleteResult {
