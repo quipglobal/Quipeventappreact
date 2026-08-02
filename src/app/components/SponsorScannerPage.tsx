@@ -180,6 +180,10 @@ export const SponsorScannerPage: React.FC = () => {
         } else if (didCheckIn) {
           showToast(`Auto checked-in ${attendee.name}`);
         }
+        // Notify the sponsor that the scanned attendee also earned points.
+        if (typeof d.attendeePointsAwarded === 'number' && d.attendeePointsAwarded > 0) {
+          showToast(`Partner connected — attendee earned ${d.attendeePointsAwarded} pts`);
+        }
         setScannedData(attendee);
 
         // Mirror the new lead into local state so My Leads shows it even if
@@ -349,6 +353,10 @@ export const SponsorScannerPage: React.FC = () => {
             ?? 0;
       if (pts > 0) {
         addPoints(pts, `Scanned ${res.data.name}'s badge`);
+      }
+      // Notify the sponsor that the scanned attendee also earned points.
+      if (typeof res.data.attendeePointsAwarded === 'number' && res.data.attendeePointsAwarded > 0) {
+        showToast(`Partner connected — attendee earned ${res.data.attendeePointsAwarded} pts`);
       }
 
       resetScanner();

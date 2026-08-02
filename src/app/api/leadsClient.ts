@@ -67,6 +67,8 @@ export interface SaveLeadResponse {
   success: boolean;
   data?: Lead & {
     pointsAwarded?: number;
+    /** Points awarded to the scanned attendee (connectPartner action). */
+    attendeePointsAwarded?: number;
     /** True iff the backend just auto-checked-in the attendee on this scan. */
     checkedIn?: boolean;
     /** True iff the attendee is currently checked-in to the event (regardless
@@ -335,6 +337,8 @@ export async function scanBadgeLead(
   const res = await apiPost<Lead & {
     pointsAwarded?: number;
     points_awarded?: number;
+    attendeePointsAwarded?: number;
+    attendee_points_awarded?: number;
     checkedIn?: boolean;
     checked_in?: boolean;
     isCheckedIn?: boolean;
@@ -365,6 +369,8 @@ export async function scanBadgeLead(
     timestamp: Date | string;
     pointsAwarded?: number;
     points_awarded?: number;
+    attendeePointsAwarded?: number;
+    attendee_points_awarded?: number;
     checkedIn?: boolean;
     checked_in?: boolean;
     isCheckedIn?: boolean;
@@ -376,6 +382,10 @@ export async function scanBadgeLead(
   const pointsAwarded =
     typeof raw.pointsAwarded === 'number' ? raw.pointsAwarded :
     typeof raw.points_awarded === 'number' ? raw.points_awarded :
+    undefined;
+  const attendeePointsAwarded =
+    typeof raw.attendeePointsAwarded === 'number' ? raw.attendeePointsAwarded :
+    typeof raw.attendee_points_awarded === 'number' ? raw.attendee_points_awarded :
     undefined;
   const checkedIn =
     typeof raw.checkedIn === 'boolean' ? raw.checkedIn :
@@ -393,7 +403,7 @@ export async function scanBadgeLead(
     typeof raw.memberId === 'number' ? raw.memberId :
     typeof raw.member_id === 'number' ? raw.member_id :
     undefined;
-  return { success: true, data: { ...lead, pointsAwarded, checkedIn, isCheckedIn, memberId } };
+  return { success: true, data: { ...lead, pointsAwarded, attendeePointsAwarded, checkedIn, isCheckedIn, memberId } };
 }
 
 /**
