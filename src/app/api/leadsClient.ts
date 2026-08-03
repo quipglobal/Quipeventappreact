@@ -335,6 +335,16 @@ export async function scanBadgeLead(
     };
   }
 
+  // priority must be uppercase on the wire ("HOT" | "WARM" | "COLD").
+  // `toServerPriority` strips invalid values and returns undefined (omitted)
+  // rather than sending a malformed string the backend would reject.
+  const wirePayload: typeof payload & { priority?: string } = {
+    ...payload,
+    ...(payload.priority !== undefined
+      ? { priority: toServerPriority(payload.priority) }
+      : {}),
+  };
+
   const res = await apiPost<Lead & {
     pointsAwarded?: number;
     points_awarded?: number;
@@ -348,7 +358,7 @@ export async function scanBadgeLead(
     member_id?: number;
   }>(
     `/api/v1/events/${eventId}/leads/scan`,
-    payload,
+    wirePayload,
     HEADERS,
     { timeoutMs: 10_000 },
   );
