@@ -57,6 +57,9 @@ export default function LeadDetailScreen() {
   const [editNotes, setEditNotes] = useState(lead?.notes ?? '');
   const [editTags, setEditTags] = useState<string[]>(lead?.tags ?? []);
   const [editPriority, setEditPriority] = useState<Priority>(lead ? priorityOf(lead) : 'warm');
+  // Optimistically hide the inherited badge once the rep saves an edit —
+  // the PATCH creates event-specific values and clears is_inherited server-side.
+  const [hasEdited, setHasEdited] = useState(false);
 
   if (!lead) {
     return (
@@ -85,6 +88,7 @@ export default function LeadDetailScreen() {
 
   const handleSave = async () => {
     setIsEditing(false);
+    setHasEdited(true);
     try {
       const res = await updateLead.mutateAsync({
         leadId: lead.id,
@@ -184,6 +188,19 @@ export default function LeadDetailScreen() {
             </TouchableOpacity>
           )}
         </View>
+
+        {/* Inherited badge */}
+        {lead.isInherited && !hasEdited && (
+          <View style={styles.inheritedBar}>
+            <Ionicons name="time-outline" size={15} color="#818cf8" />
+            <Text style={styles.inheritedText}>
+              <Text style={styles.inheritedBold}>Notes from a previous event</Text>
+              {' — these notes, tags, and priority were inherited from an earlier scan. Tap '}
+              <Text style={styles.inheritedBold}>Edit Lead</Text>
+              {' to record your own notes for this event.'}
+            </Text>
+          </View>
+        )}
 
         {/* Notes */}
         <View style={styles.section}>
@@ -393,6 +410,10 @@ const styles = StyleSheet.create({
 
   pendingBar: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: spacing.xl, marginTop: spacing.xl, backgroundColor: 'rgba(245,158,11,0.1)', borderRadius: radius.md, padding: spacing.md },
   pendingText: { flex: 1, color: colors.warning, fontSize: 12 },
+
+  inheritedBar: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginHorizontal: spacing.xl, marginTop: spacing.lg, backgroundColor: 'rgba(99,102,241,0.10)', borderRadius: radius.md, borderWidth: 1, borderColor: 'rgba(99,102,241,0.25)', padding: spacing.md },
+  inheritedText: { flex: 1, color: '#a5b4fc', fontSize: 12, lineHeight: 18 },
+  inheritedBold: { fontWeight: '700' },
 
   savingOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.25)' },
 });

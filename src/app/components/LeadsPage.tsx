@@ -4,7 +4,7 @@ import {
   Flame, ThermometerSun, Snowflake, Tag, ScanLine, FileText,
   X, Edit3, Save, Trash2, Download, Filter, MoreVertical,
   MessageCircle, Sparkles, Briefcase, CheckCircle, Calendar, Gift,
-  CloudOff, RefreshCw,
+  CloudOff, RefreshCw, History,
 } from 'lucide-react';
 import { useApp, Lead } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
@@ -67,10 +67,16 @@ const LeadDetailView: React.FC<{
   const [editNotes, setEditNotes] = useState(lead.notes);
   const [editTags, setEditTags] = useState<string[]>(lead.tags);
   const [editPriority, setEditPriority] = useState<Priority>(lead.priority);
+  // Track whether the rep has saved an edit in this session — the inherited
+  // badge is hidden optimistically once the user has made their own edit,
+  // since the PATCH creates event-specific values and clears is_inherited
+  // server-side. The badge also won't reappear on the next list fetch.
+  const [hasEdited, setHasEdited] = useState(false);
 
   const handleSave = () => {
     onUpdate(lead.id, { notes: editNotes, tags: editTags, priority: editPriority });
     setIsEditing(false);
+    setHasEdited(true);
   };
 
 
@@ -166,6 +172,21 @@ const LeadDetailView: React.FC<{
           </button>
         </div>
       </div>
+
+      {/* ── Inherited badge ────────────────────────────────── */}
+      {lead.isInherited && !hasEdited && (
+        <div className="px-5 mb-5">
+          <div className="flex items-start gap-3 px-4 py-3 rounded-xl"
+            style={{ background: 'rgba(99,102,241,0.10)', border: '1px solid rgba(99,102,241,0.25)' }}>
+            <History style={{ width: 15, height: 15, color: '#818cf8', flexShrink: 0, marginTop: 1 }} />
+            <p style={{ color: '#a5b4fc', fontSize: 12, lineHeight: 1.55 }}>
+              <strong style={{ fontWeight: 700 }}>Notes from a previous event</strong> — these notes,
+              tags, and priority were inherited from an earlier scan. Tap{' '}
+              <strong style={{ fontWeight: 700 }}>Edit Lead</strong> to record your own notes for this event.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* ── Notes Section ──────────────────────────────────── */}
       <div className="px-5 mb-5">
