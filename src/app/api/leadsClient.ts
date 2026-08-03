@@ -200,17 +200,14 @@ function normalizeLead(raw: any): Lead {
     : tsSource
       ? new Date(tsSource)
       : new Date();
-  // Prefer real backend ids in order of specificity, but also accept
-  // ids carried under the nested profile (`attendee.id`, etc) and the
-  // backend's `attendee_id` foreign key. We deliberately exclude
-  // `scanner_user_id` — that identifies the *scanning user* (i.e. me),
-  // so it would be identical for every row in `/my-leads` and would
-  // collapse all cards under one React key. As a last resort, generate
-  // a deterministic-but-unique fallback so React's reconciler doesn't
-  // collapse multiple rows under the same key (which would also break
-  // dedupe by id and make the list look like one row repeated).
+  // Prefer real backend ids in order of specificity. `scan_id` / `leadId`
+  // are the primary key of the `lead_scans` table and must come before any
+  // profile id — otherwise PATCH calls go to the attendee's user id (wrong
+  // row) instead of the lead-scan row id. `scanner_user_id` is deliberately
+  // excluded because it identifies the *scanning user* (identical for every
+  // row in `/my-leads`) and would collapse all cards under one React key.
   const idCandidate =
-    raw?.id ?? raw?.lead_id ??
+    raw?.id ?? raw?.lead_id ?? raw?.scan_id ?? raw?.leadId ??
     raw?.attendee_id ?? raw?.member_id ?? raw?.user_id ??
     profile?.id ?? raw?.code ?? raw?.badge_code ?? profile?.badge_code;
   const id = idCandidate != null && String(idCandidate).trim() !== ''
@@ -246,6 +243,10 @@ function normalizeLead(raw: any): Lead {
     priority,
     pendingSync: raw?.pendingSync === true ? true : undefined,
     email,
+    // is_inherited: true means notes/tags/priority were copied from a previous
+    // event where the same attendee was scanned. A PATCH for this event writes
+    // event-specific values and the backend clears this flag.
+    isInherited: raw?.is_inherited === true || raw?.isInherited === true || undefined,
   };
 }
 
@@ -437,11 +438,13 @@ export async function listLeads(eventId: string | number): Promise<ListLeadsResp
   // so a malformed object envelope can't slip through and crash the map
   // below — and so an unrecognized shape returns a typed error rather
   // than rendering as "no leads yet" and hiding a backend regression.
-  const data = res.data as Lead[] | { data?: Lead[] } | { leads?: Lead[] };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = res.data as any;
   let raw: Lead[] | null = null;
-  if (Array.isArray(data)) raw = data;
-  else if (Array.isArray((data as { data?: Lead[] }).data)) raw = (data as { data: Lead[] }).data;
-  else if (Array.isArray((data as { leads?: Lead[] }).leads)) raw = (data as { leads: Lead[] }).leads;
+  if (Array.isArray(data)) raw = data;                              // bare array
+  else if (Array.isArray(data?.data)) raw = data.data;              // { data: Lead[] }
+  else if (Array.isArray(data?.data?.data)) raw = data.data.data;  // paginated { data: { data: Lead[] } }
+  else if (Array.isArray(data?.leads)) raw = data.leads;            // { leads: Lead[] }
   if (raw === null) {
     if (typeof console !== 'undefined') {
       console.warn('[leadsClient] unrecognized list response shape:', data);
@@ -474,13 +477,25 @@ export async function listLeads(eventId: string | number): Promise<ListLeadsResp
 }
 
 /**
+ * Coerce a client-side lowercase priority to the uppercase string the server
+ * expects ("HOT" | "WARM" | "COLD"). Returns `undefined` when the value is
+ * absent so the field is omitted from the request body rather than sent as null.
+ */
+function toServerPriority(p?: string | null): string | undefined {
+  if (!p) return undefined;
+  const u = p.toUpperCase();
+  return u === 'HOT' || u === 'WARM' || u === 'COLD' ? u : undefined;
+}
+
+/**
  * PATCH /api/v1/events/:eventId/leads/:id
  * Updates notes, tags, or priority for an existing lead.
  *
  * NOTE: The backend registers this route as PATCH, not PUT. A live probe of
  * PUT /events/:id/leads/:id returns HTTP 405 — PATCH is the only allowed verb.
- * The BACKEND_SCAN_ENDPOINTS.md contract incorrectly shows PUT; the actual
- * Laravel controller uses PATCH via MobileEventController::leadsUpdate.
+ * Priority must be uppercase on the wire ("HOT" | "WARM" | "COLD").
+ * {id} is the scan_id / lead_id from the POST /leads/scan response — NOT the
+ * attendee's profile id.
  */
 export async function updateLeadApi(
   eventId: string | number,
@@ -497,9 +512,15 @@ export async function updateLeadApi(
     return { success: true };
   }
 
+  // Build the body explicitly so we can uppercase priority and omit absent fields.
+  const body: Record<string, unknown> = {};
+  if ('notes' in updates)    body.notes    = updates.notes ?? null;
+  if ('tags' in updates)     body.tags     = updates.tags ?? [];
+  if ('priority' in updates) body.priority = toServerPriority(updates.priority) ?? null;
+
   const res = await apiPatch<Lead>(
     `/api/v1/events/${eventId}/leads/${id}`,
-    updates,
+    body,
   );
   if (!res.success) {
     return { success: false, error: res.error ?? { code: 'UPDATE_FAILED', message: 'Failed to update lead.' } };

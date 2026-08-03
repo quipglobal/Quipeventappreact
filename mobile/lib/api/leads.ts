@@ -91,14 +91,13 @@ function normalizeLead(raw: any, index = 0): Lead {
   const email = pickString(raw?.email, profile?.email);
   const tsSource = raw?.scanned_at ?? raw?.created_at ?? raw?.timestamp;
   const ts = tsSource ? new Date(tsSource) : new Date();
-  // Same id-fallback strategy as the web normalizer: probe nested
-  // ids first, then generate a unique placeholder so multiple
-  // id-less rows don't collapse to the same React key.
-  // Excludes `scanner_user_id` on purpose — it's the *scanning* user
-  // (always identical for every row in `/my-leads`) so using it would
-  // collapse every card under the same React key.
+  // Same id-fallback strategy as the web normalizer. `scan_id` / `leadId`
+  // are the primary key of the `lead_scans` table and must come before any
+  // profile id — otherwise PATCH calls go to the attendee's user id (wrong
+  // DB row) instead of the scan-row id. `scanner_user_id` is excluded on
+  // purpose — it's the *scanning* user and would collapse all rows.
   const idCandidate =
-    raw?.id ?? raw?.lead_id ??
+    raw?.id ?? raw?.lead_id ?? raw?.scan_id ?? raw?.leadId ??
     raw?.attendee_id ?? raw?.member_id ?? raw?.user_id ??
     profile?.id ?? raw?.code ?? raw?.badge_code ?? profile?.badge_code;
   const id = idCandidate != null && String(idCandidate).trim() !== ''
@@ -138,6 +137,8 @@ function normalizeLead(raw: any, index = 0): Lead {
     // flow can dedupe local-only leads against the server's view by code.
     code: raw?.code ?? raw?.badge_code ?? profile?.badge_code ?? undefined,
     pendingSync: raw?.pendingSync === true ? true : undefined,
+    // is_inherited: true when notes/tags/priority are from a previous event.
+    isInherited: raw?.is_inherited === true || raw?.isInherited === true || undefined,
   };
 }
 
@@ -231,6 +232,11 @@ export interface ScanPayload {
   company?: string;
   title?: string;
   eventId?: string;
+  /** Optional enrichment — included inline so the admin export is populated
+   *  immediately without a second PATCH call (Option A from the sync spec). */
+  notes?: string;
+  tags?: string[];
+  priority?: 'hot' | 'warm' | 'cold';
 }
 
 /**
@@ -274,6 +280,14 @@ export async function submitScan(
       name: payload.name,
       company: payload.company,
       title: payload.title,
+      // Include enrichment inline (§5A of sync spec) so the admin export
+      // receives notes/tags/priority immediately — no second PATCH needed.
+      // Omit when absent so the request body stays minimal.
+      ...(payload.notes !== undefined && { notes: payload.notes || null }),
+      ...(payload.tags  !== undefined && { tags: payload.tags }),
+      ...(payload.priority !== undefined && {
+        priority: payload.priority ? payload.priority.toUpperCase() : null,
+      }),
     }),
   });
 
@@ -442,8 +456,10 @@ export async function updateLead(leadId: string, updates: LeadEdits): Promise<Ap
   if (updates.notes !== undefined) body.notes = updates.notes;
   if (updates.tags !== undefined) body.tags = updates.tags;
   if (updates.priority !== undefined) {
-    body.priority = updates.priority;
-    body.status = updates.priority;
+    // Server expects uppercase priority ("HOT" | "WARM" | "COLD" | null).
+    const sp = updates.priority ? updates.priority.toUpperCase() : null;
+    body.priority = sp;
+    body.status   = sp; // mirror — backend reads whichever it prefers
   }
   const res = await request<Lead>(`/api/v1/events/${eventId}/leads/${leadId}`, {
     method: 'PATCH',

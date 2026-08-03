@@ -15,7 +15,7 @@ import {
   scanBadgeLead,
   resetScanEndpointMissing,
 } from '@/app/api/leadsClient';
-import { loadLeadEdits, lookupLeadEdit, type LeadEditsMap } from '@/app/lib/leadEditsStorage';
+import { loadLeadEdits, saveLeadEdit, clearLeadEdit, lookupLeadEdit, type LeadEditsMap } from '@/app/lib/leadEditsStorage';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -420,6 +420,24 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
         // does this, but we mirror it here so any callers that bypass the
         // reconciler still benefit from the reset.
         resetScanEndpointMissing();
+        // Retry any edits that failed previously (syncPending = true in overlay).
+        // This runs fire-and-forget — leads list still renders immediately.
+        if (user?.id) {
+          const pendingEdits = Object.entries(overlay)
+            .filter(([k, v]) => v.syncPending === true && !k.startsWith('code:'));
+          if (pendingEdits.length > 0) {
+            const uid = user.id;
+            void Promise.all(pendingEdits.map(async ([leadId, edit]) => {
+              const { syncPending: _, ...edits } = edit;
+              if (!edits.notes && !edits.tags?.length && !edits.priority) return;
+              const retryRes = await updateLeadApi(eventId, leadId, edits);
+              if (retryRes.success) {
+                const code = initial.data!.find(l => l.id === leadId)?.code ?? null;
+                clearLeadEdit(uid, leadId, code ?? undefined);
+              }
+            }));
+          }
+        }
       }
       if (!initial.success) return;
 
@@ -509,6 +527,7 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
   const coldCount = allLeads.filter(l => l.priority === 'cold').length;
 
   const handleUpdateLead = (id: string, updates: Partial<Pick<Lead, 'notes' | 'tags' | 'priority'>>) => {
+    // 1. Optimistic local update so the UI responds immediately.
     updateLead(id, updates);
     if (selectedLead && selectedLead.id === id) {
       setSelectedLead({ ...selectedLead, ...updates });
@@ -516,7 +535,33 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
     if (apiLeads !== null) {
       setApiLeads(prev => prev ? prev.map(l => l.id === id ? { ...l, ...updates } : l) : prev);
     }
-    updateLeadApi(eventConfig?.eventId ?? '0', id, updates).catch(() => {});
+    const code = contextLeads.find(l => l.id === id)?.code ?? null;
+    // 2. Push to server; retire overlay on success or mark syncPending on failure.
+    void updateLeadApi(eventConfig?.eventId ?? '0', id, updates)
+      .then(res => {
+        if (res.success) {
+          // Server confirmed — retire overlay so server values are authoritative.
+          if (user?.id) clearLeadEdit(user.id, id, code ?? undefined);
+          // Apply server-echoed values (notes/tags/priority may differ).
+          if (res.data) {
+            const serverUpdates = {
+              notes:    res.data.notes,
+              tags:     res.data.tags,
+              priority: res.data.priority,
+            };
+            updateLead(id, serverUpdates);
+            if (selectedLead?.id === id) setSelectedLead(prev => prev ? { ...prev, ...serverUpdates } : prev);
+            setApiLeads(prev => prev ? prev.map(l => l.id === id ? { ...l, ...serverUpdates } : l) : prev);
+          }
+        } else if (res.error?.code !== 'NOT_IMPLEMENTED' && res.error?.code !== '404') {
+          // Real server failure — mark edit as pending so it retries on next load.
+          if (user?.id) saveLeadEdit(user.id, id, { ...updates, syncPending: true }, code);
+        }
+      })
+      .catch(() => {
+        // Network error — mark edit as pending.
+        if (user?.id) saveLeadEdit(user.id, id, { ...updates, syncPending: true }, code);
+      });
   };
 
   // Track which leads are currently being retried so we can disable the

@@ -7,7 +7,7 @@ import { useTheme } from '@/app/context/ThemeContext';
 import { useApp } from '@/app/context/AppContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { scanBadgeLead, updateLeadApi } from '@/app/api/leadsClient';
-import { saveLeadEdit, loadLeadEdits, lookupLeadEdit } from '@/app/lib/leadEditsStorage';
+import { saveLeadEdit, clearLeadEdit, loadLeadEdits, lookupLeadEdit } from '@/app/lib/leadEditsStorage';
 import { findMemberByBadgeCodeApi, checkInMemberApi, type EventMember } from '@/app/api/audienceClient';
 import { CameraScanner } from './CameraScanner';
 
@@ -200,6 +200,9 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
             tags: d.tags ?? [],
             priority: d.priority ?? 'warm',
           }, { silent: true });
+          // Anchor the scan_id under the badge code key immediately so
+          // handleSave can find it via PATCH even before /my-leads lists it.
+          if (user?.id) saveLeadEdit(user.id, d.id, {}, badgeCode);
         }
         return;
       }
@@ -310,13 +313,26 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
           priority,
         });
 
-        if (!upd.success && upd.error?.code !== '404' && upd.error?.code !== 'NOT_IMPLEMENTED') {
-          // Surface only genuine backend errors (validation, server failure).
-          // 404 means the update endpoint isn't deployed yet — local save
-          // already covered the user; don't alarm them.
-          // updateLead already called showToast; suppress the duplicate by
-          // logging instead.
+        if (upd.success) {
+          // Server confirmed — retire overlay so server values are authoritative.
+          if (user?.id) clearLeadEdit(user.id, scannedData.leadId, scannedData.code);
+          // Apply server-echoed values back to local state.
+          if (upd.data) {
+            updateLead(scannedData.leadId, {
+              notes:    upd.data.notes    ?? notes,
+              tags:     upd.data.tags     ?? selectedTags,
+              priority: upd.data.priority ?? priority,
+            });
+          }
+        } else if (upd.error?.code !== '404' && upd.error?.code !== 'NOT_IMPLEMENTED') {
+          // Real server failure — keep overlay with syncPending so the reconciler
+          // retries on the next leads-list load.
           console.warn('[Lead update] backend sync failed:', upd.error);
+          if (user?.id) {
+            saveLeadEdit(user.id, scannedData.leadId,
+              { notes, tags: selectedTags, priority, syncPending: true },
+              scannedData.code);
+          }
         }
         resetScanner();
         onSaved?.();

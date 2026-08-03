@@ -83,14 +83,24 @@ export default function LeadDetailScreen() {
     setIsEditing(true);
   };
 
-  const handleSave = () => {
-    updateLead.mutate({
-      leadId: lead.id,
-      updates: { notes: editNotes, tags: editTags, priority: editPriority },
-      code: lead.code ?? null,
-    });
+  const handleSave = async () => {
     setIsEditing(false);
-    showToast?.('Lead updated');
+    try {
+      const res = await updateLead.mutateAsync({
+        leadId: lead.id,
+        updates: { notes: editNotes, tags: editTags, priority: editPriority },
+        code: lead.code ?? null,
+      });
+      if (res.success) {
+        showToast?.('Saved ✓');
+      } else if (res.error?.code === 'NOT_IMPLEMENTED') {
+        showToast?.('Lead updated (offline)');
+      } else {
+        showToast?.('Saved locally — will retry when online');
+      }
+    } catch {
+      showToast?.('Saved locally — will retry when online');
+    }
   };
 
   const toggleTag = (tag: string) => {

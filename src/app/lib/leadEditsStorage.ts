@@ -29,6 +29,9 @@ export type LeadEditOverlay = {
   notes?: string;
   tags?: string[];
   priority?: 'hot' | 'warm' | 'cold';
+  /** Set to true when a PATCH to the server failed (network error or 5xx).
+   *  The reconciler retries automatically on the next leads-list load. */
+  syncPending?: boolean;
 };
 
 export type LeadEditsMap = Record<string, LeadEditOverlay>;
@@ -127,17 +130,26 @@ export function lookupLeadEdit(
 }
 
 /**
- * Drop a single lead's overlay entry — call this when the backend echo
- * confirms persistence so we don't permanently mask a future server-side
- * edit (e.g. from another device) with a stale local value.
+ * Drop a single lead's overlay entry — call this when the server response
+ * confirms persistence so we stop masking future server-side edits (e.g.
+ * from another device) with stale local values. Also clears the secondary
+ * `code:<badge_code>` mirror key so neither lookup path returns stale data.
  */
-export function clearLeadEdit(userId: string | null | undefined, leadId: string): void {
+export function clearLeadEdit(
+  userId: string | null | undefined,
+  leadId: string,
+  code?: string | null,
+): void {
   if (!isBrowser() || !userId || !leadId) return;
   try {
     const current = loadLeadEdits(userId);
-    if (!(leadId in current)) return;
-    delete current[leadId];
-    window.localStorage.setItem(keyFor(userId), JSON.stringify(current));
+    let changed = false;
+    if (leadId in current) { delete current[leadId]; changed = true; }
+    if (code && code.trim() !== '') {
+      const k = codeKey(code.trim());
+      if (k in current) { delete current[k]; changed = true; }
+    }
+    if (changed) window.localStorage.setItem(keyFor(userId), JSON.stringify(current));
   } catch {
     // ignore
   }

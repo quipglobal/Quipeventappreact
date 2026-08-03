@@ -25,6 +25,9 @@ export type LeadEditOverlay = {
   notes?: string;
   tags?: string[];
   priority?: 'hot' | 'warm' | 'cold';
+  /** Set to true when a PATCH to the server failed (network error or 5xx).
+   *  The reconciler retries automatically on the next leads-list load. */
+  syncPending?: boolean;
 };
 
 export type LeadEditsMap = Record<string, LeadEditOverlay>;
@@ -117,20 +120,25 @@ export function lookupLeadEdit(
 }
 
 /**
- * Drop a single lead's overlay entry. Exposed for completeness; currently
- * unused because we deliberately keep edits across logout so the same user
- * logging back in sees their own work.
+ * Drop a single lead's overlay entry when the server confirms persistence.
+ * Also clears the secondary `code:<badge_code>` mirror key so neither
+ * lookup path returns stale data after a successful sync.
  */
 export async function clearLeadEdit(
   userId: string | null | undefined,
   leadId: string,
+  code?: string | null,
 ): Promise<void> {
   if (!userId || !leadId) return;
   try {
     const current = await loadLeadEdits(userId);
-    if (!(leadId in current)) return;
-    delete current[leadId];
-    await AsyncStorage.setItem(keyFor(userId), JSON.stringify(current));
+    let changed = false;
+    if (leadId in current) { delete current[leadId]; changed = true; }
+    if (code && code.trim() !== '') {
+      const k = codeKey(code.trim());
+      if (k in current) { delete current[k]; changed = true; }
+    }
+    if (changed) await AsyncStorage.setItem(keyFor(userId), JSON.stringify(current));
   } catch {
     // ignore
   }

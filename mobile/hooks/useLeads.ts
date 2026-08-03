@@ -4,7 +4,7 @@ import { listLeads, submitScan, updateLeadStatus, updateLead, triggerLuckyDraw, 
 import type { ScanPayload, LeadEdits } from '@/lib/api/leads';
 import type { ApiResponse, Lead } from '@/lib/api/types';
 import { loadCachedLeads, saveCachedLeads } from '@/lib/leadsStorage';
-import { loadLeadEdits, saveLeadEdit, lookupLeadEdit, type LeadEditsMap } from '@/lib/leadEditsStorage';
+import { loadLeadEdits, saveLeadEdit, clearLeadEdit, lookupLeadEdit, type LeadEditsMap } from '@/lib/leadEditsStorage';
 import { leadsQueryKey } from '@/lib/leadsCacheKey';
 import { useAuth } from '@/context/AuthContext';
 import { useEvent } from '@/context/EventContext';
@@ -271,7 +271,26 @@ export function useSubmitScan() {
   const userId = user?.id ?? null;
   const eventId = currentEventId;
   return useMutation({
-    mutationFn: (payload: ScanPayload) => submitScan(payload),
+    mutationFn: async (payload: ScanPayload) => {
+      // Seed any prior notes / tags / priority from the overlay into the
+      // scan POST body so the admin export is populated immediately (§5A of
+      // MOBILE_AGENT_LEAD_SYNC_PROMPT.md). Only used when the rep hasn't
+      // explicitly set them on this scan — prior values become the default.
+      let enriched = payload;
+      if (userId && payload.badgeData) {
+        const overlay = await loadLeadEdits(userId);
+        const prior = lookupLeadEdit(overlay, '', payload.badgeData);
+        if (prior && (prior.notes || prior.tags?.length || prior.priority)) {
+          enriched = {
+            ...payload,
+            notes:    payload.notes    ?? prior.notes,
+            tags:     payload.tags     ?? prior.tags,
+            priority: payload.priority ?? prior.priority,
+          };
+        }
+      }
+      return submitScan(enriched);
+    },
     onSuccess: async (res) => {
       if (!userId || !eventId) return;
       const queryKey = leadsQueryKey(userId, eventId);
@@ -393,6 +412,40 @@ export function useUpdateLead() {
       // 2. Persist to the AsyncStorage overlay so the edit survives refetch
       //    / logout → login.
       await saveLeadEdit(userId, leadId, updates, leadCode);
+    },
+    onSuccess: async (res, { leadId, code }) => {
+      if (!userId) return;
+      if (res.success) {
+        // Server confirmed — retire overlay; server values are authoritative.
+        await clearLeadEdit(userId, leadId, code ?? null);
+        // Apply server-echoed notes/tags/priority to the cache so the UI
+        // reflects exactly what the server persisted (not the optimistic value).
+        if (res.data && eventId) {
+          const key = leadsQueryKey(userId, eventId);
+          queryClient.setQueryData<ApiResponse<Lead[]>>(key, (prev) => ({
+            success: true,
+            data: (prev?.data ?? []).map((l) => {
+              if (l.id !== leadId) return l;
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const d = res.data as any;
+              return {
+                ...l,
+                notes:    d?.notes    ?? l.notes,
+                tags:     d?.tags     ?? l.tags,
+                status:   (d?.priority as string | undefined)?.toLowerCase() as Lead['status'] ?? l.status,
+                priority: (d?.priority as string | undefined)?.toLowerCase() as Lead['priority'] ?? l.priority,
+              };
+            }),
+          }));
+        }
+      } else if (res.error?.code !== 'NOT_IMPLEMENTED') {
+        // Real server failure — mark syncPending so the next list-load retries.
+        await saveLeadEdit(userId, leadId, { syncPending: true }, code ?? null);
+      }
+    },
+    onError: async (_, { leadId, updates, code }) => {
+      // Network-level throw — mark syncPending.
+      if (userId) await saveLeadEdit(userId, leadId, { ...updates, syncPending: true }, code ?? null);
     },
   });
 }

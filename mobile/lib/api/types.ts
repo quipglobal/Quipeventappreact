@@ -240,6 +240,10 @@ export interface Lead {
    *  rejected /leads/scan. Cleared when reconciliation succeeds and we swap
    *  the synthetic id for the canonical server id. */
   pendingSync?: boolean;
+  /** True when notes/tags/priority were inherited from a previous-event scan
+   *  of the same attendee (is_inherited from GET /my-leads). A PATCH for
+   *  this event creates event-specific values and clears this flag. */
+  isInherited?: boolean;
 }
 
 export interface Meeting {

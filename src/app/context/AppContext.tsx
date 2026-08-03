@@ -101,6 +101,10 @@ export interface Lead {
   /** Optional email captured at scan time — used as a secondary dedupe key
    *  alongside `code` when reconciling local-only leads with the backend. */
   email?: string;
+  /** True when notes/tags/priority were inherited from a previous-event scan
+   *  of the same attendee (is_inherited from GET /my-leads). A PATCH for
+   *  this event creates event-specific values and clears this flag. */
+  isInherited?: boolean;
 }
 
 interface PointEvent {

@@ -1,0 +1,228 @@
+Mobile Agent Prompt — Lead Notes / Tags / Priority Real-Time Sync
+Context: The backend stores lead scan enrichment (notes, tags, priority) in the lead_scans table. The admin export reads directly from this table. If the mobile app never sends these values to the server, the export is blank — even if the rep can see them in-app. This document specifies exactly what the native app must do to keep notes in sync.
+
+1 The problem you are fixing
+The mobile app currently stores notes, tags, and priority in a local device overlay (AsyncStorage / SQLite / in-memory state). The rep can see their notes in the app, but the values are never sent to the server. The admin export reads from the database, which shows NULL for all three fields.
+
+Fix: always flush notes / tags / priority to the server on two occasions:
+
+At scan time (inline with the POST payload)
+Whenever the rep edits them afterwards (via PATCH)
+2 API base URL
+All endpoints are under /api/v1/. Send an Authorization: Bearer {token} header on every request.
+
+3 Endpoint reference
+3.1 Scan a badge and optionally capture notes inline
+POST /api/v1/events/{eventId}/leads/scan
+Content-Type: application/json
+Authorization: Bearer {token}
+{
+  "code":              "ABC123",          // required — badge QR code (case-insensitive)
+  "notes":             "Interested in...", // optional
+  "tags":              ["follow-up", "vip"], // optional, max 20, each ≤ 32 chars
+  "priority":          "HOT",             // optional — "HOT" | "WARM" | "COLD" | null
+  "meeting_requested": true               // optional boolean
+}
+
+Success response (201 on first scan, 200 on re-scan):
+
+{
+  "success": true,
+  "leadId": 2668,
+  "lead_id": 2668,
+  "isNew": true,
+  "is_new": true,
+  "notes": "Interested in...",
+  "tags": ["follow-up", "vip"],
+  "priority": "HOT",
+  "meeting_requested": false,
+  "meetingRequested": false,
+  "pointsAwarded": 50,
+  "member": { ... }
+}
+
+What the app must do with this response:
+
+Persist lead_id / leadId to durable local storage keyed by (eventId, scannedUserId) — this is the scanId used in all subsequent calls.
+Replace the local overlay with the server values (notes, tags, priority) from the response. These are what the database actually holds. Do NOT keep showing what the user just typed until the server confirms.
+3.2 Edit notes / tags / priority after the initial scan
+PATCH /api/v1/events/{eventId}/leads/{scanId}
+Content-Type: application/json
+Authorization: Bearer {token}
+{
+  "notes":             "Updated note",    // optional — send null to clear
+  "tags":              ["demo"],          // optional — send [] to clear all tags
+  "priority":          "WARM",           // optional — send null to clear
+  "meeting_requested": true              // optional boolean
+}
+
+Rules:
+
+Send only the fields you want to change. Omitting a field leaves it untouched on the server.
+Sending null for notes or priority, or [] for tags, explicitly clears that field.
+{scanId} is the lead_id / leadId returned by the POST /leads/scan response.
+Only the rep who originally scanned can edit (403 if another user tries).
+Success response (200):
+
+{
+  "success": true,
+  "leadId": 2668,
+  "lead_id": 2668,
+  "notes": "Updated note",
+  "tags": ["demo"],
+  "priority": "WARM",
+  "meeting_requested": true,
+  "meetingRequested": true
+}
+
+What the app must do:
+
+On success: replace local overlay with the server response values.
+On failure: show an error and keep the local value pending — do NOT silently discard it.
+3.3 Fetch a single lead's current server state
+GET /api/v1/events/{eventId}/leads/{scanId}
+Authorization: Bearer {token}
+
+Success response (200):
+
+{
+  "success": true,
+  "lead_id": 2668,
+  "scan_id": 2668,
+  "scanned_at": "2026-08-03T04:19:00+00:00",
+  "updated_at": "2026-08-03T10:42:00+00:00",
+  "notes": "Updated note",
+  "tags": ["demo"],
+  "priority": "WARM",
+  "meeting_requested": true,
+  "profile": { "id": 17377, "name": "...", "email": "...", "company": "..." }
+}
+
+Use this to:
+
+Hydrate the lead-detail screen on app launch / after a crash (server values are authoritative).
+Confirm a PATCH succeeded if the app received a network error and you are unsure.
+3.4 List all scanned leads for an event
+GET /api/v1/events/{eventId}/my-leads?page=1&per_page=20
+Authorization: Bearer {token}
+
+Success response (200):
+
+{
+  "success": true,
+  "data": {
+    "current_page": 1,
+    "data": [
+      {
+        "scan_id": 2668,
+        "scanned_at": "2026-08-03T04:19:00+00:00",
+        "updated_at": "2026-08-03T10:42:00+00:00",
+        "notes": "Updated note",
+        "tags": ["demo"],
+        "priority": "WARM",
+        "is_inherited": false,
+        "meeting_requested": true,
+        "profile": { ... }
+      }
+    ],
+    "total": 8,
+    "per_page": 20,
+    "last_page": 1
+  }
+}
+
+is_inherited: true means the notes / tags / priority values were copied from a previous event where the same attendee was scanned — they are not stored in this event's DB row. Show a subtle indicator if desired ("from a previous event"). Any PATCH call for this event will create this event's own values and is_inherited will become false.
+
+4 The scan_id lifecycle — how to store and use it
+The scan_id is the key that links local state to the server row.
+
+App flow:
+  1. Rep scans badge QR code
+  2. App calls POST /events/{eventId}/leads/scan { code, notes?, tags?, priority? }
+  3. Server returns { lead_id: 2668, notes, tags, priority, ... }
+  4. App stores lead_id=2668 keyed by (eventId, scannedUserId or badgeCode)
+  5. Rep edits notes on the lead-detail screen
+  6. App calls PATCH /events/{eventId}/leads/2668 { notes: "new note" }
+  7. Server returns updated { notes, tags, priority }
+  8. App replaces local overlay with server values
+
+Do NOT lose the scan_id. Persist it to durable storage (AsyncStorage, SQLite, or your local DB). If the scan_id is lost (app reinstall, etc.), use GET /my-leads to recover it: the scan_id field in each list item is the same ID to use in PATCH / GET.
+
+5 When to send enrichment data
+Option A — Inline at scan time (preferred)
+If the rep adds notes on the same screen where they scan:
+
+// In the scan screen, after QR decode:
+const response = await api.post(`/events/${eventId}/leads/scan`, {
+  code: decodedBadgeCode,
+  notes: notesInput.value || null,
+  tags: selectedTags,
+  priority: selectedPriority || null,
+});
+// Store lead_id from response
+await storage.set(`scan:${eventId}:${response.data.member.id}`, response.data.lead_id);
+// Update local state from server response (authoritative)
+setNotes(response.data.notes);
+setTags(response.data.tags);
+setPriority(response.data.priority);
+
+Option B — Edit after scan (lead detail screen)
+// When rep saves edits on lead-detail screen:
+const scanId = await storage.get(`scan:${eventId}:${scannedUserId}`);
+if (!scanId) {
+  // Scan_id not found — re-POST the scan to get one (upsert is safe)
+  const scanResp = await api.post(`/events/${eventId}/leads/scan`, { code: badgeCode });
+  scanId = scanResp.data.lead_id;
+  await storage.set(`scan:${eventId}:${scannedUserId}`, scanId);
+}
+const response = await api.patch(`/events/${eventId}/leads/${scanId}`, {
+  notes: notesInput.value || null,
+  tags: selectedTags,          // always send full array, not delta
+  priority: selectedPriority || null,
+});
+// Trust server response
+setNotes(response.data.notes);
+setTags(response.data.tags);
+setPriority(response.data.priority);
+
+6 Error handling
+HTTP status	Code in body	Meaning	What to do
+401	—	Token expired or missing	Re-authenticate, then retry
+403	FORBIDDEN	PATCH on another rep's lead	Show error, do not retry
+404	NOT_FOUND	scanId doesn't exist or wrong event	Re-POST /leads/scan to get a fresh scan_id
+422	NO_FIELDS	PATCH body had no recognised fields	Check field names (see §3.2)
+422	SELF_SCAN	Rep scanned their own badge	Show "cannot scan yourself"
+429	—	Rate limited	Back off with exponential retry
+5xx	—	Server error	Retry with exponential back-off (max 3 attempts)
+On any network error or 5xx from PATCH: mark the local record as sync_pending = true and retry when the device is next online. Do NOT silently discard the edit.
+
+7 Field validation (mirror server rules client-side)
+Field	Type	Constraint
+notes	string or null	max 1 000 characters
+tags	string[] or null	max 20 items; each item max 32 characters
+priority	"HOT" | "WARM" | "COLD" | null	only these exact strings
+meeting_requested	boolean	—
+Validate on the client before sending to avoid unnecessary round-trips.
+
+8 Do NOT do these things
+Do NOT only store notes in AsyncStorage / local SQLite without syncing to the server. The admin export reads from the database. Local-only storage means the export is always blank.
+Do NOT omit notes, tags, priority from the POST /leads/scan payload if the rep entered them at scan time. Sending them inline is the most reliable path.
+Do NOT trust the local overlay as the source of truth after a successful server response. Replace local values with what the server returned.
+Do NOT construct the scan URL with the scanned user's ID — the PATCH/GET URL uses scan_id (the lead_scans primary key), not scanned_user_id.
+Do NOT call PATCH without the Authorization header — it will return 401 silently in some network stacks.
+9 Verifying the sync worked (debugging)
+After saving notes, the rep or QA engineer can verify the data reached the server by:
+
+Calling GET /api/v1/events/{eventId}/leads/{scanId} and checking the response fields.
+Asking the event admin to download the Scanned Leads CSV from the Reports tab — the Notes, Tags, and Priority columns should match what was entered in the app.
+Calling GET /api/v1/events/{eventId}/my-leads — is_inherited: false on a lead with non-null notes means the data is genuinely saved for this event.
+10 Backend changes made to support this sync
+The following backend changes have already been deployed:
+
+What changed	Why
+All three scan endpoints now echo back notes, tags, priority in their response	So the app can replace local state with server state without a second GET
+PATCH /leads/{scanId} now also accepts meeting_requested	Was previously missing, caused 422 if that was the only field sent
+New GET /leads/{scanId} endpoint	Lets the app verify what is persisted and hydrate detail screens after restart
+Cache busting fixed (was using wildcard forget which did nothing in Redis)	My-leads list now reflects edits within 30 s
+Cache::increment wrapped in try/catch on all write paths	Cache failures no longer cause 500 responses that make the app think the save failed
+Cross-event inheritance in GET /my-leads	Leads with no notes at this event inherit from the rep's most-recent scan of the same person at any other event; is_inherited: true flags these
