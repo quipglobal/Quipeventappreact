@@ -23,8 +23,10 @@ interface PollState {
 }
 
 export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
-  const { votedPolls, setVotedPolls, addPoints, gamificationConfig, eventConfig, showToast } = useApp();
-  // votedPolls is now Record<pollId, optionId> — both "voted?" and "which option" in one map.
+  const { votedPolls, setVotedPolls, savedPollResults, setSavedPollResults, addPoints, gamificationConfig, eventConfig, showToast } = useApp();
+  // votedPolls is Record<pollId, optionId> — both "voted?" and "which option" in one map.
+  // savedPollResults is Record<pollId, { results, totalVotes, votedOptionId }> — persisted so
+  // the results bar reappears correctly after a page refresh.
   const { t } = useTheme();
   const eventId = eventConfig?.eventId;
 
@@ -75,7 +77,21 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
       if (stale) return;
       const built: PollState[] = [];
       detailResults.forEach((r) => {
-        if (r.success && r.data) built.push({ detail: r.data });
+        if (r.success && r.data) {
+          const stored = savedPollResults[String(r.data.id)];
+          if (stored && String(r.data.id) in votedPolls) {
+            // Re-hydrate results from storage so the results bar shows correctly
+            // after a page refresh, without needing to re-cast the vote.
+            built.push({
+              detail: r.data,
+              results: stored.results as PollResultRow[],
+              totalVotes: stored.totalVotes,
+              votedOptionId: stored.votedOptionId,
+            });
+          } else {
+            built.push({ detail: r.data });
+          }
+        }
       });
       setPolls(built);
       setLoading(false);
@@ -99,6 +115,15 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
         : p
       ));
       setVotedPolls({ ...votedPolls, [pollId]: optionId });
+      // Persist results so the results bar reappears correctly after a page refresh.
+      setSavedPollResults(prev => ({
+        ...prev,
+        [String(pollId)]: {
+          results: res.data!.results,
+          totalVotes: res.data!.total_votes,
+          votedOptionId: res.data!.voted_option_id,
+        },
+      }));
       addPoints(gamificationConfig.pointActions.votePoll, 'Poll vote submitted!');
     } else if (res.error?.code === 'ALREADY_VOTED') {
       setVotedPolls({ ...votedPolls, [pollId]: optionId });

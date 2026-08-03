@@ -180,6 +180,9 @@ interface AppState {
   /** Last-submitted answers per survey (surveyId → { questionId → value }).
    *  Persisted to localStorage so re-opens after a page refresh are pre-populated. */
   savedSurveyAnswers: Record<string, Record<number, unknown>>;
+  /** Last-received poll results per poll (pollId → { results, totalVotes, votedOptionId }).
+   *  Persisted to localStorage so the results bar reappears correctly after a page refresh. */
+  savedPollResults: Record<string, { results: unknown[]; totalVotes: number; votedOptionId?: number }>;
   metSponsors: string[];
   bookmarkedSessions: string[];
   completedChallenges: string[];
@@ -211,7 +214,8 @@ interface AppContextType extends AppState {
   setCompletedSurveys: (surveys: string[]) => void;
   setInProgressSurvey: (surveyId: string, data: any) => void;
   setVotedPolls: (polls: Record<string, number>) => void;
-  setSavedSurveyAnswers: (answers: Record<string, Record<number, unknown>>) => void;
+  setSavedSurveyAnswers: React.Dispatch<React.SetStateAction<Record<string, Record<number, unknown>>>>;
+  setSavedPollResults: React.Dispatch<React.SetStateAction<Record<string, { results: unknown[]; totalVotes: number; votedOptionId?: number }>>>;
   setMetSponsors: (sponsors: string[]) => void;
   toggleBookmark: (sessionId: string) => void;
   completeChallenge: (challengeId: string, skipPoints?: boolean) => void;
@@ -302,6 +306,22 @@ interface AppContextType extends AppState {
   setConnectionRequests: React.Dispatch<React.SetStateAction<ConnectionRequest[]>>;
 }
 
+// ─── Engagement persistence helpers ───────────────────────────────────────────
+
+/** Read the persisted engagement blob for a given event from localStorage. */
+function readPersistedEngage(eventId: string) {
+  try {
+    const raw = localStorage.getItem(`cxo:engage:${eventId}`);
+    if (!raw) return null;
+    return JSON.parse(raw) as {
+      completedSurveys?: string[];
+      votedPolls?: Record<string, number>;
+      surveyAnswers?: Record<string, Record<number, unknown>>;
+      pollResults?: Record<string, { results: unknown[]; totalVotes: number; votedOptionId?: number }>;
+    };
+  } catch { return null; }
+}
+
 // ─── Mock configs ─────────────────────────────────────────────────────────────
 
 const mockEventConfig: EventConfig = {
@@ -378,10 +398,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [user, setUser] = useState<User | null>(null);
   const [sessionRestored, setSessionRestored] = useState(false);
   const [activeEventConfig, setActiveEventConfig] = useState<EventConfig>(mockEventConfig);
-  const [completedSurveys, setCompletedSurveys] = useState<string[]>([]);
+  // Eagerly read from localStorage so Render 1 already has the correct state.
+  // This prevents the "flash of empty state" where the restore useEffect fires
+  // after paint and the user can tap a survey/poll before state is populated.
+  const [completedSurveys, setCompletedSurveys] = useState<string[]>(() => {
+    const s = readPersistedEngage(mockEventConfig.eventId);
+    return Array.isArray(s?.completedSurveys) ? s.completedSurveys : [];
+  });
   const [inProgressSurveys, setInProgressSurveysState] = useState<Record<string, any>>({});
-  const [votedPolls, setVotedPolls] = useState<Record<string, number>>({});
-  const [savedSurveyAnswers, setSavedSurveyAnswers] = useState<Record<string, Record<number, unknown>>>({});
+  const [votedPolls, setVotedPolls] = useState<Record<string, number>>(() => {
+    const s = readPersistedEngage(mockEventConfig.eventId);
+    return (s?.votedPolls && typeof s.votedPolls === 'object' && !Array.isArray(s.votedPolls)) ? s.votedPolls : {};
+  });
+  const [savedSurveyAnswers, setSavedSurveyAnswers] = useState<Record<string, Record<number, unknown>>>(() => {
+    const s = readPersistedEngage(mockEventConfig.eventId);
+    return (s?.surveyAnswers && typeof s.surveyAnswers === 'object' && !Array.isArray(s.surveyAnswers)) ? s.surveyAnswers : {};
+  });
+  const [savedPollResults, setSavedPollResults] = useState<Record<string, { results: unknown[]; totalVotes: number; votedOptionId?: number }>>(() => {
+    const s = readPersistedEngage(mockEventConfig.eventId);
+    return (s?.pollResults && typeof s.pollResults === 'object' && !Array.isArray(s.pollResults)) ? s.pollResults : {};
+  });
   const [metSponsors, setMetSponsors] = useState<string[]>([]);
   const [bookmarkedSessions, setBookmarkedSessions] = useState<string[]>([]);
   const [completedChallenges, setCompletedChallenges] = useState<string[]>([]);
@@ -452,28 +488,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [leads, user?.id, hydratedForUserId]);
 
   // ── Engagement state persistence ─────────────────────────────────────────
-  // Survey completions, survey answers, and poll votes are stored per event
-  // under `cxo:engage:<eventId>` so a page refresh restores what the user
-  // has already done. The restore effect runs first (React preserves
-  // declaration order); the persist effect then writes the up-to-date state
-  // back on every change.
+  // Survey completions, survey answers, poll votes, and poll results are
+  // stored per event under `cxo:engage:<eventId>`.
+  //
+  // Initial load is handled by the lazy useState initializers above (reads
+  // localStorage synchronously before first paint). The restore useEffect
+  // here only fires when the user *switches* events so we pick up any data
+  // stored for that new event. The persist effect writes back on every change.
 
-  // Restore on event change (covers both initial load after refresh and
-  // switching back to an event the user has visited before).
+  const isFirstEngageRestore = useRef(true);
+
+  // Restore when the event changes after mount (event-switch path).
+  // Skipped on initial mount because lazy initializers already hydrated state.
   useEffect(() => {
+    if (isFirstEngageRestore.current) {
+      isFirstEngageRestore.current = false;
+      return;
+    }
     const eid = activeEventConfig?.eventId;
     if (!eid) return;
     try {
-      const raw = localStorage.getItem(`cxo:engage:${eid}`);
-      if (!raw) return;
-      const { completedSurveys: cs, votedPolls: vp, surveyAnswers: sa } = JSON.parse(raw) as {
-        completedSurveys?: string[];
-        votedPolls?: Record<string, number>;
-        surveyAnswers?: Record<string, Record<number, unknown>>;
-      };
-      if (Array.isArray(cs)) setCompletedSurveys(cs);
-      if (vp && typeof vp === 'object' && !Array.isArray(vp)) setVotedPolls(vp);
-      if (sa && typeof sa === 'object' && !Array.isArray(sa)) setSavedSurveyAnswers(sa);
+      const s = readPersistedEngage(eid);
+      setCompletedSurveys(Array.isArray(s?.completedSurveys) ? s.completedSurveys : []);
+      setVotedPolls((s?.votedPolls && typeof s.votedPolls === 'object' && !Array.isArray(s.votedPolls)) ? s.votedPolls : {});
+      setSavedSurveyAnswers((s?.surveyAnswers && typeof s.surveyAnswers === 'object' && !Array.isArray(s.surveyAnswers)) ? s.surveyAnswers : {});
+      setSavedPollResults((s?.pollResults && typeof s.pollResults === 'object' && !Array.isArray(s.pollResults)) ? s.pollResults : {});
     } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeEventConfig?.eventId]);
@@ -487,9 +526,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         completedSurveys,
         votedPolls,
         surveyAnswers: savedSurveyAnswers,
+        pollResults: savedPollResults,
       }));
     } catch {}
-  }, [completedSurveys, votedPolls, savedSurveyAnswers, activeEventConfig?.eventId]);
+  }, [completedSurveys, votedPolls, savedSurveyAnswers, savedPollResults, activeEventConfig?.eventId]);
 
   useEffect(() => {
     getMeApi().then(async res => {
@@ -1958,6 +1998,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setInProgressSurveysState({});
     setVotedPolls({});
     setSavedSurveyAnswers({});
+    setSavedPollResults({});
     setMetSponsors([]);
     setBookmarkedSessions([]);
     setCompletedChallenges([]);
@@ -2014,6 +2055,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setVotedPolls,
         savedSurveyAnswers,
         setSavedSurveyAnswers,
+        savedPollResults,
+        setSavedPollResults,
         setMetSponsors,
         toggleBookmark,
         completeChallenge,
