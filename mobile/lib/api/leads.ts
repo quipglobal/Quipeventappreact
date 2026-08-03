@@ -392,6 +392,9 @@ export async function reconcilePendingLead(local: Lead): Promise<Lead | null> {
     name: local.name,
     company: local.company,
     title: local.title,
+    notes: local.notes,
+    tags: local.tags,
+    priority: local.priority,
   });
   if (!res.success || !res.data) return null;
   // Re-using submitScan means a fallback that hit the audience-list path
