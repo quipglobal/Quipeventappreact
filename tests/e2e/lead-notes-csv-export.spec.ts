@@ -423,6 +423,103 @@ test.describe('Lead notes → server (admin CSV export guard)', () => {
   });
 
   /**
+   * Path A inline enrichment — no second POST /leads/scan when the backend
+   * creates the lead at scan time.
+   *
+   * The backend spec (MOBILE_AGENT_LEAD_SYNC_PROMPT.md §3.1 / §5 Option A)
+   * allows sending notes inline in the initial POST so the record is fully
+   * enriched without a second round-trip. The web scanner handles this by
+   * waiting for the rep to fill in notes after the badge resolves, then
+   * sending a single PATCH on Save. The scanner must NOT fire a second
+   * POST /leads/scan when a leadId was already returned at scan time.
+   *
+   * Flow:
+   *   1. POST /leads/scan → backend resolves badge, returns leadId 2668.
+   *   2. Rep fills notes / tags / priority.
+   *   3. Rep presses Save → PATCH /leads/2668 (single enrichment round-trip).
+   *   4. No second POST /leads/scan should fire — the PATCH IS the enrichment.
+   *
+   * Key assertion: scan POST count === 1 throughout the entire flow.
+   */
+  test('Path A inline enrichment — Save uses a single PATCH, no second POST /leads/scan', async ({ page }) => {
+    test.setTimeout(120_000);
+
+    let scanPostCount = 0;
+    let capturedPatchBody: Record<string, unknown> | null = null;
+
+    await installMocks(
+      page,
+      // POST /leads/scan — called only once, at badge-detection time.
+      (route) => {
+        scanPostCount++;
+        return ok(route, {
+          success: true,
+          data: {
+            ...SCAN_LEAD,
+            pointsAwarded: 0,
+            attendeePointsAwarded: 0,
+          },
+        });
+      },
+      // PATCH /leads/:id — capture body so we can confirm notes reached the server.
+      async (route) => {
+        try {
+          capturedPatchBody = JSON.parse(route.request().postData() ?? '{}');
+        } catch {
+          capturedPatchBody = {};
+        }
+        return ok(route, {
+          success: true,
+          data: {
+            ...SCAN_LEAD,
+            notes: capturedPatchBody?.notes,
+            tags: capturedPatchBody?.tags,
+            priority: capturedPatchBody?.priority,
+          },
+        });
+      },
+    );
+
+    await loginAndOpenScanner(page);
+
+    // Enter badge code — backend resolves the attendee and returns a leadId.
+    await page.getByPlaceholder(/ATT-/i).fill('ATT-9001');
+    await page.getByRole('button', { name: /find attendee/i }).click();
+    await expect(page.getByText('Alex Rivera')).toBeVisible({ timeout: 10_000 });
+
+    // Confirm the scan POST fired exactly once so far (at badge-detection time).
+    expect(scanPostCount, 'POST /leads/scan must fire exactly once at badge-detection time').toBe(1);
+
+    // Rep fills in notes, picks a tag, and sets priority.
+    await page.getByRole('button', { name: /^Hot$/i }).click();
+    await page.locator('button').filter({ hasText: /^Follow Up$/ }).click();
+    const notesArea = page.locator('textarea').first();
+    await expect(notesArea).toBeVisible({ timeout: 5_000 });
+    await notesArea.fill('Inline enrichment test note');
+
+    // Press Save — must trigger PATCH, NOT a second POST /leads/scan.
+    await page.getByRole('button', { name: /save lead/i }).click();
+
+    // Wait for the scanner to reset (scanned-data card disappears).
+    await expect(page.getByText('Alex Rivera')).not.toBeVisible({ timeout: 10_000 });
+
+    // ── Key assertion: no second POST /leads/scan was fired ──────────────────
+    expect(
+      scanPostCount,
+      'POST /leads/scan must NOT fire a second time on Save — Path A uses PATCH only',
+    ).toBe(1);
+
+    // ── PATCH body must contain the rep's notes ───────────────────────────────
+    expect(capturedPatchBody, 'PATCH must fire — updateLeadApi was never called').not.toBeNull();
+    expect(
+      capturedPatchBody!.notes,
+      'notes must reach the server via PATCH (no blank Notes column in admin export)',
+    ).toBe('Inline enrichment test note');
+    expect(capturedPatchBody!.tags, 'tags must be present in PATCH body').toContain('Follow Up');
+    expect(capturedPatchBody!.priority, 'priority must be uppercase HOT in PATCH body').toBe('HOT');
+  });
+
+  /**
    * Path A warm priority — verify the "warm" default also sends uppercase WARM.
    *
    * Explicitly choosing "Warm" must send "WARM" (not "warm") to the server.
