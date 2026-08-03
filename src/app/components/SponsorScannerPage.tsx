@@ -7,7 +7,7 @@ import { useTheme } from '@/app/context/ThemeContext';
 import { useApp } from '@/app/context/AppContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { scanBadgeLead, updateLeadApi } from '@/app/api/leadsClient';
-import { saveLeadEdit } from '@/app/lib/leadEditsStorage';
+import { saveLeadEdit, loadLeadEdits, lookupLeadEdit } from '@/app/lib/leadEditsStorage';
 import { findMemberByBadgeCodeApi, checkInMemberApi, type EventMember } from '@/app/api/audienceClient';
 import { CameraScanner } from './CameraScanner';
 
@@ -99,6 +99,12 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
     }
     if (!badgeCode) return;
 
+    // Reset form fields so each new scan starts fresh; they'll be seeded
+    // from the prior-edits overlay once the attendee resolves below.
+    setNotes('');
+    setSelectedTags([]);
+    setPriority('warm');
+
     setResolving(true);
     try {
       // 1. Backend-first resolution. The scan endpoint resolves the attendee
@@ -165,6 +171,19 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
         }
         setScannedData(attendee);
 
+        // Seed form fields from any notes / tags / priority the user previously
+        // saved for this badge code in any event (cross-event propagation). The
+        // overlay is keyed by code:<badge_code> so it's event-agnostic.
+        {
+          const overlay = loadLeadEdits(user?.id);
+          const prior = lookupLeadEdit(overlay, '', badgeCode);
+          if (prior) {
+            if (prior.notes) setNotes(prior.notes);
+            if (prior.tags?.length) setSelectedTags(prior.tags);
+            if (prior.priority) setPriority(prior.priority);
+          }
+        }
+
         // Mirror the new lead into local state so My Leads shows it even if
         // the user navigates away before pressing Save. Silent so we don't
         // pop a "Lead saved" toast before the user has actually saved
@@ -200,6 +219,17 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
         const attendee = attendeeFromMember(member);
         setScannedData(attendee);
 
+        // Seed form fields from any prior edits for this badge code.
+        {
+          const overlay = loadLeadEdits(user?.id);
+          const prior = lookupLeadEdit(overlay, '', badgeCode);
+          if (prior) {
+            if (prior.notes) setNotes(prior.notes);
+            if (prior.tags?.length) setSelectedTags(prior.tags);
+            if (prior.priority) setPriority(prior.priority);
+          }
+        }
+
         if (member.memberId && !member.isCheckedIn) {
           const ok = await checkInMemberApi(eventId, member.memberId);
           if (ok) {
@@ -218,6 +248,17 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
           avatar: avatarFor(badgeCode),
           unrecognized: true,
         });
+
+        // Seed form fields from any prior edits for this badge code.
+        {
+          const overlay = loadLeadEdits(user?.id);
+          const prior = lookupLeadEdit(overlay, '', badgeCode);
+          if (prior) {
+            if (prior.notes) setNotes(prior.notes);
+            if (prior.tags?.length) setSelectedTags(prior.tags);
+            if (prior.priority) setPriority(prior.priority);
+          }
+        }
       }
     } finally {
       setResolving(false);

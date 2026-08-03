@@ -419,10 +419,14 @@ export interface LeadEdits {
 }
 
 /**
- * PUT /api/v1/events/:eventId/leads/:id
+ * PATCH /api/v1/events/:eventId/leads/:id
  * Updates notes, tags, and/or priority for an existing lead. `priority`
  * and `status` are mirrors on the v1 leads endpoints, so we send both so
  * the change round-trips regardless of which field the backend reads.
+ *
+ * NOTE: The backend registers this route as PATCH, not PUT. A PUT request
+ * returns HTTP 405 — PATCH is the only allowed verb (mirrors the web client
+ * and BACKEND_SCAN_ENDPOINTS.md §4).
  *
  * Callers persist the edit optimistically and to the AsyncStorage overlay
  * independently, so a NOT_IMPLEMENTED response here does NOT lose the
@@ -442,7 +446,7 @@ export async function updateLead(leadId: string, updates: LeadEdits): Promise<Ap
     body.status = updates.priority;
   }
   const res = await request<Lead>(`/api/v1/events/${eventId}/leads/${leadId}`, {
-    method: 'PUT',
+    method: 'PATCH',
     body: JSON.stringify(body),
   });
   if (!res.success) {

@@ -272,7 +272,7 @@ export function useSubmitScan() {
   const eventId = currentEventId;
   return useMutation({
     mutationFn: (payload: ScanPayload) => submitScan(payload),
-    onSuccess: (res) => {
+    onSuccess: async (res) => {
       if (!userId || !eventId) return;
       const queryKey = leadsQueryKey(userId, eventId);
       // Optimistically prepend the new lead so it shows up instantly in
@@ -280,15 +280,32 @@ export function useSubmitScan() {
       // don't double-list when the refetch returns the same row.
       if (res.success && res.data) {
         const newLead = res.data;
+        // Cross-event note inheritance: if the user previously saved notes /
+        // tags / priority for this badge code (in any event), apply them now
+        // so the detail screen opens pre-populated. The overlay is user-scoped
+        // and keyed by `code:<badge_code>`, making it event-agnostic by design.
+        let leadToCache = newLead;
+        if (newLead.code) {
+          const overlay = await loadLeadEdits(userId);
+          const prior = lookupLeadEdit(overlay, newLead.id, newLead.code);
+          if (prior && (prior.notes || prior.tags?.length || prior.priority)) {
+            leadToCache = {
+              ...newLead,
+              notes:    prior.notes     !== undefined ? prior.notes                : newLead.notes,
+              tags:     prior.tags      !== undefined ? prior.tags                 : (newLead.tags ?? []),
+              priority: prior.priority  !== undefined ? prior.priority             : newLead.priority,
+            };
+          }
+        }
         queryClient.setQueryData<ApiResponse<Lead[]>>(queryKey, (prev) => {
           const existing = prev?.data ?? [];
           // Primary dedupe by id.
-          let dedup = existing.filter((l) => l.id !== newLead.id);
+          let dedup = existing.filter((l) => l.id !== leadToCache.id);
           // Secondary dedupe: if a local-only (pendingSync) twin shares the
           // same code/email, drop it — the new lead is its server-confirmed
           // (or freshly-resolved) version.
-          const code = newLead.code?.toLowerCase();
-          const email = newLead.email?.toLowerCase();
+          const code = leadToCache.code?.toLowerCase();
+          const email = leadToCache.email?.toLowerCase();
           if (code || email) {
             dedup = dedup.filter((l) => {
               if (!l.pendingSync) return true;
@@ -297,7 +314,7 @@ export function useSubmitScan() {
               return true;
             });
           }
-          return { success: true, data: [newLead, ...dedup] };
+          return { success: true, data: [leadToCache, ...dedup] };
         });
       }
       // Always refetch to reconcile with the server (status, real id,

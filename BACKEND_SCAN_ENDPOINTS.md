@@ -669,6 +669,156 @@ to any authenticated event member (attendees AND sponsors).
 
 ---
 
+### 4a. Notes / Tags / Priority — Persistence & Cross-Event Propagation
+
+This section explains exactly where these three fields originate, what the
+backend must do to persist them, and how the same values should surface when
+a user scans the same person at a later event.
+
+---
+
+#### Where they are stored today (frontend)
+
+Both clients write notes / tags / priority to a **user-scoped local overlay**:
+
+| Platform | Storage | Key |
+|---|---|---|
+| Web    | `localStorage`  | `cxo:lead_edits:v1:<userId>` |
+| Mobile | `AsyncStorage`  | `cxo:lead_edits:v1:<userId>` |
+
+The value is a flat JSON map with two index keys per lead:
+```json
+{
+  "<leadId>":            { "notes": "...", "tags": [...], "priority": "hot" },
+  "code:<badge_code>":   { "notes": "...", "tags": [...], "priority": "hot" }
+}
+```
+
+The `code:<badge_code>` entry is event-agnostic — it survives event switches and
+is what enables cross-event propagation on the client side. When the user scans
+a badge, the scanner seeds the notes / tags / priority form fields from this
+code key if it exists, so prior context carries forward automatically.
+
+The overlay is the **fallback** for when the backend hasn't yet returned these
+fields. Once the backend reliably echoes them back on `GET /my-leads` and
+`PATCH /leads/:id`, the overlay becomes redundant — but it will keep working
+as an offline resilience layer.
+
+---
+
+#### What the backend must do
+
+**1. Persist the three fields on every write.**
+
+The `event_leads` table must have columns (see Database Schema below):
+- `notes TEXT DEFAULT ''`
+- `tags JSON DEFAULT '[]'`
+- `priority ENUM('hot','warm','cold') DEFAULT 'warm'`
+
+Both write endpoints accept them:
+
+| Endpoint | Field(s) sent by client |
+|---|---|
+| `POST /leads/scan` | `notes`, `tags`, `priority` (optional; initial capture at scan time) |
+| `PATCH /leads/:id` | `notes`, `tags`, `priority` (partial; only changed fields sent) |
+
+For `PATCH`, only the fields present in the request body should be updated.
+Do not reset the other fields to their defaults.
+
+**2. Echo all three fields on every read.**
+
+`GET /my-leads` must always include `notes`, `tags`, and `priority` on every
+row — even when the values are empty defaults. This lets the client compare
+the server echo against its local overlay and decide whether the backend has
+confirmed persistence (and therefore whether to retire the overlay entry).
+
+```json
+{
+  "id": "lead-uuid",
+  "code": "855DM",
+  "name": "Ruk User",
+  "notes": "",
+  "tags": [],
+  "priority": "warm",
+  ...
+}
+```
+
+**3. Echo all three fields in the `PATCH` response.**
+
+The `PATCH /leads/:id` response must return the full updated lead row
+(not just `{ success: true }`). This is the signal the client uses to confirm
+that the backend persisted the edit, which allows it to retire the local
+overlay entry for that lead.
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "lead-uuid",
+    "notes": "Updated conversation notes",
+    "tags": ["Decision Maker"],
+    "priority": "hot",
+    ...all other lead fields...
+  }
+}
+```
+
+---
+
+#### Cross-event propagation (server-side)
+
+The client already propagates notes / tags / priority across events via the
+`code:<badge_code>` overlay key. The backend can optionally provide the same
+guarantee server-side so cross-device users (e.g. the rep uses both web and
+mobile) see prior context even on a fresh login.
+
+**Recommended approach — inherit on `GET /my-leads`:**
+
+When building the leads list for `event_id = B`, for any lead row whose
+`notes` is empty AND `tags` is empty AND `priority` is the default `'warm'`,
+look up the most recent other `event_leads` row for the same
+`(scanned_by, badge_code)` pair across all events, and inherit its
+`notes`, `tags`, `priority` in the response (without writing them to the
+event B row in the DB — that happens via `PATCH` when the user explicitly saves).
+
+```sql
+-- Example: find the most recent prior non-empty lead for this scanner+badge
+SELECT notes, tags, priority
+FROM   event_leads
+WHERE  scanned_by  = :userId
+  AND  badge_code  = :badgeCode
+  AND  event_id   != :currentEventId
+  AND  (notes != '' OR JSON_LENGTH(tags) > 0 OR priority != 'warm')
+ORDER  BY updated_at DESC
+LIMIT  1;
+```
+
+Apply this lookup only when the current row has empty/default values —
+never overwrite a lead that already has user-supplied notes.
+
+**Alternative approach — propagate on `PATCH`:**
+
+When a `PATCH /leads/:id` updates `notes`, `tags`, or `priority`, also
+update all other `event_leads` rows where `scanned_by = auth()->id()` AND
+`badge_code = <this lead's badge_code>` AND the other row still has
+empty/default values. This spreads the edit forward immediately but is more
+aggressive — prefer the GET-time inherit if in doubt.
+
+---
+
+#### Current client behaviour when backend is not yet persisting
+
+Until the backend ships these columns / routes:
+- The client keeps the overlay indefinitely (it's not cleared unless the
+  backend echoes a non-empty `notes` back in the response).
+- The overlay is merged on top of every `GET /my-leads` response at
+  render time, so the user always sees their edits.
+- `PATCH /leads/:id` is still fired; a `404` / `405` sets a session flag
+  that short-circuits subsequent calls to avoid log noise.
+
+---
+
 ## Database Schema (suggested)
 
 ```sql
