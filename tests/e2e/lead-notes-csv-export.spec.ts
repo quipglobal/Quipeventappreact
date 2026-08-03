@@ -662,6 +662,153 @@ test.describe('Lead notes → server (admin CSV export guard)', () => {
   });
 
   /**
+   * PATCH 500 retry on next list load — notes/tags/priority preserved.
+   *
+   * When PATCH /leads/:id fails with a 5xx, `handleUpdateLead` marks the edit
+   * as `syncPending: true` in the per-user localStorage overlay.  On the next
+   * mount of LeadsPage the `useEffect` retry loop re-sends the PATCH.  This
+   * test confirms the retry body contains exactly the same notes/tags/priority
+   * the rep originally entered, so the admin CSV export is never blank for
+   * reps whose first save happened to hit a transient server error.
+   *
+   * Flow:
+   *   1. GET /my-leads returns one existing lead with empty notes.
+   *   2. Rep opens lead, types notes, picks a tag, sets priority to Hot.
+   *   3. Rep presses Save → PATCH /leads/lead-2668 → 500.
+   *   4. Client writes { notes, tags, priority, syncPending: true } to localStorage.
+   *   5. Rep navigates away from the leads page (back to the event home).
+   *   6. Rep re-opens "My Connects" → LeadsPage mounts again.
+   *   7. useEffect retry loop fires PATCH with the stored notes/tags/priority.
+   *   8. The captured retry body must contain the original values.
+   */
+  test('PATCH 500 → syncPending retry on next list load preserves notes/tags/priority', async ({ page }) => {
+    test.setTimeout(120_000);
+
+    const existingLead = {
+      scan_id: 2668,
+      id: 'lead-2668',
+      lead_id: 2668,
+      code: 'ATT-9001',
+      name: 'Alex Rivera',
+      title: 'CTO',
+      company: 'NovaTech',
+      avatar: 'https://ui-avatars.com/api/?name=Alex+Rivera&background=6366f1&color=fff',
+      notes: '',
+      tags: [],
+      priority: 'WARM',
+      scanned_at: new Date(Date.now() - 30 * 60_000).toISOString(),
+    };
+
+    let patchCallCount = 0;
+    let capturedRetryBody: Record<string, unknown> | null = null;
+
+    await installMocks(
+      page,
+      // No new scans expected on the leads page.
+      (route) => ok(route, { success: false, error: { code: 'NO_SCAN', message: 'Not expected' } }),
+      async (route) => {
+        patchCallCount++;
+        if (patchCallCount === 1) {
+          // First attempt — simulate a transient server error.
+          return route.fulfill({
+            status: 500,
+            contentType: 'application/json',
+            headers: { 'Access-Control-Allow-Origin': '*' },
+            body: JSON.stringify({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Server error' } }),
+          });
+        }
+        // Retry attempt — capture body and succeed.
+        try { capturedRetryBody = JSON.parse(route.request().postData() ?? '{}'); } catch { /**/ }
+        return ok(route, {
+          success: true,
+          data: {
+            ...existingLead,
+            notes: capturedRetryBody?.notes,
+            tags: capturedRetryBody?.tags,
+            priority: capturedRetryBody?.priority,
+          },
+        });
+      },
+      [existingLead],
+    );
+
+    // ── 1. Navigate to the leads page and open the existing lead ─────────────
+    await loginAndOpenLeadsPage(page);
+    await expect(page.getByText('Alex Rivera')).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole('button', { name: /open alex rivera/i }).click({ timeout: 8_000 });
+    await expect(page.locator('h1').filter({ hasText: 'Alex Rivera' })).toBeVisible({ timeout: 8_000 });
+
+    // ── 2. Edit the lead ──────────────────────────────────────────────────────
+    await page.getByRole('button', { name: /edit lead/i }).click({ timeout: 5_000 });
+
+    const notesArea = page.locator('textarea').first();
+    await expect(notesArea).toBeVisible({ timeout: 5_000 });
+    await notesArea.fill('Important retry notes');
+
+    // Pick a quick tag.
+    await page.locator('button').filter({ hasText: /^Follow Up$/ }).click();
+
+    // Set priority to Hot.
+    await page.getByRole('button', { name: /^Hot$/i }).click();
+
+    // ── 3. Press Save → first PATCH fires and returns 500 ────────────────────
+    await page.getByRole('button', { name: /^Save$/i }).click({ timeout: 5_000 });
+
+    // Allow the async handler enough time to receive the 500 response and
+    // write syncPending: true to localStorage before navigating away.
+    await page.waitForTimeout(2_500);
+
+    // ── 4. Navigate away from the leads page ─────────────────────────────────
+    // "All Leads" button in the detail view header returns to the leads list.
+    await page.getByRole('button', { name: /all leads/i }).click({ timeout: 5_000 });
+
+    // Use the bottom-nav "Home" button to navigate away from LeadsPage entirely
+    // so the component unmounts. The next open triggers a fresh mount + useEffect.
+    await page.getByRole('button', { name: /^Home$/i }).click({ timeout: 8_000 });
+
+    // Brief pause so the component fully unmounts before re-opening.
+    await page.waitForTimeout(500);
+
+    // ── 5. Re-open the leads page — retry fires on mount ─────────────────────
+    await page.getByRole('button', { name: /^More$/i }).click({ timeout: 8_000 });
+    const sideMenu = page.locator('[class*="z-\\[61\\]"]');
+    await expect(sideMenu.getByRole('button', { name: /my connects/i })).toBeVisible({ timeout: 8_000 });
+    await sideMenu.getByRole('button', { name: /my connects/i }).click();
+
+    await expect(page.getByText('My Leads')).toBeVisible({ timeout: 10_000 });
+
+    // Wait for the retry PATCH to fire and be captured.
+    await page.waitForTimeout(3_000);
+
+    // ── 6. Assertions ─────────────────────────────────────────────────────────
+    expect(
+      patchCallCount,
+      'Expected exactly 2 PATCH calls: one 500 on first save + one successful retry on reload',
+    ).toBe(2);
+
+    expect(
+      capturedRetryBody,
+      'Retry PATCH body must not be null — the syncPending retry never fired',
+    ).not.toBeNull();
+
+    expect(
+      capturedRetryBody!.notes,
+      'notes must be preserved in the retry PATCH body',
+    ).toBe('Important retry notes');
+
+    expect(
+      capturedRetryBody!.tags,
+      'tags must be preserved in the retry PATCH body',
+    ).toContain('Follow Up');
+
+    expect(
+      capturedRetryBody!.priority,
+      'priority must be uppercase HOT in the retry PATCH body',
+    ).toBe('HOT');
+  });
+
+  /**
    * Missing scan_id — re-POST /leads/scan upsert to recover canonical id.
    *
    * GET /my-leads returns a row where the only id field is `user_id` (the

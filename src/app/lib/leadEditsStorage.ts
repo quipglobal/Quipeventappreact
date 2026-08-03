@@ -100,6 +100,7 @@ export function saveLeadEdit(
       if ('notes' in edits) merged.notes = edits.notes;
       if ('tags' in edits) merged.tags = edits.tags;
       if ('priority' in edits) merged.priority = edits.priority;
+      if ('syncPending' in edits) merged.syncPending = edits.syncPending;
       current[slotKey] = merged;
     };
     apply(leadId);
