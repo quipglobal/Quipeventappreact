@@ -564,4 +564,229 @@ test.describe('Lead notes → server (admin CSV export guard)', () => {
       'updated priority must be uppercase HOT in PATCH body',
     ).toBe('HOT');
   });
+
+  /**
+   * Reinstall / scan_id recovery — GET /my-leads returns scan_id only.
+   *
+   * Simulates a rep who reinstalled the app (localStorage/AsyncStorage wiped).
+   * On next login GET /my-leads is the only source of lead data. The backend
+   * row has `scan_id: 2668` but no top-level `id` field. `normalizeLead` must
+   * pick up `scan_id` as the lead id so PATCH goes to the correct row.
+   *
+   * Flow:
+   *   1. Local overlay is empty (fresh install — no prior storage).
+   *   2. GET /my-leads returns { scan_id: 2668, code: 'ATT-9001', … }.
+   *   3. normalizeLead maps scan_id → lead.id = '2668'.
+   *   4. Rep opens lead, edits notes, presses Save.
+   *   5. PATCH must hit /leads/2668 — NOT a synthetic fallback id.
+   */
+  test('Reinstall — PATCH uses scan_id recovered from GET /my-leads when id field is absent', async ({ page }) => {
+    test.setTimeout(120_000);
+
+    // Backend row that has scan_id but deliberately NO top-level "id" field.
+    const leadFromServer = {
+      scan_id: 2668,
+      lead_id: 2668,
+      // NO "id" key — normalizeLead must fall through to scan_id.
+      code: 'ATT-9001',
+      name: 'Alex Rivera',
+      title: 'CTO',
+      company: 'NovaTech',
+      avatar: 'https://ui-avatars.com/api/?name=Alex+Rivera&background=6366f1&color=fff',
+      notes: '',
+      tags: [],
+      priority: 'WARM',
+      scanned_at: new Date(Date.now() - 30 * 60_000).toISOString(),
+    };
+
+    let capturedPatchUrl: string | null = null;
+    let capturedPatchBody: Record<string, unknown> | null = null;
+
+    await installMocks(
+      page,
+      // No scan submissions expected on the leads page.
+      (route) => ok(route, { success: false, error: { code: 'NO_SCAN', message: 'Not expected' } }),
+      async (route) => {
+        capturedPatchUrl = new URL(route.request().url()).pathname;
+        try { capturedPatchBody = JSON.parse(route.request().postData() ?? '{}'); } catch { /**/ }
+        return ok(route, {
+          success: true,
+          data: {
+            ...leadFromServer,
+            id: leadFromServer.scan_id,
+            notes: capturedPatchBody?.notes,
+            tags: capturedPatchBody?.tags,
+            priority: capturedPatchBody?.priority,
+          },
+        });
+      },
+      [leadFromServer],
+    );
+
+    // Clear localStorage before the page loads to simulate a fresh install.
+    await page.goto('/');
+    await page.evaluate(() => {
+      try { window.localStorage.clear(); } catch { /**/ }
+    });
+
+    await loginAndOpenLeadsPage(page);
+
+    await expect(page.getByText('Alex Rivera')).toBeVisible({ timeout: 10_000 });
+
+    // Open the lead detail.
+    await page.getByRole('button', { name: /open alex rivera/i }).click({ timeout: 8_000 });
+    await expect(page.locator('h1').filter({ hasText: 'Alex Rivera' })).toBeVisible({ timeout: 8_000 });
+
+    // Enter edit mode, type notes, save.
+    await page.getByRole('button', { name: /edit lead/i }).click({ timeout: 5_000 });
+    const notesArea = page.locator('textarea').first();
+    await expect(notesArea).toBeVisible({ timeout: 5_000 });
+    await notesArea.fill('Post-reinstall notes');
+
+    await page.getByRole('button', { name: /^Save$/i }).click({ timeout: 5_000 });
+    await page.waitForTimeout(2_000);
+
+    // ── Assert PATCH targeted the scan_id from the server, not a fallback ────
+    expect(
+      capturedPatchUrl,
+      'PATCH must fire — handleUpdateLead was never called',
+    ).not.toBeNull();
+    expect(
+      capturedPatchUrl,
+      'PATCH URL must use scan_id 2668 recovered from GET /my-leads',
+    ).toMatch(/\/leads\/2668$/);
+    expect(
+      capturedPatchBody?.notes,
+      'notes must be present in the PATCH body',
+    ).toBe('Post-reinstall notes');
+  });
+
+  /**
+   * Missing scan_id — re-POST /leads/scan upsert to recover canonical id.
+   *
+   * GET /my-leads returns a row where the only id field is `user_id` (the
+   * attendee's profile id, not the scan row id). `normalizeLead` falls
+   * through to `user_id = 501`. PATCH /leads/501 returns 404 because 501
+   * is the wrong id. The client must then re-POST /leads/scan (idempotent
+   * upsert) to recover the canonical scan_id (2668), then PATCH /leads/2668.
+   *
+   * Flow:
+   *   1. GET /my-leads → { user_id: 501, code: 'ATT-9001', … } (no scan_id).
+   *   2. Rep edits → PATCH /leads/501 → 404.
+   *   3. Client re-POSTs /leads/scan → backend returns scan_id 2668.
+   *   4. Client PATCHes /leads/2668 → success.
+   */
+  test('Missing scan_id — re-POST /leads/scan recovers canonical id then PATCH succeeds', async ({ page }) => {
+    test.setTimeout(120_000);
+
+    // Backend row with only user_id (no scan_id / lead_id / id field).
+    const leadMissingId = {
+      user_id: 501,
+      // Deliberately no scan_id / lead_id / id — normalizeLead falls to user_id.
+      code: 'ATT-9001',
+      name: 'Alex Rivera',
+      title: 'CTO',
+      company: 'NovaTech',
+      avatar: 'https://ui-avatars.com/api/?name=Alex+Rivera&background=6366f1&color=fff',
+      notes: '',
+      tags: [],
+      priority: 'WARM',
+      scanned_at: new Date(Date.now() - 30 * 60_000).toISOString(),
+    };
+
+    const patchedUrls: string[] = [];
+    let capturedFinalPatchBody: Record<string, unknown> | null = null;
+
+    await installMocks(
+      page,
+      // POST /leads/scan — upsert returns canonical scan_id 2668.
+      (route) => ok(route, {
+        success: true,
+        data: {
+          id: 2668,
+          scan_id: 2668,
+          lead_id: 2668,
+          code: 'ATT-9001',
+          name: 'Alex Rivera',
+          title: 'CTO',
+          company: 'NovaTech',
+          notes: '',
+          tags: [],
+          priority: 'WARM',
+          pointsAwarded: 0,
+          attendeePointsAwarded: 0,
+          timestamp: new Date().toISOString(),
+        },
+      }),
+      async (route) => {
+        const pathname = new URL(route.request().url()).pathname;
+        const idSegment = pathname.split('/').pop() ?? '';
+        patchedUrls.push(pathname);
+
+        if (idSegment === '501') {
+          // First PATCH: stale user_id — the backend says this lead doesn't exist.
+          return route.fulfill({
+            status: 404,
+            contentType: 'application/json',
+            headers: { 'Access-Control-Allow-Origin': '*' },
+            body: JSON.stringify({
+              success: false,
+              error: { code: '404', message: 'Lead not found' },
+            }),
+          });
+        }
+
+        // Recovery PATCH: correct scan_id 2668 — succeed and echo back the body.
+        try { capturedFinalPatchBody = JSON.parse(route.request().postData() ?? '{}'); } catch { /**/ }
+        return ok(route, {
+          success: true,
+          data: {
+            id: 2668,
+            scan_id: 2668,
+            code: 'ATT-9001',
+            name: 'Alex Rivera',
+            notes: capturedFinalPatchBody?.notes,
+            tags: capturedFinalPatchBody?.tags,
+            priority: capturedFinalPatchBody?.priority,
+          },
+        });
+      },
+      [leadMissingId],
+    );
+
+    await loginAndOpenLeadsPage(page);
+
+    await expect(page.getByText('Alex Rivera')).toBeVisible({ timeout: 10_000 });
+
+    await page.getByRole('button', { name: /open alex rivera/i }).click({ timeout: 8_000 });
+    await expect(page.locator('h1').filter({ hasText: 'Alex Rivera' })).toBeVisible({ timeout: 8_000 });
+
+    await page.getByRole('button', { name: /edit lead/i }).click({ timeout: 5_000 });
+    const notesArea = page.locator('textarea').first();
+    await expect(notesArea).toBeVisible({ timeout: 5_000 });
+    await notesArea.fill('Recovered via upsert');
+
+    await page.getByRole('button', { name: /^Save$/i }).click({ timeout: 5_000 });
+
+    // Allow time for the async 404 → POST /leads/scan → PATCH sequence.
+    await page.waitForTimeout(3_000);
+
+    // ── Assertions ────────────────────────────────────────────────────────────
+    expect(
+      patchedUrls.some(u => /\/leads\/501$/.test(u)),
+      'First PATCH must target the wrong id (501) from the user_id field',
+    ).toBe(true);
+    expect(
+      patchedUrls.some(u => /\/leads\/2668$/.test(u)),
+      'Recovery PATCH must target scan_id 2668 obtained from the upsert POST /leads/scan',
+    ).toBe(true);
+    expect(
+      capturedFinalPatchBody,
+      'Recovery PATCH body must not be null',
+    ).not.toBeNull();
+    expect(
+      capturedFinalPatchBody?.notes,
+      'notes must appear in the recovery PATCH body',
+    ).toBe('Recovered via upsert');
+  });
 });

@@ -556,10 +556,15 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
     if (apiLeads !== null) {
       setApiLeads(prev => prev ? prev.map(l => l.id === id ? { ...l, ...updates } : l) : prev);
     }
-    const code = contextLeads.find(l => l.id === id)?.code ?? null;
+    // Look up the existing lead row for badge code and profile fields.
+    // Check apiLeads too: after a reinstall the lead may exist only in the
+    // server list (not yet promoted into contextLeads) so the code lookup
+    // must reach beyond the in-memory context cache.
+    const existingLead = contextLeads.find(l => l.id === id) ?? apiLeads?.find(l => l.id === id);
+    const code = existingLead?.code ?? null;
     // 2. Push to server; retire overlay on success or mark syncPending on failure.
     void updateLeadApi(eventConfig?.eventId ?? '0', id, updates)
-      .then(res => {
+      .then(async res => {
         if (res.success) {
           // Server confirmed — retire overlay so server values are authoritative.
           if (user?.id) clearLeadEdit(user.id, id, code ?? undefined);
@@ -573,6 +578,53 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
             updateLead(id, serverUpdates);
             if (selectedLead?.id === id) setSelectedLead(prev => prev ? { ...prev, ...serverUpdates } : prev);
             setApiLeads(prev => prev ? prev.map(l => l.id === id ? { ...l, ...serverUpdates } : l) : prev);
+          }
+        } else if (res.error?.code === '404' && code) {
+          // PATCH returned 404 — the lead id may be an attendee profile id
+          // (user_id / member_id) rather than the actual scan row id.  This
+          // happens when GET /my-leads returns a row with no scan_id / lead_id
+          // field and normalizeLead falls through to `user_id`.  Re-POST
+          // /leads/scan to upsert and recover the canonical scan_id, then
+          // retry the PATCH with that id.  POST /leads/scan is idempotent on
+          // the backend (§4 of the sync spec): duplicate scans return the
+          // existing scan row's id rather than creating a new row.
+          const eventId = eventConfig?.eventId ?? '0';
+          const upsertRes = await scanBadgeLead(eventId, {
+            code,
+            name:     existingLead?.name,
+            company:  existingLead?.company,
+            title:    existingLead?.title,
+            avatar:   existingLead?.avatar,
+            // Include the rep's edits inline so the admin export is populated
+            // even if the subsequent PATCH never fires.
+            notes:    updates.notes    !== undefined ? updates.notes    : existingLead?.notes,
+            tags:     updates.tags     !== undefined ? updates.tags     : existingLead?.tags,
+            priority: updates.priority !== undefined ? updates.priority : existingLead?.priority,
+          });
+          if (upsertRes.success && upsertRes.data?.id && upsertRes.data.id !== id) {
+            const newId = upsertRes.data.id;
+            // Swap the stale (profile) id for the canonical scan_id in the
+            // local cache so subsequent edits use the correct PATCH target.
+            const canonical: Lead = {
+              ...upsertRes.data,
+              notes:    updates.notes    !== undefined ? updates.notes    : (upsertRes.data.notes    ?? existingLead?.notes    ?? ''),
+              tags:     updates.tags     !== undefined ? updates.tags     : (upsertRes.data.tags     ?? existingLead?.tags     ?? []),
+              priority: updates.priority !== undefined ? updates.priority : (upsertRes.data.priority ?? existingLead?.priority ?? 'warm'),
+            };
+            replaceLead(id, canonical);
+            setApiLeads(prev => {
+              if (!prev) return prev;
+              const filtered = prev.filter(l => l.id !== id && l.id !== newId);
+              return [canonical, ...filtered];
+            });
+            // Retry the PATCH with the recovered scan_id.
+            const patchRes = await updateLeadApi(eventId, newId, updates);
+            if (patchRes.success && user?.id) {
+              clearLeadEdit(user.id, id, code);
+            }
+          } else if (!upsertRes.success) {
+            // Upsert also failed — mark syncPending so the next list-load retries.
+            if (user?.id) saveLeadEdit(user.id, id, { ...updates, syncPending: true }, code);
           }
         } else if (res.error?.code !== 'NOT_IMPLEMENTED' && res.error?.code !== '404') {
           // Real server failure — mark edit as pending so it retries on next load.
