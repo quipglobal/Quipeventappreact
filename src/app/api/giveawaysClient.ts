@@ -125,6 +125,15 @@ function normalizeGiveaway(raw: any): SponsorGiveaway {
     sponsorId: String(
       raw?.sponsorId ?? raw?.sponsor_id ?? raw?.sponsor?.id ?? raw?.user_id ?? raw?.created_by ?? '',
     ),
+    addedByName: pickString(
+      raw?.addedByName,
+      raw?.added_by_name,
+      raw?.creator_name,
+      raw?.creatorName,
+      raw?.added_by,
+      raw?.user?.name,
+      raw?.creator?.name,
+    ) || undefined,
     // Only attach `winners` when we actually have backend rows so we
     // don't override the localStorage overlay merge with an empty
     // array on giveaways the backend hasn't tracked yet.
@@ -183,6 +192,8 @@ export interface CreateGiveawayPayload {
   image: string;
   sponsorName: string;
   sponsorId: string;
+  /** Display name of the rep who added this giveaway. */
+  addedByName?: string;
 }
 
 /**
@@ -227,6 +238,10 @@ export async function createGiveaway(
     sponsorName: payload.sponsorName,
     sponsor_id: payload.sponsorId,
     sponsorId: payload.sponsorId,
+    added_by_name: payload.addedByName ?? '',
+    addedByName: payload.addedByName ?? '',
+    creator_name: payload.addedByName ?? '',
+    creatorName: payload.addedByName ?? '',
   };
   const res = await apiPost<unknown>(`/api/v1/events/${eventId}/giveaways`, body, HEADERS);
   if (!res.success || !res.data) {

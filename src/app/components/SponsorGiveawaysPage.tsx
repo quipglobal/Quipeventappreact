@@ -348,16 +348,15 @@ export const SponsorGiveawaysPage: React.FC = () => {
   const [editing, setEditing] = useState<SponsorGiveaway | null>(null);
 
   const isSponsor = user?.role === 'sponsor';
-  // Show every giveaway the event-scoped backend list returned.
-  // Filtering by `isMyGiveaway` here was hiding the rep's own
-  // freshly-added prize whenever the backend re-stamped sponsor_id
-  // with a foreign-key value that didn't equal `user.id` (the bug
-  // that surfaced as "added giveaway not appearing"). The list is
-  // already authorized + event-scoped server-side. Edit/delete
-  // affordances on each card are still gated by `isMyGiveaway`
-  // below, so a rep from a different company can see a card but
-  // can't mutate it.
-  const visibleGiveaways = sponsorGiveaways;
+  // The company key the current rep belongs to. Matches the value stored
+  // as `sponsorName` when a giveaway is created from this account.
+  const myCompanyKey = user?.company || user?.name || '';
+  // Rule 1: only show giveaways belonging to the current rep's company.
+  // Cross-company prizes are hidden entirely in the management UI — reps
+  // only need to see (and manage) their own booth's items.
+  const visibleGiveaways = sponsorGiveaways.filter(
+    g => myCompanyKey !== '' && g.sponsorName === myCompanyKey,
+  );
 
   const headerBg = eventConfig?.backgroundURL
     ? `linear-gradient(160deg,rgba(10,5,30,0.82) 0%,rgba(30,10,60,0.72) 100%),url(${eventConfig.backgroundURL}) center/cover no-repeat`
@@ -421,8 +420,12 @@ export const SponsorGiveawaysPage: React.FC = () => {
           onAdd={(data) => {
             addSponsorGiveaway({
               ...data,
+              // sponsorName = company key used for same-company scoping/filtering.
               sponsorName: user?.company || user?.name || 'Sponsor',
               sponsorId: user?.id || 'sponsor',
+              // addedByName = individual rep's display name shown on each card
+              // so teammates can see who submitted each prize.
+              addedByName: user?.name || user?.email || 'Unknown',
             });
           }}
         />
@@ -432,24 +435,22 @@ export const SponsorGiveawaysPage: React.FC = () => {
             <div className="flex items-center gap-2 mb-3">
               <Gift style={{ width: 14, height: 14, color: '#7c3aed' }} />
               <span style={{ color: t.text, fontSize: 13, fontWeight: 700 }}>
-                Your Giveaways ({visibleGiveaways.length})
+                {myCompanyKey || 'Your'} Giveaways ({visibleGiveaways.length})
               </span>
             </div>
             <div className="space-y-3">
               <AnimatePresence>
                 {visibleGiveaways.map(g => {
-                  // "Mine" here just controls whether edit/delete
-                  // buttons are visible. Per product: any same-company
-                  // rep can manage the booth's prizes, so isMyGiveaway
-                  // already includes them.
+                  // Same-company reps can edit/delete any of the booth's prizes.
+                  // Cross-company giveaways are already excluded from visibleGiveaways,
+                  // so isMyGiveaway only ever returns true here.
                   const mine = isMyGiveaway(g);
-                  // Show a "Added by Co-worker" hint for prizes the
-                  // current rep didn't personally create — helps the
-                  // team avoid accidentally duplicating an item.
-                  const byline =
-                    mine && g.sponsorId !== user?.id && g.sponsorName
-                      ? `Added by ${g.sponsorName}`
-                      : undefined;
+                  const isMyOwn = g.sponsorId === user?.id;
+                  // Rule 2: always show who added each prize so teammates
+                  // can see at a glance who submitted what and avoid duplicates.
+                  const byline = isMyOwn
+                    ? 'Added by you'
+                    : `Added by ${g.addedByName || 'a teammate'}`;
                   return (
                     <GiveawayCard
                       key={g.id}

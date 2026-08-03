@@ -157,8 +157,15 @@ export interface SponsorGiveaway {
   numberOfItems: number;
   image: string;
   createdAt: Date;
+  /** Company name of the sponsor who added this giveaway. Used to scope
+   *  visibility so only same-company reps see it in the management UI. */
   sponsorName: string;
+  /** User id of the specific rep who added this giveaway. */
   sponsorId: string;
+  /** Display name of the rep who added this giveaway (e.g. "Sarah Chen").
+   *  Shown on cards so teammates know who submitted each prize and can
+   *  avoid duplicates. */
+  addedByName?: string;
   /**
    * Lucky-draw winners associated with this giveaway. Hydrated from the
    * `cxo:giveaway_winners:v1:<eventId>` localStorage overlay since the
@@ -1975,11 +1982,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   //   - Non-sponsors (attendees) never see this surface at all,
   //     so the public Giveaways page is unaffected.
   //
-  // Owner identity is still surfaced via the "Added by …" byline
-  // on each card so co-workers know who originally created the
-  // prize and don't accidentally duplicate it.
-  const isMyGiveaway = (_g: SponsorGiveaway): boolean => {
-    return user?.role === 'sponsor';
+  // A giveaway "belongs to" the current rep's company when the
+  // stored sponsorName matches the rep's company field. All reps from
+  // the same company can manage the booth's prizes; cross-company
+  // giveaways are never shown in the management UI (visibility filter
+  // in SponsorGiveawaysPage) and isMyGiveaway returns false for them
+  // so no edit/delete affordance can be constructed.
+  const isMyGiveaway = (g: SponsorGiveaway): boolean => {
+    if (user?.role !== 'sponsor') return false;
+    const myCompany = user.company || user.name || '';
+    return myCompany !== '' && g.sponsorName === myCompany;
   };
 
   const switchEvent = (config: EventConfig) => {
