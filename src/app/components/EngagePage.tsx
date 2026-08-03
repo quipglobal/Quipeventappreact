@@ -55,7 +55,7 @@ export const EngagePage: React.FC<EngagePageProps> = ({ onNavigate }) => {
   }, [eventId]);
 
   const newSurveysCount   = surveyIds.filter(id => !completedSurveys.includes(id)).length;
-  const livePollsCount    = livePollIds.filter(id => !votedPolls.includes(id)).length;
+  const livePollsCount    = livePollIds.filter(id => !(id in votedPolls)).length;
   const availableSponsors = mockSponsors.filter(s => !metSponsors.includes(s.id)).length;
   const activeChallenges  = activeChallengeIds.filter(id => !completedChallenges.includes(id)).length;
 
@@ -72,7 +72,7 @@ export const EngagePage: React.FC<EngagePageProps> = ({ onNavigate }) => {
 
   const stats = [
     { value: completedSurveys.length, label: 'Surveys',  color: '#10b981' },
-    { value: votedPolls.length,       label: 'Polls',    color: '#7c3aed' },
+    { value: Object.keys(votedPolls).length, label: 'Polls', color: '#7c3aed' },
     { value: metSponsors.length,      label: 'Sponsors', color: '#f97316' },
   ];
 

@@ -29,7 +29,7 @@ const formatAnswer = (q: BackendSurveyQuestion, value: unknown): string => {
 };
 
 export const SurveysListPage: React.FC<SurveysListPageProps> = ({ onBack }) => {
-  const { completedSurveys, setCompletedSurveys, addPoints, gamificationConfig, eventConfig, showToast } = useApp();
+  const { completedSurveys, setCompletedSurveys, addPoints, gamificationConfig, eventConfig, showToast, savedSurveyAnswers, setSavedSurveyAnswers } = useApp();
   const { t } = useTheme();
   const eventId = eventConfig?.eventId;
 
@@ -44,8 +44,7 @@ export const SurveysListPage: React.FC<SurveysListPageProps> = ({ onBack }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   // True when the user is updating an already-completed survey.
   const [isEditing, setIsEditing] = useState(false);
-  // Stores the last-submitted answers per survey so re-opens are pre-populated.
-  const [savedSurveyAnswers, setSavedSurveyAnswers] = useState<Record<string, Record<number, unknown>>>({});
+  // savedSurveyAnswers / setSavedSurveyAnswers come from AppContext (persisted to localStorage).
 
   const filterSurveys = (list: BackendSurveySummary[]) => {
     return list.filter(s => {

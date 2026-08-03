@@ -24,6 +24,7 @@ interface PollState {
 
 export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
   const { votedPolls, setVotedPolls, addPoints, gamificationConfig, eventConfig, showToast } = useApp();
+  // votedPolls is now Record<pollId, optionId> — both "voted?" and "which option" in one map.
   const { t } = useTheme();
   const eventId = eventConfig?.eventId;
 
@@ -86,7 +87,7 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
   const handleVote = async (pollId: number) => {
     if (!eventId) return;
     const optionId = selectedOptions[pollId];
-    if (!optionId || submittingPollId !== null || votedPolls.includes(String(pollId))) return;
+    if (!optionId || submittingPollId !== null || String(pollId) in votedPolls) return;
 
     setSubmittingPollId(pollId);
     const res = await submitEventPollVoteApi(eventId, pollId, optionId);
@@ -97,10 +98,10 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
         ? { ...p, results: res.data!.results, totalVotes: res.data!.total_votes, votedOptionId: res.data!.voted_option_id }
         : p
       ));
-      setVotedPolls([...votedPolls, String(pollId)]);
+      setVotedPolls({ ...votedPolls, [pollId]: optionId });
       addPoints(gamificationConfig.pointActions.votePoll, 'Poll vote submitted!');
     } else if (res.error?.code === 'ALREADY_VOTED') {
-      setVotedPolls([...votedPolls, String(pollId)]);
+      setVotedPolls({ ...votedPolls, [pollId]: optionId });
       showToast('You already voted in this poll.');
     } else {
       showToast(res.error?.message ?? 'Failed to submit vote. Please try again.');
@@ -135,8 +136,12 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
         )}
 
         {!loading && polls.map(({ detail: poll, results, totalVotes, votedOptionId }) => {
-          const hasVoted = votedPolls.includes(String(poll.id)) || votedOptionId !== undefined;
+          const storedOptionId = votedPolls[String(poll.id)]; // persisted choice (survives refresh)
+          const hasVoted = storedOptionId !== undefined || votedOptionId !== undefined;
           const userChoice = selectedOptions[poll.id];
+          // The authoritative "which option did I vote for" — prefer the live API response,
+          // fall back to what was stored in context (restored from localStorage).
+          const myVotedOptionId = votedOptionId ?? storedOptionId;
           const total = totalVotes ?? 0;
           const isLive = poll.status === 'LIVE';
           const winnerVotes = results ? Math.max(...results.map(r => r.votes)) : 0;
@@ -164,6 +169,7 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
                   const liveVotes = result?.votes ?? 0;
                   const pct = result?.percentage ?? 0;
                   const isChosen = userChoice === option.id;
+                  const isMyVote = hasVoted && option.id === myVotedOptionId;
                   const isWinning = hasVoted && results && liveVotes === winnerVotes && winnerVotes > 0;
 
                   return (
@@ -193,9 +199,14 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
                               {isChosen && <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#fff' }} />}
                             </div>
                           )}
-                          <span style={{ color: hasVoted ? t.text : isChosen ? t.accentSoft : t.textSec, fontWeight: isChosen ? 700 : 500, fontSize: 14 }}>
-                            {option.option_text}
-                          </span>
+                          <div className="flex flex-col gap-0.5">
+                            <span style={{ color: hasVoted ? (isMyVote ? t.accentSoft : t.text) : isChosen ? t.accentSoft : t.textSec, fontWeight: isMyVote || isChosen ? 700 : 500, fontSize: 14 }}>
+                              {option.option_text}
+                            </span>
+                            {isMyVote && (
+                              <span style={{ color: t.accentSoft, fontSize: 11, fontWeight: 600 }}>Your vote ✓</span>
+                            )}
+                          </div>
                         </div>
                         {hasVoted && results && (
                           <div className="flex items-center gap-2 flex-shrink-0">

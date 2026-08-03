@@ -49,6 +49,9 @@ export function useAuth(): AppContextValue {
 const TOKEN_KEY = 'cxo_auth_token';
 const CACHED_USER_KEY = 'cxo_cached_user';
 const CHECKED_IN_EVENTS_KEY = 'cxo_checked_in_events';
+const COMPLETED_SURVEYS_KEY = 'cxo_completed_surveys';
+const SURVEY_ANSWERS_KEY = 'cxo_survey_answers';
+const VOTED_POLLS_KEY = 'cxo_voted_polls';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
@@ -101,7 +104,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setCompletedSurveys([]);
       setSavedSurveyAnswers({});
       setCheckedInEvents([]);
-      AsyncStorage.multiRemove([TOKEN_KEY, CACHED_USER_KEY]).catch(() => {});
+      AsyncStorage.multiRemove([TOKEN_KEY, CACHED_USER_KEY, COMPLETED_SURVEYS_KEY, SURVEY_ANSWERS_KEY, VOTED_POLLS_KEY]).catch(() => {});
       router.replace('/(auth)/welcome');
     });
     return () => clearUnauthorizedHandler();
@@ -109,12 +112,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function restoreSession() {
     try {
-      // Restore persisted check-in events so the user never gets duplicate
-      // join-points if they close and reopen the app.
-      const storedCheckedIn = await AsyncStorage.getItem(CHECKED_IN_EVENTS_KEY);
-      if (storedCheckedIn) {
-        try { setCheckedInEvents(JSON.parse(storedCheckedIn)); } catch {}
-      }
+      // Restore persisted engagement state so survey answers, poll votes, and
+      // completed survey IDs survive app restarts.
+      const [storedCheckedIn, storedSurveys, storedAnswers, storedPolls] = await Promise.all([
+        AsyncStorage.getItem(CHECKED_IN_EVENTS_KEY),
+        AsyncStorage.getItem(COMPLETED_SURVEYS_KEY),
+        AsyncStorage.getItem(SURVEY_ANSWERS_KEY),
+        AsyncStorage.getItem(VOTED_POLLS_KEY),
+      ]);
+      if (storedCheckedIn) { try { setCheckedInEvents(JSON.parse(storedCheckedIn)); } catch {} }
+      if (storedSurveys)   { try { setCompletedSurveys(JSON.parse(storedSurveys)); }   catch {} }
+      if (storedAnswers)   { try { setSavedSurveyAnswers(JSON.parse(storedAnswers)); }  catch {} }
+      if (storedPolls)     { try { setVotedPolls(JSON.parse(storedPolls)); }            catch {} }
 
       const storedToken = await AsyncStorage.getItem(TOKEN_KEY);
       if (!storedToken) {
@@ -197,13 +206,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // still be there for that event. Wiping on logout was the cause
     // of the "all my leads disappeared after I signed out" report.
     await clearToken();
-    await AsyncStorage.multiRemove([TOKEN_KEY, CACHED_USER_KEY]);
+    await AsyncStorage.multiRemove([TOKEN_KEY, CACHED_USER_KEY, COMPLETED_SURVEYS_KEY, SURVEY_ANSWERS_KEY, VOTED_POLLS_KEY]);
     setTokenState(null);
     setUserState(null);
     setCompletedChallenges([]);
     setBookmarkedSessions([]);
     setVotedPolls({});
     setCompletedSurveys([]);
+    setSavedSurveyAnswers({});
     setCheckedInEvents([]);
     // Note: intentionally keep CHECKED_IN_EVENTS_KEY on logout so the
     // same user logging back in doesn't get duplicate check-in points.
@@ -270,7 +280,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setVotedPolls((prev) => {
       if (prev[id] !== undefined) return prev; // already voted, no duplicate points
       addPoints(10, 'Poll voted!');
-      return { ...prev, [id]: optionId };
+      const next = { ...prev, [id]: optionId };
+      AsyncStorage.setItem(VOTED_POLLS_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
     });
   }, [addPoints]);
 
@@ -278,12 +290,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setCompletedSurveys((prev) => {
       if (prev.includes(id)) return prev;
       addPoints(50, 'Survey completed!');
-      return [...prev, id];
+      const next = [...prev, id];
+      AsyncStorage.setItem(COMPLETED_SURVEYS_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
     });
   }, [addPoints]);
 
   const saveSurveyAnswers = useCallback((id: string, answers: Record<string, string>) => {
-    setSavedSurveyAnswers(prev => ({ ...prev, [id]: answers }));
+    setSavedSurveyAnswers(prev => {
+      const next = { ...prev, [id]: answers };
+      AsyncStorage.setItem(SURVEY_ANSWERS_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
   }, []);
 
   const markEventCheckedIn = useCallback((eventId: string) => {
