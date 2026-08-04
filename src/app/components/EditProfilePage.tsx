@@ -10,6 +10,9 @@ import {
   type UserProfile, type ProfileUpdatePayload, type SocialLinks,
 } from '@/app/api/userClient';
 import {
+  getMemberDetailApi, getMeProfileApi,
+} from '@/app/api/audienceClient';
+import {
   listIndustriesApi, listTagsApi, listCompaniesApi, type Lookup,
 } from '@/app/api/lookupsClient';
 
@@ -25,7 +28,7 @@ const SOCIAL_KEYS: { key: keyof SocialLinks; label: string; icon: React.Componen
 ];
 
 export const EditProfilePage: React.FC<EditProfilePageProps> = ({ onBack }) => {
-  const { user, setUser, showToast } = useApp();
+  const { user, setUser, showToast, eventConfig } = useApp();
   const { t } = useTheme();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -52,10 +55,11 @@ export const EditProfilePage: React.FC<EditProfilePageProps> = ({ onBack }) => {
   const [topics, setTopics] = useState<Lookup[]>([]);
   const [companyQuery, setCompanyQuery] = useState('');
   const [companyOpen, setCompanyOpen] = useState(false);
-  // Name hints: used to match industry/topics by name when the backend returns
-  // strings or objects without IDs. Cleared once matched to the lookup lists.
+  // Name hints: used to match industry/topics/company by name when the backend
+  // returns strings or objects without IDs. Cleared once matched to lookup lists.
   const [industryNameHint, setIndustryNameHint] = useState('');
   const [topicNameHints, setTopicNameHints] = useState<string[]>([]);
+  const [companyNameHint, setCompanyNameHint] = useState('');
 
   // Load profile first so the form renders immediately — no waiting on lookups.
   // Lookups (industries, tags, companies) load concurrently in the background
@@ -68,8 +72,20 @@ export const EditProfilePage: React.FC<EditProfilePageProps> = ({ onBack }) => {
     getUserProfileApi().then(profileR => {
       if (cancelled) return;
 
+      // Track what the primary /me fetch gave us so we know what to backfill
+      // from the richer audience profile endpoint without overwriting real data.
+      let primaryCompanyId: number | null = null;
+      let primaryHasLinkedin = false;
+      let primaryHasSocial = false;
+      let primaryHasTopics = false;
+
       if (profileR.success && profileR.data) {
-        applyProfile(profileR.data);
+        const p = profileR.data;
+        applyProfile(p);
+        primaryCompanyId = p.companyId ?? null;
+        primaryHasLinkedin = !!(p.linkedinUrl || (p.socialLinks ?? {}).linkedin);
+        primaryHasSocial   = Object.keys(p.socialLinks ?? {}).some(k => k !== 'linkedin' && (p.socialLinks as Record<string,string>)[k]);
+        primaryHasTopics   = (p.interestedTopics ?? []).length > 0;
       } else if (user) {
         // Fallback: use whatever the auth context already has so the form is never blank.
         applyProfile({
@@ -82,18 +98,32 @@ export const EditProfilePage: React.FC<EditProfilePageProps> = ({ onBack }) => {
           points: user.points, tier: user.tier, role: user.role,
           interests: user.interests, profileComplete: user.profileComplete,
         });
+        primaryCompanyId   = user.companyId ?? null;
+        primaryHasLinkedin = !!(user.linkedinUrl);
+        primaryHasSocial   = Object.keys(user.socialLinks ?? {}).length > 0;
+        primaryHasTopics   = (user.interestedTopics ?? []).length > 0;
         setError("Couldn't load your latest profile. Showing cached data — you can still edit and save.");
       }
 
       // Form is ready — show it while lookups continue loading in the background.
       setLoading(false);
 
+      // Fire lookups + audience enrichment concurrently so the form fills in as
+      // fast as possible without blocking the initial render.
+      const eventId = eventConfig?.eventId;
+      const userId  = user?.id ? Number(user.id) : null;
+
       const partialErrors: string[] = [];
       Promise.allSettled([
         listIndustriesApi(),
         listTagsApi(),
         listCompaniesApi(500),
-      ]).then(([industriesR, tagsR, companiesR]) => {
+        // Audience attendee detail — richest source for company/social/topics.
+        eventId && userId ? getMemberDetailApi(eventId, userId) : Promise.resolve(null),
+        // /api/v1/me/profile may return social_links / interested_topics even
+        // when /api/v1/me doesn't (different serialiser on some backends).
+        getMeProfileApi(),
+      ]).then(([industriesR, tagsR, companiesR, audienceR, meProfileR]) => {
         if (cancelled) return;
         if (industriesR.status === 'fulfilled' && industriesR.value.success && industriesR.value.data) {
           setIndustries(industriesR.value.data);
@@ -101,9 +131,91 @@ export const EditProfilePage: React.FC<EditProfilePageProps> = ({ onBack }) => {
         if (tagsR.status === 'fulfilled' && tagsR.value.success && tagsR.value.data) {
           setTopics(tagsR.value.data);
         } else partialErrors.push('topics');
-        if (companiesR.status === 'fulfilled' && companiesR.value.success && companiesR.value.data) {
-          setCompanies(companiesR.value.data);
-        } else partialErrors.push('companies');
+
+        const loadedCompanies =
+          companiesR.status === 'fulfilled' && companiesR.value.success && companiesR.value.data
+            ? companiesR.value.data
+            : null;
+        if (loadedCompanies) {
+          setCompanies(loadedCompanies);
+        } else {
+          partialErrors.push('companies');
+        }
+
+        // ── Enrich from /api/v1/me/profile if /me was incomplete ───────────
+        if (meProfileR.status === 'fulfilled' && meProfileR.value?.success && meProfileR.value.data) {
+          const mp = meProfileR.value.data;
+
+          if (!primaryHasLinkedin && mp.linkedin_url) {
+            setLinkedinUrl(mp.linkedin_url);
+            primaryHasLinkedin = true;
+          }
+
+          if (!primaryHasSocial && mp.social_links) {
+            const sl: Record<string, string> = {};
+            for (const [k, v] of Object.entries(mp.social_links)) {
+              if (k !== 'linkedin' && typeof v === 'string' && v) sl[k] = v;
+            }
+            if (Object.keys(sl).length) {
+              setSocialLinks(sl);
+              primaryHasSocial = true;
+            }
+            // Also promote linkedin from social_links if still missing
+            if (!primaryHasLinkedin && typeof mp.social_links.linkedin === 'string' && mp.social_links.linkedin) {
+              setLinkedinUrl(mp.social_links.linkedin as string);
+              primaryHasLinkedin = true;
+            }
+          }
+
+          if (!primaryHasTopics && mp.interested_topics?.length) {
+            // These are strings — let the name-hint matcher resolve them to IDs
+            setTopicNameHints(mp.interested_topics);
+            primaryHasTopics = true;
+          }
+        }
+
+        // ── Enrich from audience attendee profile (richest source) ──────────
+        if (audienceR.status === 'fulfilled' && audienceR.value?.success && audienceR.value.data) {
+          const aud = audienceR.value.data;
+
+          // Company: backfill from audience if /me gave us no companyId
+          if (primaryCompanyId === null && aud.company) {
+            const companies = loadedCompanies ?? [];
+            const match = companies.find(
+              c => c.name.toLowerCase() === aud.company.toLowerCase(),
+            );
+            if (match) {
+              setCompanyId(match.id);
+              setCompanyQuery(match.name);
+            } else {
+              // No exact match — store as free-text; the companyNameHint effect
+              // will resolve it when the companies list is available.
+              setCompanyQuery(aud.company);
+              setCompanyNameHint(aud.company);
+            }
+          }
+
+          // LinkedIn
+          if (!primaryHasLinkedin && aud.linkedinUrl) {
+            setLinkedinUrl(aud.linkedinUrl);
+            primaryHasLinkedin = true;
+          }
+
+          // Other social links
+          if (!primaryHasSocial && Object.keys(aud.socialLinks ?? {}).length) {
+            const sl: Record<string, string> = {};
+            for (const [k, v] of Object.entries(aud.socialLinks ?? {})) {
+              if (k !== 'linkedin' && v) sl[k] = v;
+            }
+            if (Object.keys(sl).length) setSocialLinks(sl);
+          }
+
+          // Interested topics (strings — name-hint matcher will resolve IDs)
+          if (!primaryHasTopics && aud.interestedTopics?.length) {
+            setTopicNameHints(aud.interestedTopics);
+          }
+        }
+
         if (partialErrors.length) {
           setError(prev =>
             prev
@@ -124,6 +236,13 @@ export const EditProfilePage: React.FC<EditProfilePageProps> = ({ onBack }) => {
     const match = industries.find(i => i.name.toLowerCase() === industryNameHint.toLowerCase());
     if (match) setIndustryId(match.id);
   }, [industries, industryId, industryNameHint]);
+
+  // After companies arrive: if we only have a name (no ID), find the matching entry.
+  useEffect(() => {
+    if (!companyNameHint || companyId !== null || !companies.length) return;
+    const match = companies.find(c => c.name.toLowerCase() === companyNameHint.toLowerCase());
+    if (match) { setCompanyId(match.id); setCompanyQuery(match.name); }
+  }, [companies, companyId, companyNameHint]);
 
   // After tags arrive: match any string-only topics (id=0) by name.
   useEffect(() => {
@@ -146,12 +265,23 @@ export const EditProfilePage: React.FC<EditProfilePageProps> = ({ onBack }) => {
     setTitle(p.title);
     setBio(p.bio);
     setCompanyId(p.companyId ?? null);
+    // Keep the company name as a hint so we can match it to the companies list
+    // by name if the backend doesn't return a numeric companyId.
+    if ((p.companyId ?? null) == null && p.company) setCompanyNameHint(p.company);
     setIndustryId(p.industryId ?? null);
     // Keep the industry name as a hint so we can match it to the lookup list by
     // name if the backend doesn't return a numeric industryId.
     setIndustryNameHint(p.industry ?? '');
-    setLinkedinUrl(p.linkedinUrl);
-    setSocialLinks(p.socialLinks ?? {});
+
+    // If LinkedIn came in via social_links.linkedin instead of linkedin_url,
+    // promote it so the dedicated field shows it correctly and it doesn't get
+    // left behind in the generic social-links map.
+    const rawSocial = { ...(p.socialLinks ?? {}) };
+    const promotedLinkedIn = rawSocial.linkedin ?? '';
+    delete rawSocial.linkedin;
+    setLinkedinUrl(p.linkedinUrl || promotedLinkedIn);
+    setSocialLinks(rawSocial);
+
     setAvatarUrl(p.avatar || p.profileImage || '');
     // Fix: filter(id => id > 0) instead of filter(Boolean) — 0 is falsy but valid
     // as a sentinel meaning "string-only topic"; we collect those names separately.
