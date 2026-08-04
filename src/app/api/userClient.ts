@@ -7,7 +7,7 @@
  *   GET   /api/v1/events/:id/my-rank         → PointsResponse
  */
 
-import { apiGet, apiPost, API_BASE_URL, TOKEN_KEY } from './client';
+import { apiGet, apiPut, API_BASE_URL, TOKEN_KEY } from './client';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -210,32 +210,45 @@ export async function getUserProfileApi(): Promise<ProfileResponse> {
 }
 
 /**
- * POST /api/v1/me/profile
+ * PUT /api/v1/me/profile
  * Updates editable profile fields. Returns the updated profile on success.
  *
- * One-shot console log of the request payload and the raw server
- * response is emitted to help debug "save didn't stick" reports.
- * Once the bug is fixed for good this can be removed; until then
- * it's the cheapest way to capture the actual server shape from a
- * real authenticated session.
+ * Uses PUT (idempotent update) to match the registration flow in authClient.ts.
+ * After the PUT, re-fetches GET /api/v1/me so the returned profile reflects
+ * whatever the backend persisted rather than relying on the PUT response shape.
  */
-let updateProfileDiagLogged = false;
 export async function updateUserProfileApi(payload: ProfileUpdatePayload): Promise<ProfileResponse> {
-  const res = await apiPost<unknown>('/api/v1/me/profile', payload);
-  if (!updateProfileDiagLogged && typeof console !== 'undefined') {
-    updateProfileDiagLogged = true;
-    try {
-      console.error(
-        '[userClient] POST /api/v1/me/profile DIAG (not an error):',
-        JSON.stringify({ payload, response: res }, null, 2),
-      );
-    } catch { /* ignore */ }
-  }
-  if (!res.success || !res.data) {
+  const res = await apiPut<unknown>('/api/v1/me/profile', payload);
+
+  if (!res.success) {
+    // Some backends return 200 with success:false on validation errors.
     return { success: false, error: res.error ?? { message: 'Failed to update profile.' } };
   }
-  const raw = ((res.data as Record<string, unknown>)?.data ?? res.data) as Record<string, unknown>;
-  return { success: true, data: normalizeProfile(raw) };
+
+  // Re-fetch the profile to get the authoritative persisted state.
+  // The PUT response shape varies across backend versions; GET /api/v1/me
+  // is the stable source of truth.
+  const meRes = await apiGet<unknown>('/api/v1/me');
+  if (meRes.success && meRes.data) {
+    const raw = (
+      (meRes.data as Record<string, unknown>).user ??
+      (meRes.data as Record<string, unknown>).data ??
+      meRes.data
+    ) as Record<string, unknown>;
+    return { success: true, data: normalizeProfile(raw) };
+  }
+
+  // Fallback: normalise whatever the PUT itself returned.
+  if (res.data) {
+    const raw = (
+      (res.data as Record<string, unknown>).user ??
+      (res.data as Record<string, unknown>).data ??
+      res.data
+    ) as Record<string, unknown>;
+    return { success: true, data: normalizeProfile(raw) };
+  }
+
+  return { success: false, error: { message: 'Profile saved but could not reload updated data.' } };
 }
 
 export interface AvatarUploadResponse {

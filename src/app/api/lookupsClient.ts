@@ -69,3 +69,26 @@ export async function listCompaniesApi(perPage = 200): Promise<LookupsResponse> 
   list.sort((a, b) => a.name.localeCompare(b.name));
   return { success: true, data: list };
 }
+
+/**
+ * Server-side company search — used when the full companies list is too large
+ * to filter locally (Quip Global Inc, etc. may be beyond the first 500 records).
+ * Falls back gracefully: if the backend ignores the `search` param it returns
+ * all companies and we filter locally; if it returns an error we return empty.
+ */
+export async function searchCompaniesApi(query: string, perPage = 20): Promise<LookupsResponse> {
+  const q = query.trim();
+  if (!q) return { success: true, data: [] };
+  const res = await apiGet<unknown>(
+    `/api/v1/companies?per_page=${perPage}&search=${encodeURIComponent(q)}`,
+    HEADERS,
+  );
+  if (!res.success) return { success: true, data: [] }; // silent fallback
+  const list = unwrapList(res.data)
+    .map(toLookup)
+    .filter((x): x is Lookup => x !== null)
+    // If the backend ignored the search param, filter locally.
+    .filter(c => c.name.toLowerCase().includes(q.toLowerCase()));
+  list.sort((a, b) => a.name.localeCompare(b.name));
+  return { success: true, data: list };
+}

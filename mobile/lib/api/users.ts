@@ -152,8 +152,169 @@ export async function getAttendee(userId: string): Promise<ApiResponse<Attendee>
   return { success: true, data: normalizeAttendee(raw) };
 }
 
+/** @deprecated Use updateProfileFull instead — this hits the wrong endpoint. */
 export async function updateProfile(data: Partial<AuthUser>): Promise<ApiResponse<AuthUser>> {
   return request<AuthUser>('/api/v1/profile', { method: 'PATCH', body: JSON.stringify(data) });
+}
+
+// ─── Extended profile types ──────────────────────────────────────────────────
+
+export interface Lookup { id: number; name: string; slug?: string }
+
+export interface FullProfile {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  title: string;
+  bio: string;
+  company: string;
+  companyId: number | null;
+  industry: string;
+  industryId: number | null;
+  linkedinUrl: string;
+  socialLinks: Record<string, string>;
+  interestedTopics: Array<{ id: number; name: string }>;
+  avatar: string;
+}
+
+export interface ProfileUpdatePayload {
+  first_name?: string;
+  last_name?: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+  title?: string;
+  bio?: string;
+  linkedin_url?: string;
+  company_id?: number | null;
+  company?: string;
+  company_name?: string;
+  industry_id?: number | null;
+  social_links?: Record<string, string>;
+  interested_topic_ids?: number[];
+  topic_ids?: number[];
+  interests?: string[];
+}
+
+function normalizeFullProfile(raw: any): FullProfile {
+  const company = raw.company;
+  const companyName =
+    typeof company === 'string' ? company :
+    company && typeof company === 'object' ? String(company.name ?? '') : '';
+  const companyId =
+    company && typeof company === 'object' && company.id != null ? Number(company.id) :
+    raw.company_id != null ? Number(raw.company_id) : null;
+
+  const industry = raw.industry;
+  const industryName =
+    typeof industry === 'string' ? industry :
+    industry && typeof industry === 'object' ? String(industry.name ?? '') : '';
+  const industryId =
+    industry && typeof industry === 'object' && industry.id != null ? Number(industry.id) :
+    raw.industry_id != null ? Number(raw.industry_id) : null;
+
+  const topicsRaw = raw.interested_topics ?? raw.interestedTopics ?? [];
+  const interestedTopics = Array.isArray(topicsRaw)
+    ? topicsRaw.map((t: any) =>
+        typeof t === 'string' ? { id: 0, name: t } :
+        { id: Number(t.id ?? 0), name: String(t.name ?? '') }
+      ).filter((t: any) => t.name)
+    : [];
+
+  const socialLinksRaw = raw.social_links ?? raw.socialLinks;
+  const socialLinks: Record<string, string> = {};
+  if (socialLinksRaw && typeof socialLinksRaw === 'object' && !Array.isArray(socialLinksRaw)) {
+    for (const [k, v] of Object.entries(socialLinksRaw)) {
+      if (typeof v === 'string' && v && k !== 'linkedin') socialLinks[k] = v;
+    }
+  }
+
+  const firstName = raw.first_name ?? raw.firstName ?? '';
+  const lastName = raw.last_name ?? raw.lastName ?? '';
+  const linkedinFromSocial =
+    typeof socialLinksRaw?.linkedin === 'string' ? socialLinksRaw.linkedin : '';
+
+  return {
+    id: String(raw.id ?? ''),
+    firstName,
+    lastName,
+    email: raw.email ?? '',
+    phone: raw.phone ?? '',
+    title: raw.title ?? raw.job_title ?? raw.position ?? '',
+    bio: raw.bio ?? '',
+    company: companyName,
+    companyId,
+    industry: industryName,
+    industryId,
+    linkedinUrl: raw.linkedin_url ?? raw.linkedinUrl ?? linkedinFromSocial ?? '',
+    socialLinks,
+    interestedTopics,
+    avatar: raw.avatar_url ?? raw.avatar ?? raw.profile_image ?? '',
+  };
+}
+
+/** GET /api/v1/me — fetches the current user's full profile including
+ *  company, industry, social links, and interested topics. */
+export async function fetchFullProfile(): Promise<ApiResponse<FullProfile>> {
+  const res = await request<any>('/api/v1/me');
+  if (!res.success) return res as ApiResponse<FullProfile>;
+  const raw = res.data?.user ?? res.data?.data ?? res.data;
+  return { success: true, data: normalizeFullProfile(raw) };
+}
+
+/** PUT /api/v1/me/profile — saves all editable profile fields.
+ *  Re-fetches GET /api/v1/me afterward to return the authoritative persisted state. */
+export async function updateProfileFull(payload: ProfileUpdatePayload): Promise<ApiResponse<FullProfile>> {
+  const res = await request<any>('/api/v1/me/profile', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+  if (!res.success) return res as ApiResponse<FullProfile>;
+  // Re-fetch to confirm what the backend persisted.
+  return fetchFullProfile();
+}
+
+// ─── Lookup helpers (used by edit-profile screen) ───────────────────────────
+
+function unwrapLookupList(raw: any): Lookup[] {
+  const list: any[] = Array.isArray(raw) ? raw
+    : Array.isArray(raw?.data) ? raw.data
+    : Array.isArray(raw?.data?.data) ? raw.data.data
+    : [];
+  return list
+    .map((item: any) => ({ id: Number(item.id ?? 0), name: String(item.name ?? ''), slug: item.slug }))
+    .filter(x => x.id && x.name)
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function listIndustries(): Promise<ApiResponse<Lookup[]>> {
+  const res = await request<any>('/api/v1/industries');
+  if (!res.success) return { success: true, data: [] };
+  return { success: true, data: unwrapLookupList(res.data) };
+}
+
+export async function listTopics(): Promise<ApiResponse<Lookup[]>> {
+  const res = await request<any>('/api/v1/tags');
+  if (!res.success) return { success: true, data: [] };
+  return { success: true, data: unwrapLookupList(res.data) };
+}
+
+export async function listCompanies(perPage = 500): Promise<ApiResponse<Lookup[]>> {
+  const res = await request<any>(`/api/v1/companies?per_page=${perPage}`);
+  if (!res.success) return { success: true, data: [] };
+  return { success: true, data: unwrapLookupList(res.data) };
+}
+
+export async function searchCompanies(query: string, perPage = 20): Promise<ApiResponse<Lookup[]>> {
+  const q = query.trim();
+  if (!q) return { success: true, data: [] };
+  const res = await request<any>(`/api/v1/companies?per_page=${perPage}&search=${encodeURIComponent(q)}`);
+  if (!res.success) return { success: true, data: [] };
+  const list = unwrapLookupList(res.data)
+    .filter(c => c.name.toLowerCase().includes(q.toLowerCase()));
+  return { success: true, data: list };
 }
 
 export async function getLeaderboard(): Promise<ApiResponse<LeaderboardEntry[]>> {

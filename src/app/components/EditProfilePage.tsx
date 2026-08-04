@@ -13,7 +13,7 @@ import {
   getMemberDetailApi, getMeProfileApi,
 } from '@/app/api/audienceClient';
 import {
-  listIndustriesApi, listTagsApi, listCompaniesApi, type Lookup,
+  listIndustriesApi, listTagsApi, listCompaniesApi, searchCompaniesApi, type Lookup,
 } from '@/app/api/lookupsClient';
 
 interface EditProfilePageProps {
@@ -55,6 +55,8 @@ export const EditProfilePage: React.FC<EditProfilePageProps> = ({ onBack }) => {
   const [topics, setTopics] = useState<Lookup[]>([]);
   const [companyQuery, setCompanyQuery] = useState('');
   const [companyOpen, setCompanyOpen] = useState(false);
+  const [companySearchResults, setCompanySearchResults] = useState<Lookup[]>([]);
+  const companySearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Name hints: used to match industry/topics/company by name when the backend
   // returns strings or objects without IDs. Cleared once matched to lookup lists.
   const [industryNameHint, setIndustryNameHint] = useState('');
@@ -292,11 +294,30 @@ export const EditProfilePage: React.FC<EditProfilePageProps> = ({ onBack }) => {
     setCompanyQuery(p.company ?? '');
   }
 
+  // Server-side company search — fires when the user types 2+ chars in the
+  // company field. Runs alongside the immediate local filter so the dropdown
+  // shows local matches right away and expands as server results arrive.
+  useEffect(() => {
+    if (!companyOpen) return;
+    const q = companyQuery.trim();
+    if (q.length < 2) { setCompanySearchResults([]); return; }
+    if (companySearchTimer.current) clearTimeout(companySearchTimer.current);
+    companySearchTimer.current = setTimeout(async () => {
+      const res = await searchCompaniesApi(q, 30);
+      if (res.success && res.data) setCompanySearchResults(res.data);
+    }, 300);
+    return () => { if (companySearchTimer.current) clearTimeout(companySearchTimer.current); };
+  }, [companyQuery, companyOpen]);
+
   const filteredCompanies = useMemo(() => {
     const q = companyQuery.trim().toLowerCase();
-    if (!q) return companies.slice(0, 50);
-    return companies.filter(c => c.name.toLowerCase().includes(q)).slice(0, 50);
-  }, [companies, companyQuery]);
+    const local = !q ? companies.slice(0, 50)
+      : companies.filter(c => c.name.toLowerCase().includes(q)).slice(0, 50);
+    if (!companySearchResults.length) return local;
+    // Merge: server results first, then local results not already included.
+    const serverIds = new Set(companySearchResults.map(c => c.id));
+    return [...companySearchResults, ...local.filter(c => !serverIds.has(c.id))].slice(0, 60);
+  }, [companies, companyQuery, companySearchResults]);
 
   const selectedCompanyName = useMemo(() => {
     if (companyId == null) return '';
