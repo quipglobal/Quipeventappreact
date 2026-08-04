@@ -232,6 +232,8 @@ function AppContent() {
   const [screen, setScreen]     = useState<Screen>('splash');
   const [activePage, setActivePage] = useState<Page>('home');
   const [moreOpen, setMoreOpen] = useState(false);
+  // Carries a pre-selected giveaway from the Manage screen → Draw page.
+  const [initialDrawGiveaway, setInitialDrawGiveaway] = useState<import('@/app/context/AppContext').SponsorGiveaway | null>(null);
   const { user, sessionRestored, hasJoinedEvent, connectionRequests, conversations, eventConfig } = useApp();
   usePreloader(eventConfig?.eventId, hasJoinedEvent);
   const { t, isDark } = useTheme();
@@ -295,8 +297,8 @@ function AppContent() {
       case 'booth':            return <PlaceholderPage title="Sponsor Booth" desc="Manage your booth profile and promotional materials." onBack={() => setActivePage('home')} />;
       case 'scan':             return <SponsorScannerPage />;
       case 'sponsor-event':    return <SponsorEventPage onBack={() => setActivePage('home')} onNavigate={handleNavigate} />;
-      case 'sponsor-draw':     return <SponsorDrawPage onBack={() => setActivePage('attendees')} />;
-      case 'sponsor-giveaways':return <SponsorGiveawaysPage />;
+      case 'sponsor-draw':     return <SponsorDrawPage onBack={() => { setInitialDrawGiveaway(null); setActivePage('attendees'); }} initialGiveaway={initialDrawGiveaway} />;
+      case 'sponsor-giveaways':return <SponsorGiveawaysPage onNavigateToDraw={(g) => { setInitialDrawGiveaway(g); setActivePage('sponsor-draw'); }} onNavigateToGiveaways={() => setActivePage('engage-giveaways')} />;
       case 'meetings':         return <MeetingsPage />;
       case 'speakers':         return <SpeakersPage />;
       default:                 return <HomePage onNavigate={handleNavigate} />;

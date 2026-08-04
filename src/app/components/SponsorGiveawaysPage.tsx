@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Gift, Plus, Upload, X, Package, Clock, Trash2, Sparkles, Pencil, Check,
+  Trophy, Tag, Ticket, ArrowRight, Eye,
 } from 'lucide-react';
-import { useApp, SponsorGiveaway } from '@/app/context/AppContext';
+import { useApp, SponsorGiveaway, GiveawayWinner } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -256,7 +257,81 @@ const EditGiveawayModal: React.FC<{
   );
 };
 
-// ─── Giveaway Card ───────────────────────────────────────────────────────────
+// ─── Read-only attendee-style giveaway card (used in "All Event Giveaways") ──
+
+const GiveawayViewCard: React.FC<{ giveaway: SponsorGiveaway }> = ({ giveaway }) => {
+  const { t } = useTheme();
+  return (
+    <div className="rounded-2xl overflow-hidden"
+      style={{ background: t.surface, border: `1px solid ${t.border}`, boxShadow: t.shadow }}>
+      {giveaway.image && (
+        <div className="relative h-28 overflow-hidden">
+          <img src={giveaway.image} alt={giveaway.title} className="w-full h-full object-cover" />
+          <div className="absolute inset-0"
+            style={{ background: 'linear-gradient(to top,rgba(0,0,0,0.55) 0%,transparent 55%)' }} />
+          <div className="absolute bottom-2 left-3 right-3">
+            <h3 className="truncate" style={{ color: '#fff', fontSize: 14, fontWeight: 800 }}>{giveaway.title}</h3>
+          </div>
+        </div>
+      )}
+      <div className="p-3">
+        {!giveaway.image && (
+          <h3 className="truncate mb-2" style={{ color: t.text, fontSize: 14, fontWeight: 700 }}>{giveaway.title}</h3>
+        )}
+        <div className="flex items-center gap-2 mb-2">
+          <Sparkles style={{ width: 11, height: 11, color: '#f59e0b' }} />
+          <span style={{ color: t.textSec, fontSize: 11, fontWeight: 600 }}>
+            by {giveaway.sponsorName || 'Sponsor'}
+          </span>
+          {giveaway.numberOfItems > 0 && (
+            <span className="ml-auto flex items-center gap-1 px-1.5 py-0.5 rounded-md"
+              style={{ background: t.surface2 }}>
+              <Tag style={{ width: 10, height: 10, color: t.textMuted }} />
+              <span style={{ color: t.textSec, fontSize: 10, fontWeight: 600 }}>
+                {giveaway.numberOfItems} item{giveaway.numberOfItems !== 1 ? 's' : ''}
+              </span>
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg"
+          style={{ background: t.accentBg, border: `1px solid ${t.borderAcc}` }}>
+          <Ticket style={{ width: 12, height: 12, color: t.accentSoft }} />
+          <span style={{ color: t.textSec, fontSize: 11 }}>
+            <span style={{ fontWeight: 700, color: t.text }}>Entry:</span> visit the booth and get scanned
+          </span>
+        </div>
+        {giveaway.winners && giveaway.winners.length > 0 && (
+          <div className="mt-2 rounded-xl overflow-hidden"
+            style={{ background: 'linear-gradient(135deg,rgba(245,158,11,0.10),rgba(217,119,6,0.06))', border: '1px solid rgba(245,158,11,0.35)' }}>
+            <div className="flex items-center gap-1.5 px-3 py-1.5"
+              style={{ borderBottom: '1px solid rgba(245,158,11,0.20)' }}>
+              <Trophy style={{ width: 12, height: 12, color: '#d97706' }} />
+              <span style={{ color: t.text, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                {giveaway.winners.length === 1 ? 'Winner' : `Winners (${giveaway.winners.length})`}
+              </span>
+            </div>
+            <ul className="px-3 py-1.5 space-y-1">
+              {giveaway.winners.map((w: GiveawayWinner, i: number) => (
+                <li key={`${w.id}-${i}`} className="flex items-center gap-2">
+                  <div className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0"
+                    style={{ background: 'linear-gradient(135deg,#7c3aed,#ec4899)', color: '#fff', fontSize: 9, fontWeight: 800 }}>
+                    {w.avatar
+                      ? <img src={w.avatar} alt="" className="w-full h-full object-cover rounded-full" />
+                      : <span>{w.name.charAt(0).toUpperCase()}</span>}
+                  </div>
+                  <span className="truncate" style={{ color: t.text, fontSize: 12, fontWeight: 700 }}>{w.name}</span>
+                  {w.company && <span className="truncate" style={{ color: t.textMuted, fontSize: 11 }}>{w.company}</span>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ─── Giveaway Card (manage — with edit/delete/draw controls) ─────────────────
 
 const GiveawayCard: React.FC<{
   giveaway: SponsorGiveaway;
@@ -264,9 +339,12 @@ const GiveawayCard: React.FC<{
   byline?: string;
   onEdit: (giveaway: SponsorGiveaway) => void;
   onRemove: (id: string) => void;
-}> = ({ giveaway, isMine, byline, onEdit, onRemove }) => {
+  onRunDraw?: (giveaway: SponsorGiveaway) => void;
+}> = ({ giveaway, isMine, byline, onEdit, onRemove, onRunDraw }) => {
   const { t } = useTheme();
   const [showConfirm, setShowConfirm] = useState(false);
+  const [showWinners, setShowWinners] = useState(false);
+  const hasWinners = (giveaway.winners ?? []).length > 0;
 
   return (
     <motion.div
@@ -327,6 +405,59 @@ const GiveawayCard: React.FC<{
           <Clock style={{ width: 11, height: 11, color: t.textMuted }} />
           <span style={{ color: t.textMuted, fontSize: 11 }}>Added {timeAgo(giveaway.createdAt)}</span>
         </div>
+
+        {/* Winners summary */}
+        {hasWinners && (
+          <div className="mt-3">
+            <button
+              onClick={() => setShowWinners(v => !v)}
+              className="flex items-center gap-1.5 active:opacity-70 transition-opacity"
+            >
+              <Trophy style={{ width: 12, height: 12, color: '#d97706' }} />
+              <span style={{ color: '#d97706', fontSize: 11, fontWeight: 700 }}>
+                {(giveaway.winners ?? []).length} winner{(giveaway.winners ?? []).length !== 1 ? 's' : ''} picked
+              </span>
+              <ArrowRight style={{ width: 10, height: 10, color: '#d97706', transform: showWinners ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }} />
+            </button>
+            <AnimatePresence>
+              {showWinners && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }} className="overflow-hidden"
+                >
+                  <ul className="mt-2 space-y-1.5">
+                    {(giveaway.winners ?? []).map((w: GiveawayWinner, i: number) => (
+                      <li key={`${w.id}-${i}`} className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0"
+                          style={{ background: 'linear-gradient(135deg,#7c3aed,#ec4899)', color: '#fff', fontSize: 10, fontWeight: 800 }}>
+                          {w.avatar
+                            ? <img src={w.avatar} alt="" className="w-full h-full object-cover rounded-full" />
+                            : <span>{w.name.charAt(0).toUpperCase()}</span>}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="truncate" style={{ color: t.text, fontSize: 12, fontWeight: 700 }}>{w.name}</p>
+                          {w.company && <p className="truncate" style={{ color: t.textMuted, fontSize: 11 }}>{w.company}</p>}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
+
+        {/* Lucky Draw button */}
+        {isMine && onRunDraw && (
+          <button
+            onClick={() => onRunDraw(giveaway)}
+            className="mt-3 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl active:scale-[0.98] transition-all text-white"
+            style={{ background: 'linear-gradient(135deg,#d97706,#f59e0b)', fontWeight: 700, fontSize: 13 }}
+          >
+            <Trophy style={{ width: 15, height: 15 }} />
+            Run Lucky Draw
+          </button>
+        )}
       </div>
     </motion.div>
   );
@@ -334,7 +465,10 @@ const GiveawayCard: React.FC<{
 
 // ─── Page ────────────────────────────────────────────────────────────────────
 
-export const SponsorGiveawaysPage: React.FC = () => {
+export const SponsorGiveawaysPage: React.FC<{
+  onNavigateToDraw?: (giveaway: SponsorGiveaway) => void;
+  onNavigateToGiveaways?: () => void;
+}> = ({ onNavigateToDraw, onNavigateToGiveaways }) => {
   const {
     sponsorGiveaways,
     addSponsorGiveaway,
@@ -418,6 +552,16 @@ export const SponsorGiveawaysPage: React.FC = () => {
               <span style={{ color: '#fff', fontSize: 13, fontWeight: 700 }}>{visibleGiveaways.length}</span>
               <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11 }}>active</span>
             </div>
+            {onNavigateToGiveaways && (
+              <button
+                onClick={onNavigateToGiveaways}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg active:opacity-70 transition-opacity"
+                style={{ background: 'rgba(255,255,255,0.12)' }}
+              >
+                <Eye style={{ width: 12, height: 12, color: '#fff' }} />
+                <span style={{ color: '#fff', fontSize: 11, fontWeight: 700 }}>Attendee View</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -466,6 +610,7 @@ export const SponsorGiveawaysPage: React.FC = () => {
                       byline={byline}
                       onEdit={setEditing}
                       onRemove={removeSponsorGiveaway}
+                      onRunDraw={onNavigateToDraw}
                     />
                   );
                 })}
@@ -484,6 +629,34 @@ export const SponsorGiveawaysPage: React.FC = () => {
             <p style={{ color: t.textMuted, fontSize: 13 }}>
               Add giveaways above to attract attendees to your booth
             </p>
+          </div>
+        )}
+
+        {/* ── All Event Giveaways (attendee view) ─────────────────────────── */}
+        {sponsorGiveaways.length > 0 && (
+          <div className="pt-2">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Trophy style={{ width: 14, height: 14, color: '#d97706' }} />
+                <span style={{ color: t.text, fontSize: 13, fontWeight: 700 }}>
+                  All Event Giveaways ({sponsorGiveaways.length})
+                </span>
+              </div>
+              {onNavigateToGiveaways && (
+                <button
+                  onClick={onNavigateToGiveaways}
+                  className="flex items-center gap-1 active:opacity-70 transition-opacity"
+                >
+                  <span style={{ color: t.accent, fontSize: 12, fontWeight: 700 }}>Full view</span>
+                  <ArrowRight style={{ width: 12, height: 12, color: t.accent }} />
+                </button>
+              )}
+            </div>
+            <div className="space-y-3">
+              {sponsorGiveaways.map(g => (
+                <GiveawayViewCard key={g.id} giveaway={g} />
+              ))}
+            </div>
           </div>
         )}
       </div>

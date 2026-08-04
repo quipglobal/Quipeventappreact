@@ -34,9 +34,13 @@ type DrawPhase = 'setup' | 'spinning' | 'winner' | 'history';
 
 interface SponsorDrawPageProps {
   onBack: () => void;
+  /** When provided (e.g. navigating from Manage Giveaways "Run Draw" button),
+   *  this giveaway is auto-selected on mount so the rep lands directly in
+   *  the draw setup for their chosen prize. */
+  initialGiveaway?: SponsorGiveaway | null;
 }
 
-export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
+export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack, initialGiveaway }) => {
   const { sponsorGiveaways, user, showToast, eventConfig, recordGiveawayWinner, isMyGiveaway } = useApp();
   const { t, isDark } = useTheme();
   const [poolLeads, setPoolLeads] = useState<Lead[]>([]);
@@ -73,7 +77,10 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack }) => {
   void isMyGiveaway;
 
   const [phase, setPhase] = useState<DrawPhase>('setup');
-  const [selectedGiveaway, setSelectedGiveaway] = useState<SponsorGiveaway | null>(null);
+  const [selectedGiveaway, setSelectedGiveaway] = useState<SponsorGiveaway | null>(
+    // Pre-select if the caller passed one in (e.g. from Manage Giveaways "Run Draw").
+    initialGiveaway ?? null,
+  );
   const [showGiveawayPicker, setShowGiveawayPicker] = useState(false);
   const [drawHistory, setDrawHistory] = useState<DrawEntry[]>([]);
   const [winner, setWinner] = useState<DrawParticipant | null>(null);

@@ -1049,10 +1049,12 @@ function GiveawaysManager({
   sponsorName,
   sponsorId,
   onBack,
+  onRunDraw,
 }: {
   sponsorName: string;
   sponsorId: string;
   onBack: () => void;
+  onRunDraw?: (giveaway: Giveaway) => void;
 }) {
   const insets = useSafeAreaInsets();
   const { data: allGiveaways = [], isLoading, isError, refetch } = useGiveaways();
@@ -1184,6 +1186,10 @@ function GiveawaysManager({
           </View>
         )}
 
+        {!isLoading && giveaways.length > 0 && (
+          <Text style={[styles.gmSectionLabel, { marginTop: spacing.lg }]}>MY GIVEAWAYS</Text>
+        )}
+
         {giveaways.map((g) => (
           <View key={g.id} style={styles.gmCard}>
             {editingId === g.id ? (
@@ -1244,10 +1250,52 @@ function GiveawaysManager({
                     ))}
                   </View>
                 )}
+                {onRunDraw && (
+                  <TouchableOpacity
+                    style={styles.gmDrawBtn}
+                    onPress={() => onRunDraw(g)}
+                  >
+                    <LinearGradient colors={['#d97706', '#f59e0b']} style={styles.gmDrawBtnGrad}>
+                      <Ionicons name="trophy" size={15} color="#fff" />
+                      <Text style={styles.gmDrawBtnText}>Run Lucky Draw</Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                )}
               </>
             )}
           </View>
         ))}
+
+        {/* ── All Event Giveaways (read-only attendee view) ──────────── */}
+        {!isLoading && allGiveaways.length > 0 && (
+          <>
+            <Text style={[styles.gmSectionLabel, { marginTop: spacing.xl }]}>ALL EVENT GIVEAWAYS</Text>
+            {allGiveaways.map((g) => (
+              <View key={g.id} style={[styles.gmCard, { backgroundColor: colors.surface2 }]}>
+                <Text style={styles.gmCardTitle}>{g.title}</Text>
+                <Text style={styles.gmCardMeta}>
+                  {(g.numberOfItems ?? 1)} item{(g.numberOfItems ?? 1) !== 1 ? 's' : ''}
+                  {g.sponsor ? ` · by ${g.sponsor}` : ''}
+                </Text>
+                {!!g.winners && g.winners.length > 0 && (
+                  <View style={styles.gmWinners}>
+                    <Text style={styles.gmWinnersLabel}>
+                      Winner{g.winners.length !== 1 ? 's' : ''}
+                    </Text>
+                    {g.winners.map((w, i) => (
+                      <View key={`${w.id}-${i}`} style={styles.gmWinnerRow}>
+                        <Ionicons name="trophy" size={13} color="#ffd700" />
+                        <Text style={styles.gmWinnerName} numberOfLines={1}>
+                          {w.name}{w.company ? ` · ${w.company}` : ''}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
+            ))}
+          </>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -1264,6 +1312,8 @@ function SponsorEngage() {
   const [mode, setMode] = useState<'tools' | 'scanner' | 'leads' | 'draw' | 'giveaways' | 'reviews'>('tools');
   const [drawWinner, setDrawWinner] = useState<{ id: string; name: string; company?: string; title?: string; avatar?: string } | null>(null);
   const [selectedGiveaway, setSelectedGiveaway] = useState<Giveaway | null>(null);
+  // Carries a pre-selected giveaway from Manage Giveaways "Run Draw" → draw screen.
+  const [initialDrawGiveaway, setInitialDrawGiveaway] = useState<Giveaway | null>(null);
   const [showGiveawayPicker, setShowGiveawayPicker] = useState(false);
   const [drawShuffling, setDrawShuffling] = useState(false);
 
@@ -1367,6 +1417,12 @@ function SponsorEngage() {
         sponsorName={user?.company || user?.name || ''}
         sponsorId={user?.id ?? ''}
         onBack={() => setMode('tools')}
+        onRunDraw={(g) => {
+          setInitialDrawGiveaway(g);
+          setSelectedGiveaway(g);
+          setDrawWinner(null);
+          setMode('draw');
+        }}
       />
     );
   }
@@ -1880,6 +1936,10 @@ const styles = StyleSheet.create({
   gmWinnersLabel: { color: colors.textMuted, fontSize: 10, fontWeight: '800', letterSpacing: 1, marginBottom: spacing.xs },
   gmWinnerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   gmWinnerName: { flex: 1, color: colors.textSecondary, fontSize: 13, fontWeight: '600' },
+  gmSectionLabel: { color: colors.textMuted, fontSize: 10, fontWeight: '800', letterSpacing: 1, marginBottom: spacing.sm },
+  gmDrawBtn: { marginTop: spacing.md, borderRadius: radius.xl, overflow: 'hidden' },
+  gmDrawBtnGrad: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingVertical: spacing.md, paddingHorizontal: spacing.lg, borderRadius: radius.xl },
+  gmDrawBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
 
   badgePanel: { flexDirection: 'row', gap: spacing.md, marginHorizontal: spacing.xl, marginBottom: spacing.lg },
   badgePanelBtn: { flex: 1, borderRadius: radius.xl, overflow: 'hidden' },
