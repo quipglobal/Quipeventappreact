@@ -335,6 +335,75 @@ test.describe('Lead notes → server (admin CSV export guard)', () => {
   });
 
   /**
+   * Path A inherited notes — backend returns is_inherited: true with non-empty
+   * notes/tags/priority from a previous event at scan time.
+   *
+   * Flow:
+   *   1. POST /leads/scan → backend returns leadId 2668 with is_inherited: true,
+   *      notes: "Met at TechConf last year", tags: ["Follow Up"], priority: "HOT".
+   *   2. Client resolves the attendee and displays the form.
+   *   3. The notes textarea must be pre-filled with the server-echoed notes.
+   *   4. The Follow Up tag must appear selected.
+   *   5. The Hot priority button must appear active.
+   *   6. An "inherited" indicator banner must be visible so the rep knows the
+   *      notes came from a previous event (not from the current scan).
+   *
+   * The server-echoed values override the local overlay (§3.1 — server is
+   * authoritative after any successful response).
+   */
+  test('Path A inherited notes — form pre-fills from server-echoed values when is_inherited is true', async ({ page }) => {
+    test.setTimeout(120_000);
+
+    await installMocks(
+      page,
+      // POST /leads/scan → backend returns inherited notes/tags/priority.
+      (route) =>
+        ok(route, {
+          success: true,
+          data: {
+            ...SCAN_LEAD,
+            notes: 'Met at TechConf last year',
+            tags: ['Follow Up'],
+            priority: 'HOT',
+            is_inherited: true,
+            pointsAwarded: 0,
+            attendeePointsAwarded: 0,
+          },
+        }),
+    );
+
+    await loginAndOpenScanner(page);
+
+    // Enter badge code and resolve the attendee.
+    await page.getByPlaceholder(/ATT-/i).fill('ATT-9001');
+    await page.getByRole('button', { name: /find attendee/i }).click();
+    await expect(page.getByText('Alex Rivera')).toBeVisible({ timeout: 10_000 });
+
+    // ── Assert form is pre-filled with server-echoed inherited values ─────────
+
+    // Notes textarea must contain the server-returned notes.
+    const notesArea = page.locator('textarea').first();
+    await expect(notesArea).toBeVisible({ timeout: 5_000 });
+    await expect(notesArea).toHaveValue('Met at TechConf last year');
+
+    // The Hot priority button must be active (server returned "HOT").
+    await expect(page.getByRole('button', { name: /^Hot$/i })).toBeVisible({ timeout: 5_000 });
+
+    // The Follow Up tag must appear selected (has a ✓ prefix after selection).
+    await expect(
+      page.locator('button').filter({ hasText: /Follow Up/ }).first(),
+    ).toBeVisible({ timeout: 5_000 });
+    const followUpBtn = page.locator('button').filter({ hasText: /Follow Up/ }).first();
+    const followUpText = await followUpBtn.textContent();
+    expect(followUpText, 'Follow Up tag must be selected (✓ prefix) from server-echoed tags').toMatch(/✓/);
+
+    // An inherited-notes banner must be shown so the rep knows the context.
+    await expect(
+      page.getByText(/notes from a previous event/i),
+    ).toBeVisible({ timeout: 5_000 });
+  });
+
+  /**
    * Path B — backend does not create the lead at scan time (badge unrecognised).
    *
    * Flow:

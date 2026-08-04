@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import {
   QrCode, Type, Save, X, ScanLine, Building2,
-  Flame, ThermometerSun, Snowflake, CheckCircle2, AlertTriangle,
+  Flame, ThermometerSun, Snowflake, CheckCircle2, AlertTriangle, History,
 } from 'lucide-react';
 import { useTheme } from '@/app/context/ThemeContext';
 import { useApp } from '@/app/context/AppContext';
@@ -66,6 +66,7 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [priority, setPriority] = useState<Priority>('warm');
   const [isSaving, setIsSaving] = useState(false);
+  const [isInherited, setIsInherited] = useState(false);
   // Ref-based guard so rapid double-taps can't dispatch two concurrent saves
   // even before the first setState re-render has disabled the button.
   const savingRef = useRef(false);
@@ -171,9 +172,10 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
         }
         setScannedData(attendee);
 
-        // Seed form fields from any notes / tags / priority the user previously
-        // saved for this badge code in any event (cross-event propagation). The
-        // overlay is keyed by code:<badge_code> so it's event-agnostic.
+        // Seed form fields: first apply any prior local overlay (cross-event
+        // propagation from local storage), then let non-empty server-echoed
+        // values take precedence — server is authoritative after a successful
+        // scan response (MOBILE_AGENT_LEAD_SYNC_PROMPT.md §3.1).
         {
           const overlay = loadLeadEdits(user?.id);
           const prior = lookupLeadEdit(overlay, '', badgeCode);
@@ -182,6 +184,12 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
             if (prior.tags?.length) setSelectedTags(prior.tags);
             if (prior.priority) setPriority(prior.priority);
           }
+          // Server-echoed notes/tags/priority override the local overlay when
+          // present and non-empty (e.g. inherited values from a previous event).
+          if (d.notes) setNotes(d.notes);
+          if (d.tags?.length) setSelectedTags(d.tags);
+          if (d.priority) setPriority(d.priority as Priority);
+          if (d.isInherited) setIsInherited(true);
         }
 
         // Mirror the new lead into local state so My Leads shows it even if
@@ -446,6 +454,7 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
     setManualCode('');
     setSelectedTags([]);
     setPriority('warm');
+    setIsInherited(false);
     setMode('scan');
   };
 
@@ -610,6 +619,18 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
                 <label style={{ color: t.textSec, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 8 }}>
                   Conversation Notes
                 </label>
+                {isInherited && (
+                  <div
+                    data-testid="inherited-notes-banner"
+                    className="mb-2 px-3 py-2 rounded-lg flex items-center gap-2"
+                    style={{ background: 'rgba(99,102,241,0.10)', border: '1px solid rgba(99,102,241,0.35)' }}
+                  >
+                    <History style={{ width: 13, height: 13, color: '#6366f1', flexShrink: 0 }} />
+                    <span style={{ color: '#6366f1', fontSize: 11, fontWeight: 600 }}>
+                      Notes from a previous event — edit to make them yours.
+                    </span>
+                  </div>
+                )}
                 <textarea
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
