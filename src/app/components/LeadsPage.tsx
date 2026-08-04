@@ -401,11 +401,27 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
       // poor-man's "did the server actually persist a non-default?" —
       // safe because a user who explicitly set warm will also have it in
       // the overlay/local, so we still end up at warm either way.
-      const serverNotesIsSet = !!(server.notes && server.notes.trim() !== '');
-      const serverTagsIsSet = !!(server.tags && server.tags.length > 0);
+      const serverNotesIsSet    = !!(server.notes && server.notes.trim() !== '');
+      const serverTagsIsSet     = !!(server.tags && server.tags.length > 0);
       const serverPriorityIsSet = !!(server.priority && server.priority !== 'warm');
+      // company / name / title: some backend list responses omit these fields
+      // (returning empty string) even though the data exists — the scan-time
+      // response or the local contextLead has the correct value. Fall back to
+      // the locally-known value so the export column is never blank.
+      const serverCompanyIsSet  = !!(server.company && server.company.trim() !== '');
+      const serverNameIsSet     = !!(server.name && server.name.trim() !== '');
+      const serverTitleIsSet    = !!(server.title && server.title.trim() !== '');
       return {
         ...server,
+        name: serverNameIsSet
+          ? server.name
+          : (local?.name ?? server.name),
+        company: serverCompanyIsSet
+          ? server.company
+          : (local?.company ?? server.company),
+        title: serverTitleIsSet
+          ? server.title
+          : (local?.title ?? server.title),
         notes: serverNotesIsSet
           ? server.notes
           : (local?.notes ?? overlayEntry?.notes ?? server.notes),

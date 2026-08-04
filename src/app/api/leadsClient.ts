@@ -149,8 +149,11 @@ function normalizeLead(raw: any): Lead {
   if (raw && typeof raw === 'object') {
     // Prefer well-known keys in order (each searched recursively), then
     // fall back to any nested object that smells like a contact profile.
+    // NOTE: `raw.profile` is the key used by GET /my-leads — it MUST be
+    // in this list so company/name/title aren't lost to the deep-search
+    // fallback, which has lower priority than the explicit pickString chain.
     const preferredRoots = [
-      raw.attendee, raw.member, raw.user, raw.scanned_user,
+      raw.attendee, raw.member, raw.profile, raw.user, raw.scanned_user,
       raw.scannedUser, raw.scannedAttendee, raw.contact, raw.lead,
       raw.attendee_profile, raw.member_profile,
     ];
@@ -182,9 +185,17 @@ function normalizeLead(raw: any): Lead {
     raw?.position, profile?.position,
   );
   const company = pickString(
+    // Some backends return company as a nested object { id, name, logo }.
+    // Probe .name first so we get the string even when the field isn't a string.
+    profile?.company?.name, raw?.company?.name,
     raw?.company, profile?.company,
+    raw?.organization?.name, profile?.organization?.name,
     raw?.organization, profile?.organization,
     raw?.company_name, profile?.company_name,
+    raw?.employer?.name, profile?.employer?.name,
+    raw?.employer, profile?.employer,
+    raw?.organisation?.name, profile?.organisation?.name,
+    raw?.organisation, profile?.organisation,
   );
   const email = pickString(raw?.email, profile?.email) || undefined;
   const avatar = pickString(raw?.avatar, profile?.avatar, raw?.avatar_url, profile?.avatar_url) || undefined;

@@ -54,7 +54,7 @@ function normalizeLead(raw: any, index = 0): Lead {
   let profile: any = raw;
   if (raw && typeof raw === 'object') {
     const preferredRoots = [
-      raw.attendee, raw.member, raw.user, raw.scanned_user,
+      raw.attendee, raw.member, raw.profile, raw.user, raw.scanned_user,
       raw.scannedUser, raw.scannedAttendee, raw.contact, raw.lead,
       raw.attendee_profile, raw.member_profile,
     ];
@@ -84,9 +84,16 @@ function normalizeLead(raw: any, index = 0): Lead {
     raw?.position, profile?.position,
   );
   const company = pickString(
+    // Some backends return company as a nested object { id, name, logo }.
+    profile?.company?.name, raw?.company?.name,
     raw?.company, profile?.company,
+    raw?.organization?.name, profile?.organization?.name,
     raw?.organization, profile?.organization,
     raw?.company_name, profile?.company_name,
+    raw?.employer?.name, profile?.employer?.name,
+    raw?.employer, profile?.employer,
+    raw?.organisation?.name, profile?.organisation?.name,
+    raw?.organisation, profile?.organisation,
   );
   const email = pickString(raw?.email, profile?.email);
   const tsSource = raw?.scanned_at ?? raw?.created_at ?? raw?.timestamp;
