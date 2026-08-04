@@ -371,7 +371,7 @@ export async function scanBadgeLead(
     `/api/v1/events/${eventId}/leads/scan`,
     wirePayload,
     HEADERS,
-    { timeoutMs: 10_000 },
+    { timeoutMs: 5_000 },
   );
   if (!res.success || !res.data) {
     // If the backend hasn't deployed `/leads/scan` yet (404), remember that

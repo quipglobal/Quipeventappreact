@@ -293,152 +293,134 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
     setIsSaving(true);
 
     try {
-      // Path A: backend already created the lead at scan time. Update
-      // notes/tags/priority on the server, but ALWAYS apply them locally
-      // first so the user's input is never lost — backend failure (e.g. PUT
-      // /leads/:id 404'ing because the route isn't deployed yet) becomes a
-      // best-effort sync, not a hard error.
+      // Path A: backend already created the lead at scan time (the most common
+      // path). Apply notes/tags/priority locally first — that's the source of
+      // truth for "My Leads". Then navigate away immediately; the PATCH to
+      // persist the edits server-side runs in the background so the user isn't
+      // blocked waiting for a ~800 ms round-trip.
       if (scannedData.leadId) {
-        // Apply locally first — source of truth for "My Leads".
-        updateLead(scannedData.leadId, { notes, tags: selectedTags, priority });
-        // Mirror to the per-user edits overlay under the badge code too,
-        // since `updateLead`'s code lookup misses on first-ever scans
-        // (the lead row hasn't been saved to context yet). The merge
-        // falls back to the code key when the server returns this lead
-        // under a different id.
-        if (user?.id) {
-          saveLeadEdit(
-            user.id,
-            scannedData.leadId,
-            { notes, tags: selectedTags, priority },
-            scannedData.code,
-          );
+        // Capture all values needed for the background PATCH before resetScanner
+        // clears component state.
+        const bLeadId   = scannedData.leadId;
+        const bCode     = scannedData.code;
+        const bNotes    = notes;
+        const bTags     = selectedTags;
+        const bPriority = priority;
+        const bUserId   = user?.id;
+
+        // Apply locally — instant, no server wait.
+        updateLead(bLeadId, { notes: bNotes, tags: bTags, priority: bPriority });
+        // Mirror to the per-user edits overlay under the badge code too, since
+        // `updateLead`'s code lookup misses on first-ever scans (the lead row
+        // hasn't been saved to context yet). The merge falls back to the code
+        // key when the server returns this lead under a different id.
+        if (bUserId) {
+          saveLeadEdit(bUserId, bLeadId, { notes: bNotes, tags: bTags, priority: bPriority }, bCode);
         }
 
-        const upd = await updateLeadApi(eventId, scannedData.leadId, {
-          notes,
-          tags: selectedTags,
-          priority,
-        });
-
-        if (upd.success) {
-          // Server confirmed — retire overlay so server values are authoritative.
-          if (user?.id) clearLeadEdit(user.id, scannedData.leadId, scannedData.code);
-          // Apply server-echoed values back to local state.
-          if (upd.data) {
-            updateLead(scannedData.leadId, {
-              notes:    upd.data.notes    ?? notes,
-              tags:     upd.data.tags     ?? selectedTags,
-              priority: upd.data.priority ?? priority,
-            });
-          }
-        } else if (upd.error?.code !== '404' && upd.error?.code !== 'NOT_IMPLEMENTED') {
-          // Real server failure — keep overlay with syncPending so the reconciler
-          // retries on the next leads-list load.
-          console.warn('[Lead update] backend sync failed:', upd.error);
-          if (user?.id) {
-            saveLeadEdit(user.id, scannedData.leadId,
-              { notes, tags: selectedTags, priority, syncPending: true },
-              scannedData.code);
-          }
-        }
+        // Navigate immediately — local state is already consistent.
         resetScanner();
         onSaved?.();
+
+        // Background PATCH — fires after navigation; errors are silent to the
+        // user because the lead is already captured locally. On success the
+        // overlay is retired so the server is authoritative from this point.
+        void updateLeadApi(eventId, bLeadId, {
+          notes: bNotes, tags: bTags, priority: bPriority,
+        }).then(upd => {
+          if (upd.success) {
+            if (bUserId) clearLeadEdit(bUserId, bLeadId, bCode);
+            if (upd.data) {
+              updateLead(bLeadId, {
+                notes:    upd.data.notes    ?? bNotes,
+                tags:     upd.data.tags     ?? bTags,
+                priority: upd.data.priority ?? bPriority,
+              });
+            }
+          } else if (upd.error?.code !== '404' && upd.error?.code !== 'NOT_IMPLEMENTED') {
+            // Real server failure — keep overlay with syncPending so the
+            // reconciler retries on the next leads-list load.
+            console.warn('[Lead update] background sync failed:', upd.error);
+            if (bUserId) {
+              saveLeadEdit(bUserId, bLeadId,
+                { notes: bNotes, tags: bTags, priority: bPriority, syncPending: true },
+                bCode);
+            }
+          }
+        });
         return;
       }
 
-      // Path B: scan endpoint didn't create a lead (unknown code, audience
-      // fallback path, or no-id response). Submit the full payload now to
-      // create the lead and award points server-side, but ALWAYS persist
-      // locally so the user's notes survive backend hiccups.
-      const res = await scanBadgeLead(eventId, {
-        code: scannedData.code,
-        name: scannedData.name,
-        company: scannedData.company,
-        title: scannedData.title,
-        notes,
-        avatar: scannedData.avatar,
-        tags: selectedTags,
-        priority,
-      });
+      // Path B: scan endpoint didn't create a lead at scan time (unknown code,
+      // audience-list fallback, or no-id response). Persist locally as
+      // pendingSync immediately so the lead appears in "My Leads" right away,
+      // then navigate. The actual POST to the scan endpoint runs in background;
+      // on success it replaces the pending entry with the server-confirmed one
+      // (AppContext.saveLead deduplicates by badge code).
+      const bCode        = scannedData.code;
+      const bName        = scannedData.name;
+      const bCompany     = scannedData.company;
+      const bTitle       = scannedData.title;
+      const bAvatar      = scannedData.avatar;
+      const bNotes       = notes;
+      const bTags        = selectedTags;
+      const bPriority    = priority;
+      const bUserId      = user?.id;
+      const bCheckedIn   = autoCheckedIn;
 
-      if (res.success && res.data) {
-        // Backend created (or re-resolved) the lead — use its canonical
-        // payload, but prefer the user's just-typed notes/tags/priority over
-        // whatever the server returned (it usually echoes empty defaults).
-        saveLead({
-          id: res.data.id,
-          code: res.data.code || scannedData.code,
-          name: res.data.name || scannedData.name,
-          company: res.data.company ?? scannedData.company,
-          title: res.data.title ?? scannedData.title,
-          notes,
-          avatar: res.data.avatar ?? scannedData.avatar,
-          tags: selectedTags,
-          priority,
-        });
-        // Mirror notes/tags/priority into the per-user overlay (keyed by
-        // both id and badge code) so a later GET /my-leads — which often
-        // echoes back null/empty for these fields — still surfaces what
-        // the user just typed.
-        if (user?.id) {
-          saveLeadEdit(
-            user.id,
-            res.data.id,
-            { notes, tags: selectedTags, priority },
-            res.data.code || scannedData.code,
-          );
-        }
-
-        // Auto check-in reconciliation for the fallback path
-        if (!autoCheckedIn) {
-          if (res.data.checkedIn) {
-            showToast(`Auto checked-in ${res.data.name}`);
-          } else if (typeof res.data.memberId === 'number') {
-            const ok = await checkInMemberApi(eventId, res.data.memberId);
-            if (ok) showToast(`Auto checked-in ${res.data.name}`);
-          }
-        }
-
-        // The scanner earns no points — only the scanned attendee does.
-        // The backend credits attendee points server-side; show confirmation.
-        if (typeof res.data.attendeePointsAwarded === 'number' && res.data.attendeePointsAwarded > 0) {
-          showToast(`Attendee earned ${res.data.attendeePointsAwarded} pts`);
-        }
-
-        resetScanner();
-        onSaved?.();
-        return;
-      }
-
-      // Backend rejected the save (route missing, duplicate, server error,
-      // etc). The user's notes are still valuable — persist locally so the
-      // lead lands in "My Leads" instead of vanishing. This mirrors the
-      // mobile audience-fallback behaviour.
-      //
-      // Mark as `pendingSync: true` so the LeadsPage reconciliation step can
-      // push it to the backend the next time the leads-list endpoint succeeds
-      // (or the user navigates back to the list). Until then, the UI can show
-      // a "syncing" indicator on the row.
+      // Save locally — the lead is immediately visible in My Leads.
       saveLead({
-        code: scannedData.code,
-        name: scannedData.name,
-        company: scannedData.company,
-        title: scannedData.title,
-        notes,
-        avatar: scannedData.avatar,
-        tags: selectedTags,
-        priority,
+        code: bCode, name: bName, company: bCompany, title: bTitle,
+        notes: bNotes, avatar: bAvatar, tags: bTags, priority: bPriority,
         pendingSync: true,
       });
-      // The scanner earns no points — no local fallback points needed.
-      if (res.error?.code && res.error.code !== 'NOT_IMPLEMENTED' && res.error.code !== 'SCAN_FAILED') {
-        // Surface real backend errors quietly in the console for debugging
-        // without alarming the user — their lead is captured.
-        console.warn('[Lead save] backend sync failed:', res.error);
-      }
+
+      // Navigate immediately.
       resetScanner();
       onSaved?.();
+
+      // Background scan POST — creates the canonical lead on the server and
+      // awards attendee points. On success, replace the pending local entry
+      // with the server-confirmed payload (AppContext deduplicates by code).
+      void scanBadgeLead(eventId, {
+        code: bCode, name: bName, company: bCompany, title: bTitle,
+        notes: bNotes, avatar: bAvatar, tags: bTags, priority: bPriority,
+      }).then(res => {
+        if (res.success && res.data) {
+          saveLead({
+            id: res.data.id,
+            code: res.data.code || bCode,
+            name: res.data.name || bName,
+            company: res.data.company ?? bCompany,
+            title: res.data.title ?? bTitle,
+            notes: bNotes,
+            avatar: res.data.avatar ?? bAvatar,
+            tags: bTags,
+            priority: bPriority,
+          });
+          if (bUserId) {
+            saveLeadEdit(bUserId, res.data.id,
+              { notes: bNotes, tags: bTags, priority: bPriority },
+              res.data.code || bCode);
+          }
+          // Auto check-in reconciliation.
+          if (!bCheckedIn) {
+            if (res.data.checkedIn) {
+              showToast(`Auto checked-in ${res.data.name}`);
+            } else if (typeof res.data.memberId === 'number') {
+              void checkInMemberApi(eventId, res.data.memberId).then(ok => {
+                if (ok) showToast(`Auto checked-in ${res.data.name}`);
+              });
+            }
+          }
+          if (typeof res.data.attendeePointsAwarded === 'number' && res.data.attendeePointsAwarded > 0) {
+            showToast(`Attendee earned ${res.data.attendeePointsAwarded} pts`);
+          }
+        } else if (res.error?.code && res.error.code !== 'NOT_IMPLEMENTED' && res.error.code !== 'SCAN_FAILED') {
+          console.warn('[Lead save] background sync failed:', res.error);
+          // pendingSync flag remains — the background reconciler will retry.
+        }
+      });
     } finally {
       // Always release the lock — even if an unexpected exception is thrown —
       // so the button doesn't stay permanently disabled.

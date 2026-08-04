@@ -295,7 +295,7 @@ function AppContent() {
       case 'leads':            return <LeadsPage onNavigateToDraw={user?.role === 'sponsor' ? () => setActivePage('sponsor-draw') : undefined} onNavigateToScan={() => setActivePage('scan')} />;
       case 'my-badge':         return <MyBadgePage />;
       case 'booth':            return <PlaceholderPage title="Sponsor Booth" desc="Manage your booth profile and promotional materials." onBack={() => setActivePage('home')} />;
-      case 'scan':             return <SponsorScannerPage />;
+      case 'scan':             return <SponsorScannerPage onSaved={() => setActivePage('leads')} />;
       case 'sponsor-event':    return <SponsorEventPage onBack={() => setActivePage('home')} onNavigate={handleNavigate} />;
       case 'sponsor-draw':     return <SponsorDrawPage onBack={() => { setInitialDrawGiveaway(null); setActivePage('attendees'); }} initialGiveaway={initialDrawGiveaway} />;
       case 'sponsor-giveaways':return <SponsorGiveawaysPage onNavigateToDraw={(g) => { setInitialDrawGiveaway(g); setActivePage('sponsor-draw'); }} onNavigateToGiveaways={() => setActivePage('engage-giveaways')} />;

@@ -472,11 +472,14 @@ export async function findMemberByBadgeCodeApi(
   const target = badgeCode.trim().toLowerCase();
   if (!target) return null;
   const PAGE_SIZE = 200;
-  const MAX_PAGES = 10;
+  // Fallback only runs when the primary scan endpoint fails — cap at 5 pages
+  // (1 000 attendees) to limit worst-case latency. Events larger than that
+  // should resolve via the scan endpoint which queries by badge code directly.
+  const MAX_PAGES = 5;
 
   for (let page = 1; page <= MAX_PAGES; page++) {
     const res = await apiGet<unknown>(
-      `/api/v1/events/${eventId}/attendees?per_page=${PAGE_SIZE}&page=${page}`,
+      `/api/v1/events/${eventId}/attendees?per_page=${PAGE_SIZE}&page=${page}&badge_code=${encodeURIComponent(target)}`,
       HEADERS,
     );
     if (!res.success) return null;
