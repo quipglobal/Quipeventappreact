@@ -449,54 +449,85 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
 
-  // Tracks which user id (if any) the current `leads` array was last
-  // hydrated for. State (not a ref) so the persistence effect below can
-  // depend on it and avoid clobbering a freshly-loaded array with the
-  // pre-hydration empty default on the same render.
-  const [hydratedForUserId, setHydratedForUserId] = useState<string | null>(null);
+  // Tracks which (userId, eventId) pair the current `leads` array was
+  // last hydrated for. Using state (not refs) so the persistence effect
+  // below can gate on them and avoid clobbering a freshly-loaded array
+  // with the pre-hydration empty default on the same render.
+  const [hydratedForUserId,  setHydratedForUserId]  = useState<string | null>(null);
+  const [hydratedForEventId, setHydratedForEventId] = useState<string | null>(null);
 
   // Stable jitter for the points-sync interval start — computed once per
   // mount so the value never changes across renders (re-computing would
   // restart the timer on every render).
   const pointsSyncJitter = useRef(Math.floor(Math.random() * 30_000)).current;
 
-  // Hydrate the user's persisted leads as soon as the current user is
-  // known. Storage keys are namespaced by user id, so no other user's
-  // leads can leak in here. On user change (logout → null, or account
-  // switch) we also wipe the prior user's persisted slot so a different
-  // user inspecting the same device can't recover those rows in-app.
+  // Hydrate persisted leads whenever the (user, event) pair changes.
+  //
+  // Scoping by both IDs ensures a sponsor who attends multiple events
+  // never sees leads from a different event bleeding into the current
+  // view. Storage key: cxo:offline_leads:v2:<userId>:<eventId>.
+  //
+  // Lifecycle:
+  //  • User logs out (uid → null): clear the previous (user, event) slot
+  //    so a different user on the same device can't recover those rows.
+  //  • User switches accounts: clear the previous slot for the same reason.
+  //  • Event switches (same user): save the current leads to the old slot
+  //    (preserving any un-synced offline scans), then load the new slot.
+  //    We do NOT clear the old slot — the user may return to that event
+  //    and needs their pending scans.
+  const activeEventIdForLeads = activeEventConfig?.eventId ?? null;
   useEffect(() => {
     const uid = user?.id ?? null;
-    if (hydratedForUserId === uid) return;
-    if (hydratedForUserId) {
-      // Transitioning away from a known user (logout or account switch):
-      // explicitly clear their persisted leads. Trade-off: if the same
-      // user logs back in, any unsynced leads are gone — but logout is a
-      // strong signal of intent to wipe local state, and the alternative
-      // (keeping the storage around) violates our cross-account isolation
-      // guarantee.
-      clearLeadsStorage(hydratedForUserId);
-    }
+    const eid = activeEventIdForLeads;
+
+    // Nothing changed — skip.
+    if (hydratedForUserId === uid && hydratedForEventId === eid) return;
+
+    // Logging out or switching user accounts.
     if (!uid) {
+      if (hydratedForUserId) {
+        // Wipe the previous user's slot — another user on this device
+        // must not be able to see those leads even briefly.
+        clearLeadsStorage(hydratedForUserId, hydratedForEventId);
+      }
       setLeads([]);
       setHydratedForUserId(null);
+      setHydratedForEventId(null);
       return;
     }
-    setLeads(loadLeadsFromStorage(uid));
-    setHydratedForUserId(uid);
-  }, [user?.id, hydratedForUserId]);
 
-  // Persist leads to localStorage (under the current user's namespaced
-  // key) on every change so anything captured — especially
-  // `pendingSync: true` rows that haven't reached the backend yet —
-  // survives a tab close / page reload. Skips the write until hydration
-  // has actually completed for this user so we don't overwrite the
-  // freshly-loaded array with the pre-hydration empty default on the
-  // same render.
+    // Switching user accounts (rare but possible on shared devices).
+    if (hydratedForUserId && hydratedForUserId !== uid) {
+      clearLeadsStorage(hydratedForUserId, hydratedForEventId);
+    }
+
+    // No event yet (joining flow not complete). Mark user hydrated but
+    // keep leads empty so we don't show any stale data.
+    if (!eid) {
+      setLeads([]);
+      setHydratedForUserId(uid);
+      setHydratedForEventId(null);
+      return;
+    }
+
+    // Load the (user, event) slot — may be empty on first visit.
+    setLeads(loadLeadsFromStorage(uid, eid));
+    setHydratedForUserId(uid);
+    setHydratedForEventId(eid);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, activeEventIdForLeads]);
+
+  // Persist leads to localStorage (under the current (user, event)
+  // namespaced key) on every change so pending-sync rows survive a
+  // tab close / page reload. Skips the write until hydration has
+  // completed for this exact (user, event) pair so we don't overwrite
+  // the freshly-loaded array with the pre-hydration empty default.
   useEffect(() => {
-    if (!user?.id || hydratedForUserId !== user.id) return;
-    saveLeadsToStorage(user.id, leads);
-  }, [leads, user?.id, hydratedForUserId]);
+    const eid = activeEventIdForLeads;
+    if (!user?.id || !eid) return;
+    if (hydratedForUserId !== user.id || hydratedForEventId !== eid) return;
+    saveLeadsToStorage(user.id, eid, leads);
+  }, [leads, user?.id, activeEventIdForLeads, hydratedForUserId, hydratedForEventId]);
 
   // ── Engagement state persistence ─────────────────────────────────────────
   // Survey completions, survey answers, poll votes, and poll results are

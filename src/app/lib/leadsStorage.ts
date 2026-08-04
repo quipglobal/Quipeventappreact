@@ -1,17 +1,25 @@
 import type { Lead } from '@/app/context/AppContext';
 
-const KEY_PREFIX = 'cxo:offline_leads:v1';
-// Legacy unscoped key from an earlier in-progress version of this work
-// before user-scoping landed. We delete it on first load so leads that
-// got written under it can't leak across user accounts on this device.
-const LEGACY_UNSCOPED_KEY = 'cxo:offline_leads:v1';
+/**
+ * Leads storage — keyed by (userId, eventId) so a sponsor who attends
+ * multiple events gets a completely separate local cache per event.
+ *
+ * v2 key: cxo:offline_leads:v2:<userId>:<eventId>
+ * v1 key (user-only, no event): cxo:offline_leads:v1:<userId>
+ *
+ * On first load we purge any v1 user-only keys so stale cross-event
+ * data can't leak into the display while the API fetch is in flight.
+ */
+
+const KEY_V2_PREFIX = 'cxo:offline_leads:v2';
+const KEY_V1_PREFIX = 'cxo:offline_leads:v1'; // legacy — user-only, no event scope
 
 function isBrowser(): boolean {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
 }
 
-function keyFor(userId: string): string {
-  return `${KEY_PREFIX}:${userId}`;
+function keyFor(userId: string, eventId: string): string {
+  return `${KEY_V2_PREFIX}:${userId}:${eventId}`;
 }
 
 type StoredLead = Omit<Lead, 'timestamp'> & { timestamp: string };
@@ -29,31 +37,38 @@ function fromStored(stored: StoredLead): Lead | null {
 }
 
 /**
- * One-shot cleanup for the legacy unscoped key. Safe to call on every
- * load — if the key isn't there, this is a no-op.
+ * One-shot cleanup for legacy v1 keys (user-scoped, no event ID).
+ * Called on every load — no-op when the key is absent.
+ * Also removes the bare unscoped "cxo:offline_leads:v1" key from
+ * an even older iteration that landed briefly in production.
  */
-function purgeLegacyUnscopedKey(): void {
+function purgeLegacyKeys(userId: string): void {
   if (!isBrowser()) return;
   try {
-    window.localStorage.removeItem(LEGACY_UNSCOPED_KEY);
+    // Bare unscoped key (earliest iteration)
+    window.localStorage.removeItem('cxo:offline_leads:v1');
+    // User-only v1 key
+    window.localStorage.removeItem(`${KEY_V1_PREFIX}:${userId}`);
   } catch {
     // ignore
   }
 }
 
 /**
- * Load any previously-cached leads for the given user. Returns an empty
- * array if there's no cache, the cache is malformed, storage is
- * unavailable, or no userId is provided. Never throws — callers can use
- * the result directly. Side effect: also purges the legacy unscoped key
- * once it's seen.
+ * Load any previously-cached leads for (userId, eventId).
+ * Returns an empty array on cache miss, parse error, or missing IDs.
+ * Side-effect: purges legacy v1 keys for this user on every call.
  */
-export function loadLeadsFromStorage(userId: string | null | undefined): Lead[] {
+export function loadLeadsFromStorage(
+  userId: string | null | undefined,
+  eventId: string | null | undefined,
+): Lead[] {
   if (!isBrowser()) return [];
-  purgeLegacyUnscopedKey();
   if (!userId) return [];
+  purgeLegacyKeys(userId);
+  if (!eventId) return [];
   try {
-    const raw = window.localStorage.getItem(keyFor(userId));
+    const raw = window.localStorage.getItem(keyFor(userId, eventId));
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -69,30 +84,34 @@ export function loadLeadsFromStorage(userId: string | null | undefined): Lead[] 
 }
 
 /**
- * Persist the lead list for the given user. Silently no-ops when no
- * userId is provided (e.g. before /me has resolved) so anonymous data
- * never leaks into a user-scoped slot.
+ * Persist the lead list for (userId, eventId).
+ * Silently no-ops when either ID is missing so anonymous / pre-event
+ * data never leaks into a scoped slot.
  */
-export function saveLeadsToStorage(userId: string | null | undefined, leads: Lead[]): void {
-  if (!isBrowser() || !userId) return;
+export function saveLeadsToStorage(
+  userId: string | null | undefined,
+  eventId: string | null | undefined,
+  leads: Lead[],
+): void {
+  if (!isBrowser() || !userId || !eventId) return;
   try {
-    const serialized = JSON.stringify(leads.map(toStored));
-    window.localStorage.setItem(keyFor(userId), serialized);
+    window.localStorage.setItem(keyFor(userId, eventId), JSON.stringify(leads.map(toStored)));
   } catch {
-    // Storage may be full or disabled (incognito quotas, etc). Silently
-    // fall back to in-memory only — pending leads won't survive a reload
-    // in that case but the app continues to work.
+    // Storage may be full or disabled. Silently fall back to in-memory only.
   }
 }
 
 /**
- * Wipe the lead cache for the given user. Called on logout / auth reset
- * so a different user on the same device/browser can't see prior leads.
+ * Wipe the lead cache for (userId, eventId).
+ * Called on logout so another user on the same browser can't see prior leads.
  */
-export function clearLeadsStorage(userId: string | null | undefined): void {
-  if (!isBrowser() || !userId) return;
+export function clearLeadsStorage(
+  userId: string | null | undefined,
+  eventId: string | null | undefined,
+): void {
+  if (!isBrowser() || !userId || !eventId) return;
   try {
-    window.localStorage.removeItem(keyFor(userId));
+    window.localStorage.removeItem(keyFor(userId, eventId));
   } catch {
     // ignore
   }
