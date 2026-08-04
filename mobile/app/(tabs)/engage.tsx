@@ -571,6 +571,8 @@ function AttendeeEngage() {
 
   const [scanMode, setScanMode] = useState<'none' | 'scanner' | 'leads'>('none');
   const [pollVotes, setPollVotes] = useState<Record<string, string>>({});
+  /** pollId → newly-selected optionId that's pending confirmation (change-vote flow). */
+  const [reVotePending, setReVotePending] = useState<Record<string, string>>({});
   const [activeSurvey, setActiveSurvey] = useState<Survey | null>(null);
   const [reviewsCompanyId, setReviewsCompanyId] = useState<string | null>(null);
 
@@ -656,42 +658,119 @@ function AttendeeEngage() {
           </View>
         )}
         {polls.map((poll) => {
-          const voted = pollVotes[poll.id] || votedPolls[poll.id] || poll.userVotedOptionId || null;
+          // Committed vote: what the server (or prior submit) says the user voted for.
+          const committed = pollVotes[poll.id] || votedPolls[poll.id] || poll.userVotedOptionId || null;
+          // Pending = user has tapped a different option and is about to confirm a change.
+          const pending = reVotePending[poll.id] ?? null;
           const totalVotes = poll.options.reduce((s, o) => s + o.votes, 0);
+
           return (
             <View key={poll.id} style={styles.pollCard}>
               <View style={styles.pollHeader}>
                 <View style={styles.liveChip}><View style={styles.liveDot} /><Text style={styles.liveText}>LIVE</Text></View>
                 <Text style={styles.pollSession}>{poll.session}</Text>
-                <View style={styles.pointsPill}><Text style={styles.pointsPillText}>+{poll.points} pts</Text></View>
+                {!committed
+                  ? <View style={styles.pointsPill}><Text style={styles.pointsPillText}>+{poll.points} pts</Text></View>
+                  : <Ionicons name="checkmark-circle" size={18} color={colors.success} />}
               </View>
               <Text style={styles.pollQuestion}>{poll.question}</Text>
               <View style={styles.pollOptions}>
                 {poll.options.map((opt) => {
                   const pct = totalVotes > 0 ? (opt.votes / totalVotes) * 100 : 0;
-                  const isVoted = voted === opt.id;
+                  const isCommitted = committed === opt.id;
+                  const isPending  = pending === opt.id;
+                  // Show results bar only when committed (and no pending change in progress).
+                  const showBar = !!committed && !pending;
                   return (
                     <TouchableOpacity
                       key={opt.id}
-                      style={[styles.pollOption, voted && isVoted && styles.pollOptionVoted, voted && !isVoted && styles.pollOptionDim]}
+                      style={[
+                        styles.pollOption,
+                        showBar && isCommitted && styles.pollOptionVoted,
+                        showBar && !isCommitted && styles.pollOptionDim,
+                        isPending && { borderColor: colors.primary, borderWidth: 1.5 },
+                      ]}
                       onPress={() => {
-                        if (voted) return;
-                        setPollVotes((p) => ({ ...p, [poll.id]: opt.id }));
-                        markPollVoted(poll.id, opt.id);
-                        votePollMutation({ pollId: poll.id, optionId: opt.id });
-                        showToast(`Vote cast! +${poll.points} pts`, poll.points);
+                        if (!committed) {
+                          // First-time vote — instant submit with points.
+                          setPollVotes((p) => ({ ...p, [poll.id]: opt.id }));
+                          markPollVoted(poll.id, opt.id);
+                          votePollMutation(
+                            { pollId: poll.id, optionId: opt.id },
+                            {
+                              onError: () => {
+                                // Genuine network failure — remove optimistic state.
+                                setPollVotes((p) => { const n = { ...p }; delete n[poll.id]; return n; });
+                                showToast?.('Could not submit vote. Please check your connection.');
+                              },
+                            },
+                          );
+                          showToast(`Vote cast! +${poll.points} pts`, poll.points);
+                        } else if (opt.id !== committed) {
+                          // Vote change — enter pending state (requires confirmation).
+                          setReVotePending((p) => ({ ...p, [poll.id]: opt.id }));
+                        }
                       }}
-                      disabled={!!voted}
+                      disabled={!!pending && !isPending}
                     >
-                      <Text style={[styles.pollOptionText, isVoted && { color: colors.primary }]}>{opt.text}</Text>
-                      {voted && <View style={styles.pollBarBg}><View style={[styles.pollBarFill, { width: `${pct}%` as `${number}%`, backgroundColor: isVoted ? colors.primary : 'rgba(255,255,255,0.15)' }]} /></View>}
-                      {voted && <Text style={styles.pollPct}>{Math.round(pct)}%</Text>}
-                      {!voted && <Ionicons name="radio-button-off" size={18} color={colors.textMuted} />}
-                      {isVoted && <Ionicons name="checkmark-circle" size={18} color={colors.primary} />}
+                      <Text style={[styles.pollOptionText, (isCommitted && !pending) && { color: colors.primary }, isPending && { color: colors.primary }]}>
+                        {opt.text}
+                      </Text>
+                      {showBar && <View style={styles.pollBarBg}><View style={[styles.pollBarFill, { width: `${pct}%` as `${number}%`, backgroundColor: isCommitted ? colors.primary : 'rgba(255,255,255,0.15)' }]} /></View>}
+                      {showBar && <Text style={styles.pollPct}>{Math.round(pct)}%</Text>}
+                      {!committed && <Ionicons name="radio-button-off" size={18} color={colors.textMuted} />}
+                      {isCommitted && !pending && <Ionicons name="checkmark-circle" size={18} color={colors.primary} />}
+                      {isPending && <Ionicons name="radio-button-on" size={18} color={colors.primary} />}
                     </TouchableOpacity>
                   );
                 })}
               </View>
+              {/* Change-vote confirmation row */}
+              {committed && !pending && poll.isLive && (
+                <TouchableOpacity onPress={() => {/* tap an option above to start */}} style={{ marginTop: 6 }}>
+                  <Text style={{ color: colors.textMuted, fontSize: 12, textAlign: 'center' }}>
+                    Tap a different option to change your vote
+                  </Text>
+                </TouchableOpacity>
+              )}
+              {pending && (
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                  <TouchableOpacity
+                    style={{ flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.08)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)' }}
+                    onPress={() => setReVotePending((p) => { const n = { ...p }; delete n[poll.id]; return n; })}>
+                    <Text style={{ color: colors.textMuted, fontWeight: '600', fontSize: 14 }}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={{ flex: 2, paddingVertical: 10, borderRadius: 10, alignItems: 'center', backgroundColor: colors.primary }}
+                    onPress={() => {
+                      const newOptionId = pending;
+                      // Clear pending state immediately.
+                      setReVotePending((p) => { const n = { ...p }; delete n[poll.id]; return n; });
+                      // Update committed vote locally (no points).
+                      setPollVotes((p) => ({ ...p, [poll.id]: newOptionId }));
+                      votePollMutation(
+                        { pollId: poll.id, optionId: newOptionId },
+                        {
+                          onSuccess: (res) => {
+                            if (!res.success && res.error?.code !== 'ALREADY_VOTED') {
+                              // Server rejected — revert to old committed vote.
+                              setPollVotes((p) => ({ ...p, [poll.id]: committed! }));
+                              showToast?.(res.error?.message ?? 'Could not update vote.');
+                            } else {
+                              showToast?.('Vote updated!');
+                            }
+                          },
+                          onError: () => {
+                            setPollVotes((p) => ({ ...p, [poll.id]: committed! }));
+                            showToast?.('Could not update vote. Please check your connection.');
+                          },
+                        },
+                      );
+                    }}>
+                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Confirm change</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
           );
         })}

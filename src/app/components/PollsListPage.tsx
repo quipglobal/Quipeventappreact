@@ -35,6 +35,33 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedOptions, setSelectedOptions] = useState<Record<number, number>>({});
   const [submittingPollId, setSubmittingPollId] = useState<number | null>(null);
+  /** Poll id currently in "change vote" mode — options become selectable again. */
+  const [reVotingPollId, setReVotingPollId] = useState<number | null>(null);
+
+  /** Build PollState array from resolved details, re-hydrating saved results where available. */
+  const buildPolls = (
+    details: Array<{ success: true; data: BackendPollDetail } | { success: false; data?: undefined }>,
+    currentVotedPolls: Record<string, number>,
+    currentSavedResults: typeof savedPollResults,
+  ): PollState[] => {
+    const built: PollState[] = [];
+    details.forEach((r) => {
+      if (r.success && r.data) {
+        const stored = currentSavedResults[String(r.data.id)];
+        if (stored && String(r.data.id) in currentVotedPolls) {
+          built.push({
+            detail: r.data,
+            results: stored.results as PollResultRow[],
+            totalVotes: stored.totalVotes,
+            votedOptionId: stored.votedOptionId,
+          });
+        } else {
+          built.push({ detail: r.data });
+        }
+      }
+    });
+    return built;
+  };
 
   useEffect(() => {
     if (!eventId) return;
@@ -44,26 +71,55 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
     setPolls([]);
 
     (async () => {
-      // Serve the polls list from the preloader cache when available.
-      // If it's a cache miss, fetch and store so subsequent visits are instant.
-      let summaries = getCached<BackendPollSummary[]>('polls', eventId);
-      if (!summaries) {
-        const listRes = await listEventPollsApi(eventId);
-        if (stale) return;
-        if (!listRes.success || !listRes.data) {
+      // ── Phase 1: serve from cache immediately (instant render) ──────────
+      const cachedSummaries = getCached<BackendPollSummary[]>('polls', eventId);
+      if (cachedSummaries) {
+        const live = cachedSummaries.filter(p => p.status === 'LIVE' || p.status === 'CLOSED');
+        const detailResults = await Promise.all(
+          live.map(p => {
+            const cached = getCached<BackendPollDetail>(`poll-detail:${p.id}`, eventId);
+            if (cached) return Promise.resolve({ success: true as const, data: cached });
+            return getEventPollApi(eventId, p.id).then(r => {
+              if (r.success && r.data) setCached(`poll-detail:${p.id}`, eventId, r.data);
+              return r;
+            });
+          })
+        );
+        if (!stale) {
+          setPolls(buildPolls(detailResults, votedPolls, savedPollResults));
+          setLoading(false);
+        }
+      }
+
+      // ── Phase 2: always refresh from server in background ───────────────
+      // This re-syncs the user's prior vote so a fresh session / logout-login
+      // doesn't show polls as unanswered.
+      const listRes = await listEventPollsApi(eventId);
+      if (stale) return;
+      if (!listRes.success || !listRes.data) {
+        if (!cachedSummaries) {
           setLoadError(listRes.error?.message ?? 'Failed to load polls.');
           setLoading(false);
-          return;
         }
-        summaries = listRes.data;
-        setCached('polls', eventId, summaries);
+        return;
       }
-      if (stale) return;
-      const live = summaries.filter(p => p.status === 'LIVE' || p.status === 'CLOSED');
+      const freshSummaries = listRes.data;
+      setCached('polls', eventId, freshSummaries);
 
-      // Serve each poll detail from cache if the preloader already fetched it.
-      // Only fire a network request for polls that aren't cached yet — and cache
-      // the result so subsequent visits (and other components) pay zero cost.
+      // Seed server-confirmed votes into local state so a fresh session
+      // immediately shows the user's prior selections. Never overwrite a
+      // vote the user already cast this session (local wins for recency).
+      const voteUpdates: Record<string, number> = {};
+      for (const s of freshSummaries) {
+        if (s.user_voted_option_id != null && !(String(s.id) in votedPolls)) {
+          voteUpdates[String(s.id)] = s.user_voted_option_id;
+        }
+      }
+      if (Object.keys(voteUpdates).length > 0) {
+        setVotedPolls({ ...votedPolls, ...voteUpdates });
+      }
+
+      const live = freshSummaries.filter(p => p.status === 'LIVE' || p.status === 'CLOSED');
       const detailResults = await Promise.all(
         live.map(p => {
           const cached = getCached<BackendPollDetail>(`poll-detail:${p.id}`, eventId);
@@ -75,35 +131,24 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
         })
       );
       if (stale) return;
-      const built: PollState[] = [];
-      detailResults.forEach((r) => {
-        if (r.success && r.data) {
-          const stored = savedPollResults[String(r.data.id)];
-          if (stored && String(r.data.id) in votedPolls) {
-            // Re-hydrate results from storage so the results bar shows correctly
-            // after a page refresh, without needing to re-cast the vote.
-            built.push({
-              detail: r.data,
-              results: stored.results as PollResultRow[],
-              totalVotes: stored.totalVotes,
-              votedOptionId: stored.votedOptionId,
-            });
-          } else {
-            built.push({ detail: r.data });
-          }
-        }
-      });
-      setPolls(built);
+
+      // Merge server-seeded votes into the combined map used for buildPolls.
+      const mergedVoted = { ...votedPolls, ...voteUpdates };
+      setPolls(buildPolls(detailResults, mergedVoted, savedPollResults));
       setLoading(false);
     })();
 
     return () => { stale = true; };
-  }, [eventId]);
+  }, [eventId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleVote = async (pollId: number) => {
+  /**
+   * Submit a vote. When `isRevote` is true (user is changing an existing vote)
+   * the request is sent normally but points are NOT awarded again.
+   */
+  const handleVote = async (pollId: number, isRevote: boolean) => {
     if (!eventId) return;
     const optionId = selectedOptions[pollId];
-    if (!optionId || submittingPollId !== null || String(pollId) in votedPolls) return;
+    if (!optionId || submittingPollId !== null) return;
 
     setSubmittingPollId(pollId);
     const res = await submitEventPollVoteApi(eventId, pollId, optionId);
@@ -114,8 +159,7 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
         ? { ...p, results: res.data!.results, totalVotes: res.data!.total_votes, votedOptionId: res.data!.voted_option_id }
         : p
       ));
-      setVotedPolls({ ...votedPolls, [pollId]: optionId });
-      // Persist results so the results bar reappears correctly after a page refresh.
+      setVotedPolls({ ...votedPolls, [String(pollId)]: optionId });
       setSavedPollResults(prev => ({
         ...prev,
         [String(pollId)]: {
@@ -124,10 +168,18 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
           votedOptionId: res.data!.voted_option_id,
         },
       }));
-      addPoints(gamificationConfig.pointActions.votePoll, 'Poll vote submitted!');
+      if (!isRevote) {
+        addPoints(gamificationConfig.pointActions.votePoll, 'Poll vote submitted!');
+      } else {
+        showToast('Vote updated!');
+      }
+      setReVotingPollId(null);
     } else if (res.error?.code === 'ALREADY_VOTED') {
-      setVotedPolls({ ...votedPolls, [pollId]: optionId });
-      showToast('You already voted in this poll.');
+      // Server already has this vote — mark locally with the option the user
+      // selected (authoritative if they just picked it) and exit re-vote mode.
+      setVotedPolls({ ...votedPolls, [String(pollId)]: optionId });
+      setReVotingPollId(null);
+      showToast(isRevote ? 'Vote unchanged — already recorded.' : 'You already voted in this poll.');
     } else {
       showToast(res.error?.message ?? 'Failed to submit vote. Please try again.');
     }
@@ -162,7 +214,9 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
 
         {!loading && polls.map(({ detail: poll, results, totalVotes, votedOptionId }) => {
           const storedOptionId = votedPolls[String(poll.id)]; // persisted choice (survives refresh)
-          const hasVoted = storedOptionId !== undefined || votedOptionId !== undefined;
+          const committedVoted = storedOptionId !== undefined || votedOptionId !== undefined;
+          const isChangingVote = reVotingPollId === poll.id;
+          const hasVoted = committedVoted && !isChangingVote; // true when showing locked results view
           const userChoice = selectedOptions[poll.id];
           // The authoritative "which option did I vote for" — prefer the live API response,
           // fall back to what was stored in context (restored from localStorage).
@@ -184,7 +238,7 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
                   )}
                   <h3 style={{ color: t.text, fontSize: 16, fontWeight: 700, marginBottom: 4 }}>{poll.title}</h3>
                 </div>
-                {hasVoted && <CheckCircle style={{ width: 22, height: 22, color: t.successText, flexShrink: 0 }} />}
+                {committedVoted && !isChangingVote && <CheckCircle style={{ width: 22, height: 22, color: t.successText, flexShrink: 0 }} />}
               </div>
 
               {/* Options */}
@@ -193,20 +247,23 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
                   const result = results?.find(r => r.id === option.id);
                   const liveVotes = result?.votes ?? 0;
                   const pct = result?.percentage ?? 0;
-                  const isChosen = userChoice === option.id;
-                  const isMyVote = hasVoted && option.id === myVotedOptionId;
+                  const isChosen = isChangingVote ? userChoice === option.id : false;
+                  const isMyVote = committedVoted && !isChangingVote && option.id === myVotedOptionId;
+                  const isPrevVote = isChangingVote && option.id === myVotedOptionId; // prior choice shown dimly in change mode
                   const isWinning = hasVoted && results && liveVotes === winnerVotes && winnerVotes > 0;
+                  const canClick = !hasVoted && submittingPollId !== poll.id;
 
                   return (
                     <button key={option.id}
-                      onClick={() => !hasVoted && setSelectedOptions(prev => ({ ...prev, [poll.id]: option.id }))}
-                      disabled={hasVoted || submittingPollId === poll.id}
+                      onClick={() => canClick && setSelectedOptions(prev => ({ ...prev, [poll.id]: option.id }))}
+                      disabled={!canClick}
                       className="w-full text-left rounded-xl relative overflow-hidden transition-all"
                       style={{
                         padding: '14px 16px',
-                        border: `1.5px solid ${hasVoted ? t.border : isChosen ? t.borderAcc : t.border}`,
-                        background: hasVoted ? 'transparent' : isChosen ? t.accentBg : t.inputBg,
-                        cursor: hasVoted ? 'default' : 'pointer',
+                        border: `1.5px solid ${hasVoted ? t.border : isChosen ? t.borderAcc : isPrevVote ? t.borderAcc : t.border}`,
+                        background: hasVoted ? 'transparent' : isChosen ? t.accentBg : isPrevVote ? t.accentBg : t.inputBg,
+                        opacity: hasVoted ? 1 : isPrevVote && !isChosen ? 0.6 : 1,
+                        cursor: canClick ? 'pointer' : 'default',
                       }}>
                       {hasVoted && results && (
                         <div className="absolute inset-0 rounded-xl transition-all"
@@ -217,7 +274,7 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
                           {!hasVoted && (
                             <div style={{
                               width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
-                              border: `2px solid ${isChosen ? t.accent : t.border}`,
+                              border: `2px solid ${isChosen ? t.accent : isPrevVote ? t.accent : t.border}`,
                               background: isChosen ? t.accent : 'transparent',
                               display: 'flex', alignItems: 'center', justifyContent: 'center',
                             }}>
@@ -225,11 +282,14 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
                             </div>
                           )}
                           <div className="flex flex-col gap-0.5">
-                            <span style={{ color: hasVoted ? (isMyVote ? t.accentSoft : t.text) : isChosen ? t.accentSoft : t.textSec, fontWeight: isMyVote || isChosen ? 700 : 500, fontSize: 14 }}>
+                            <span style={{ color: hasVoted ? (isMyVote ? t.accentSoft : t.text) : isChosen ? t.accentSoft : isPrevVote ? t.accentSoft : t.textSec, fontWeight: isMyVote || isChosen || isPrevVote ? 700 : 500, fontSize: 14 }}>
                               {option.option_text}
                             </span>
                             {isMyVote && (
                               <span style={{ color: t.accentSoft, fontSize: 11, fontWeight: 600 }}>Your vote ✓</span>
+                            )}
+                            {isPrevVote && (
+                              <span style={{ color: t.accentSoft, fontSize: 11, fontWeight: 600 }}>Previous vote</span>
                             )}
                           </div>
                         </div>
@@ -251,14 +311,52 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
               {/* Footer */}
               <div className="flex items-center justify-between pt-4" style={{ borderTop: `1px solid ${t.divider}` }}>
                 {hasVoted
-                  ? results
-                    ? <p className="flex items-center gap-1.5" style={{ color: t.textMuted, fontSize: 13 }}>
-                        <Clock style={{ width: 14, height: 14 }} />Total votes: {total.toLocaleString()}
-                      </p>
-                    : <p style={{ color: t.textMuted, fontSize: 13 }}>Vote recorded — results hidden</p>
-                  : <p style={{ color: t.successText, fontSize: 13, fontWeight: 600 }}>+{gamificationConfig.pointActions.votePoll} points</p>}
-                {!hasVoted && (
-                  <button onClick={() => handleVote(poll.id)} disabled={!userChoice || submittingPollId === poll.id}
+                  ? <div className="flex items-center gap-3">
+                      {results
+                        ? <p className="flex items-center gap-1.5" style={{ color: t.textMuted, fontSize: 13 }}>
+                            <Clock style={{ width: 14, height: 14 }} />Total votes: {total.toLocaleString()}
+                          </p>
+                        : <p style={{ color: t.textMuted, fontSize: 13 }}>Vote recorded — results hidden</p>}
+                      {isLive && (
+                        <button
+                          onClick={() => {
+                            // Pre-select the prior answer so the user sees what they voted for.
+                            if (myVotedOptionId) {
+                              setSelectedOptions(prev => ({ ...prev, [poll.id]: myVotedOptionId }));
+                            }
+                            setReVotingPollId(poll.id);
+                          }}
+                          style={{ color: t.accentSoft, fontSize: 12, fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                          Change vote
+                        </button>
+                      )}
+                    </div>
+                  : isChangingVote
+                    ? <p style={{ color: t.textMuted, fontSize: 13 }}>Select a new option above</p>
+                    : <p style={{ color: t.successText, fontSize: 13, fontWeight: 600 }}>+{gamificationConfig.pointActions.votePoll} points</p>}
+
+                {isChangingVote && (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => { setReVotingPollId(null); setSelectedOptions(prev => { const n = { ...prev }; delete n[poll.id]; return n; }); }}
+                      className="px-4 py-2 rounded-xl font-semibold transition-all"
+                      style={{ background: t.surface2, border: `1.5px solid ${t.border}`, color: t.textSec, fontSize: 13 }}>
+                      Cancel
+                    </button>
+                    <button onClick={() => handleVote(poll.id, true)} disabled={!userChoice || submittingPollId === poll.id}
+                      className="px-5 py-2 rounded-xl font-semibold text-white transition-all"
+                      style={{
+                        background: userChoice ? 'linear-gradient(135deg,#7c3aed,#ec4899)' : t.surface2,
+                        color: userChoice ? '#fff' : t.textMuted,
+                        cursor: userChoice ? 'pointer' : 'not-allowed',
+                        opacity: submittingPollId === poll.id ? 0.7 : 1,
+                      }}>
+                      {submittingPollId === poll.id ? 'Updating…' : 'Update vote'}
+                    </button>
+                  </div>
+                )}
+                {!committedVoted && (
+                  <button onClick={() => handleVote(poll.id, false)} disabled={!userChoice || submittingPollId === poll.id}
                     className="px-5 py-2 rounded-xl font-semibold text-white transition-all"
                     style={{
                       background: userChoice ? 'linear-gradient(135deg,#7c3aed,#ec4899)' : t.surface2,

@@ -46,7 +46,8 @@ export function usePolls() {
   // Austin's empty poll list would leak into LA (and vice versa)
   // until the focus refetch completed.
   const { currentEventId } = useEvent();
-  return useAuthedQuery({
+  const { seedVotedPolls } = useAuth();
+  const query = useAuthedQuery({
     queryKey: ['polls', currentEventId],
     queryFn: listPolls,
     select: (res) => res.data ?? [],
@@ -56,6 +57,20 @@ export function usePolls() {
     // and focus event — amplifying poll traffic under load.
     staleTime: 60_000,
   });
+
+  const polls = query.data;
+  useEffect(() => {
+    if (!polls?.length) return;
+    // Re-sync server-confirmed votes so a fresh install / logout-login
+    // doesn't show polls the user already voted on as unanswered.
+    const serverVoted: Record<string, string> = {};
+    for (const p of polls) {
+      if (p.userVotedOptionId) serverVoted[p.id] = p.userVotedOptionId;
+    }
+    if (Object.keys(serverVoted).length > 0) seedVotedPolls(serverVoted);
+  }, [polls, seedVotedPolls]);
+
+  return query;
 }
 
 export function useVotePoll() {

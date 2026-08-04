@@ -121,6 +121,10 @@ export interface BackendPollSummary {
   starts_at: string | null;
   ends_at: string | null;
   options_count?: number;
+  /** The option id the current user already voted for, if any.
+   *  Normalised from multiple backend field aliases (user_vote, voted_option_id,
+   *  my_vote, …) so a fresh session re-shows the user's prior selection. */
+  user_voted_option_id?: number | null;
 }
 
 export interface BackendPollDetail extends BackendPollSummary {
@@ -143,9 +147,29 @@ export interface PollVoteResult {
 export async function listEventPollsApi(
   eventId: string | number
 ): Promise<{ success: boolean; data?: BackendPollSummary[]; error?: { code?: string; message: string } }> {
-  const res = await apiGet<BackendPollSummary[]>(`/api/v1/events/${eventId}/polls`);
+  const res = await apiGet<any>(`/api/v1/events/${eventId}/polls`);
   if (!res.success) return { success: false, error: res.error ?? { message: 'Failed to load polls.' } };
-  return { success: true, data: res.data ?? [] };
+  // Normalise both envelope shapes: bare array OR { data: [...] }.
+  const raw: any = res.data;
+  const list: any[] = Array.isArray(raw) ? raw : (raw?.data ?? []);
+  const polls: BackendPollSummary[] = list.map((p: any) => {
+    // Probe every alias the backend might use for the user's prior vote.
+    const rawVote =
+      p.user_voted_option_id ?? p.user_vote ?? p.voted_option_id ??
+      p.my_vote ?? p.user_answer ?? p.user_voted_option ?? p.selected_option_id ?? null;
+    return {
+      id: p.id,
+      event_id: p.event_id,
+      title: p.title ?? '',
+      status: p.status ?? '',
+      results_visibility: p.results_visibility ?? '',
+      starts_at: p.starts_at ?? null,
+      ends_at: p.ends_at ?? null,
+      options_count: p.options_count,
+      user_voted_option_id: rawVote != null ? Number(rawVote) : null,
+    };
+  });
+  return { success: true, data: polls };
 }
 
 export async function getEventPollApi(

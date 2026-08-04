@@ -24,6 +24,9 @@ interface AppContextValue {
   /** Map of pollId → optionId the user voted for. Survives navigation within a session. */
   votedPolls: Record<string, string>;
   markPollVoted: (id: string, optionId: string) => void;
+  /** Merge server-confirmed poll votes into local state WITHOUT awarding points.
+   *  Used after the poll list loads to re-sync prior votes after logout/reinstall. */
+  seedVotedPolls: (map: Record<string, string>) => void;
   completedSurveys: string[];
   markSurveyDone: (id: string) => void;
   /** Merge a list of server-confirmed completed survey IDs into local state
@@ -290,6 +293,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
   }, [addPoints]);
 
+  /** Merge server-confirmed votes without awarding points. Called after list load. */
+  const seedVotedPolls = useCallback((map: Record<string, string>) => {
+    if (!Object.keys(map).length) return;
+    setVotedPolls((prev) => {
+      const toAdd: Record<string, string> = {};
+      for (const [pollId, optionId] of Object.entries(map)) {
+        if (!(pollId in prev)) toAdd[pollId] = optionId;
+      }
+      if (!Object.keys(toAdd).length) return prev;
+      const next = { ...prev, ...toAdd };
+      AsyncStorage.setItem(VOTED_POLLS_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  }, []);
+
   const markSurveyDone = useCallback((id: string) => {
     setCompletedSurveys((prev) => {
       if (prev.includes(id)) return prev;
@@ -389,7 +407,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       login, logout, setUser, refreshEventRole,
       completedChallenges, completeChallenge,
       bookmarkedSessions, toggleBookmark,
-      votedPolls, markPollVoted,
+      votedPolls, markPollVoted, seedVotedPolls,
       completedSurveys, markSurveyDone, seedCompletedSurveys, savedSurveyAnswers, saveSurveyAnswers,
       checkedInEvents, markEventCheckedIn,
       addPoints, toast, showToast,
