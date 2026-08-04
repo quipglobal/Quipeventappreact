@@ -1056,9 +1056,19 @@ function GiveawaysManager({
 }) {
   const insets = useSafeAreaInsets();
   const { data: allGiveaways = [], isLoading, isError, refetch } = useGiveaways();
-  const giveaways = allGiveaways.filter(
-    (g) => !g.sponsorId || g.sponsorId === sponsorId,
-  );
+  const giveaways = allGiveaways.filter((g) => {
+    // No ownership data → show (could be an old row without it, or the
+    // server hasn't returned sponsor_id for this event's giveaways yet).
+    if (!g.sponsorId && !g.sponsor) return true;
+    // Primary: user-ID match — most reliable.
+    if (sponsorId && g.sponsorId === sponsorId) return true;
+    // Fallback: company/sponsor name match — catches rows where the server
+    // echoed sponsor_name but not sponsor_id (or returned a different ID
+    // format), so a freshly-created giveaway isn't hidden after the
+    // post-create invalidate/refetch.
+    if (sponsorName && g.sponsor === sponsorName) return true;
+    return false;
+  });
   const { mutate: createGiveaway } = useCreateGiveaway();
   const { mutate: updateGiveaway } = useUpdateGiveaway();
   const { mutate: removeGiveaway } = useRemoveGiveaway();

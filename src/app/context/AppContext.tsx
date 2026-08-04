@@ -1806,6 +1806,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     if (res.success && res.data) {
       const saved = res.data;
+      // Preserve sponsorName / sponsorId / addedByName from the optimistic
+      // temp row when the server's POST response omits those ownership fields.
+      // Many backends only echo the core fields (id, title, numberOfItems) and
+      // skip the ownership metadata — without this merge the row loses its
+      // sponsor identity and the visibility filter hides it immediately.
+      const canonical: SponsorGiveaway = {
+        ...saved,
+        sponsorName:  saved.sponsorName  || tempRow.sponsorName,
+        sponsorId:    saved.sponsorId    || tempRow.sponsorId,
+        addedByName:  saved.addedByName  || tempRow.addedByName,
+      };
       setSponsorGiveaways(prev =>
         prev.map(g => {
           if (g.id !== tempId) return g;
@@ -1814,10 +1825,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           // post-merge re-hydration.
           const carried = g.winners ?? [];
           return carried.length > 0
-            ? { ...saved, winners: [...(saved.winners ?? []), ...carried] }
-            : saved;
+            ? { ...canonical, winners: [...(canonical.winners ?? []), ...carried] }
+            : canonical;
         }),
       );
+      // Background re-fetch so the canonical server state (including any
+      // ownership fields the backend persisted) replaces the local merge
+      // above, and so other open tabs / devices see the new giveaway
+      // without waiting for the next event-change hydration.
+      listGiveawaysApi(eventIdAtCall).then(refreshRes => {
+        if (!refreshRes.success || !refreshRes.data) return;
+        if (activeEventIdRef.current !== eventIdAtCall) return;
+        const winnersByGiveaway = loadGiveawayWinners(eventIdAtCall);
+        setSponsorGiveaways(refreshRes.data.map(g => {
+          const localWins = winnersByGiveaway[g.id] ?? [];
+          if (localWins.length === 0) return g;
+          const seen = new Set((g.winners ?? []).map(w => w.id));
+          return { ...g, winners: [...(g.winners ?? []), ...localWins.filter(w => !seen.has(w.id))] };
+        }));
+      });
       return;
     }
     if (res.error?.code === 'NOT_IMPLEMENTED') {
@@ -2026,7 +2052,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const isMyGiveaway = (g: SponsorGiveaway): boolean => {
     if (user?.role !== 'sponsor') return false;
     const myCompany = user.company || user.name || '';
-    return myCompany !== '' && g.sponsorName === myCompany;
+    const myId = user.id ? String(user.id) : '';
+    // Primary: company name match (covers all reps from the same booth).
+    if (myCompany && g.sponsorName === myCompany) return true;
+    // Fallback: user-ID match — catches rows where the server echoed
+    // sponsor_id but not sponsor_name (common with some backend shapes).
+    if (myId && g.sponsorId && g.sponsorId === myId) return true;
+    return false;
   };
 
   const switchEvent = (config: EventConfig) => {

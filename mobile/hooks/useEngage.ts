@@ -263,16 +263,27 @@ export function useCreateGiveaway() {
       }));
       return { previous, tempId, eventId: currentEventId };
     },
-    onSuccess: async (res, _payload, ctx) => {
+    onSuccess: async (res, payload, ctx) => {
       if (!ctx) return;
       if (res.success && res.data) {
         const saved = res.data;
         await migrateGiveawayWinnersKey(ctx.eventId, ctx.tempId, saved.id);
-        // Swap temp row → saved row immediately (zero-delay for the sponsor).
+        // Swap temp row → saved row. Preserve sponsorId / sponsor from the
+        // payload when the server's POST response omits those ownership fields
+        // — without this, the post-invalidate refetch returns the server row
+        // (which may have empty sponsorId) and the manager's ownership filter
+        // hides the freshly-created giveaway.
         queryClient.setQueryData<ApiResponse<Giveaway[]>>(key, (prev) => ({
           success: true,
           data: (prev?.data ?? []).map((g) =>
-            g.id === ctx.tempId ? { ...saved, winners: g.winners } : g,
+            g.id === ctx.tempId
+              ? {
+                  ...saved,
+                  sponsorId: saved.sponsorId || payload.sponsorId,
+                  sponsor:   saved.sponsor   || payload.sponsorName,
+                  winners: g.winners,
+                }
+              : g,
           ),
         }));
         // Trigger a background refetch so every other screen (including the

@@ -351,12 +351,19 @@ export const SponsorGiveawaysPage: React.FC = () => {
   // The company key the current rep belongs to. Matches the value stored
   // as `sponsorName` when a giveaway is created from this account.
   const myCompanyKey = user?.company || user?.name || '';
-  // Rule 1: only show giveaways belonging to the current rep's company.
-  // Cross-company prizes are hidden entirely in the management UI — reps
-  // only need to see (and manage) their own booth's items.
-  const visibleGiveaways = sponsorGiveaways.filter(
-    g => myCompanyKey !== '' && g.sponsorName === myCompanyKey,
-  );
+  const myUserId = user?.id ? String(user.id) : '';
+  // Show giveaways belonging to the current rep's company/account.
+  // Two match paths because backends vary in which ownership field they echo:
+  //   Primary:  sponsorName === company name (same company, any rep)
+  //   Fallback: sponsorId  === user ID      (server echoed ID but not name)
+  // Without the fallback, a freshly-saved giveaway whose server response
+  // omits sponsor_name would vanish immediately after the optimistic insert
+  // is swapped for the canonical server row.
+  const visibleGiveaways = sponsorGiveaways.filter(g => {
+    if (myCompanyKey && g.sponsorName === myCompanyKey) return true;
+    if (myUserId && g.sponsorId && g.sponsorId === myUserId) return true;
+    return false;
+  });
 
   const headerBg = eventConfig?.backgroundURL
     ? `linear-gradient(160deg,rgba(10,5,30,0.82) 0%,rgba(30,10,60,0.72) 100%),url(${eventConfig.backgroundURL}) center/cover no-repeat`
