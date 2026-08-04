@@ -152,6 +152,10 @@ export interface Survey {
   desc: string;
   questions: number;
   points: number;
+  /** True when the backend confirms the user already submitted this survey.
+   *  Populated from the list endpoint; used to seed completion state so a
+   *  fresh install / logout-login doesn't show surveys as incomplete. */
+  is_completed?: boolean;
 }
 
 export type SurveyQuestionType =

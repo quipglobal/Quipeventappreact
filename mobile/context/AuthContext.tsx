@@ -26,6 +26,10 @@ interface AppContextValue {
   markPollVoted: (id: string, optionId: string) => void;
   completedSurveys: string[];
   markSurveyDone: (id: string) => void;
+  /** Merge a list of server-confirmed completed survey IDs into local state
+   *  WITHOUT awarding points. Used to re-sync state after login / app restart
+   *  from the backend list response so already-done surveys don't appear fresh. */
+  seedCompletedSurveys: (ids: string[]) => void;
   /** Last-submitted answers per survey, keyed by surveyId. Used to pre-populate on re-open. */
   savedSurveyAnswers: Record<string, Record<string, string>>;
   saveSurveyAnswers: (id: string, answers: Record<string, string>) => void;
@@ -296,6 +300,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
   }, [addPoints]);
 
+  /** Merge server-confirmed completed IDs without awarding points.
+   *  Called after the survey list loads so a fresh install / logout-login
+   *  immediately reflects the user's true completion state from the backend. */
+  const seedCompletedSurveys = useCallback((ids: string[]) => {
+    if (!ids.length) return;
+    setCompletedSurveys((prev) => {
+      const newIds = ids.filter((id) => !prev.includes(id));
+      if (!newIds.length) return prev;
+      const next = [...prev, ...newIds];
+      AsyncStorage.setItem(COMPLETED_SURVEYS_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  }, []);
+
   const saveSurveyAnswers = useCallback((id: string, answers: Record<string, string>) => {
     setSavedSurveyAnswers(prev => {
       const next = { ...prev, [id]: answers };
@@ -372,7 +390,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       completedChallenges, completeChallenge,
       bookmarkedSessions, toggleBookmark,
       votedPolls, markPollVoted,
-      completedSurveys, markSurveyDone, savedSurveyAnswers, saveSurveyAnswers,
+      completedSurveys, markSurveyDone, seedCompletedSurveys, savedSurveyAnswers, saveSurveyAnswers,
       checkedInEvents, markEventCheckedIn,
       addPoints, toast, showToast,
     }}>

@@ -92,6 +92,12 @@ export async function listSurveys(): Promise<ApiResponse<Survey[]>> {
     desc: s.description ?? s.desc ?? '',
     questions: Number(s.questions_count ?? s.questions ?? 0),
     points: Number(s.points ?? s.gamification_points ?? 50),
+    // Probe every field alias the backend might use so a fresh session
+    // immediately knows which surveys the user has already submitted.
+    is_completed: !!(
+      s.is_completed ?? s.completed ?? s.user_completed ??
+      s.user_submitted ?? s.has_response ?? s.has_submission ?? false
+    ),
   }));
   return { success: true, data: surveys };
 }

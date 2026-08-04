@@ -361,7 +361,13 @@ function SurveyDetailView({ survey, alreadyDone, initialAnswers, onBack }: Surve
       { surveyId: survey.id, answers },
       {
         onSuccess: (res) => {
-          const firstTime = !alreadyDone;
+          const alreadySubmitted = !res.success && res.error?.code === 'ALREADY_SUBMITTED';
+          if (!res.success && !alreadySubmitted) {
+            showToast?.(res.error?.message ?? 'Failed to submit survey. Please try again.');
+            return;
+          }
+          // First-time success: award points. Re-submit (edit) or ALREADY_SUBMITTED: no points.
+          const firstTime = !alreadyDone && !alreadySubmitted;
           markSurveyDone(survey.id);
           saveSurveyAnswers(survey.id, answers);
           const pts = res.data?.points ?? survey.points;
@@ -370,13 +376,8 @@ function SurveyDetailView({ survey, alreadyDone, initialAnswers, onBack }: Surve
           setTimeout(() => onBack(), 1200);
         },
         onError: () => {
-          // Fallback for demo mode/offline
-          markSurveyDone(survey.id);
-          saveSurveyAnswers(survey.id, answers);
-          const firstTime = !alreadyDone;
-          showToast?.(firstTime ? `Saved! +${survey.points} pts` : 'Answers updated!', firstTime ? survey.points : undefined);
-          setSubmitted(true);
-          setTimeout(() => onBack(), 1200);
+          // Genuine network failure — do NOT silently mark as done.
+          showToast?.('Could not submit survey. Please check your connection and try again.');
         },
       },
     );

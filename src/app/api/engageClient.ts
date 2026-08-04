@@ -42,6 +42,10 @@ export interface BackendSurveySummary {
   description: string | null;
   status: string;
   questions_count?: number;
+  /** True when the backend confirms the current user has already submitted
+   *  this survey. Used to seed local completion state on list load so a
+   *  fresh session / logout-login never shows surveys as incomplete. */
+  is_completed?: boolean;
 }
 
 export interface BackendSurveyDetail extends BackendSurveySummary {
@@ -56,9 +60,25 @@ export interface SurveyAnswer {
 export async function listEventSurveysApi(
   eventId: string | number
 ): Promise<{ success: boolean; data?: BackendSurveySummary[]; error?: { code?: string; message: string } }> {
-  const res = await apiGet<BackendSurveySummary[]>(`/api/v1/events/${eventId}/surveys`);
+  const res = await apiGet<any>(`/api/v1/events/${eventId}/surveys`);
   if (!res.success) return { success: false, error: res.error ?? { message: 'Failed to load surveys.' } };
-  return { success: true, data: res.data ?? [] };
+  // Normalise envelope shapes: bare array OR { data: [...] }.
+  const raw: any = res.data;
+  const list: any[] = Array.isArray(raw) ? raw : (raw?.data ?? []);
+  const surveys: BackendSurveySummary[] = list.map((s: any) => ({
+    id: s.id,
+    event_id: s.event_id,
+    title: s.title ?? '',
+    description: s.description ?? null,
+    status: s.status ?? '',
+    questions_count: s.questions_count,
+    // Probe every field alias the backend might use for server-side completion.
+    is_completed: !!(
+      s.is_completed ?? s.completed ?? s.user_completed ??
+      s.user_submitted ?? s.has_response ?? s.has_submission ?? false
+    ),
+  }));
+  return { success: true, data: surveys };
 }
 
 export async function getEventSurveyApi(

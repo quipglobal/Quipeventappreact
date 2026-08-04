@@ -74,6 +74,18 @@ export const SurveysListPage: React.FC<SurveysListPageProps> = ({ onBack }) => {
       if (res.success && res.data) {
         setCached('surveys', eventId, res.data);
         setSurveys(filterSurveys(res.data));
+        // Re-sync server-confirmed completions so a fresh session / logout-login
+        // doesn't show surveys the user already submitted as incomplete.
+        // We merge silently (no points) — points were awarded at submit time.
+        const serverDoneIds = res.data
+          .filter(s => s.is_completed)
+          .map(s => String(s.id));
+        if (serverDoneIds.length > 0) {
+          setCompletedSurveys(prev => {
+            const newIds = serverDoneIds.filter(id => !prev.includes(id));
+            return newIds.length > 0 ? [...prev, ...newIds] : prev;
+          });
+        }
       } else if (!cached) {
         setLoadError(res.error?.message ?? 'Failed to load surveys.');
       }

@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthedQuery } from '@/hooks/useAuthedQuery';
 import { useEvent } from '@/context/EventContext';
+import { useAuth } from '@/context/AuthContext';
 import {
   listChallenges, completeChallenge as apiCompleteChallenge,
   listPolls, votePoll,
@@ -71,6 +72,7 @@ export function useVotePoll() {
 
 export function useSurveys() {
   const { currentEventId } = useEvent();
+  const { seedCompletedSurveys } = useAuth();
   const queryClient = useQueryClient();
   const query = useAuthedQuery({
     queryKey: ['surveys', currentEventId],
@@ -83,6 +85,16 @@ export function useSurveys() {
   const surveys = query.data;
   useEffect(() => {
     if (!surveys?.length || !currentEventId) return;
+
+    // Re-sync server-confirmed completions so a fresh install / logout-login
+    // doesn't show surveys the user already submitted as incomplete.
+    const serverDoneIds = surveys
+      .filter((sv) => sv.is_completed)
+      .map((sv) => sv.id);
+    if (serverDoneIds.length > 0) {
+      seedCompletedSurveys(serverDoneIds);
+    }
+
     // Cap at 3: prefetching all 10 survey details fires up to 11 simultaneous
     // requests per mounted screen. With 100 concurrent users that's 1 100
     // requests just for surveys. The remaining entries load on-demand;
@@ -95,7 +107,7 @@ export function useSurveys() {
         staleTime: 5 * 60 * 1000,
       });
     }
-  }, [surveys, currentEventId, queryClient]);
+  }, [surveys, currentEventId, queryClient, seedCompletedSurveys]);
 
   return query;
 }
