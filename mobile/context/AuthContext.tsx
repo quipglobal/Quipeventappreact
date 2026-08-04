@@ -60,6 +60,46 @@ const COMPLETED_SURVEYS_KEY = 'cxo_completed_surveys';
 const SURVEY_ANSWERS_KEY = 'cxo_survey_answers';
 const VOTED_POLLS_KEY = 'cxo_voted_polls';
 
+// ── Event-role cache ──────────────────────────────────────────────────────────
+// Resolved roles are stored per (userId, eventId) so different users and events
+// never collide. TTL is 24 h — long enough to survive an app restart, short
+// enough that a role change (e.g. attendee → sponsor rep) takes effect by the
+// next day at the latest. refreshEventRole() always writes a fresh value and
+// therefore resets the clock on demand.
+const EVENT_ROLE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+function eventRoleCacheKey(userId: string, eventId: string): string {
+  return `cxo_event_role_${userId}_${eventId}`;
+}
+
+async function getCachedEventRole(
+  userId: string,
+  eventId: string,
+): Promise<'sponsor' | 'attendee' | null> {
+  try {
+    const raw = await AsyncStorage.getItem(eventRoleCacheKey(userId, eventId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { role: 'sponsor' | 'attendee'; resolvedAt: number };
+    if (Date.now() - parsed.resolvedAt > EVENT_ROLE_CACHE_TTL_MS) return null;
+    return parsed.role;
+  } catch {
+    return null;
+  }
+}
+
+async function setCachedEventRole(
+  userId: string,
+  eventId: string,
+  role: 'sponsor' | 'attendee',
+): Promise<void> {
+  try {
+    await AsyncStorage.setItem(
+      eventRoleCacheKey(userId, eventId),
+      JSON.stringify({ role, resolvedAt: Date.now() }),
+    );
+  } catch {}
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
   const [user, _setUserState] = useState<AuthUser | null>(null);
@@ -158,14 +198,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const res = await getMe();
 
       if (res.success && res.data) {
-        // Backend /me always returns the global role ("attendee" for everyone).
-        // Roles are stored per-event. Read the cached event ID and fetch the
+        // Backend /me returns the global role ("attendee" for everyone).
+        // Roles are stored per-event. Read the cached event ID and resolve the
         // event-scoped role so sponsor reps see the correct footer immediately.
+        //
+        // Role resolution makes up to 3 sequential HTTP requests (badge_code
+        // lookup → full roster → checked-in only). On repeat launches we serve
+        // the locally-cached role instantly and refresh in the background so
+        // the app starts fast without skipping the update.
         let freshUser = res.data;
         try {
           const cachedEventId = await AsyncStorage.getItem('cxo_current_event_id');
           if (cachedEventId) {
-            const eventRole = await getMyEventRole(cachedEventId, freshUser.id);
+            const cachedRole = await getCachedEventRole(freshUser.id, cachedEventId);
+            let eventRole: 'sponsor' | 'attendee';
+            if (cachedRole !== null) {
+              // Use the cached role immediately — no network call needed.
+              eventRole = cachedRole;
+              // Refresh in the background so a role change (e.g. attendee →
+              // sponsor rep) takes effect without blocking the current launch.
+              getMyEventRole(cachedEventId, freshUser.id, freshUser.badgeCode)
+                .then((fresh) => setCachedEventRole(freshUser.id, cachedEventId, fresh))
+                .catch(() => {});
+            } else {
+              // Cache miss (first launch for this event) — resolve synchronously
+              // and persist the result so future launches are instant.
+              eventRole = await getMyEventRole(cachedEventId, freshUser.id, freshUser.badgeCode);
+              setCachedEventRole(freshUser.id, cachedEventId, eventRole).catch(() => {});
+            }
             if (eventRole !== freshUser.role) {
               freshUser = { ...freshUser, role: eventRole };
             }
@@ -237,6 +297,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!current?.id) return;
     // Pass badgeCode as primary lookup key (single-record search, faster).
     const role = await getMyEventRole(eventId, current.id, current.badgeCode);
+    // Persist the freshly resolved role so the next app launch is instant.
+    setCachedEventRole(current.id, eventId, role).catch(() => {});
     setUserState((latest) => {
       if (!latest || latest.role === role) return latest;
       const updated = { ...latest, role };

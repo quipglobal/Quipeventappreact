@@ -1,0 +1,42 @@
+#159 - Fix Production Redis Latency & Request Queuing
+What & Why
+The mobile agent's production audit identified several layered issues causing requests to exceed 1 second — and in the worst case block a worker for up to 30 seconds:
+
+read_timeout: -1 (unlimited) — if Redis stalls, every PHP worker that touches cache, queue, or sessions waits forever. With only ~4 workers this immediately queues all subsequent requests.
+No persistent Redis connections — each PHP-FPM request opens a fresh TCP socket to Redis, adding overhead that compounds under concurrent load.
+SESSION_DRIVER=database in the .env.example production default — a DB read + write on every web request that carries a session, under the same limited worker pool.
+Login endpoint: three sequential role queries — getRoleNames, moderatorMemberships cache miss, and eventManagerMemberships cache miss each hit the DB (and Redis for cache). A Redis stall × 3 = worst-case 30 s hang per login, blocking the worker.
+No request-level Redis failsafe — the proxy / server layer never cuts off a stalled backend, so users wait silently for the full hang duration.
+Dev hides all of this because SESSION_DRIVER=file (no Redis I/O) and the local Redis is in-process with sub-millisecond RTT.
+
+Done looks like
+Every API request completes in under 1 second under normal load; a Redis stall triggers a fast exception (≤ 3 s) rather than a silent worker hang.
+No session I/O happens on API routes (they already use Bearer tokens — this is confirmed and documented, not accidentally re-introduced).
+Login no longer fires three sequential DB/Redis round-trips; the role fetch is merged into a single query that retrieves all relevant event roles in one pass.
+Persistent Redis connections are enabled so workers reuse sockets across requests.
+.env.example reflects the correct production defaults for all new settings.
+Out of scope
+PHP-FPM configuration (Replit Autoscale manages this externally).
+Nginx / proxy-level timeouts (Replit manages the outer proxy; no server.js exists in this repo to modify).
+Increasing the Redis maxclients limit or worker count (infrastructure, not code).
+Session behaviour on web routes; the admin SPA uses Bearer tokens and statefulApi() is explicitly disabled — this task confirms and leaves that as-is.
+Steps
+Bound the Redis read_timeout — change the default for REDIS_READ_TIMEOUT in config/database.php from -1 (unlimited) to 3.0 seconds for both the default and cache connections. Update .env.example with REDIS_READ_TIMEOUT=3. The health_check connection already has its own 1 s read timeout; leave it untouched.
+
+Enable persistent Redis connections — set 'persistent' => env('REDIS_PERSISTENT', true) in config/database.php for the default and cache connections (persistent sockets are safe with predis/phpredis under PHP-FPM). Add REDIS_PERSISTENT=true to .env.example. Leave health_check with a fresh connection (persistent health sockets can mask connection failures).
+
+Add a dedicated session Redis connection — add a session entry in the redis section of config/database.php using a separate DB index (REDIS_SESSION_DB, defaulting to 2), a tight connect timeout (REDIS_SESSION_TIMEOUT, default 0.5), a bounded read timeout of 2.0 s, persistent => true, and max_retries => 1. Using a separate DB means session keys are never evicted by cache pressure.
+
+Switch session driver to Redis for production — in config/session.php set the default for SESSION_DRIVER to redis and SESSION_CONNECTION to session (pointing at the new connection from step 3). Update .env.example accordingly. The dev .env already overrides this to file, so local development is unaffected.
+
+Disable session blocking — explicitly set 'block' => false in config/session.php (Laravel 11 default for Redis sessions). This prevents concurrent requests that share a session cookie from serialising behind a session-write lock, which is the direct cause of the "requests queue up" symptom described in the audit.
+
+Merge the three sequential login role queries into one — in AuthController's getMe() / me() method, replace the two separate eventMemberships()->whereHas(...) calls (one for MODERATOR, one for EVENT_MANAGER) with a single eager-loaded query that fetches all event memberships with their roles in one DB round-trip, then partitions the result in PHP. Keep the existing Cache::remember wrappers so subsequent calls remain fast; only the cache-miss path (first login or cache expiry) now costs one query instead of two.
+
+Relevant files
+backend/config/database.php
+backend/config/session.php
+backend/app/Http/Controllers/Api/V1/AuthController.php
+backend/bootstrap/app.php
+backend/.env.example
+backend/.env

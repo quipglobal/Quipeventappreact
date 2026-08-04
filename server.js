@@ -63,8 +63,25 @@ function proxyTo(prefix) {
       proxyRes.pipe(res);
     });
 
+    // Backend #159 caps Redis stalls at 3 s. Give 6 s here (double the backend
+    // ceiling) to absorb transit overhead. Without this, a stalled backend
+    // causes the browser to spin silently until the OS TCP timeout fires.
+    proxyReq.setTimeout(6000, () => {
+      proxyReq.destroy();
+      if (!res.headersSent) {
+        res.status(504).json({
+          success: false,
+          error: { code: 'GATEWAY_TIMEOUT', message: 'Backend did not respond in time.' },
+        });
+      }
+    });
+
     proxyReq.on('error', (err) => {
-      console.error('[proxy error]', err.message);
+      // ECONNRESET is the normal signal after proxyReq.destroy() fires — not a
+      // real error worth logging at warning level when a timeout already handled it.
+      if (err.code !== 'ECONNRESET') {
+        console.error('[proxy error]', err.message);
+      }
       if (!res.headersSent) {
         res.status(502).json({ success: false, error: { code: 'PROXY_ERROR', message: 'Backend unavailable.' } });
       }
