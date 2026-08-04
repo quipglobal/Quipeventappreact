@@ -101,9 +101,11 @@ test('Sponsor: login → join → sponsor-specific features', async ({ page }) =
   // ── B3: Manage Giveaways → existing giveaway visible ─────────────────
   await page.getByRole('button', { name: /^More$/i }).click();
   await page.getByRole('button', { name: /^Manage Giveaways$/i }).click();
-  await expect(page.getByText('iPad Giveaway')).toBeVisible({ timeout: 8_000 });
-  // Quantity shows 5 items
-  await expect(page.getByText(/5 item/i)).toBeVisible();
+  // The giveaway title appears in both "My Giveaways" and "All Event Giveaways"
+  // sections — use .first() to avoid strict-mode violation.
+  await expect(page.getByText('iPad Giveaway').first()).toBeVisible({ timeout: 8_000 });
+  // Quantity shows 5 items (appears in both manage and all-event sections)
+  await expect(page.getByText(/5 item/i).first()).toBeVisible();
 
   // ── B4: Add giveaway — quantity must NOT be 0 ─────────────────────────
   const titleInput = page.getByPlaceholder(/Win a MacBook/i);

@@ -134,15 +134,24 @@ export const ChallengesPage: React.FC<ChallengesPageProps> = ({ onBack }) => {
       // server state (including any newly eligible challenges unlocked by
       // this action).
       completeChallenge(String(c.id), true);
-      // Refresh the leaderboard so updated points are reflected immediately.
+      // Refresh the leaderboard immediately (so the current user's header
+      // points look right) and again after 2 s to catch the backend's
+      // points-aggregation settling. The POST awards the points atomically
+      // but the leaderboard GET reads from a separate ranking table that
+      // may not reflect the new total until the next aggregation tick.
       refreshLeaderboard?.();
+      // eslint-disable-next-line local/no-raw-timers -- delayed leaderboard retry after challenge claim; no auth gate needed
+      setTimeout(() => { refreshLeaderboard?.(); }, 2000);
       fetchChallenges(true);
       return;
     }
 
-    // 409 — already claimed on the server; reconcile local state.
+    // 409 — already claimed on the server; reconcile local state and
+    // refresh the leaderboard so the user sees their real rank even if
+    // they completed the challenge on another device.
     if (res.error?.code === 'ALREADY_CLAIMED') {
       completeChallenge(String(c.id), true);
+      refreshLeaderboard?.();
       fetchChallenges(true);
       return;
     }
