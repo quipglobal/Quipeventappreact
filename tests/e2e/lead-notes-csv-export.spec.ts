@@ -975,6 +975,175 @@ test.describe('Lead notes → server (admin CSV export guard)', () => {
   });
 
   /**
+   * Nav-away-and-back — Save still uses PATCH after scanner remounts.
+   *
+   * If a rep scans a badge (backend returns leadId), navigates to the Home
+   * tab (component unmounts / state is cleared), then returns to the scanner
+   * and re-scans the same badge, the leadId must be recovered — either from
+   * the new scan response or from the localStorage overlay — so that Save
+   * sends a PATCH rather than creating a duplicate lead with a second POST.
+   *
+   * Flow:
+   *   1. POST /leads/scan → backend resolves badge, returns leadId 2668.
+   *      Component anchors leadId in the per-user localStorage overlay.
+   *   2. Rep navigates away to Home tab (component unmounts, state is lost).
+   *   3. Rep re-opens Scan Badge page via the side menu (component remounts).
+   *   4. Rep re-scans badge ATT-9001 → second POST /leads/scan returns leadId 2668
+   *      again (backend is idempotent — same lead, same id).
+   *   5. Rep types notes and presses Save.
+   *   6. Client must PATCH /leads/2668 with { notes, tags, priority }.
+   *      No third POST /leads/scan should fire — that would create a duplicate row.
+   *
+   * Key assertions:
+   *   - Exactly 2 POST /leads/scan calls (one per scan, none on Save).
+   *   - Exactly 1 PATCH /leads/2668 call at Save time.
+   *   - PATCH body contains the rep's notes and uppercase priority.
+   */
+  test('Nav-away-and-back — Save still uses PATCH after scanner component remounts', async ({ page }) => {
+    test.setTimeout(120_000);
+
+    let scanPostCount = 0;
+    let capturedPatchBody: Record<string, unknown> | null = null;
+    let capturedPatchUrl: string | null = null;
+    let capturedPatchMethod: string | null = null;
+    let patchCallCount = 0;
+
+    await installMocks(
+      page,
+      // POST /leads/scan — idempotent: always resolves badge and returns the
+      // same leadId 2668. This fires twice (once per scan), never on Save.
+      (route) => {
+        scanPostCount++;
+        return ok(route, {
+          success: true,
+          data: {
+            ...SCAN_LEAD,
+            pointsAwarded: 0,
+            attendeePointsAwarded: 0,
+          },
+        });
+      },
+      // PATCH /leads/:id — should fire exactly once, at Save time.
+      // Capture the HTTP method so we can confirm it is PATCH, not PUT.
+      async (route) => {
+        patchCallCount++;
+        capturedPatchUrl = new URL(route.request().url()).pathname;
+        capturedPatchMethod = route.request().method();
+        try {
+          capturedPatchBody = JSON.parse(route.request().postData() ?? '{}');
+        } catch {
+          capturedPatchBody = {};
+        }
+        return ok(route, {
+          success: true,
+          data: {
+            ...SCAN_LEAD,
+            notes: capturedPatchBody?.notes,
+            tags: capturedPatchBody?.tags,
+            priority: capturedPatchBody?.priority,
+          },
+        });
+      },
+    );
+
+    // ── 1. Open scanner and scan the badge the first time ──────────────────
+    await loginAndOpenScanner(page);
+
+    await page.getByPlaceholder(/ATT-/i).fill('ATT-9001');
+    await page.getByRole('button', { name: /find attendee/i }).click();
+    await expect(page.getByText('Alex Rivera')).toBeVisible({ timeout: 10_000 });
+
+    expect(scanPostCount, 'First scan must fire POST /leads/scan').toBe(1);
+
+    // ── 2. Navigate away to Home — component unmounts, in-memory state is lost ─
+    // The bottom-nav "Home" button is always visible.
+    await page.getByRole('button', { name: /^Home$/i }).click({ timeout: 8_000 });
+
+    // Confirm the scanner form is gone (navigated away).
+    await expect(page.getByText('Alex Rivera')).not.toBeVisible({ timeout: 8_000 });
+
+    // Brief pause to let the component fully unmount.
+    await page.waitForTimeout(300);
+
+    // ── 3. Return to Scan Badge page via the side menu ─────────────────────
+    await page.getByRole('button', { name: /^More$/i }).click({ timeout: 8_000 });
+    const sideMenuBack = page.locator('[class*="z-\\[61\\]"]');
+    await expect(sideMenuBack.getByRole('button', { name: /^Scan Badge$/i })).toBeVisible({ timeout: 8_000 });
+    await sideMenuBack.getByRole('button', { name: /^Scan Badge$/i }).click();
+
+    // After the first scan `leads.length` is 1 so the header reads
+    // "1 badge scanned" (singular). Use a flexible regex that matches both
+    // "badge scanned" and "badges scanned".
+    const scannerHeader2 = page.locator('div.sticky, [class*="sticky"]').filter({
+      hasText: /badge.*scanned/,
+    });
+    await expect(scannerHeader2).toBeVisible({ timeout: 8_000 });
+
+    // Switch to manual-entry mode on the remounted scanner.
+    await scannerHeader2.locator('button').last().click();
+    await expect(page.getByPlaceholder(/ATT-/i)).toBeVisible({ timeout: 5_000 });
+
+    // ── 4. Re-scan the same badge — leadId recovered from the new response ──
+    await page.getByPlaceholder(/ATT-/i).fill('ATT-9001');
+    await page.getByRole('button', { name: /find attendee/i }).click();
+    await expect(page.getByText('Alex Rivera')).toBeVisible({ timeout: 10_000 });
+
+    expect(scanPostCount, 'Re-scan must fire a second POST /leads/scan').toBe(2);
+
+    // ── 5. Fill in notes and press Save ────────────────────────────────────
+    const notesArea = page.locator('textarea').first();
+    await expect(notesArea).toBeVisible({ timeout: 5_000 });
+    await notesArea.fill('Notes added after navigating back');
+
+    await page.getByRole('button', { name: /^Hot$/i }).click();
+
+    await page.getByRole('button', { name: /save lead/i }).click();
+
+    // Wait for the scanner to reset (scanned-data card disappears).
+    await expect(page.getByText('Alex Rivera')).not.toBeVisible({ timeout: 10_000 });
+
+    // ── 6. Assertions ───────────────────────────────────────────────────────
+
+    // No third POST /leads/scan should have fired — Save must not create a
+    // duplicate lead row.
+    expect(
+      scanPostCount,
+      'POST /leads/scan must fire exactly twice (one per scan), never on Save',
+    ).toBe(2);
+
+    // Save must have sent a PATCH, not a third POST.
+    expect(
+      patchCallCount,
+      'PATCH /leads/:id must fire exactly once at Save time',
+    ).toBe(1);
+
+    expect(
+      capturedPatchUrl,
+      'PATCH must target the correct leadId 2668',
+    ).toMatch(/\/leads\/lead-2668$/);
+
+    expect(
+      capturedPatchMethod,
+      'Save must use PATCH (not PUT) to update the lead — backend contract requires PATCH',
+    ).toBe('PATCH');
+
+    expect(
+      capturedPatchBody,
+      'PATCH body must not be null — updateLeadApi was never called',
+    ).not.toBeNull();
+
+    expect(
+      capturedPatchBody!.notes,
+      'notes must be present in PATCH body after nav-away-and-back',
+    ).toBe('Notes added after navigating back');
+
+    expect(
+      capturedPatchBody!.priority,
+      'priority must be uppercase HOT in PATCH body',
+    ).toBe('HOT');
+  });
+
+  /**
    * Missing scan_id — re-POST /leads/scan upsert to recover canonical id.
    *
    * GET /my-leads returns a row where the only id field is `user_id` (the
