@@ -60,7 +60,9 @@ export interface SurveyAnswer {
 export async function listEventSurveysApi(
   eventId: string | number
 ): Promise<{ success: boolean; data?: BackendSurveySummary[]; error?: { code?: string; message: string } }> {
-  const res = await apiGet<any>(`/api/v1/events/${eventId}/surveys`);
+  // Primary: /surveys  |  Fallback: /mobile-surveys (same path the mobile app uses)
+  let res = await apiGet<any>(`/api/v1/events/${eventId}/surveys`);
+  if (!res.success) res = await apiGet<any>(`/api/v1/events/${eventId}/mobile-surveys`);
   if (!res.success) return { success: false, error: res.error ?? { message: 'Failed to load surveys.' } };
   // Normalise envelope shapes: bare array OR { data: [...] }.
   const raw: any = res.data;
@@ -147,7 +149,9 @@ export interface PollVoteResult {
 export async function listEventPollsApi(
   eventId: string | number
 ): Promise<{ success: boolean; data?: BackendPollSummary[]; error?: { code?: string; message: string } }> {
-  const res = await apiGet<any>(`/api/v1/events/${eventId}/polls`);
+  // Primary: /polls  |  Fallback: /mobile-polls (same path the mobile app uses)
+  let res = await apiGet<any>(`/api/v1/events/${eventId}/polls`);
+  if (!res.success) res = await apiGet<any>(`/api/v1/events/${eventId}/mobile-polls`);
   if (!res.success) return { success: false, error: res.error ?? { message: 'Failed to load polls.' } };
   // Normalise both envelope shapes: bare array OR { data: [...] }.
   const raw: any = res.data;
@@ -267,9 +271,19 @@ export interface ChallengeClaimResult {
 export async function listEventChallengesApi(
   eventId: string | number
 ): Promise<{ success: boolean; data?: BackendChallenge[]; error?: { code?: string; message: string } }> {
-  const res = await apiGet<
+  // Primary: /gamification/challenges  |  Fallback: /challenges (mobile-app path)
+  // The backend has been observed to return non-JSON (HTML error page) for
+  // authenticated requests to /gamification/challenges; the shorter path is
+  // the one the mobile app uses and is typically more stable.
+  let res = await apiGet<
     { success: boolean; data: BackendChallenge[] } | BackendChallenge[]
   >(`/api/v1/events/${eventId}/gamification/challenges`);
+
+  if (!res.success) {
+    res = await apiGet<
+      { success: boolean; data: BackendChallenge[] } | BackendChallenge[]
+    >(`/api/v1/events/${eventId}/challenges`);
+  }
 
   if (!res.success) return { success: false, error: res.error ?? { message: 'Failed to load challenges.' } };
 
