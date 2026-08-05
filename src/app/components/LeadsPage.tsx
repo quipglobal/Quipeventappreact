@@ -820,84 +820,130 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
   };
 
   /**
-   * Email the leads list to the sponsor's own inbox.
+   * Copy leads as an HTML table to the clipboard, then open the mail app.
    *
-   * Opens the device's native mail app with a pre-addressed, pre-filled
-   * message — no backend required.  The CSV text is embedded in the body so
-   * the sponsor can copy it into Excel / Sheets on any device.
-   *
-   * mailto: body URLs are URL-encoded (~3× expansion).  To stay well inside
-   * the ~8 KB safe limit for all mail clients, we cap at 100 leads and add a
-   * note if the list was truncated; sponsors with more leads should use the
-   * Download / Share export instead.
+   * Strategy:
+   *  1. Write both text/html (styled table) and text/plain (TSV) to the
+   *     clipboard.  Gmail, Outlook, and Apple Mail all preserve HTML when
+   *     the user pastes — so the result looks like a real formatted table.
+   *  2. Open a mailto: pre-addressed to the sponsor with a one-line
+   *     instruction: "Paste your leads table here ↓".  The subject and
+   *     a short header are pre-filled so the email is ready to send
+   *     after a single paste + tap.
+   *  3. Show a toast confirming the copy succeeded.
    */
-  const handleEmailExport = () => {
+  const handleEmailExport = async () => {
     if (allLeads.length === 0) return;
-    const esc = (s: string) => `"${String(s ?? '').replace(/"/g, '""')}"`;
-    const headers = ['Name', 'Company', 'Title', 'Badge Code', 'Priority', 'Tags', 'Notes', 'Scanned At'];
 
-    const MAX_EMAIL_LEADS = 100;
+    const MAX_EMAIL_LEADS = 150;
     const leadsToEmail = allLeads.slice(0, MAX_EMAIL_LEADS);
     const truncated = allLeads.length > MAX_EMAIL_LEADS;
-
-    const rows = leadsToEmail.map(lead => {
-      const ts = lead.timestamp instanceof Date && !isNaN(lead.timestamp.getTime())
-        ? lead.timestamp.toISOString()
-        : typeof (lead.timestamp as unknown) === 'string' && lead.timestamp
-          ? String(lead.timestamp)
-          : new Date().toISOString();
-      const tags = Array.isArray(lead.tags) ? lead.tags : [];
-      return [
-        lead.name, lead.company, lead.title, lead.code,
-        lead.priority, tags.join('; '), lead.notes, ts,
-      ].map(esc).join(',');
-    });
 
     const date = new Date().toISOString().slice(0, 10);
     const eventName = eventConfig?.name ?? 'Event';
     const subject = `My Leads — ${eventName} — ${date}`;
 
-    // Build a plain-text aligned table — renders cleanly in every mail client
-    // and can be copy-pasted into Excel / Sheets directly.
-    const cols: Array<{ key: (l: typeof leadsToEmail[0]) => string; label: string }> = [
+    const cols: Array<{ label: string; key: (l: Lead) => string }> = [
       { label: 'Name',     key: l => l.name ?? '' },
       { label: 'Company',  key: l => l.company ?? '' },
       { label: 'Title',    key: l => l.title ?? '' },
       { label: 'Priority', key: l => l.priority ?? '' },
-      { label: 'Tags',     key: l => (Array.isArray(l.tags) ? l.tags : []).join('; ') },
+      { label: 'Tags',     key: l => (Array.isArray(l.tags) ? l.tags : []).join(', ') },
       { label: 'Notes',    key: l => l.notes ?? '' },
     ];
 
-    // Compute column widths (max of header vs longest cell, capped at 30 chars).
-    const widths = cols.map(c =>
-      Math.min(30, Math.max(c.label.length, ...leadsToEmail.map(l => c.key(l).length)))
-    );
-    const pad = (s: string, w: number) => s.slice(0, w).padEnd(w);
-    const divider = widths.map(w => '-'.repeat(w)).join('-+-');
-    const headerRow = cols.map((c, i) => pad(c.label, widths[i])).join(' | ');
-    const dataRows = leadsToEmail.map(lead =>
-      cols.map((c, i) => pad(c.key(lead), widths[i])).join(' | ')
-    );
+    // ── HTML table (rich paste into Gmail / Outlook / Apple Mail) ──────────
+    const priorityColor: Record<string, string> = {
+      HOT: '#ef4444', WARM: '#f97316', COLD: '#3b82f6',
+    };
+    const thStyle = 'padding:8px 12px;text-align:left;font-size:13px;font-weight:700;white-space:nowrap;';
+    const tdStyle = 'padding:7px 12px;font-size:13px;border-top:1px solid #e5e7eb;vertical-align:top;';
 
-    const table = [headerRow, divider, ...dataRows].join('\n');
+    const headerCells = cols.map(c =>
+      `<th style="${thStyle}">${c.label}</th>`
+    ).join('');
 
-    const truncationNote = truncated
-      ? `\n\n⚠️  Showing first ${MAX_EMAIL_LEADS} of ${allLeads.length} leads. Open the app and use Export for the full list.\n`
+    const dataRows = leadsToEmail.map((lead, i) => {
+      const bg = i % 2 === 0 ? '#ffffff' : '#f9fafb';
+      const cells = cols.map(c => {
+        const val = c.key(lead);
+        if (c.label === 'Priority' && val) {
+          const colour = priorityColor[val] ?? '#6b7280';
+          return `<td style="${tdStyle}"><span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;background:${colour}20;color:${colour}">${val}</span></td>`;
+        }
+        return `<td style="${tdStyle}">${val}</td>`;
+      }).join('');
+      return `<tr style="background:${bg}">${cells}</tr>`;
+    }).join('');
+
+    const truncNote = truncated
+      ? `<p style="font-size:12px;color:#6b7280;margin-top:12px">
+           ⚠️ Showing first ${MAX_EMAIL_LEADS} of ${allLeads.length} leads.
+           Use the Export button in the app for the full list.
+         </p>`
       : '';
 
-    const body =
-      `Lead Capture Export\n` +
-      `Event: ${eventName}\n` +
-      `Date:  ${date}\n` +
-      `Total: ${leadsToEmail.length} lead${leadsToEmail.length !== 1 ? 's' : ''}` +
-      truncationNote +
-      `\n\n${table}\n`;
+    const htmlTable =
+      `<div style="font-family:Arial,sans-serif">` +
+      `<p style="font-size:14px;color:#374151;margin-bottom:12px">` +
+        `<strong>${eventName}</strong> · Lead Capture Export · ${date}<br>` +
+        `${leadsToEmail.length} lead${leadsToEmail.length !== 1 ? 's' : ''}` +
+      `</p>` +
+      `<table style="border-collapse:collapse;width:100%;min-width:600px">` +
+        `<thead><tr style="background:#6366f1;color:#fff">${headerCells}</tr></thead>` +
+        `<tbody>${dataRows}</tbody>` +
+      `</table>` +
+      truncNote +
+      `</div>`;
 
-    const mailto = `mailto:${encodeURIComponent(user?.email ?? '')}` +
+    // ── Plain-text fallback (tab-separated, pastes into Excel / Sheets) ────
+    const plainHeader = cols.map(c => c.label).join('\t');
+    const plainRows = leadsToEmail.map(lead =>
+      cols.map(c => c.key(lead).replace(/\t/g, ' ')).join('\t')
+    );
+    const plainText = [plainHeader, ...plainRows].join('\n');
+
+    // ── Write to clipboard ─────────────────────────────────────────────────
+    let copied = false;
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'text/html':  new Blob([htmlTable], { type: 'text/html' }),
+          'text/plain': new Blob([plainText], { type: 'text/plain' }),
+        }),
+      ]);
+      copied = true;
+    } catch {
+      // ClipboardItem / text/html not supported — try plain-text fallback
+      try {
+        await navigator.clipboard.writeText(plainText);
+        copied = true;
+      } catch {
+        // Clipboard unavailable entirely (e.g. non-secure context) — skip.
+      }
+    }
+
+    // ── Open mail app ──────────────────────────────────────────────────────
+    const mailBody = copied
+      ? `Hi,\n\nPlease find my lead capture table below (paste from clipboard):\n\n[PASTE TABLE HERE]\n\n— Exported from ${eventName} on ${date}`
+      : `Lead export from ${eventName} on ${date}.\n\nUse the Export button in the app to download the full CSV.`;
+
+    const mailto =
+      `mailto:${encodeURIComponent(user?.email ?? '')}` +
       `?subject=${encodeURIComponent(subject)}` +
-      `&body=${encodeURIComponent(body)}`;
+      `&body=${encodeURIComponent(mailBody)}`;
 
     window.location.href = mailto;
+
+    // Show confirmation toast after a short delay so the mail app transition
+    // doesn't interrupt it.
+    setTimeout(() => {
+      showToast(
+        copied
+          ? `${leadsToEmail.length} leads copied! Paste into the email body.`
+          : 'Mail app opened — use Export to download the CSV.',
+      );
+    }, 400);
   };
 
   return (
