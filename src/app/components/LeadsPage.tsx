@@ -810,15 +810,13 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
       return;
     }
 
-    // Desktop / non-share-capable browsers: trigger anchor download.
+    // Fallback: open the CSV as a blob URL in a new browser tab.
+    // From there the browser's native Save / Share handles the download —
+    // this works on iOS Safari (long-press → Download), Android, and desktop.
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    window.open(url, '_blank');
+    // Revoke after a short delay so the new tab has time to load the blob.
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
   };
 
   /**
@@ -855,20 +853,45 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
       ].map(esc).join(',');
     });
 
-    const csv = [headers.join(','), ...rows].join('\r\n');
     const date = new Date().toISOString().slice(0, 10);
     const eventName = eventConfig?.name ?? 'Event';
     const subject = `My Leads — ${eventName} — ${date}`;
 
+    // Build a plain-text aligned table — renders cleanly in every mail client
+    // and can be copy-pasted into Excel / Sheets directly.
+    const cols: Array<{ key: (l: typeof leadsToEmail[0]) => string; label: string }> = [
+      { label: 'Name',     key: l => l.name ?? '' },
+      { label: 'Company',  key: l => l.company ?? '' },
+      { label: 'Title',    key: l => l.title ?? '' },
+      { label: 'Priority', key: l => l.priority ?? '' },
+      { label: 'Tags',     key: l => (Array.isArray(l.tags) ? l.tags : []).join('; ') },
+      { label: 'Notes',    key: l => l.notes ?? '' },
+    ];
+
+    // Compute column widths (max of header vs longest cell, capped at 30 chars).
+    const widths = cols.map(c =>
+      Math.min(30, Math.max(c.label.length, ...leadsToEmail.map(l => c.key(l).length)))
+    );
+    const pad = (s: string, w: number) => s.slice(0, w).padEnd(w);
+    const divider = widths.map(w => '-'.repeat(w)).join('-+-');
+    const headerRow = cols.map((c, i) => pad(c.label, widths[i])).join(' | ');
+    const dataRows = leadsToEmail.map(lead =>
+      cols.map((c, i) => pad(c.key(lead), widths[i])).join(' | ')
+    );
+
+    const table = [headerRow, divider, ...dataRows].join('\n');
+
     const truncationNote = truncated
-      ? `\n\nNote: This export contains the first ${MAX_EMAIL_LEADS} of ${allLeads.length} leads. Use the Download / Share option for the full list.\n\n`
-      : '\n\n';
+      ? `\n\n⚠️  Showing first ${MAX_EMAIL_LEADS} of ${allLeads.length} leads. Open the app and use Export for the full list.\n`
+      : '';
 
     const body =
-      `Your lead capture export from ${eventName} (${date}).\n` +
-      `Total leads in this export: ${leadsToEmail.length}` +
+      `Lead Capture Export\n` +
+      `Event: ${eventName}\n` +
+      `Date:  ${date}\n` +
+      `Total: ${leadsToEmail.length} lead${leadsToEmail.length !== 1 ? 's' : ''}` +
       truncationNote +
-      `--- CSV DATA ---\n${csv}\n--- END ---`;
+      `\n\n${table}\n`;
 
     const mailto = `mailto:${encodeURIComponent(user?.email ?? '')}` +
       `?subject=${encodeURIComponent(subject)}` +
@@ -899,48 +922,49 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
             </button>
           )}
 
-          <div className="flex items-center justify-between mb-1">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <Users style={{ width: 20, height: 20, color: '#c4b5fd' }} />
-                <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-                  Lead Retrieval
-                </span>
-              </div>
-              <h1 style={{ color: '#fff', fontSize: 26, fontWeight: 800, letterSpacing: '-0.03em' }}>
-                My Leads
-              </h1>
+          {/* Title row */}
+          <div className="mb-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Users style={{ width: 20, height: 20, color: '#c4b5fd' }} />
+              <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                Lead Retrieval
+              </span>
             </div>
-            <div className="flex items-center gap-2">
-              {allLeads.length > 0 && (
-                <>
-                  {/* Email to myself — opens native mail app, works on all mobile devices */}
-                  <button onClick={handleEmailExport}
-                    className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl active:scale-95 transition-transform"
-                    style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.18)' }}
-                    title="Email leads to myself">
-                    <Mail style={{ width: 15, height: 15, color: '#fff' }} />
-                    <span style={{ color: '#fff', fontSize: 12, fontWeight: 700 }}>Email</span>
-                  </button>
-                  {/* Download / Share CSV */}
-                  <button onClick={handleExportAll}
-                    className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl active:scale-95 transition-transform"
-                    style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.18)' }}
-                    title="Download or share CSV">
-                    <Download style={{ width: 15, height: 15, color: '#fff' }} />
-                    <span style={{ color: '#fff', fontSize: 12, fontWeight: 700 }}>Export</span>
-                  </button>
-                </>
-              )}
-              {onNavigateToScan && (
-                <button onClick={onNavigateToScan}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl active:scale-95 transition-transform"
-                  style={{ background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)' }}>
-                  <ScanLine style={{ width: 16, height: 16, color: '#fff' }} />
-                  <span style={{ color: '#fff', fontSize: 12, fontWeight: 700 }}>Scan</span>
+            <h1 style={{ color: '#fff', fontSize: 26, fontWeight: 800, letterSpacing: '-0.03em' }}>
+              My Leads
+            </h1>
+          </div>
+
+          {/* Action buttons row — full width below the title */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {allLeads.length > 0 && (
+              <>
+                {/* Email to myself — opens native mail app, works on all mobile devices */}
+                <button onClick={handleEmailExport}
+                  className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl active:scale-95 transition-transform"
+                  style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.18)' }}
+                  title="Email leads to myself">
+                  <Mail style={{ width: 15, height: 15, color: '#fff' }} />
+                  <span style={{ color: '#fff', fontSize: 12, fontWeight: 700 }}>Email</span>
                 </button>
-              )}
-            </div>
+                {/* Export — opens CSV in new browser tab for save/download */}
+                <button onClick={handleExportAll}
+                  className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl active:scale-95 transition-transform"
+                  style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.18)' }}
+                  title="Open CSV in browser to save or share">
+                  <Download style={{ width: 15, height: 15, color: '#fff' }} />
+                  <span style={{ color: '#fff', fontSize: 12, fontWeight: 700 }}>Export</span>
+                </button>
+              </>
+            )}
+            {onNavigateToScan && (
+              <button onClick={onNavigateToScan}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl active:scale-95 transition-transform"
+                style={{ background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)' }}>
+                <ScanLine style={{ width: 16, height: 16, color: '#fff' }} />
+                <span style={{ color: '#fff', fontSize: 12, fontWeight: 700 }}>Scan</span>
+              </button>
+            )}
           </div>
 
               {/* Stats */}
