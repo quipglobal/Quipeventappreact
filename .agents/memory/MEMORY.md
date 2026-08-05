@@ -10,3 +10,4 @@
 - [EAS Yarn Lock Replit Firewall](eas-yarn-lock-replit-firewall.md) — yarn.lock entries from Replit have package-firewall.replit.local URLs; must sed-replace before EAS upload
 - [Screenshot Tool Fresh Navigation](screenshot-tool-fresh-navigation.md) — app_preview screenshots reload fresh each call; can't observe timed transitions (splash, toasts) this way — use runTest instead
 - [Lead sync contract](lead-sync-contract.md) — scan_id probe fix, uppercase priority on wire, overlay retirement via clearLeadEdit, syncPending retry pattern
+- [Path B check-in toast race](path-b-checkin-toast-race.md) — void checkInMemberApi inside .then() resolves before Playwright polls, overwriting attendee-points toast; fix: skip check-in toast when attendeePoints > 0

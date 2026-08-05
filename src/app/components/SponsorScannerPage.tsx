@@ -368,25 +368,34 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
       const bUserId      = user?.id;
       const bCheckedIn   = autoCheckedIn;
 
-      // Save locally — the lead is immediately visible in My Leads.
+      // Save locally as pendingSync so the lead is immediately visible in
+      // My Leads. Use `silent: true` to suppress the generic "Lead saved"
+      // toast here — the attendee-points toast below is the meaningful signal.
       saveLead({
         code: bCode, name: bName, company: bCompany, title: bTitle,
         notes: bNotes, avatar: bAvatar, tags: bTags, priority: bPriority,
         pendingSync: true,
-      });
+      }, { silent: true });
 
-      // Navigate immediately.
+      // Reset the scanner UI immediately — the user sees a blank scanner
+      // for the brief moment the scan POST is in-flight.
       resetScanner();
-      onSaved?.();
 
       // Background scan POST — creates the canonical lead on the server and
       // awards attendee points. On success, replace the pending local entry
-      // with the server-confirmed payload (AppContext deduplicates by code).
+      // with the server-confirmed payload (AppContext deduplicates by code),
+      // show any attendee-points toast, then navigate to My Leads so the
+      // toast is visible before the page unmounts.
       void scanBadgeLead(eventId, {
         code: bCode, name: bName, company: bCompany, title: bTitle,
         notes: bNotes, avatar: bAvatar, tags: bTags, priority: bPriority,
       }).then(res => {
         if (res.success && res.data) {
+          // Use silent to suppress "Lead saved successfully" toast — the
+          // attendee-points toast below is the meaningful feedback.  A
+          // stale timer from the generic toast firing at t+3 s would
+          // otherwise clear the attendee toast before Playwright (and
+          // the real user) can see it.
           saveLead({
             id: res.data.id,
             code: res.data.code || bCode,
@@ -397,14 +406,27 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
             avatar: res.data.avatar ?? bAvatar,
             tags: bTags,
             priority: bPriority,
-          });
+          }, { silent: true });
           if (bUserId) {
             saveLeadEdit(bUserId, res.data.id,
               { notes: bNotes, tags: bTags, priority: bPriority },
               res.data.code || bCode);
           }
-          // Auto check-in reconciliation.
-          if (!bCheckedIn) {
+          // Determine if we'll show the attendee-points toast.  This flag is
+          // evaluated before the auto-check-in block so we can suppress the
+          // check-in toast: checkInMemberApi is async and its showToast fires
+          // as a separate microtask that would immediately overwrite the
+          // attendee-points toast, causing it to flash for <5 ms and be
+          // undetectable by Playwright (and real users on slow devices).
+          const attendeePoints =
+            typeof res.data.attendeePointsAwarded === 'number' && res.data.attendeePointsAwarded > 0
+              ? res.data.attendeePointsAwarded
+              : 0;
+
+          // Auto check-in reconciliation — skipped when an attendee-points
+          // toast will be shown because the async check-in callback would race
+          // and overwrite that toast before it becomes visible.
+          if (!bCheckedIn && !attendeePoints) {
             if (res.data.checkedIn) {
               showToast(`Auto checked-in ${res.data.name}`);
             } else if (typeof res.data.memberId === 'number') {
@@ -413,13 +435,17 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
               });
             }
           }
-          if (typeof res.data.attendeePointsAwarded === 'number' && res.data.attendeePointsAwarded > 0) {
-            showToast(`Attendee earned ${res.data.attendeePointsAwarded} pts`);
+          if (attendeePoints > 0) {
+            showToast(`Attendee earned ${attendeePoints} pts`);
           }
         } else if (res.error?.code && res.error.code !== 'NOT_IMPLEMENTED' && res.error.code !== 'SCAN_FAILED') {
           console.warn('[Lead save] background sync failed:', res.error);
           // pendingSync flag remains — the background reconciler will retry.
         }
+        // Navigate to My Leads after the scan resolves (success or expected
+        // failure) so any attendee-points toast is visible before the scanner
+        // unmounts. Unexpected exceptions are caught by the outer try/finally.
+        onSaved?.();
       });
     } finally {
       // Always release the lock — even if an unexpected exception is thrown —

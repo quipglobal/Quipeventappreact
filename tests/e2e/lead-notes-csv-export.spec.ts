@@ -324,8 +324,9 @@ test.describe('Lead notes → server (admin CSV export guard)', () => {
     // Press Save — triggers PATCH /leads/2668.
     await page.getByRole('button', { name: /save lead/i }).click();
 
-    // Wait for the scanner to reset (scanned-data card disappears).
-    await expect(page.getByText('Alex Rivera')).not.toBeVisible({ timeout: 10_000 });
+    // Save now redirects to My Leads. Wait for the heading to confirm
+    // navigation completed (the scanner form is gone at this point).
+    await expect(page.getByRole('heading', { name: /^My Leads$/i })).toBeVisible({ timeout: 10_000 });
 
     // ── Assert PATCH body ────────────────────────────────────────────────────
     expect(capturedPatchBody, 'PATCH request body must not be null — updateLeadApi was never called').not.toBeNull();
@@ -477,8 +478,9 @@ test.describe('Lead notes → server (admin CSV export guard)', () => {
     // Press Save — triggers the second POST /leads/scan (inline enrichment).
     await page.getByRole('button', { name: /save lead/i }).click();
 
-    // Scanner resets when Save completes.
-    await expect(page.getByText('Unknown Attendee')).not.toBeVisible({ timeout: 10_000 });
+    // Save redirects to My Leads — wait for the heading to confirm navigation
+    // completed (the scanner form is gone and the inline scan POST has been sent).
+    await expect(page.getByRole('heading', { name: /^My Leads$/i })).toBeVisible({ timeout: 10_000 });
 
     // ── Assert inline scan body ───────────────────────────────────────────────
     expect(scanCallCount, 'Expected exactly 2 POST /leads/scan calls (initial + Save-time)').toBe(2);
@@ -569,8 +571,9 @@ test.describe('Lead notes → server (admin CSV export guard)', () => {
     // Press Save — must trigger PATCH, NOT a second POST /leads/scan.
     await page.getByRole('button', { name: /save lead/i }).click();
 
-    // Wait for the scanner to reset (scanned-data card disappears).
-    await expect(page.getByText('Alex Rivera')).not.toBeVisible({ timeout: 10_000 });
+    // Save redirects to My Leads — wait for the heading to confirm navigation
+    // completed so subsequent assertions run after the PATCH has been sent.
+    await expect(page.getByRole('heading', { name: /^My Leads$/i })).toBeVisible({ timeout: 10_000 });
 
     // ── Key assertion: no second POST /leads/scan was fired ──────────────────
     expect(
@@ -626,7 +629,8 @@ test.describe('Lead notes → server (admin CSV export guard)', () => {
     await notesArea.fill('Warm lead note');
 
     await page.getByRole('button', { name: /save lead/i }).click();
-    await expect(page.getByText('Alex Rivera')).not.toBeVisible({ timeout: 10_000 });
+    // After save the app redirects to My Leads — wait for that navigation.
+    await expect(page.getByRole('heading', { name: /^My Leads$/i })).toBeVisible({ timeout: 10_000 });
 
     expect(capturedPatchBody).not.toBeNull();
     expect(
@@ -1099,8 +1103,8 @@ test.describe('Lead notes → server (admin CSV export guard)', () => {
 
     await page.getByRole('button', { name: /save lead/i }).click();
 
-    // Wait for the scanner to reset (scanned-data card disappears).
-    await expect(page.getByText('Alex Rivera')).not.toBeVisible({ timeout: 10_000 });
+    // After save the app redirects to My Leads — wait for that navigation.
+    await expect(page.getByRole('heading', { name: /^My Leads$/i })).toBeVisible({ timeout: 10_000 });
 
     // ── 6. Assertions ───────────────────────────────────────────────────────
 

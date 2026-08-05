@@ -768,16 +768,27 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
     if (allLeads.length === 0) return;
     const esc = (s: string) => `"${String(s ?? '').replace(/"/g, '""')}"`;
     const headers = ['Name', 'Company', 'Title', 'Badge Code', 'Priority', 'Tags', 'Notes', 'Scanned At'];
-    const rows = allLeads.map(lead => [
-      lead.name,
-      lead.company,
-      lead.title,
-      lead.code,
-      lead.priority,
-      lead.tags.join('; '),
-      lead.notes,
-      lead.timestamp.toISOString(),
-    ].map(esc).join(','));
+    const rows = allLeads.map(lead => {
+      // Guard against timestamp arriving as a raw string (e.g. from a legacy
+      // localStorage entry or a reconciler path that didn't call new Date()).
+      const ts = lead.timestamp instanceof Date && !isNaN(lead.timestamp.getTime())
+        ? lead.timestamp.toISOString()
+        : typeof (lead.timestamp as unknown) === 'string' && lead.timestamp
+          ? String(lead.timestamp)
+          : new Date().toISOString();
+      // Guard against a null/undefined tags field from a stale local entry.
+      const tags = Array.isArray(lead.tags) ? lead.tags : [];
+      return [
+        lead.name,
+        lead.company,
+        lead.title,
+        lead.code,
+        lead.priority,
+        tags.join('; '),
+        lead.notes,
+        ts,
+      ].map(esc).join(',');
+    });
     const csv = [headers.join(','), ...rows].join('\r\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
