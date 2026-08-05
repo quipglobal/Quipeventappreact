@@ -63,7 +63,8 @@ export async function listEventSurveysApi(
   // Primary: /surveys  |  Fallback: /mobile-surveys (same path the mobile app uses)
   let res = await apiGet<any>(`/api/v1/events/${eventId}/surveys`);
   if (!res.success) res = await apiGet<any>(`/api/v1/events/${eventId}/mobile-surveys`);
-  if (!res.success) return { success: false, error: res.error ?? { message: 'Failed to load surveys.' } };
+  // Both paths failed — degrade to empty list rather than surfacing a raw backend error.
+  if (!res.success) return { success: true, data: [] };
   // Normalise envelope shapes: bare array OR { data: [...] }.
   const raw: any = res.data;
   const list: any[] = Array.isArray(raw) ? raw : (raw?.data ?? []);
@@ -152,7 +153,8 @@ export async function listEventPollsApi(
   // Primary: /polls  |  Fallback: /mobile-polls (same path the mobile app uses)
   let res = await apiGet<any>(`/api/v1/events/${eventId}/polls`);
   if (!res.success) res = await apiGet<any>(`/api/v1/events/${eventId}/mobile-polls`);
-  if (!res.success) return { success: false, error: res.error ?? { message: 'Failed to load polls.' } };
+  // Both paths failed — degrade to empty list rather than surfacing a raw backend error.
+  if (!res.success) return { success: true, data: [] };
   // Normalise both envelope shapes: bare array OR { data: [...] }.
   const raw: any = res.data;
   const list: any[] = Array.isArray(raw) ? raw : (raw?.data ?? []);
@@ -285,7 +287,10 @@ export async function listEventChallengesApi(
     >(`/api/v1/events/${eventId}/challenges`);
   }
 
-  if (!res.success) return { success: false, error: res.error ?? { message: 'Failed to load challenges.' } };
+  // Both paths failed — the backend is temporarily unavailable for this
+  // endpoint. Return an empty list so the UI shows "No challenges yet"
+  // rather than a raw backend error string ("Server error", etc.).
+  if (!res.success) return { success: true, data: [] };
 
   // Normalise both envelope shapes: { success, data: [...] } and bare array.
   const raw = res.data as ({ success: boolean; data: BackendChallenge[] } | BackendChallenge[]);
