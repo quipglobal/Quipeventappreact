@@ -790,11 +790,31 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
       ].map(esc).join(',');
     });
     const csv = [headers.join(','), ...rows].join('\r\n');
+    const filename = `my-leads-${new Date().toISOString().slice(0, 10)}.csv`;
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+
+    // On mobile (iOS Safari, Android Chrome in PWA / home-screen mode) the
+    // programmatic anchor-click approach is silently blocked — the file never
+    // downloads.  The Web Share API lets iOS users "Save to Files" and Android
+    // users pick any share target (Drive, WhatsApp, email, …).  Fall back to
+    // the classic anchor trick on desktop where sharing isn't available.
+    const shareFile = new File([blob], filename, { type: 'text/csv' });
+    if (
+      typeof navigator.share === 'function' &&
+      typeof navigator.canShare === 'function' &&
+      navigator.canShare({ files: [shareFile] })
+    ) {
+      navigator.share({ files: [shareFile], title: filename }).catch(() => {
+        // User dismissed the share sheet — nothing to do.
+      });
+      return;
+    }
+
+    // Desktop / non-share-capable browsers: trigger anchor download.
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `my-leads-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

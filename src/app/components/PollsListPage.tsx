@@ -247,7 +247,12 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
                   const result = results?.find(r => r.id === option.id);
                   const liveVotes = result?.votes ?? 0;
                   const pct = result?.percentage ?? 0;
-                  const isChosen = isChangingVote ? userChoice === option.id : false;
+                  // isChosen: option the user has tapped but not yet submitted.
+                  // Previously this was gated on isChangingVote, which meant
+                  // first-time selections were never highlighted.  The hasVoted
+                  // branch below takes over styling once a vote is committed, so
+                  // it is safe to always reflect the current tap here.
+                  const isChosen = userChoice === option.id && !hasVoted;
                   const isMyVote = committedVoted && !isChangingVote && option.id === myVotedOptionId;
                   const isPrevVote = isChangingVote && option.id === myVotedOptionId; // prior choice shown dimly in change mode
                   const isWinning = hasVoted && results && liveVotes === winnerVotes && winnerVotes > 0;
