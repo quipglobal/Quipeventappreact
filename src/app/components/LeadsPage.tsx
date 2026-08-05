@@ -4,7 +4,7 @@ import {
   Flame, ThermometerSun, Snowflake, Tag, ScanLine, FileText,
   X, Edit3, Save, Trash2, Download, Filter, MoreVertical,
   MessageCircle, Sparkles, Briefcase, CheckCircle, Calendar, Gift,
-  CloudOff, RefreshCw, History,
+  CloudOff, RefreshCw, History, Mail,
 } from 'lucide-react';
 import { useApp, Lead } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
@@ -821,6 +821,62 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
     URL.revokeObjectURL(url);
   };
 
+  /**
+   * Email the leads list to the sponsor's own inbox.
+   *
+   * Opens the device's native mail app with a pre-addressed, pre-filled
+   * message — no backend required.  The CSV text is embedded in the body so
+   * the sponsor can copy it into Excel / Sheets on any device.
+   *
+   * mailto: body URLs are URL-encoded (~3× expansion).  To stay well inside
+   * the ~8 KB safe limit for all mail clients, we cap at 100 leads and add a
+   * note if the list was truncated; sponsors with more leads should use the
+   * Download / Share export instead.
+   */
+  const handleEmailExport = () => {
+    if (allLeads.length === 0) return;
+    const esc = (s: string) => `"${String(s ?? '').replace(/"/g, '""')}"`;
+    const headers = ['Name', 'Company', 'Title', 'Badge Code', 'Priority', 'Tags', 'Notes', 'Scanned At'];
+
+    const MAX_EMAIL_LEADS = 100;
+    const leadsToEmail = allLeads.slice(0, MAX_EMAIL_LEADS);
+    const truncated = allLeads.length > MAX_EMAIL_LEADS;
+
+    const rows = leadsToEmail.map(lead => {
+      const ts = lead.timestamp instanceof Date && !isNaN(lead.timestamp.getTime())
+        ? lead.timestamp.toISOString()
+        : typeof (lead.timestamp as unknown) === 'string' && lead.timestamp
+          ? String(lead.timestamp)
+          : new Date().toISOString();
+      const tags = Array.isArray(lead.tags) ? lead.tags : [];
+      return [
+        lead.name, lead.company, lead.title, lead.code,
+        lead.priority, tags.join('; '), lead.notes, ts,
+      ].map(esc).join(',');
+    });
+
+    const csv = [headers.join(','), ...rows].join('\r\n');
+    const date = new Date().toISOString().slice(0, 10);
+    const eventName = eventConfig?.name ?? 'Event';
+    const subject = `My Leads — ${eventName} — ${date}`;
+
+    const truncationNote = truncated
+      ? `\n\nNote: This export contains the first ${MAX_EMAIL_LEADS} of ${allLeads.length} leads. Use the Download / Share option for the full list.\n\n`
+      : '\n\n';
+
+    const body =
+      `Your lead capture export from ${eventName} (${date}).\n` +
+      `Total leads in this export: ${leadsToEmail.length}` +
+      truncationNote +
+      `--- CSV DATA ---\n${csv}\n--- END ---`;
+
+    const mailto = `mailto:${encodeURIComponent(user?.email ?? '')}` +
+      `?subject=${encodeURIComponent(subject)}` +
+      `&body=${encodeURIComponent(body)}`;
+
+    window.location.href = mailto;
+  };
+
   return (
     <div className="min-h-screen relative" style={{ background: t.bgPage }}>
       {/* ── Header ──────────────────────────────────────────── */}
@@ -857,12 +913,24 @@ export const LeadsPage: React.FC<LeadsPageProps> = ({ onBack, onNavigateToScan, 
             </div>
             <div className="flex items-center gap-2">
               {allLeads.length > 0 && (
-                <button onClick={handleExportAll}
-                  className="flex items-center gap-2 px-3 py-2.5 rounded-xl active:scale-95 transition-transform"
-                  style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.18)' }}>
-                  <Download style={{ width: 15, height: 15, color: '#fff' }} />
-                  <span style={{ color: '#fff', fontSize: 12, fontWeight: 700 }}>Export</span>
-                </button>
+                <>
+                  {/* Email to myself — opens native mail app, works on all mobile devices */}
+                  <button onClick={handleEmailExport}
+                    className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl active:scale-95 transition-transform"
+                    style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.18)' }}
+                    title="Email leads to myself">
+                    <Mail style={{ width: 15, height: 15, color: '#fff' }} />
+                    <span style={{ color: '#fff', fontSize: 12, fontWeight: 700 }}>Email</span>
+                  </button>
+                  {/* Download / Share CSV */}
+                  <button onClick={handleExportAll}
+                    className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl active:scale-95 transition-transform"
+                    style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.18)' }}
+                    title="Download or share CSV">
+                    <Download style={{ width: 15, height: 15, color: '#fff' }} />
+                    <span style={{ color: '#fff', fontSize: 12, fontWeight: 700 }}>Export</span>
+                  </button>
+                </>
               )}
               {onNavigateToScan && (
                 <button onClick={onNavigateToScan}
