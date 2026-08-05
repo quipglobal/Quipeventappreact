@@ -397,46 +397,82 @@ export async function getEventMembersApi(
 }
 
 /**
- * GET /api/v1/events/:id/attendees?per_page=…  (paginated)
- * Returns just the members whose role is "Speaker".
+ * Fetches speakers for an event, trying two endpoint paths in order:
+ *
+ *   1. GET /api/v1/events/:id/attendees   — preferred; role-filterable
+ *   2. GET /api/v1/events/:id/members     — fallback used when /attendees
+ *      returns a non-JSON response or a server error (e.g. backend regression
+ *      that causes the endpoint to return an HTML error page for authenticated
+ *      requests instead of the expected JSON envelope).
+ *
+ * Both endpoints share the same flat v2 member shape, so the same normalizer
+ * and speaker-role filter work for both without any changes.
  */
 export async function getEventSpeakersApi(
   eventId: string | number,
   limit: number = 20,
 ): Promise<EventMembersResponse> {
-  const all: EventMember[] = [];
   const PAGE_SIZE = 200;
   const MAX_PAGES = 5;
 
-  for (let page = 1; page <= MAX_PAGES; page++) {
-    const res = await apiGet<unknown>(
-      `/api/v1/events/${eventId}/attendees?per_page=${PAGE_SIZE}&page=${page}`,
-      HEADERS,
-    );
-    if (!res.success) {
-      return { success: false, error: res.error ?? { message: 'Failed to fetch speakers.' } };
-    }
+  // ── Helper: extract speakers from one paginated endpoint ──────────────────
+  async function fetchFromPath(basePath: string): Promise<EventMember[] | null> {
+    const speakers: EventMember[] = [];
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const res = await apiGet<unknown>(
+        `${basePath}&page=${page}`,
+        HEADERS,
+      );
+      // Any failure (including PARSE_ERROR from a non-JSON HTML response) on
+      // the first page signals that this endpoint is currently broken; return
+      // null so the caller can try the fallback path.
+      if (!res.success) return page === 1 ? null : speakers;
 
-    const body = res.data as Record<string, unknown>;
-    const paginator = (body?.data ?? body) as Record<string, unknown>;
-    const list: unknown[] = Array.isArray(paginator?.data)
-      ? (paginator.data as unknown[])
-      : Array.isArray(body?.data)
-        ? (body.data as unknown[])
-        : [];
+      const body = res.data as Record<string, unknown>;
+      const paginator = (body?.data ?? body) as Record<string, unknown>;
+      const list: unknown[] = Array.isArray(paginator?.data)
+        ? (paginator.data as unknown[])
+        : Array.isArray(body?.data)
+          ? (body.data as unknown[])
+          : [];
 
-    for (const raw of list) {
-      const m = raw as RawFlatMember;
-      if ((m.roles ?? []).some(r => String(r).toLowerCase() === 'speaker')) {
-        all.push(normalizeFlatMember(m, eventId));
-        if (all.length >= limit) break;
+      for (const raw of list) {
+        const m = raw as RawFlatMember;
+        const roles = m.roles ?? [];
+        const isSpeaker =
+          roles.some(r => String(r).toLowerCase() === 'speaker') ||
+          String((m as unknown as Record<string, unknown>).member_type ?? '').toLowerCase() === 'speaker' ||
+          String((m as unknown as Record<string, unknown>).role ?? '').toLowerCase() === 'speaker';
+        if (isSpeaker) {
+          speakers.push(normalizeFlatMember(m, eventId));
+          if (speakers.length >= limit) return speakers;
+        }
       }
-    }
 
-    if (all.length >= limit || list.length < PAGE_SIZE) break;
+      if (list.length < PAGE_SIZE) break;
+    }
+    return speakers;
   }
 
-  return { success: true, data: all, total: all.length };
+  // ── Primary: /attendees ────────────────────────────────────────────────────
+  const fromAttendees = await fetchFromPath(
+    `/api/v1/events/${eventId}/attendees?per_page=${PAGE_SIZE}`,
+  );
+  if (fromAttendees !== null) {
+    return { success: true, data: fromAttendees, total: fromAttendees.length };
+  }
+
+  // ── Fallback: /members ─────────────────────────────────────────────────────
+  // /members is the endpoint used by the Audience page and the mobile app's
+  // listSpeakers — it is typically more stable and always returns JSON.
+  const fromMembers = await fetchFromPath(
+    `/api/v1/events/${eventId}/members?per_page=${PAGE_SIZE}&checked_in_only=false`,
+  );
+  if (fromMembers !== null) {
+    return { success: true, data: fromMembers, total: fromMembers.length };
+  }
+
+  return { success: false, error: { message: 'Could not load speakers. Please try again.' } };
 }
 
 /**
