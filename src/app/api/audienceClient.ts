@@ -513,9 +513,13 @@ export async function findMemberByBadgeCodeApi(
   // should resolve via the scan endpoint which queries by badge code directly.
   const MAX_PAGES = 5;
 
+  // SPEC (BACKEND_SCAN_ENDPOINTS.md §1): badge lookup uses /members, not
+  // /attendees. The mobile app already calls /members correctly; this
+  // function was incorrectly using /attendees, which is also broken for
+  // authenticated requests in the current backend deploy.
   for (let page = 1; page <= MAX_PAGES; page++) {
     const res = await apiGet<unknown>(
-      `/api/v1/events/${eventId}/attendees?per_page=${PAGE_SIZE}&page=${page}&badge_code=${encodeURIComponent(target)}`,
+      `/api/v1/events/${eventId}/members?per_page=${PAGE_SIZE}&page=${page}&badge_code=${encodeURIComponent(target)}&checked_in_only=false`,
       HEADERS,
     );
     if (!res.success) return null;
@@ -528,8 +532,11 @@ export async function findMemberByBadgeCodeApi(
         ? (body.data as unknown[])
         : [];
 
+    // Primary match: server-side badge_code filter. Client-side re-check
+    // guards against backends that ignore the filter param and return all
+    // members (case-insensitive + trim so whitespace variations don't strand a scan).
     const hit = list.find(
-      m => ((m as RawFlatMember).badge_code ?? '').toLowerCase() === target,
+      m => ((m as RawFlatMember).badge_code ?? '').trim().toLowerCase() === target,
     ) as RawFlatMember | undefined;
 
     if (hit) return normalizeFlatMember(hit, eventId);

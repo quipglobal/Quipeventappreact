@@ -78,26 +78,52 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
     const trimmed = code.trim();
     if (!trimmed) return;
 
-    // The badge QR encodes either a plain badge code string (legacy) or a
-    // structured JSON payload per BACKEND_SCAN_ENDPOINTS.md §QR format:
-    //   { "id": "<userId>", "badge_code": "<code>", "event": "<eventCode>" }
-    // Extract badge_code from JSON when present; fall back to the raw string.
+    // The badge QR encodes one of:
+    //   1. Structured JSON: { "id": "<userId>", "badge_code": "<code>", "event": "<eventCode>" }
+    //   2. A URL: https://app.example.com/badge/<code>  or  ?badge_code=<code>&code=<code>
+    //   3. A plain badge code string (legacy)
     let badgeCode = trimmed;
     let scannedUserId: string | undefined;
-    try {
-      const parsed: unknown = JSON.parse(trimmed);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        const p = parsed as Record<string, unknown>;
-        if (typeof p.badge_code === 'string' && p.badge_code.trim()) {
-          badgeCode = p.badge_code.trim();
-        } else if (typeof p.code === 'string' && p.code.trim()) {
-          badgeCode = p.code.trim();
+
+    // Try JSON first.
+    if (trimmed.startsWith('{')) {
+      try {
+        const parsed: unknown = JSON.parse(trimmed);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          const p = parsed as Record<string, unknown>;
+          if (typeof p.badge_code === 'string' && p.badge_code.trim()) {
+            badgeCode = p.badge_code.trim();
+          } else if (typeof p.code === 'string' && p.code.trim()) {
+            badgeCode = p.code.trim();
+          }
+          if (typeof p.id === 'string') scannedUserId = p.id;
         }
-        if (typeof p.id === 'string') scannedUserId = p.id;
+      } catch {
+        // Not JSON — fall through.
       }
-    } catch {
-      // Not JSON — raw string is already the badge code.
+    } else if (/^https?:\/\//i.test(trimmed)) {
+      // URL format — extract the badge code from query params or path.
+      try {
+        const u = new URL(trimmed);
+        const fromParam =
+          u.searchParams.get('badge_code') ||
+          u.searchParams.get('code') ||
+          u.searchParams.get('badgeCode') ||
+          u.searchParams.get('id');
+        if (fromParam?.trim()) {
+          badgeCode = fromParam.trim();
+        } else {
+          // Last path segment: /badge/ABC123 or /check-in/ABC123
+          const seg = u.pathname.split('/').filter(Boolean).pop();
+          if (seg && seg.length > 2) badgeCode = seg;
+        }
+        const uid = u.searchParams.get('user_id') || u.searchParams.get('userId');
+        if (uid) scannedUserId = uid;
+      } catch {
+        // Malformed URL — use raw string as-is.
+      }
     }
+
     if (!badgeCode) return;
 
     // Reset form fields so each new scan starts fresh; they'll be seeded

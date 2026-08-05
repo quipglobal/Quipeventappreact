@@ -23,6 +23,8 @@ interface Props {
 function extractBadgeCode(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed) return '';
+
+  // 1. Structured JSON payload.
   if (trimmed.startsWith('{')) {
     try {
       const obj = JSON.parse(trimmed);
@@ -32,6 +34,26 @@ function extractBadgeCode(raw: string): string {
       // not JSON — fall through
     }
   }
+
+  // 2. URL format: https://app.example.com/badge/<code> or ?badge_code=<code>
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const u = new URL(trimmed);
+      const fromParam =
+        u.searchParams.get('badge_code') ||
+        u.searchParams.get('code') ||
+        u.searchParams.get('badgeCode') ||
+        u.searchParams.get('id');
+      if (fromParam?.trim()) return fromParam.trim();
+      // Last non-empty path segment: /badge/ABC123 or /check-in/ABC123
+      const seg = u.pathname.split('/').filter(Boolean).pop();
+      if (seg && seg.length > 2) return seg;
+    } catch {
+      // Malformed URL — fall through to raw string.
+    }
+  }
+
+  // 3. Plain badge code string (legacy).
   return trimmed;
 }
 
