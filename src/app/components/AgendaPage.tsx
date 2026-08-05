@@ -43,7 +43,7 @@ export const AgendaPage: React.FC = () => {
   const fetchSessions = useCallback(async () => {
     try {
       setError(null);
-      const res = await listSessionsApi(eventConfig.eventId);
+      const res = await listSessionsApi(eventConfig.eventId, undefined, eventConfig.timezone);
       if (!res.success || !res.data) throw new Error(res.error?.message ?? 'Failed to load sessions');
       setSessions(res.data);
       setCached('sessions', eventConfig.eventId, res.data);
@@ -69,16 +69,26 @@ export const AgendaPage: React.FC = () => {
   const uniqueDays  = Array.from(new Set(sessions.map(s => s.date).filter(Boolean))).sort();
   const isMultiDay  = uniqueDays.length > 1;
 
-  const filteredSessions = sessions.filter(s => {
-    const q = searchQuery.toLowerCase();
-    const matchSearch = !q ||
-      s.title.toLowerCase().includes(q) ||
-      s.description.toLowerCase().includes(q) ||
-      s.room.toLowerCase().includes(q);
-    const matchDay = !selectedDay || s.date === selectedDay;
-    const matchView = viewMode === 'all' || bookmarkedSessions.includes(s.id);
-    return matchSearch && matchDay && matchView;
-  });
+  const filteredSessions = sessions
+    .filter(s => {
+      const q = searchQuery.toLowerCase();
+      const matchSearch = !q ||
+        s.title.toLowerCase().includes(q) ||
+        s.description.toLowerCase().includes(q) ||
+        s.room.toLowerCase().includes(q);
+      const matchDay = !selectedDay || s.date === selectedDay;
+      const matchView = viewMode === 'all' || bookmarkedSessions.includes(s.id);
+      return matchSearch && matchDay && matchView;
+    })
+    // Always sort by start time — cached sessions may arrive unsorted, and
+    // filter() preserves insertion order which may not be chronological.
+    .sort((a, b) => {
+      const ai = a.startIso ?? '';
+      const bi = b.startIso ?? '';
+      if (ai && bi) return ai.localeCompare(bi);
+      if (a.date !== b.date) return a.date.localeCompare(b.date);
+      return a.startTime.localeCompare(b.startTime);
+    });
 
   const headerBg = eventConfig?.backgroundURL
     ? `linear-gradient(160deg,rgba(10,5,30,0.82) 0%,rgba(30,10,60,0.72) 100%),url(${eventConfig.backgroundURL}) center/cover no-repeat`

@@ -64,25 +64,27 @@ export interface BookmarkResponse {
  * Two paths:
  *
  *  PATH A — explicit UTC offset present (Z or ±HH:MM):
- *    Use new Date() + toLocaleTimeString() so the browser converts UTC to the
- *    user's device-local timezone.  A user whose device is set to the event's
- *    timezone (e.g. EST) will see "9:30 PM" — matching the admin panel.
- *    DO NOT strip the Z and extract raw digits: that always shows UTC and is
- *    always wrong for users outside UTC.
+ *    Use new Date() + toLocaleTimeString() with the event's IANA timezone so
+ *    every attendee sees the event-local time regardless of their device's
+ *    own timezone setting.  DO NOT omit timeZone — that uses device-local and
+ *    produces wrong results for users in a different timezone than the event.
  *
  *  PATH B — no explicit timezone (bare "HH:mm:ss" or no-offset ISO):
  *    Extract HH:mm directly from the string WITHOUT parsing through Date.
  *    Reason: JS engines (and PHP's json_encode) treat no-offset ISO strings
  *    as LOCAL time when constructing Date objects; calling toLocaleTimeString
  *    on that double-shifts the value (local→UTC→local) and produces garbage.
+ *
+ * @param raw      Raw datetime string from the backend.
+ * @param timezone IANA timezone string (e.g. "America/New_York") from eventConfig.
  */
-function formatTime(raw: string): string {
+function formatTime(raw: string, timezone?: string): string {
   if (!raw) return '';
 
   const hasT               = raw.includes('T');
   const hasExplicitOffset  = raw.endsWith('Z') || raw.endsWith('z') || /[+-]\d{2}:\d{2}$/.test(raw);
 
-  // PATH A: explicit UTC offset → convert to device-local time via Date.
+  // PATH A: explicit UTC offset → convert to event-local time.
   if (hasExplicitOffset) {
     try {
       const d = new Date(raw);
@@ -91,6 +93,7 @@ function formatTime(raw: string): string {
           hour: 'numeric',
           minute: '2-digit',
           hour12: true,
+          ...(timezone ? { timeZone: timezone } : {}),
         });
       }
     } catch { /* fall through */ }
@@ -114,14 +117,43 @@ function formatTime(raw: string): string {
   return raw; // unrecognised format — pass through unchanged
 }
 
-function extractDate(iso: string): string {
+/**
+ * Extract the calendar date (YYYY-MM-DD) that a UTC ISO timestamp falls on
+ * in the event's local timezone.
+ *
+ * BUG WITHOUT THIS: slicing "2026-07-29T02:30:00Z" gives "2026-07-29", but
+ * in America/New_York that instant is July 28 at 9:30 PM — so sessions end
+ * up bucketed into the wrong day tab and sorted into the wrong position.
+ *
+ * We use the 'en-CA' locale because Canadian English formats dates as
+ * YYYY-MM-DD natively, matching the format the rest of the app expects.
+ *
+ * @param iso      Raw datetime string from the backend.
+ * @param timezone IANA timezone string (e.g. "America/New_York").
+ */
+function extractDate(iso: string, timezone?: string): string {
   if (!iso) return '';
+
+  const hasExplicitOffset = iso.endsWith('Z') || iso.endsWith('z') || /[+-]\d{2}:\d{2}$/.test(iso);
+
+  if (hasExplicitOffset && timezone) {
+    try {
+      const d = new Date(iso);
+      if (!isNaN(d.getTime())) {
+        // 'en-CA' gives "YYYY-MM-DD" — exactly the format we want.
+        return d.toLocaleDateString('en-CA', { timeZone: timezone });
+      }
+    } catch { /* fall through */ }
+  }
+
+  // Fallback: plain slice (correct for no-offset ISO strings that the backend
+  // already emits in event-local time, or when no timezone is configured).
   return iso.slice(0, 10);
 }
 
 // ─── Normalizer ───────────────────────────────────────────────────────────────
 
-function normalizeSession(raw: Record<string, unknown>): Session {
+function normalizeSession(raw: Record<string, unknown>, timezone?: string): Session {
   const speakers: Session['speakers'] = [];
 
   const rawSpeakers = Array.isArray(raw.speakers) ? raw.speakers : [];
@@ -234,11 +266,11 @@ function normalizeSession(raw: Record<string, unknown>): Session {
   return {
     id:          String(raw.id ?? ''),
     title:       (raw.title ?? raw.name ?? '') as string,
-    startTime:   formatTime(startIso),
-    endTime:     formatTime(endIso),
+    startTime:   formatTime(startIso, timezone),
+    endTime:     formatTime(endIso, timezone),
     startIso,
     endIso,
-    date:        extractDate(startIso) || (raw.date ?? raw.session_date ?? '') as string,
+    date:        extractDate(startIso, timezone) || (raw.date ?? raw.session_date ?? '') as string,
     room:        (raw.location ?? raw.room ?? raw.venue ?? '') as string,
     track:       (raw.track ?? raw.category ?? raw.stream ?? '') as string,
     type:        (raw.type ?? raw.session_type ?? '') as string,
@@ -254,7 +286,7 @@ function normalizeSession(raw: Record<string, unknown>): Session {
 // ─── API Methods ──────────────────────────────────────────────────────────────
 
 // ─── Internal fetch (no cache, no dedup) ──────────────────────────────────────
-async function _fetchSessions(eventId: string): Promise<Session[]> {
+async function _fetchSessions(eventId: string, timezone?: string): Promise<Session[]> {
   const res = await apiGet<unknown>(`/api/v1/events/${eventId}/agenda`, AGENDA_TENANT_HEADERS);
   if (!res.success) throw new Error(res.error?.message ?? 'Failed to load agenda.');
 
@@ -266,7 +298,7 @@ async function _fetchSessions(eventId: string): Promise<Session[]> {
       ?? (Array.isArray(envelope?.agenda)   ? envelope.agenda   as unknown[] : null)
       ?? [];
 
-  const sessions = raw.map(r => normalizeSession(r as Record<string, unknown>));
+  const sessions = raw.map(r => normalizeSession(r as Record<string, unknown>, timezone));
 
   // ── Sort: use the raw ISO string (startIso) for correct chronological order.
   // Sorting on the formatted startTime ("8:30 AM", "12:00 PM") is WRONG because
@@ -298,7 +330,8 @@ async function _fetchSessions(eventId: string): Promise<Session[]> {
  */
 export async function listSessionsApi(
   eventId: string,
-  filters?: { day?: string; track?: string }
+  filters?: { day?: string; track?: string },
+  timezone?: string,
 ): Promise<SessionsResponse> {
   if (!eventId) return { success: true, data: [] };
 
@@ -313,7 +346,7 @@ export async function listSessionsApi(
       // 2. Deduplicate: if a fetch for this eventId is already in-flight, wait for it.
       let pending = _inflight.get(eventId);
       if (!pending) {
-        pending = _fetchSessions(eventId).then(s => {
+        pending = _fetchSessions(eventId, timezone).then(s => {
           _sessionCache.set(eventId, { sessions: s, ts: Date.now() });
           return s;
         }).finally(() => {
