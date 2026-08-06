@@ -21,6 +21,29 @@ const TENANT_ID = import.meta.env.VITE_TENANT_ID ?? '1';
 
 export const TOKEN_KEY = 'auth_token';
 
+/** Persisted user snapshot — cleared automatically alongside the token. */
+const USER_CACHE_KEY = 'cxo_user_cache';
+
+/**
+ * Write the built user object to localStorage so the next app load can
+ * restore it immediately without waiting for the /api/v1/me round-trip.
+ * Silently ignores storage quota errors.
+ */
+export function cacheUserSnapshot(user: unknown): void {
+  try { localStorage.setItem(USER_CACHE_KEY, JSON.stringify(user)); } catch {}
+}
+
+/**
+ * Read the previously cached user snapshot. Returns null if nothing is
+ * stored or the stored value cannot be parsed.
+ */
+export function readUserSnapshot(): Record<string, unknown> | null {
+  try {
+    const raw = localStorage.getItem(USER_CACHE_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
+  } catch { return null; }
+}
+
 export interface ApiEnvelope<T = unknown> {
   success: boolean;
   data?: T;
@@ -36,6 +59,9 @@ function getToken(): string | null {
 
 export function clearToken(): void {
   localStorage.removeItem(TOKEN_KEY);
+  // Always clear the user snapshot alongside the token so a stale cached
+  // user can never be restored after the session has been invalidated.
+  try { localStorage.removeItem(USER_CACHE_KEY); } catch {}
 }
 
 export function saveToken(token: string): void {

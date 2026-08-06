@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { EventConfig, GamificationConfig } from '@/app/types/config';
 import { getMeApi } from '@/app/api/authClient';
-import { clearToken } from '@/app/api/client';
+import { clearToken, cacheUserSnapshot, readUserSnapshot, TOKEN_KEY } from '@/app/api/client';
 import {
   sendMeetingRequest as sendMeetingRequestApi,
   resetMeetingsEndpointMissing,
@@ -406,8 +406,22 @@ export const useApp = (): AppContextType => {
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [sessionRestored, setSessionRestored] = useState(false);
+  // Initialise synchronously from localStorage so the very first render
+  // already has the correct user/sessionRestored values. This eliminates
+  // the one-frame blank flash that would otherwise occur between mount and
+  // the first useEffect run when a returning user has a cached session.
+  const [user, setUser] = useState<User | null>(() => {
+    try {
+      const token = localStorage.getItem(TOKEN_KEY);
+      const raw   = token ? localStorage.getItem('cxo_user_cache') : null;
+      return raw ? (JSON.parse(raw) as User) : null;
+    } catch { return null; }
+  });
+  const [sessionRestored, setSessionRestored] = useState(() => {
+    try {
+      return !!(localStorage.getItem(TOKEN_KEY) && localStorage.getItem('cxo_user_cache'));
+    } catch { return false; }
+  });
   const [activeEventConfig, setActiveEventConfig] = useState<EventConfig>(mockEventConfig);
   // Eagerly read from localStorage so Render 1 already has the correct state.
   // This prevents the "flash of empty state" where the restore useEffect fires
@@ -574,37 +588,74 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [completedSurveys, votedPolls, savedSurveyAnswers, savedPollResults, activeEventConfig?.eventId]);
 
   useEffect(() => {
-    getMeApi().then(async res => {
-      if (res.success && res.data) {
-        const u = res.data;
-        const backendPoints = await fetchPointsFromBackend().catch(() => 0);
-        const totalPoints = Math.max(u.points ?? 0, backendPoints);
-        const tierForPoints = mockGamificationConfig.tiers.find(
-          t => totalPoints >= t.minPoints && totalPoints <= t.maxPoints
-        );
-        setUser({
-          id: u.id,
-          name: u.name,
-          email: u.email ?? '',
-          title: u.title ?? '',
-          company: u.company ?? '',
-          role: u.role,
-          avatar: u.avatar ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name)}&background=7c3aed&color=fff`,
-          points: totalPoints,
-          tier: tierForPoints?.name ?? u.tier ?? 'Bronze',
-          interests: u.interests ?? [],
-          profileComplete: u.profileComplete ?? true,
-          emailVerified: u.emailVerified ?? true,
-          badgeCode: u.badgeCode,
-        });
-      } else {
-        clearToken();
-      }
-    }).catch(() => {
-      clearToken();
-    }).finally(() => {
+    // Helper: build the User object from a normalised API response and a
+    // backend points total, then persist it to localStorage so the next
+    // app load can restore it without a network round-trip.
+    async function buildAndCacheUser(u: Awaited<ReturnType<typeof getMeApi>>['data'] & {}): Promise<User> {
+      const backendPoints = await fetchPointsFromBackend().catch(() => 0);
+      const totalPoints   = Math.max(u.points ?? 0, backendPoints);
+      const tierForPoints = mockGamificationConfig.tiers.find(
+        t => totalPoints >= t.minPoints && totalPoints <= t.maxPoints,
+      );
+      const built: User = {
+        id:              u.id,
+        name:            u.name,
+        email:           u.email ?? '',
+        title:           u.title ?? '',
+        company:         u.company ?? '',
+        role:            u.role,
+        avatar:          u.avatar ?? `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name)}&background=7c3aed&color=fff`,
+        points:          totalPoints,
+        tier:            tierForPoints?.name ?? u.tier ?? 'Bronze',
+        interests:       u.interests ?? [],
+        profileComplete: u.profileComplete ?? true,
+        emailVerified:   u.emailVerified ?? true,
+        badgeCode:       u.badgeCode,
+      };
+      cacheUserSnapshot(built);
+      return built;
+    }
+
+    const token  = localStorage.getItem(TOKEN_KEY);
+    const cached = token ? readUserSnapshot() : null;
+
+    if (token && cached) {
+      // ── Fast path: restore from cache immediately ──────────────────────
+      // The user sees the app without any network wait. A background
+      // getMeApi() call validates the token and refreshes the snapshot;
+      // on a 401 it clears the session and returns the user to the login
+      // screen. On a network error the cached session is kept (offline mode).
+      setUser(cached as unknown as User);
       setSessionRestored(true);
-    });
+
+      void (async () => {
+        try {
+          const res = await getMeApi();
+          if (res.success && res.data) {
+            setUser(await buildAndCacheUser(res.data));
+          } else {
+            // Token rejected by server — sign out.
+            clearToken();
+            setUser(null);
+          }
+        } catch {
+          // Network error — keep the cached session; user stays logged in.
+        }
+      })();
+    } else {
+      // ── First visit / no cache: must wait for /api/v1/me ───────────────
+      getMeApi().then(async res => {
+        if (res.success && res.data) {
+          setUser(await buildAndCacheUser(res.data));
+        } else {
+          clearToken();
+        }
+      }).catch(() => {
+        clearToken();
+      }).finally(() => {
+        setSessionRestored(true);
+      });
+    }
   }, []);
 
   // Reconcile per-event role: the global /me record may say 'attendee' even

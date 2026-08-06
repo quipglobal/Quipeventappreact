@@ -215,6 +215,13 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, EBState> {
 
 // ─── Page routing ─────────────────────────────────────────────────────────────
 type Screen = 'splash' | 'welcome' | 'event-join' | 'main';
+
+/** True when there is a cached user snapshot AND a stored token. */
+function hasCachedSession(): boolean {
+  try {
+    return !!(localStorage.getItem('auth_token') && localStorage.getItem('cxo_user_cache'));
+  } catch { return false; }
+}
 type Page =
   | 'home' | 'agenda' | 'events' | 'event-dashboard' | 'engage'
   | 'engage-sponsors' | 'engage-surveys' | 'engage-polls'
@@ -229,7 +236,10 @@ const pagesWithGlobalHeader = [
 ];
 
 function AppContent() {
-  const [screen, setScreen]     = useState<Screen>('splash');
+  // Returning authenticated users skip the splash animation and welcome screen.
+  // We detect this synchronously from localStorage so the first render already
+  // has the correct starting state — no flicker.
+  const [screen, setScreen]     = useState<Screen>(() => hasCachedSession() ? 'event-join' : 'splash');
   const [activePage, setActivePage] = useState<Page>('home');
   const [moreOpen, setMoreOpen] = useState(false);
   // Carries a pre-selected giveaway from the Manage screen → Draw page.
@@ -240,8 +250,12 @@ function AppContent() {
 
   React.useEffect(() => {
     if (!sessionRestored) return;
-    if (screen === 'splash') return;
-    if (user && screen === 'welcome') setScreen('event-join');
+    // New user (came through splash): move from welcome → event-join once logged in.
+    if (user && screen === 'welcome') { setScreen('event-join'); return; }
+    // Returning user: background validation confirmed they're still logged in.
+    // (No-op — already on event-join or main.)
+    // Returning user: background validation rejected the token — sign out.
+    if (!user && screen === 'event-join') setScreen('welcome');
   }, [sessionRestored, user, screen]);
 
   const unreadCount =

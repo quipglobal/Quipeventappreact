@@ -157,6 +157,53 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => clearUnauthorizedHandler();
   }, [user?.id, queryClient]);
 
+  /**
+   * Validate the token and refresh the user snapshot in the background.
+   * Called when a cached user is already in state (so the app renders
+   * immediately) to silently confirm or invalidate the stored session.
+   * On a 401 the user is signed out; on a network error the cached
+   * session is kept (offline-tolerant).
+   */
+  async function refreshSessionInBackground(_token: string) {
+    try {
+      const res = await getMe();
+      if (res.success && res.data) {
+        let freshUser = res.data;
+        try {
+          const cachedEventId = await AsyncStorage.getItem('cxo_current_event_id');
+          if (cachedEventId) {
+            const cachedRole = await getCachedEventRole(freshUser.id, cachedEventId);
+            let eventRole: 'sponsor' | 'attendee';
+            if (cachedRole !== null) {
+              eventRole = cachedRole;
+              getMyEventRole(cachedEventId, freshUser.id, freshUser.badgeCode)
+                .then((fresh) => setCachedEventRole(freshUser.id, cachedEventId, fresh))
+                .catch(() => {});
+            } else {
+              eventRole = await getMyEventRole(cachedEventId, freshUser.id, freshUser.badgeCode);
+              setCachedEventRole(freshUser.id, cachedEventId, eventRole).catch(() => {});
+            }
+            if (eventRole !== freshUser.role) freshUser = { ...freshUser, role: eventRole };
+          }
+        } catch {}
+        setUserState(freshUser);
+        setIsOffline(false);
+        await AsyncStorage.setItem(CACHED_USER_KEY, JSON.stringify(freshUser));
+      } else if (res.error?.code === 'NETWORK_ERROR') {
+        setIsOffline(true);
+      } else {
+        // Token rejected by server — sign out silently.
+        await clearToken();
+        await AsyncStorage.multiRemove([TOKEN_KEY, CACHED_USER_KEY]);
+        setTokenState(null);
+        setUserState(null);
+      }
+    } catch {
+      // Unexpected error — treat as offline, keep cached session.
+      setIsOffline(true);
+    }
+  }
+
   async function restoreSession() {
     try {
       // Restore persisted engagement state so survey answers, poll votes, and
@@ -192,9 +239,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (hasCachedUser) {
+        // Cached user is already in state and loading is cleared — the app
+        // renders immediately. Validate and refresh the session in the
+        // background without blocking restoreSession() from returning.
         setIsLoading(false);
+        void refreshSessionInBackground(storedToken);
+        return;
       }
 
+      // No cached user: must await /me to know who this is.
       const res = await getMe();
 
       if (res.success && res.data) {
