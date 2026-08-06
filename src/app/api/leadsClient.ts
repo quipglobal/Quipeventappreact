@@ -371,7 +371,10 @@ export async function scanBadgeLead(
     `/api/v1/events/${eventId}/leads/scan`,
     wirePayload,
     HEADERS,
-    { timeoutMs: 5_000 },
+    // 3 s timeout: the fallback member lookup now runs in parallel with the
+    // scan call, so there is no need to wait a full 5 s for a stalling
+    // backend before the fallback result becomes available.
+    { timeoutMs: 3_000 },
   );
   if (!res.success || !res.data) {
     // If the backend hasn't deployed `/leads/scan` yet (404), remember that

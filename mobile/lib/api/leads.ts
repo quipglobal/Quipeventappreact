@@ -275,12 +275,24 @@ export async function submitScan(
     return { success: false, error: { code: 'INVALID_CODE', message: 'Empty badge code.' } };
   }
 
-  // Match the web client + Task #11 backend contract: POST to
-  // /api/v1/events/:eventId/leads/scan with `{ code }`. The backend resolves
-  // the attendee, auto check-ins, persists the lead row, and returns
-  // `pointsAwarded` (0 on duplicate scans) so the report tabs see all scans.
-  const res = await request<any>(`/api/v1/events/${eventId}/leads/scan`, {
+  // Speed strategy: fire scan POST and member-list lookup concurrently so
+  // the fallback is already in-flight while the scan is resolving.
+  //
+  // We await the SCAN first. If it resolves with a full profile we render
+  // immediately — the happy path is never blocked by the member GET.
+  // Only when the scan fails do we await the already-in-flight member
+  // promise, paying at most one more partial RTT.
+  //
+  // The scan POST gets a 3-second AbortController signal that overrides
+  // the shared 20 s default (passed via options.signal; requestOnce uses
+  // `options.signal ?? controller.signal` so ours takes precedence).
+  // requestOnce's catch block classifies AbortError as code: 'TIMEOUT'.
+  const scanController = new AbortController();
+  const scanTimerId = setTimeout(() => scanController.abort(), 3_000);
+
+  const scanPromise = request<any>(`/api/v1/events/${eventId}/leads/scan`, {
     method: 'POST',
+    signal: scanController.signal,
     body: JSON.stringify({
       code,
       // Optional client hints — server prefers its own canonical resolution.
@@ -297,8 +309,31 @@ export async function submitScan(
       }),
     }),
   });
+  // Member lookup: bounded 5 s AbortController so a stalling backend can't
+  // hold the camera screen indefinitely. On scan success we abort immediately
+  // to release the connection (unlike the web, native HTTP stacks don't
+  // dedup GETs by URL, so aborting here is safe against rescan poisoning).
+  const memberController = new AbortController();
+  const memberTimerId = setTimeout(() => memberController.abort(), 5_000);
+  const memberPromise = findMemberByBadgeCode(eventId, code, { signal: memberController.signal });
+
+  // Await scan first. The finally block clears the 3 s timer whether the
+  // scan resolves, rejects (rare — requestOnce catches internally), or times out.
+  // Initialise with a safe fallback so TypeScript knows res is always assigned
+  // before use even if scanPromise somehow throws past requestOnce's catch.
+  let res: ApiResponse<any> = { success: false, error: { code: 'REJECTED', message: 'Scan call failed.' } };
+  try {
+    res = await scanPromise;
+  } finally {
+    clearTimeout(scanTimerId);
+  }
 
   if (res.success && res.data) {
+    // Scan resolved — abort the in-flight member lookup immediately so it
+    // doesn't continue paging through up to 10 × 200-member pages in the
+    // background after the UI has already rendered.
+    clearTimeout(memberTimerId);
+    memberController.abort();
     const raw = res.data as any;
     const lead = normalizeLead(raw);
     const pointsAwarded =
@@ -325,50 +360,53 @@ export async function submitScan(
     return { success: true, data: { ...lead, pointsAwarded, attendeePointsAwarded, checkedIn, isCheckedIn, memberId } };
   }
 
-  // Server rejected the badge code. If it's the specific "no attendee found"
-  // case, fall back to a client-side audience scan (case-insensitive). This
-  // mirrors web's findMemberByBadgeCodeApi safety net so a sponsor still
-  // captures the lead even when the backend lookup is overly strict.
-  if (isAttendeeNotFoundError(res.error)) {
-    if (__DEV__) console.log(`[Leads] submitScan fallback: scanning audience for code=${code}`);
-    const member = await findMemberByBadgeCode(eventId, code);
-    if (member) {
-      // Best-effort auto check-in (mirrors web behaviour).
-      let didCheckIn = false;
-      if (member.memberId && !member.isCheckedIn) {
-        didCheckIn = await checkInMember(eventId, member.memberId);
-      }
-      const lead = normalizeLead({
-        id: member.memberId ?? member.userId ?? code,
-        name: member.name,
-        title: member.title,
-        company: member.company,
-        email: member.email,
-        code,
-      });
-      return {
-        success: true,
-        data: {
-          // Mark as pending so the reconciliation step in useLeads can push
-          // it back to /leads/scan once the leads-list endpoint is reachable
-          // and dedupe it with the server's canonical row.
-          ...lead,
-          // Preserve the badge code so the UI can later retry the
-          // /leads/scan POST without making the user re-scan.
-          code,
-          // Server didn't persist a lead row (it rejected the badge),
-          // so flag this lead as locally-only. The Leads tab shows a
-          // "Saved on this device" indicator and a Retry-sync action.
-          pendingSync: true,
-          pointsAwarded: 0, // server didn't award; we don't double-credit
-          checkedIn: didCheckIn || member.isCheckedIn,
-          isCheckedIn: didCheckIn || member.isCheckedIn,
-          memberId: member.memberId ?? undefined,
-        },
-      };
+  // Scan failed — await the already-in-flight member lookup. It started
+  // concurrently with the scan POST so at worst we wait for the remaining
+  // portion of its RTT (or until the 5 s bound fires), not a full RTT.
+  if (__DEV__) console.log(`[Leads] submitScan fallback: awaiting in-flight member lookup for code=${code}`);
+  const member = await memberPromise;
+  clearTimeout(memberTimerId);
+  if (member) {
+    // Best-effort auto check-in (mirrors web behaviour).
+    let didCheckIn = false;
+    if (member.memberId && !member.isCheckedIn) {
+      didCheckIn = await checkInMember(eventId, member.memberId);
     }
-    // Truly not in the audience for this event — clearer message than the
-    // raw backend "No attendee found for this badge code".
+    const lead = normalizeLead({
+      id: member.memberId ?? member.userId ?? code,
+      name: member.name,
+      title: member.title,
+      company: member.company,
+      email: member.email,
+      code,
+    });
+    return {
+      success: true,
+      data: {
+        // Mark as pending so the reconciliation step in useLeads can push
+        // it back to /leads/scan once the leads-list endpoint is reachable
+        // and dedupe it with the server's canonical row.
+        ...lead,
+        // Preserve the badge code so the UI can later retry the
+        // /leads/scan POST without making the user re-scan.
+        code,
+        // Server didn't persist a lead row (it rejected the badge),
+        // so flag this lead as locally-only. The Leads tab shows a
+        // "Saved on this device" indicator and a Retry-sync action.
+        pendingSync: true,
+        pointsAwarded: 0, // server didn't award; we don't double-credit
+        checkedIn: didCheckIn || member.isCheckedIn,
+        isCheckedIn: didCheckIn || member.isCheckedIn,
+        memberId: member.memberId ?? undefined,
+      },
+    };
+  }
+
+  // Member lookup also returned nothing. Return the most informative error:
+  // ATTENDEE_NOT_IN_AUDIENCE when the scan specifically rejected the badge
+  // code; otherwise surface the original error (PARSE_ERROR, network failure,
+  // etc.) so the user isn't misled into thinking the badge isn't registered.
+  if (isAttendeeNotFoundError(res.error)) {
     return {
       success: false,
       error: {

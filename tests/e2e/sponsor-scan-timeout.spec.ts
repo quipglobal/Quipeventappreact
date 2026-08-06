@@ -334,6 +334,143 @@ test.describe('SponsorScannerPage — slow network / timeout guard', () => {
   );
 
   /**
+   * Parallel-fallback regression: scan POST resolves fast with a full profile
+   * while the BADGE-CODE member GET hangs indefinitely (simulating a stalled
+   * backend). Only the badge_code lookup is stalled; audience-listing GETs
+   * (used during login/tab loads) respond normally so the login flow works.
+   *
+   * Expected behaviour:
+   *   1. The attendee card appears promptly — within 5 s — proving the happy
+   *      path is NOT blocked by the slow/stalled member badge-code lookup.
+   *   2. No "Unknown Attendee" placeholder ever appears.
+   *   3. The attendee earns points immediately (attendeePointsAwarded: 25).
+   *   4. The scanner earns no points (pointsAwarded: 0 / no badge change).
+   */
+  test(
+    'fast scan with stalling member GET — attendee card renders promptly, render not blocked',
+    async ({ page }) => {
+      test.setTimeout(30_000);
+
+      await page.route('**/api/v1/**', async (route) => {
+        const url = new URL(route.request().url());
+        const p = url.pathname;
+        const m = route.request().method();
+
+        const ok = (body: unknown, status = 200) =>
+          route.fulfill({
+            status,
+            contentType: 'application/json',
+            headers: { 'Access-Control-Allow-Origin': '*' },
+            body: JSON.stringify(body),
+          });
+
+        // ── Auth ──────────────────────────────────────────────────────────
+        if (p === '/api/v1/auth/send-otp')
+          return ok({ success: true, data: { message: 'OTP sent', expires_in: 600 } });
+        if (p === '/api/v1/auth/verify-otp')
+          return ok({
+            success: true,
+            data: { token: 'mock-sp-tok', account_exists: true, verified: true, user: SPONSOR },
+          });
+
+        // ── Profile / badge ───────────────────────────────────────────────
+        if (p === '/api/v1/me') return ok({ success: true, data: SPONSOR });
+        if (p === '/api/v1/me/badge')
+          return ok({ success: true, badge_code: 'BADGE-SP-1', qr_image_url: '' });
+        if (p.startsWith('/api/v1/me/'))
+          return ok({ success: true, data: { points: 100, history: [] } });
+
+        // ── Events ────────────────────────────────────────────────────────
+        if (p === '/api/v1/events' || p.startsWith('/api/v1/events?'))
+          return ok({ success: true, data: { data: [EVENT] } });
+        if (m === 'POST' && /\/events\/(join|join-by-code)/.test(p))
+          return ok({ success: true, data: { event_id: EVENT.id, membership_id: 9, message: 'Joined!' } });
+        if (p === `/api/v1/events/${EVENT.id}`)
+          return ok({ success: true, data: EVENT });
+        if (p.startsWith(`/api/v1/events/${EVENT.id}/access`))
+          return ok({
+            success: true,
+            data: {
+              has_access: true, is_member: true, membership_id: '9',
+              role: 'sponsor', status: 'active', joined_at: '2026-07-01T00:00:00Z',
+            },
+          });
+
+        // ── Members list ──────────────────────────────────────────────────
+        if (p.startsWith(`/api/v1/events/${EVENT.id}/members`)) {
+          // Stall ONLY the badge-code lookup fired by findMemberByBadgeCodeApi.
+          // Regular audience-listing requests (no badge_code param) during
+          // login/tab-load must respond normally so navigation isn't blocked.
+          if (url.searchParams.has('badge_code')) {
+            // Never fulfill — our AbortController aborts this within 5 s.
+            // Playwright will discard the pending route when the browser
+            // cancels the request via the abort signal.
+            return;
+          }
+          return ok({ success: true, data: { data: [], total: 0 } });
+        }
+
+        // ── Leads scan — fast, successful response with attendeePoints ─────
+        if (m === 'POST' && p.includes('/leads/scan'))
+          return ok({
+            success: true,
+            data: {
+              ...ATTENDEE_LEAD,
+              pointsAwarded: 0,            // scanner earns nothing
+              attendeePointsAwarded: 25,   // attendee earns 25
+            },
+          });
+
+        // ── Lead update (PATCH/PUT) ────────────────────────────────────────
+        if ((m === 'PATCH' || m === 'PUT') && p.includes('/leads/'))
+          return ok({ success: true, data: ATTENDEE_LEAD });
+
+        // ── Check-in ──────────────────────────────────────────────────────
+        if (m === 'POST' && p.includes('/check-in'))
+          return ok({ success: true });
+
+        // ── Leads list ────────────────────────────────────────────────────
+        if (m === 'GET' && (p.includes('/my-leads') || (p.includes('/leads') && !p.includes('/scan'))))
+          return ok({ success: true, data: [] });
+
+        // ── Everything else ───────────────────────────────────────────────
+        if (p.startsWith(`/api/v1/events/${EVENT.id}/`))
+          return ok({ success: true, data: [] });
+        return ok({ success: true, data: null });
+      });
+
+      await loginAndOpenScanner(page);
+
+      const headerBadge = page.locator('span.text-violet-400').filter({ hasText: /pts/ }).first();
+      await expect(headerBadge).toBeVisible({ timeout: 8_000 });
+      const beforeText = await headerBadge.textContent();
+      const beforePoints = parseInt(beforeText!.trim(), 10);
+
+      // Trigger the scan — POST resolves immediately; badge-code member GET stalls.
+      await page.getByPlaceholder(/ATT-/i).fill('ATT-9001');
+      const scanStart = Date.now();
+      await page.getByRole('button', { name: /find attendee/i }).click();
+
+      // 1. Attendee card must appear promptly (well within the 5 s member bound),
+      //    proving the happy path is NOT blocked by the stalled member lookup.
+      await expect(page.getByText('Alex Rivera')).toBeVisible({ timeout: 5_000 });
+      const elapsed = Date.now() - scanStart;
+      expect(elapsed).toBeLessThan(5_000);
+
+      // 2. "Unknown Attendee" placeholder must never have appeared.
+      await expect(page.getByText(/unknown attendee/i)).not.toBeVisible({ timeout: 500 });
+
+      // 3. Attendee earns points immediately (Path A — scan resolved fast).
+      await expect(page.getByText(/attendee earned 25 pts/i)).toBeVisible({ timeout: 4_000 });
+
+      // 4. Scanner earns nothing — no "+N" badge, no "Points earned!" label,
+      //    and the header points badge stays at its pre-scan value.
+      await expect(page.getByText(/points earned/i)).not.toBeVisible({ timeout: 1_000 });
+      await expect(headerBadge).toHaveText(`${beforePoints} pts`, { timeout: 5_000 });
+    },
+  );
+
+  /**
    * Sanity / contrast test: a scan that completes within the timeout is NOT
    * affected by any guards. Backend returns attendeePointsAwarded: 25;
    * the "Attendee earned 25 pts" toast fires immediately (before Save).

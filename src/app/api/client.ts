@@ -132,6 +132,10 @@ async function fetchWithRetryInner(
   try {
     return await fetch(url, options);
   } catch (err) {
+    // Never retry on an intentional abort — the caller signalled cancellation
+    // and retrying with the same (already-aborted) signal would fail instantly
+    // and burn through all retry slots without making progress.
+    if ((options.signal as AbortSignal | undefined)?.aborted) throw err;
     if (allowedRetries > 0) {
       await new Promise(r => setTimeout(r, 600));
       return fetchWithRetryInner(url, options, allowedRetries - 1);
@@ -145,27 +149,44 @@ async function fetchWithRetry(url: string, options: RequestInit, retries = MAX_R
   const allowedRetries = RETRYABLE_METHODS.has(method) ? retries : 0;
 
   if (DEDUP_METHODS.has(method)) {
-    const key = `${method}::${url}`;
-    const existing = _inflight.get(key);
-    if (existing) return existing;
-    const promise = fetchWithRetryInner(url, options, allowedRetries).finally(() => {
-      _inflight.delete(key);
-    });
-    _inflight.set(key, promise);
-    return promise;
+    // Never deduplicate requests that carry an AbortSignal. Such requests are
+    // caller-specific: sharing the cached promise with a second caller would
+    // let one caller's cancellation poison the other — the second caller
+    // would receive the aborted/null result even though it never cancelled.
+    // Bypassing dedup here lets callers safely abort their own copy without
+    // affecting concurrent or subsequent requests to the same URL.
+    if (!options.signal) {
+      const key = `${method}::${url}`;
+      const existing = _inflight.get(key);
+      if (existing) return existing;
+      const promise = fetchWithRetryInner(url, options, allowedRetries).finally(() => {
+        _inflight.delete(key);
+      });
+      _inflight.set(key, promise);
+      return promise;
+    }
   }
 
   return fetchWithRetryInner(url, options, allowedRetries);
 }
 
-export async function apiGet<T>(path: string, extraHeaders?: Record<string, string>): Promise<ApiEnvelope<T>> {
+export async function apiGet<T>(
+  path: string,
+  extraHeaders?: Record<string, string>,
+  options?: { signal?: AbortSignal },
+): Promise<ApiEnvelope<T>> {
   try {
     const res = await fetchWithRetry(`${API_BASE_URL}${path}`, {
       method: 'GET',
       headers: buildHeaders(extraHeaders),
+      ...(options?.signal ? { signal: options.signal } : {}),
     });
     return parseResponse<T>(res);
-  } catch {
+  } catch (err) {
+    const name = (err as { name?: string } | null)?.name ?? '';
+    if (name === 'AbortError') {
+      return { success: false, error: { code: 'TIMEOUT', message: 'Request timed out.' } };
+    }
     return { success: false, error: { code: 'NETWORK_ERROR', message: 'Network error. Please check your connection.' } };
   }
 }

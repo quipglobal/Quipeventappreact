@@ -54,6 +54,7 @@ function normalize(raw: any): AudienceMember {
 export async function findMemberByBadgeCode(
   eventId: string | number,
   badgeCode: string,
+  options?: { signal?: AbortSignal },
 ): Promise<AudienceMember | null> {
   const target = badgeCode.trim().toLowerCase();
   if (!target) return null;
@@ -61,8 +62,12 @@ export async function findMemberByBadgeCode(
   const MAX_PAGES = 10; // up to 2,000 attendees scanned
 
   for (let page = 1; page <= MAX_PAGES; page++) {
+    // Bail immediately if the caller has already cancelled (e.g. scan succeeded
+    // or the bounded timeout fired while we were between pages).
+    if (options?.signal?.aborted) return null;
     const res = await request<any>(
       `/api/v1/events/${eventId}/members?per_page=${PAGE_SIZE}&page=${page}&checked_in_only=false`,
+      { signal: options?.signal },
     );
     if (!res.success) return null;
 

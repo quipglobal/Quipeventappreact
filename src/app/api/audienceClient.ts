@@ -504,6 +504,7 @@ export async function getMemberDetailApi(
 export async function findMemberByBadgeCodeApi(
   eventId: string | number,
   badgeCode: string,
+  options?: { signal?: AbortSignal },
 ): Promise<EventMember | null> {
   const target = badgeCode.trim().toLowerCase();
   if (!target) return null;
@@ -518,9 +519,13 @@ export async function findMemberByBadgeCodeApi(
   // function was incorrectly using /attendees, which is also broken for
   // authenticated requests in the current backend deploy.
   for (let page = 1; page <= MAX_PAGES; page++) {
+    // Bail immediately if the caller has already cancelled (e.g. scan
+    // succeeded while this lookup was in flight).
+    if (options?.signal?.aborted) return null;
     const res = await apiGet<unknown>(
       `/api/v1/events/${eventId}/members?per_page=${PAGE_SIZE}&page=${page}&badge_code=${encodeURIComponent(target)}&checked_in_only=false`,
       HEADERS,
+      options,
     );
     if (!res.success) return null;
 

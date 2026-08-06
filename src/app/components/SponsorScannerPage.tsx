@@ -6,7 +6,7 @@ import {
 import { useTheme } from '@/app/context/ThemeContext';
 import { useApp } from '@/app/context/AppContext';
 import { motion, AnimatePresence } from 'motion/react';
-import { scanBadgeLead, updateLeadApi } from '@/app/api/leadsClient';
+import { scanBadgeLead, updateLeadApi, type SaveLeadResponse } from '@/app/api/leadsClient';
 import { saveLeadEdit, clearLeadEdit, loadLeadEdits, lookupLeadEdit } from '@/app/lib/leadEditsStorage';
 import { findMemberByBadgeCodeApi, checkInMemberApi, type EventMember } from '@/app/api/audienceClient';
 import { CameraScanner } from './CameraScanner';
@@ -134,18 +134,33 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
 
     setResolving(true);
     try {
-      // 1. Backend-first resolution. The scan endpoint resolves the attendee
-      //    profile, may auto check-in the attendee, and returns the lead row
-      //    that the backend created for this scan.
-      const scan = await scanBadgeLead(eventId, {
+      // Speed strategy: fire scan POST and member-list lookup concurrently so
+      // the fallback result is already in-flight while the scan is resolving.
+      //
+      // Crucially we await the SCAN first. If it resolves with a full profile
+      // we cancel the member lookup and render immediately — the happy path is
+      // not penalised by waiting for the member GET to settle.
+      // Only when the scan fails do we await the already-in-flight member
+      // promise, paying at most one more partial RTT instead of a full one.
+      //
+      // A 5-second AbortController bounds the member fallback so a stalling
+      // GET endpoint can never freeze the camera screen indefinitely.
+      const memberController = new AbortController();
+      const memberTimerId = setTimeout(() => memberController.abort(), 5_000);
+
+      const scanPromise = scanBadgeLead(eventId, {
         code: badgeCode,
         ...(scannedUserId ? { scanned_user_id: scannedUserId } : {}),
       } as Parameters<typeof scanBadgeLead>[1]);
+      const memberPromise = findMemberByBadgeCodeApi(eventId, badgeCode, { signal: memberController.signal });
+
+      // Await scan first — render immediately on success.
+      const scan: SaveLeadResponse = await scanPromise;
 
       // Treat the scan as resolved only when the server actually returned a
       // recognizable attendee. A successful HTTP shape with no canonical
       // identifier (no name, no code, no memberId) means the backend couldn't
-      // resolve the badge — fall through to the audience-list fallback.
+      // resolve the badge — fall through to the member-lookup fallback.
       const resolvedByBackend = !!(
         scan.success &&
         scan.data &&
@@ -155,6 +170,12 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
       );
 
       if (resolvedByBackend && scan.data) {
+        // Scan resolved — abort the member lookup immediately (safe to do now:
+        // fetchWithRetry bypasses its dedup cache for any request that carries
+        // an AbortSignal, so aborting this lookup cannot poison a subsequent
+        // rescan of the same badge — each callers gets its own fetch).
+        clearTimeout(memberTimerId);
+        memberController.abort();
         const d = scan.data;
         const attendee: ScannedAttendee = {
           code: d.code || badgeCode,
@@ -241,8 +262,9 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
         return;
       }
 
-      // 2. Backend could not resolve the code — fall back to the audience
-      //    members list and (if found) call the check-in endpoint directly.
+      // 2. Backend could not resolve the code — await the already-in-flight
+      //    member lookup. It started concurrently with the scan so at worst we
+      //    wait for the remaining portion of its RTT, not a full second RTT.
       //
       // When the scan-time request timed out (TIMEOUT error code), the server
       // MAY have already processed it and credited attendee points. The
@@ -250,8 +272,10 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
       // code — if the server processed the first request it returns
       // `attendeePointsAwarded: 0` on the duplicate, preventing double toasts.
       const scanTimedOut = scan.error?.code === 'TIMEOUT';
+      void scanTimedOut; // used by handleSave to choose retry strategy
 
-      const member = await findMemberByBadgeCodeApi(eventId, badgeCode);
+      const member = await memberPromise;
+      clearTimeout(memberTimerId);
       if (member) {
         const attendee = attendeeFromMember(member);
         setScannedData(attendee);
