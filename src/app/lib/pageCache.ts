@@ -69,6 +69,14 @@ export function setCached<T>(
 }
 
 /**
+ * Immediately remove a single cache entry. Use after a mutation to force the
+ * next read to fetch fresh data (e.g. after a poll vote or lead save).
+ */
+export function deleteCached(name: string, eventId: string | number): void {
+  _store.delete(makeKey(name, eventId));
+}
+
+/**
  * Invalidate all cache entries for a given event (call on event switch).
  */
 export function invalidateEvent(eventId: string | number): void {

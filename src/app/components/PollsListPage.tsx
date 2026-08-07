@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowLeft, CheckCircle, TrendingUp, Clock, Loader2 } from 'lucide-react';
+import { ArrowLeft, CheckCircle, TrendingUp, Loader2 } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import {
@@ -10,7 +10,7 @@ import {
   BackendPollDetail,
   PollResultRow,
 } from '@/app/api/engageClient';
-import { getCached, setCached } from '@/app/lib/pageCache';
+import { getCached, setCached, deleteCached } from '@/app/lib/pageCache';
 
 interface PollsListPageProps { onBack: () => void; }
 
@@ -120,15 +120,16 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
       }
 
       const live = freshSummaries.filter(p => p.status === 'LIVE' || p.status === 'CLOSED');
+      // Phase 2 always fetches fresh details — never serves the cache here.
+      // This ensures vote counts are up-to-date every time the screen is
+      // revisited, regardless of the 15-minute detail-cache TTL.
       const detailResults = await Promise.all(
-        live.map(p => {
-          const cached = getCached<BackendPollDetail>(`poll-detail:${p.id}`, eventId);
-          if (cached) return Promise.resolve({ success: true as const, data: cached });
-          return getEventPollApi(eventId, p.id).then(r => {
+        live.map(p =>
+          getEventPollApi(eventId, p.id).then(r => {
             if (r.success && r.data) setCached(`poll-detail:${p.id}`, eventId, r.data);
             return r;
-          });
-        })
+          })
+        )
       );
       if (stale) return;
 
@@ -155,6 +156,9 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
     setSubmittingPollId(null);
 
     if (res.success && res.data) {
+      // Invalidate the detail cache so the next mount (revisit) fetches
+      // fresh vote totals rather than replaying the pre-vote snapshot.
+      if (eventId) deleteCached(`poll-detail:${pollId}`, eventId);
       setPolls(prev => prev.map(p => p.detail.id === pollId
         ? { ...p, results: res.data!.results, totalVotes: res.data!.total_votes, votedOptionId: res.data!.voted_option_id }
         : p
@@ -300,7 +304,6 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
                         </div>
                         {hasVoted && results && (
                           <div className="flex items-center gap-2 flex-shrink-0">
-                            <span style={{ color: t.textSec, fontSize: 13 }}>{liveVotes.toLocaleString()}</span>
                             <span style={{ color: isWinning ? t.accentSoft : t.textSec, fontWeight: 700, fontSize: 13, minWidth: 40, textAlign: 'right' }}>
                               {pct}%
                             </span>
@@ -317,11 +320,9 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
               <div className="flex items-center justify-between pt-4" style={{ borderTop: `1px solid ${t.divider}` }}>
                 {hasVoted
                   ? <div className="flex items-center gap-3">
-                      {results
-                        ? <p className="flex items-center gap-1.5" style={{ color: t.textMuted, fontSize: 13 }}>
-                            <Clock style={{ width: 14, height: 14 }} />Total votes: {total.toLocaleString()}
-                          </p>
-                        : <p style={{ color: t.textMuted, fontSize: 13 }}>Vote recorded — results hidden</p>}
+                      {!results && (
+                        <p style={{ color: t.textMuted, fontSize: 13 }}>Vote recorded — results hidden</p>
+                      )}
                       {isLive && (
                         <button
                           onClick={() => {
