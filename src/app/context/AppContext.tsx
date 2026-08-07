@@ -1888,12 +1888,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (!refreshRes.success || !refreshRes.data) return;
         if (activeEventIdRef.current !== eventIdAtCall) return;
         const winnersByGiveaway = loadGiveawayWinners(eventIdAtCall);
-        setSponsorGiveaways(refreshRes.data.map(g => {
-          const localWins = winnersByGiveaway[g.id] ?? [];
-          if (localWins.length === 0) return g;
-          const seen = new Set((g.winners ?? []).map(w => w.id));
-          return { ...g, winners: [...(g.winners ?? []), ...localWins.filter(w => !seen.has(w.id))] };
-        }));
+        // Use the functional form of setSponsorGiveaways so we can read the
+        // current in-memory list and preserve ownership fields
+        // (sponsorName / sponsorId / addedByName) that the backend's GET
+        // response commonly omits. Without this, a freshly-added giveaway
+        // would lose its sponsor identity when this background refresh
+        // overwrites it and then disappear from the visibleGiveaways filter.
+        setSponsorGiveaways(current => {
+          const localOwnership = new Map(
+            current.map(g => [
+              g.id,
+              { sponsorName: g.sponsorName, sponsorId: g.sponsorId, addedByName: g.addedByName },
+            ]),
+          );
+          return refreshRes.data!.map(g => {
+            const own = localOwnership.get(g.id);
+            const withOwnership: SponsorGiveaway = own
+              ? {
+                  ...g,
+                  sponsorName: g.sponsorName || own.sponsorName,
+                  sponsorId:   g.sponsorId   || own.sponsorId,
+                  addedByName: g.addedByName  || own.addedByName,
+                }
+              : g;
+            const localWins = winnersByGiveaway[g.id] ?? [];
+            if (localWins.length === 0) return withOwnership;
+            const seen = new Set((withOwnership.winners ?? []).map(w => w.id));
+            return {
+              ...withOwnership,
+              winners: [
+                ...(withOwnership.winners ?? []),
+                ...localWins.filter(w => !seen.has(w.id)),
+              ],
+            };
+          });
+        });
       });
       return;
     }

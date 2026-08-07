@@ -47,10 +47,10 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack, initia
 
   useEffect(() => {
     const eid = eventConfig?.eventId ?? '0';
-    // Serve the leads pool from cache when available — avoids a fresh
-    // API call every time a sponsor opens or returns to this page.
-    const cached = getCached<Lead[]>('leads', eid);
-    if (cached) { setPoolLeads(cached); return; }
+    // Always fetch a fresh leads list on mount so the draw pool reflects
+    // the latest scanned attendees. Serving a stale cache snapshot here
+    // would exclude leads added after the last navigation and could
+    // produce an empty or incomplete eligible pool mid-draw.
     listLeads(eid).then(res => {
       if (res.success && res.data) {
         setCached('leads', eid, res.data);
@@ -202,6 +202,15 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack, initia
   const startDraw = async () => {
     if (eligiblePool.length === 0) return;
     if (drawInFlightRef.current) return;
+    // Block draws against giveaways that were never successfully persisted
+    // to the backend (synthetic local id starting with "giveaway-"). The
+    // winner POST would be silently skipped for synthetic ids, and the
+    // draw result would be lost after the next page reload or list re-hydration.
+    // Prompt the rep to wait for the backend save to complete first.
+    if (selectedGiveaway?.id.startsWith('giveaway-')) {
+      showToast('This giveaway is still being saved — please wait a moment and try again.');
+      return;
+    }
     drawInFlightRef.current = true;
     setPhase('spinning');
     setWinner(null);
@@ -682,7 +691,11 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack, initia
               {/* Draw button */}
               <button
                 onClick={startDraw}
-                disabled={eligiblePool.length === 0 || (drawableGiveaways.length > 0 && !selectedGiveaway)}
+                disabled={
+                  eligiblePool.length === 0 ||
+                  (drawableGiveaways.length > 0 && !selectedGiveaway) ||
+                  !!selectedGiveaway?.id.startsWith('giveaway-')
+                }
                 className="w-full py-4 rounded-2xl text-white flex items-center justify-center gap-2.5 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden"
                 style={{
                   background: 'linear-gradient(135deg,#f59e0b,#d97706)',
@@ -691,7 +704,11 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack, initia
               >
                 <Gift style={{ width: 20, height: 20 }} />
                 <span style={{ fontSize: 16, fontWeight: 800 }}>
-                  {drawableGiveaways.length > 0 && !selectedGiveaway ? 'Select a Giveaway First' : 'Pick a Winner!'}
+                  {drawableGiveaways.length > 0 && !selectedGiveaway
+                    ? 'Select a Giveaway First'
+                    : selectedGiveaway?.id.startsWith('giveaway-')
+                      ? 'Saving Giveaway…'
+                      : 'Pick a Winner!'}
                 </span>
               </button>
             </motion.div>
