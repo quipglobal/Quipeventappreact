@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import {
   QrCode, Type, Save, X, ScanLine, Building2,
   Flame, ThermometerSun, Snowflake, CheckCircle2, AlertTriangle, History,
+  Zap, Tag, Users,
 } from 'lucide-react';
 import { useTheme } from '@/app/context/ThemeContext';
 import { useApp } from '@/app/context/AppContext';
@@ -67,6 +68,9 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
   const [priority, setPriority] = useState<Priority>('warm');
   const [isSaving, setIsSaving] = useState(false);
   const [isInherited, setIsInherited] = useState(false);
+  // Incrementing this key remounts CameraScanner so it restarts the QR
+  // scanner after the lead form is dismissed (reset flow).
+  const [cameraKey, setCameraKey] = useState(0);
   // Ref-based guard so rapid double-taps can't dispatch two concurrent saves
   // even before the first setState re-render has disabled the button.
   const savingRef = useRef(false);
@@ -514,6 +518,10 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
     setPriority('warm');
     setIsInherited(false);
     setMode('scan');
+    // Remount CameraScanner so the QR scanner restarts cleanly after
+    // the lead form is dismissed. Since camera permission is already
+    // granted, the remount is instant (no second permission prompt).
+    setCameraKey(k => k + 1);
   };
 
   const toggleTag = (tag: string) => {
@@ -522,58 +530,141 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
     );
   };
 
+  // ── Tip rows shown in the ready state ────────────────────────────────────
+  const TIPS = [
+    { icon: ScanLine,     color: '#4ade80', text: 'Point the QR code on the badge into the green frame above' },
+    { icon: Users,        color: '#60a5fa', text: 'Attendees are automatically checked in when you scan their badge' },
+    { icon: Zap,          color: '#fbbf24', text: 'Add notes, tags, and priority to capture the conversation' },
+  ] as const;
+
   return (
-    <div className="min-h-screen pb-24 relative flex flex-col" style={{ background: t.bgPage }}>
-      {/* Header */}
-      <div className="sticky top-0 z-30 px-5 py-3.5 backdrop-blur-md border-b flex items-center justify-between"
-        style={{ background: isDark ? 'rgba(7,7,15,0.85)' : 'rgba(255,255,255,0.9)', borderColor: t.border }}>
-        <div>
-          <h1 style={{ color: t.text, fontSize: 18, fontWeight: 800 }}>Scan Badge</h1>
-          <p style={{ color: t.textMuted, fontSize: 11, marginTop: 1 }}>
-            {leads.length} badge{leads.length !== 1 ? 's' : ''} scanned · earn points per scan
-          </p>
+    // Fixed-height screen so the camera + panel fill the viewport exactly.
+    <div className="flex flex-col overflow-hidden" style={{ height: '100dvh', background: '#07070f' }}>
+
+      {/* ── TOP: Camera section ─────────────────────────────────────────── */}
+      <div className="relative flex-shrink-0" style={{ height: '52%' }}>
+
+        {/* Gradient header — floats over the camera, no background of its own */}
+        <div
+          className="absolute inset-x-0 top-0 z-30 flex items-center justify-between px-5 pt-4 pb-8"
+          style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.72) 0%, transparent 100%)' }}
+        >
+          <div>
+            <h1 style={{ color: '#fff', fontSize: 18, fontWeight: 800, letterSpacing: '-0.01em' }}>
+              Scan Badge
+            </h1>
+            <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11, marginTop: 1 }}>
+              {leads.length} badge{leads.length !== 1 ? 's' : ''} scanned
+            </p>
+          </div>
+          {/* QR / Manual toggle — only shown when no lead is being reviewed */}
+          {!scannedData && (
+            <div
+              className="flex rounded-xl p-1"
+              style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.14)' }}
+            >
+              <button
+                onClick={() => setMode('scan')}
+                className="p-2 rounded-lg transition-all"
+                style={{ background: mode === 'scan' ? 'rgba(124,58,237,0.85)' : 'transparent', color: '#fff' }}
+              >
+                <QrCode size={18} />
+              </button>
+              <button
+                onClick={() => setMode('manual')}
+                className="p-2 rounded-lg transition-all"
+                style={{ background: mode === 'manual' ? 'rgba(124,58,237,0.85)' : 'transparent', color: '#fff' }}
+              >
+                <Type size={18} />
+              </button>
+            </div>
+          )}
         </div>
-        <div className="flex rounded-lg p-1" style={{ background: t.surface2, border: `1px solid ${t.border}` }}>
-          <button
-            onClick={() => { if (!scannedData) setMode('scan'); }}
-            className="p-2 rounded-md transition-all"
-            style={{
-              background: mode === 'scan' ? t.accent : 'transparent',
-              color: mode === 'scan' ? '#fff' : t.textMuted,
-            }}>
-            <QrCode size={18} />
-          </button>
-          <button
-            onClick={() => { if (!scannedData) setMode('manual'); }}
-            className="p-2 rounded-md transition-all"
-            style={{
-              background: mode === 'manual' ? t.accent : 'transparent',
-              color: mode === 'manual' ? '#fff' : t.textMuted,
-            }}>
-            <Type size={18} />
-          </button>
-        </div>
+
+        {/* Camera — always mounted during QR mode; remounted via cameraKey on reset */}
+        {mode === 'scan' && (
+          <CameraScanner
+            key={cameraKey}
+            onCodeDetected={handleCodeDetected}
+            onSwitchToManual={() => setMode('manual')}
+          />
+        )}
+
+        {/* Manual-mode camera placeholder — keeps the top section filled */}
+        {mode === 'manual' && (
+          <div
+            className="absolute inset-0 flex items-center justify-center"
+            style={{ background: 'linear-gradient(160deg,#1e1b4b 0%,#312e81 60%,#0f172a 100%)' }}
+          >
+            <div
+              className="w-20 h-20 rounded-2xl flex items-center justify-center"
+              style={{ background: 'rgba(124,58,237,0.25)', border: '1px solid rgba(124,58,237,0.4)' }}
+            >
+              <Type size={34} color="rgba(167,139,250,0.7)" />
+            </div>
+          </div>
+        )}
+
+        {/* Resolving overlay — shows while the badge lookup is in-flight */}
+        {resolving && (
+          <div
+            className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-20"
+            style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(2px)' }}
+          >
+            <div className="w-10 h-10 border-2 border-purple-400/30 border-t-purple-400 rounded-full animate-spin" />
+            <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: 13, fontWeight: 600 }}>
+              Looking up attendee…
+            </p>
+          </div>
+        )}
+
+        {/* Bottom-edge gradient so the camera blends into the panel below */}
+        <div
+          className="absolute bottom-0 inset-x-0 h-12 pointer-events-none z-10"
+          style={{ background: isDark
+            ? 'linear-gradient(to top, #07070f, transparent)'
+            : 'linear-gradient(to top, #f8f7ff, transparent)' }}
+        />
       </div>
 
-      <div className="flex-1 flex flex-col relative overflow-y-auto">
+      {/* ── BOTTOM: Sliding context panel ───────────────────────────────── */}
+      <div
+        className="flex-1 overflow-y-auto z-10 rounded-t-3xl -mt-5"
+        style={{
+          background: t.bgPage,
+          boxShadow: '0 -12px 40px rgba(0,0,0,0.45)',
+        }}
+      >
+        {/* Drag handle */}
+        <div className="flex justify-center pt-2.5 pb-1">
+          <div className="w-10 h-1 rounded-full" style={{ background: t.border }} />
+        </div>
+
         <AnimatePresence mode="wait">
+          {/* ── Lead form (post-scan) ─────────────────────────────────── */}
           {scannedData ? (
             <motion.div
               key="form"
-              initial={{ opacity: 0, y: 50 }}
+              initial={{ opacity: 0, y: 24 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -30 }}
-              className="flex-1 p-5 flex flex-col"
+              exit={{ opacity: 0, y: -16 }}
+              transition={{ duration: 0.22 }}
+              className="px-5 pb-28"
             >
-              <div className="flex items-center justify-between mb-5">
-                <h2 style={{ color: t.text, fontSize: 18, fontWeight: 800 }}>New Lead</h2>
-                <button onClick={resetScanner} className="p-2 rounded-full active:scale-95 transition-transform"
-                  style={{ background: t.surface2, color: t.textMuted }}>
-                  <X size={18} />
+              {/* Form header */}
+              <div className="flex items-center justify-between py-3 mb-1">
+                <h2 style={{ color: t.text, fontSize: 17, fontWeight: 800 }}>New Lead</h2>
+                <button
+                  onClick={resetScanner}
+                  className="p-2 rounded-full active:scale-95 transition-transform"
+                  style={{ background: t.surface2, color: t.textMuted }}
+                >
+                  <X size={17} />
                 </button>
               </div>
 
-              <div className="rounded-2xl p-4 mb-4" style={{ background: t.surface, border: `1px solid ${t.border}`, boxShadow: t.shadow }}>
+              {/* Attendee card */}
+              <div className="rounded-2xl p-4 mb-4" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
                 <div className="flex items-center gap-3.5 mb-3">
                   <div className="w-14 h-14 rounded-xl overflow-hidden flex-shrink-0">
                     <img src={scannedData.avatar} alt={scannedData.name} className="w-full h-full object-cover" />
@@ -602,9 +693,7 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
                     <div className="px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5"
                       style={{ background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.35)' }}>
                       <CheckCircle2 style={{ width: 12, height: 12, color: '#22c55e' }} />
-                      <span style={{ color: '#22c55e', fontSize: 11, fontWeight: 700 }}>
-                        Auto checked-in to event
-                      </span>
+                      <span style={{ color: '#22c55e', fontSize: 11, fontWeight: 700 }}>Auto checked-in</span>
                     </div>
                   )}
                 </div>
@@ -613,9 +702,7 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
                     style={{ background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.35)' }}>
                     <AlertTriangle style={{ width: 14, height: 14, color: '#f59e0b', marginTop: 1, flexShrink: 0 }} />
                     <div>
-                      <p style={{ color: '#b45309', fontSize: 12, fontWeight: 700, lineHeight: 1.3 }}>
-                        Badge not recognized
-                      </p>
+                      <p style={{ color: '#b45309', fontSize: 12, fontWeight: 700, lineHeight: 1.3 }}>Badge not recognized</p>
                       <p style={{ color: t.textSec, fontSize: 11, marginTop: 2, lineHeight: 1.4 }}>
                         This code didn't match anyone in the audience list. Saving as a manual entry — double-check the details before saving.
                       </p>
@@ -624,6 +711,7 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
                 )}
               </div>
 
+              {/* Priority */}
               <div className="mb-4">
                 <label style={{ color: t.textSec, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 8 }}>
                   Lead Priority
@@ -635,10 +723,7 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
                     return (
                       <button key={key} onClick={() => setPriority(key)}
                         className="flex items-center justify-center gap-2 py-2.5 rounded-xl transition-all active:scale-[0.97]"
-                        style={{
-                          background: isActive ? cfg.bg : t.surface,
-                          border: `1.5px solid ${isActive ? cfg.color : t.border}`,
-                        }}>
+                        style={{ background: isActive ? cfg.bg : t.surface, border: `1.5px solid ${isActive ? cfg.color : t.border}` }}>
                         <Icon style={{ width: 15, height: 15, color: isActive ? cfg.color : t.textMuted }} />
                         <span style={{ fontSize: 13, fontWeight: isActive ? 700 : 600, color: isActive ? cfg.color : t.textSec }}>
                           {cfg.label}
@@ -649,6 +734,7 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
                 </div>
               </div>
 
+              {/* Quick tags */}
               <div className="mb-4">
                 <label style={{ color: t.textSec, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 8 }}>
                   Quick Tags
@@ -662,8 +748,7 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
                         style={{
                           background: active ? t.accentBg : t.surface,
                           color: active ? t.accentSoft : t.textSec,
-                          fontSize: 12,
-                          fontWeight: active ? 700 : 600,
+                          fontSize: 12, fontWeight: active ? 700 : 600,
                           border: `1px solid ${active ? t.borderAcc : t.border}`,
                         }}>
                         {active && <span className="mr-1">✓</span>}{tag}
@@ -673,7 +758,8 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
                 </div>
               </div>
 
-              <div className="mb-5 flex-1">
+              {/* Notes */}
+              <div className="mb-5">
                 <label style={{ color: t.textSec, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 8 }}>
                   Conversation Notes
                 </label>
@@ -693,15 +779,14 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Capture key discussion points, pain points, interests, follow-up actions…"
-                  rows={5}
-                  className="w-full p-4 rounded-xl resize-none outline-none transition-all focus:ring-2"
+                  rows={4}
+                  className="w-full p-4 rounded-xl resize-none outline-none transition-all"
                   style={{
                     background: t.inputBg,
                     border: `1px solid ${t.inputBorder}`,
                     color: t.text,
                     fontSize: 13,
                     lineHeight: 1.6,
-                    ringColor: t.inputFocus,
                   }}
                 />
                 <p className="mt-1.5 text-right" style={{ color: t.textMuted, fontSize: 10 }}>
@@ -709,6 +794,7 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
                 </p>
               </div>
 
+              {/* Save button */}
               <button
                 onClick={handleSave}
                 disabled={isSaving}
@@ -728,91 +814,124 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
                 )}
               </button>
             </motion.div>
-          ) : (
-            <motion.div
-              key="scanner"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex-1 flex flex-col items-center justify-center p-6 text-center"
-            >
-              <AnimatePresence mode="wait">
-                {mode === 'scan' ? (
-                  <motion.div
-                    key="scan"
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.9 }}
-                    className="flex flex-col items-center"
-                  >
-                    <CameraScanner
-                      onCodeDetected={handleCodeDetected}
-                      onSwitchToManual={() => setMode('manual')}
-                    />
-                  </motion.div>
-                ) : (
-                  <motion.div
-                    key="manual"
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -20 }}
-                    className="w-full max-w-sm"
-                  >
-                    <div className="w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-6"
-                      style={{ background: t.accentBg, border: `1px solid ${t.borderAcc}` }}>
-                      <Type size={32} style={{ color: t.accentSoft }} />
-                    </div>
-                    <h2 style={{ color: t.text, fontSize: 20, fontWeight: 800, marginBottom: 8 }}>Enter Badge Code</h2>
-                    <p style={{ color: t.textSec, fontSize: 13, marginBottom: 32 }}>
-                      Type the code found on the attendee's badge.
-                    </p>
-                    <form onSubmit={handleManualSubmit} className="space-y-4">
-                      <input
-                        type="text"
-                        placeholder="e.g. ATT-8492"
-                        value={manualCode}
-                        onChange={(e) => setManualCode(e.target.value)}
-                        className="w-full h-14 text-center text-xl tracking-widest uppercase rounded-xl border outline-none transition-all focus:ring-2"
-                        style={{
-                          borderColor: t.inputBorder,
-                          color: t.text,
-                          background: t.inputBg,
-                          fontFamily: 'monospace',
-                          ringColor: t.inputFocus,
-                        }}
-                        autoFocus
-                      />
-                      <button
-                        type="submit"
-                        disabled={manualCode.length < 3 || resolving}
-                        className="w-full py-3.5 rounded-xl text-white disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] transition-all"
-                        style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)' }}
-                      >
-                        <span style={{ fontSize: 14, fontWeight: 700 }}>
-                          {resolving ? 'Looking up…' : 'Find Attendee'}
-                        </span>
-                      </button>
-                    </form>
-                  </motion.div>
-                )}
-              </AnimatePresence>
 
-              {mode === 'scan' && (
-                <p className="animate-pulse" style={{ color: t.textSec, fontSize: 13, fontWeight: 600 }}>
-                  {resolving ? 'Looking up attendee…' : 'Point the camera at the badge QR'}
-                </p>
+          ) : (
+            /* ── Ready / manual-entry panel (pre-scan) ──────────────── */
+            <motion.div
+              key="ready"
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.18 }}
+              className="px-5 pb-28"
+            >
+              {mode === 'scan' ? (
+                /* ── Scan ready state ─────────────────────────────── */
+                <div className="pt-3">
+                  {/* Ready indicator */}
+                  <div className="flex items-center gap-2.5 mb-5">
+                    <span className="relative flex h-2.5 w-2.5 flex-shrink-0">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-400" />
+                    </span>
+                    <span style={{ color: t.text, fontSize: 16, fontWeight: 800 }}>Ready to Scan</span>
+                  </div>
+
+                  {/* Stats */}
+                  <div className="grid grid-cols-2 gap-3 mb-5">
+                    <div className="rounded-2xl p-4" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+                      <p style={{ color: t.textMuted, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                        Leads Captured
+                      </p>
+                      <p style={{ color: t.text, fontSize: 26, fontWeight: 800, marginTop: 4, lineHeight: 1 }}>
+                        {leads.length}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl p-4" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+                      <p style={{ color: t.textMuted, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                        Your Points
+                      </p>
+                      <p style={{ color: '#a78bfa', fontSize: 26, fontWeight: 800, marginTop: 4, lineHeight: 1 }}>
+                        {user?.points?.toLocaleString() ?? '—'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Tips */}
+                  <div className="space-y-2 mb-4">
+                    {TIPS.map(({ icon: Icon, color, text }) => (
+                      <div
+                        key={text}
+                        className="flex items-center gap-3 px-4 py-3 rounded-xl"
+                        style={{ background: t.surface, border: `1px solid ${t.border}` }}
+                      >
+                        <Icon size={16} style={{ color, flexShrink: 0 }} />
+                        <span style={{ color: t.textSec, fontSize: 12.5, lineHeight: 1.4 }}>{text}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Manual entry fallback */}
+                  <button
+                    onClick={() => setMode('manual')}
+                    className="w-full py-3 rounded-xl flex items-center justify-center gap-2 active:opacity-70 transition-opacity"
+                    style={{ background: t.surface2, border: `1px solid ${t.border}` }}
+                  >
+                    <Tag size={14} style={{ color: t.textMuted }} />
+                    <span style={{ color: t.textMuted, fontSize: 13, fontWeight: 600 }}>
+                      Can't scan? Enter badge code manually
+                    </span>
+                  </button>
+                </div>
+
+              ) : (
+                /* ── Manual entry form ────────────────────────────── */
+                <div className="pt-3">
+                  <h2 style={{ color: t.text, fontSize: 17, fontWeight: 800, marginBottom: 4 }}>Enter Badge Code</h2>
+                  <p style={{ color: t.textSec, fontSize: 13, marginBottom: 20 }}>
+                    Type the code printed on the attendee's badge.
+                  </p>
+                  <form onSubmit={handleManualSubmit} className="space-y-3">
+                    <input
+                      type="text"
+                      placeholder="e.g. ATT-8492"
+                      value={manualCode}
+                      onChange={(e) => setManualCode(e.target.value)}
+                      className="w-full h-14 text-center text-xl tracking-widest uppercase rounded-xl border outline-none transition-all"
+                      style={{
+                        borderColor: t.inputBorder,
+                        color: t.text,
+                        background: t.inputBg,
+                        fontFamily: 'monospace',
+                      }}
+                      autoFocus
+                    />
+                    <button
+                      type="submit"
+                      disabled={manualCode.length < 3 || resolving}
+                      className="w-full py-3.5 rounded-xl text-white disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98] transition-all"
+                      style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)' }}
+                    >
+                      <span style={{ fontSize: 14, fontWeight: 700 }}>
+                        {resolving ? 'Looking up…' : 'Find Attendee'}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMode('scan')}
+                      className="w-full py-3 rounded-xl flex items-center justify-center gap-2 active:opacity-70"
+                      style={{ background: t.surface2, border: `1px solid ${t.border}` }}
+                    >
+                      <QrCode size={14} style={{ color: t.textMuted }} />
+                      <span style={{ color: t.textMuted, fontSize: 13, fontWeight: 600 }}>Back to camera</span>
+                    </button>
+                  </form>
+                </div>
               )}
             </motion.div>
           )}
         </AnimatePresence>
       </div>
-
-      <style>{`
-        @keyframes scan {
-          0% { top: 0; }
-          100% { top: 100%; }
-        }
-      `}</style>
     </div>
   );
 };
