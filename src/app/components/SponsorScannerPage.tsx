@@ -688,28 +688,28 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
       <AnimatePresence>
         {scannedData && (
           <>
-            {/* Scrim — tapping it dismisses the sheet and restarts scanning */}
+            {/* Scrim — fixed so it covers the bottom nav bar too */}
             <motion.div
               key="scrim"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="absolute inset-0 z-30"
-              style={{ background: 'rgba(0,0,0,0.55)' }}
+              className="fixed inset-0 z-[200]"
+              style={{ background: 'rgba(0,0,0,0.6)' }}
               onClick={resetScanner}
             />
 
-            {/* Sheet — single scrollable column, compact so Save is always in view */}
+            {/* Sheet — fixed so it sits above the bottom nav bar */}
             <motion.div
               key="lead-sheet"
               initial={{ y: '100%' }}
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 360 }}
-              className="absolute bottom-0 inset-x-0 z-40 rounded-t-3xl overflow-y-auto"
+              className="fixed bottom-0 inset-x-0 z-[201] rounded-t-3xl overflow-y-auto"
               style={{
-                maxHeight: '92vh',
+                maxHeight: '88vh',
                 background: t.bgPage,
                 boxShadow: '0 -16px 48px rgba(0,0,0,0.6)',
               }}
