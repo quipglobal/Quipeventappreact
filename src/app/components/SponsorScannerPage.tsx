@@ -700,101 +700,90 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
               onClick={resetScanner}
             />
 
-            {/* Sheet */}
+            {/* Sheet — flex column: pinned header + scrollable body + pinned footer */}
             <motion.div
               key="lead-sheet"
               initial={{ y: '100%' }}
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 360 }}
-              className="absolute bottom-0 inset-x-0 z-40 rounded-t-3xl overflow-y-auto"
+              className="absolute bottom-0 inset-x-0 z-40 rounded-t-3xl flex flex-col"
               style={{
-                maxHeight: '88vh',
+                height: '90vh',
                 background: t.bgPage,
                 boxShadow: '0 -16px 48px rgba(0,0,0,0.6)',
               }}
             >
-              {/* Drag handle */}
-              <div className="flex justify-center pt-2.5 pb-1">
-                <div className="w-10 h-1 rounded-full" style={{ background: t.border }} />
-              </div>
-
-              <div className="px-5 pb-10">
-                {/* Sheet header */}
-                <div className="flex items-center justify-between py-3 mb-2">
-                  <h2 style={{ color: t.text, fontSize: 17, fontWeight: 800 }}>New Lead</h2>
-                  <button
-                    onClick={resetScanner}
-                    className="p-2 rounded-full active:scale-95 transition-transform"
-                    style={{ background: t.surface2, color: t.textMuted }}
-                  >
-                    <X size={17} />
-                  </button>
+              {/* ── Pinned top: handle + header ── */}
+              <div className="flex-shrink-0">
+                <div className="flex justify-center pt-2 pb-0.5">
+                  <div className="w-9 h-1 rounded-full" style={{ background: t.border }} />
                 </div>
-
-                {/* Attendee card */}
-                <div className="rounded-2xl p-4 mb-4" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
-                  <div className="flex items-center gap-3.5 mb-3">
-                    <div className="w-14 h-14 rounded-xl overflow-hidden flex-shrink-0">
+                <div className="flex items-center justify-between px-5 py-2.5" style={{ borderBottom: `1px solid ${t.border}` }}>
+                  {/* Attendee identity in the header so it's always visible */}
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-9 h-9 rounded-xl overflow-hidden flex-shrink-0">
                       <img src={scannedData.avatar} alt={scannedData.name} className="w-full h-full object-cover" />
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 style={{ color: t.text, fontSize: 16, fontWeight: 700, marginBottom: 2 }}>{scannedData.name}</h3>
-                      {scannedData.title && (
-                        <p style={{ color: t.textSec, fontSize: 13 }}>{scannedData.title}</p>
-                      )}
-                      {scannedData.company && (
-                        <p className="flex items-center gap-1 mt-0.5" style={{ color: t.textMuted, fontSize: 12 }}>
-                          <Building2 style={{ width: 11, height: 11 }} /> {scannedData.company}
+                    <div className="min-w-0">
+                      <p style={{ color: t.text, fontSize: 14, fontWeight: 700, lineHeight: 1.2 }} className="truncate">
+                        {scannedData.name}
+                      </p>
+                      {(scannedData.company || scannedData.title) && (
+                        <p style={{ color: t.textMuted, fontSize: 11, lineHeight: 1.2 }} className="truncate">
+                          {[scannedData.title, scannedData.company].filter(Boolean).join(' · ')}
                         </p>
                       )}
                     </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="px-3 py-1.5 rounded-lg inline-flex items-center gap-2"
-                      style={{ background: t.surface2, border: `1px solid ${t.border}` }}>
-                      <ScanLine style={{ width: 12, height: 12, color: t.accentSoft }} />
-                      <span style={{ color: t.textSec, fontSize: 11, fontFamily: 'monospace', letterSpacing: '0.06em' }}>
-                        {scannedData.code}
-                      </span>
-                    </div>
+                  <div className="flex items-center gap-2 flex-shrink-0 ml-2">
                     {autoCheckedIn && (
-                      <div className="px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5"
-                        style={{ background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.35)' }}>
-                        <CheckCircle2 style={{ width: 12, height: 12, color: '#22c55e' }} />
-                        <span style={{ color: '#22c55e', fontSize: 11, fontWeight: 700 }}>Auto checked-in</span>
+                      <div className="px-2 py-1 rounded-lg inline-flex items-center gap-1"
+                        style={{ background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.3)' }}>
+                        <CheckCircle2 style={{ width: 11, height: 11, color: '#22c55e' }} />
+                        <span style={{ color: '#22c55e', fontSize: 10, fontWeight: 700 }}>Checked in</span>
                       </div>
                     )}
+                    <button
+                      onClick={resetScanner}
+                      className="p-1.5 rounded-full active:scale-95 transition-transform"
+                      style={{ background: t.surface2, color: t.textMuted }}
+                    >
+                      <X size={16} />
+                    </button>
                   </div>
-                  {scannedData.unrecognized && (
-                    <div className="mt-3 px-3 py-2 rounded-lg flex items-start gap-2"
-                      style={{ background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.35)' }}>
-                      <AlertTriangle style={{ width: 14, height: 14, color: '#f59e0b', marginTop: 1, flexShrink: 0 }} />
-                      <div>
-                        <p style={{ color: '#b45309', fontSize: 12, fontWeight: 700, lineHeight: 1.3 }}>Badge not recognized</p>
-                        <p style={{ color: t.textSec, fontSize: 11, marginTop: 2, lineHeight: 1.4 }}>
-                          This code didn't match anyone in the audience list. Saving as a manual entry — double-check the details.
-                        </p>
-                      </div>
-                    </div>
-                  )}
                 </div>
+              </div>
+
+              {/* ── Scrollable form body ── */}
+              <div className="flex-1 overflow-y-auto px-5 py-3 space-y-3">
+
+                {/* Unrecognized badge warning (compact) */}
+                {scannedData.unrecognized && (
+                  <div className="px-3 py-2 rounded-xl flex items-center gap-2"
+                    style={{ background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.35)' }}>
+                    <AlertTriangle style={{ width: 13, height: 13, color: '#f59e0b', flexShrink: 0 }} />
+                    <p style={{ color: '#b45309', fontSize: 11.5, lineHeight: 1.4 }}>
+                      Badge not recognized — saving as manual entry.
+                    </p>
+                  </div>
+                )}
 
                 {/* Priority */}
-                <div className="mb-4">
-                  <label style={{ color: t.textSec, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 8 }}>
-                    Lead Priority
-                  </label>
+                <div>
+                  <p style={{ color: t.textMuted, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+                    Priority
+                  </p>
                   <div className="grid grid-cols-3 gap-2">
                     {(Object.entries(priorityConfig) as [Priority, typeof priorityConfig.hot][]).map(([key, cfg]) => {
                       const Icon = cfg.icon;
                       const isActive = priority === key;
                       return (
                         <button key={key} onClick={() => setPriority(key)}
-                          className="flex items-center justify-center gap-2 py-2.5 rounded-xl transition-all active:scale-[0.97]"
+                          className="flex items-center justify-center gap-1.5 py-2 rounded-xl transition-all active:scale-[0.97]"
                           style={{ background: isActive ? cfg.bg : t.surface, border: `1.5px solid ${isActive ? cfg.color : t.border}` }}>
-                          <Icon style={{ width: 15, height: 15, color: isActive ? cfg.color : t.textMuted }} />
-                          <span style={{ fontSize: 13, fontWeight: isActive ? 700 : 600, color: isActive ? cfg.color : t.textSec }}>
+                          <Icon style={{ width: 13, height: 13, color: isActive ? cfg.color : t.textMuted }} />
+                          <span style={{ fontSize: 12, fontWeight: isActive ? 700 : 600, color: isActive ? cfg.color : t.textSec }}>
                             {cfg.label}
                           </span>
                         </button>
@@ -804,23 +793,23 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
                 </div>
 
                 {/* Quick tags */}
-                <div className="mb-4">
-                  <label style={{ color: t.textSec, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 8 }}>
-                    Quick Tags
-                  </label>
-                  <div className="flex flex-wrap gap-2">
+                <div>
+                  <p style={{ color: t.textMuted, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+                    Tags
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
                     {QUICK_TAGS.map(tag => {
                       const active = selectedTags.includes(tag);
                       return (
                         <button key={tag} onClick={() => toggleTag(tag)}
-                          className="px-3 py-1.5 rounded-full transition-all active:scale-[0.96]"
+                          className="px-2.5 py-1 rounded-full transition-all active:scale-[0.96]"
                           style={{
                             background: active ? t.accentBg : t.surface,
                             color: active ? t.accentSoft : t.textSec,
-                            fontSize: 12, fontWeight: active ? 700 : 600,
+                            fontSize: 11.5, fontWeight: active ? 700 : 500,
                             border: `1px solid ${active ? t.borderAcc : t.border}`,
                           }}>
-                          {active && <span className="mr-1">✓</span>}{tag}
+                          {active && <span className="mr-0.5">✓</span>}{tag}
                         </button>
                       );
                     })}
@@ -828,47 +817,60 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
                 </div>
 
                 {/* Notes */}
-                <div className="mb-5">
-                  <label style={{ color: t.textSec, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 8 }}>
-                    Conversation Notes
-                  </label>
+                <div>
+                  <p style={{ color: t.textMuted, fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+                    Notes
+                  </p>
                   {isInherited && (
                     <div
                       data-testid="inherited-notes-banner"
-                      className="mb-2 px-3 py-2 rounded-lg flex items-center gap-2"
+                      className="mb-2 px-3 py-1.5 rounded-lg flex items-center gap-2"
                       style={{ background: 'rgba(99,102,241,0.10)', border: '1px solid rgba(99,102,241,0.35)' }}
                     >
-                      <History style={{ width: 13, height: 13, color: '#6366f1', flexShrink: 0 }} />
+                      <History style={{ width: 12, height: 12, color: '#6366f1', flexShrink: 0 }} />
                       <span style={{ color: '#6366f1', fontSize: 11, fontWeight: 600 }}>
-                        Notes from a previous event — edit to make them yours.
+                        From a previous event — edit to update.
                       </span>
                     </div>
                   )}
                   <textarea
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Capture key discussion points, pain points, interests, follow-up actions…"
-                    rows={4}
-                    className="w-full p-4 rounded-xl resize-none outline-none transition-all"
+                    placeholder="Key points, interests, follow-ups…"
+                    rows={3}
+                    className="w-full p-3 rounded-xl resize-none outline-none transition-all"
                     style={{
                       background: t.inputBg,
                       border: `1px solid ${t.inputBorder}`,
                       color: t.text,
                       fontSize: 13,
-                      lineHeight: 1.6,
+                      lineHeight: 1.5,
                     }}
                   />
-                  <p className="mt-1.5 text-right" style={{ color: t.textMuted, fontSize: 10 }}>
-                    {notes.length} characters
-                  </p>
                 </div>
 
-                {/* Save → navigates to My Leads via onSaved() */}
+                {/* Badge code chip — compact, at the bottom of the scroll area */}
+                <div className="pb-1">
+                  <div className="px-2.5 py-1 rounded-lg inline-flex items-center gap-1.5"
+                    style={{ background: t.surface2, border: `1px solid ${t.border}` }}>
+                    <ScanLine style={{ width: 11, height: 11, color: t.accentSoft }} />
+                    <span style={{ color: t.textMuted, fontSize: 10, fontFamily: 'monospace', letterSpacing: '0.06em' }}>
+                      {scannedData.code}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Pinned footer: always-visible Save button ── */}
+              <div
+                className="flex-shrink-0 px-5 py-3"
+                style={{ borderTop: `1px solid ${t.border}` }}
+              >
                 <button
                   onClick={handleSave}
                   disabled={isSaving}
                   className="w-full py-3.5 rounded-xl text-white flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-70"
-                  style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', boxShadow: '0 4px 20px rgba(124,58,237,0.3)' }}
+                  style={{ background: 'linear-gradient(135deg,#7c3aed,#4f46e5)', boxShadow: '0 4px 16px rgba(124,58,237,0.35)' }}
                 >
                   {isSaving ? (
                     <>
@@ -877,7 +879,7 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
                     </>
                   ) : (
                     <>
-                      <Save size={18} />
+                      <Save size={17} />
                       <span style={{ fontSize: 14, fontWeight: 700 }}>Save Lead</span>
                     </>
                   )}
