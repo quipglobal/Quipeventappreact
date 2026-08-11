@@ -700,43 +700,45 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
               onClick={resetScanner}
             />
 
-            {/* Sheet — flex column: pinned header + scrollable body + pinned footer */}
+            {/* Sheet — single scrollable column, compact so Save is always in view */}
             <motion.div
               key="lead-sheet"
               initial={{ y: '100%' }}
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 28, stiffness: 360 }}
-              className="absolute bottom-0 inset-x-0 z-40 rounded-t-3xl flex flex-col"
+              className="absolute bottom-0 inset-x-0 z-40 rounded-t-3xl overflow-y-auto"
               style={{
-                height: '90vh',
+                maxHeight: '92vh',
                 background: t.bgPage,
                 boxShadow: '0 -16px 48px rgba(0,0,0,0.6)',
               }}
             >
-              {/* ── Pinned top: handle + header ── */}
-              <div className="flex-shrink-0">
-                <div className="flex justify-center pt-2 pb-0.5">
-                  <div className="w-9 h-1 rounded-full" style={{ background: t.border }} />
-                </div>
-                <div className="flex items-center justify-between px-5 py-2.5" style={{ borderBottom: `1px solid ${t.border}` }}>
-                  {/* Attendee identity in the header so it's always visible */}
+              {/* Drag handle */}
+              <div className="flex justify-center pt-2 pb-0.5">
+                <div className="w-9 h-1 rounded-full" style={{ background: t.border }} />
+              </div>
+
+              <div className="px-5 pt-2 pb-6 space-y-3">
+
+                {/* ── Compact attendee header ── */}
+                <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-9 h-9 rounded-xl overflow-hidden flex-shrink-0">
+                    <div className="w-10 h-10 rounded-xl overflow-hidden flex-shrink-0">
                       <img src={scannedData.avatar} alt={scannedData.name} className="w-full h-full object-cover" />
                     </div>
                     <div className="min-w-0">
-                      <p style={{ color: t.text, fontSize: 14, fontWeight: 700, lineHeight: 1.2 }} className="truncate">
+                      <p style={{ color: t.text, fontSize: 15, fontWeight: 700, lineHeight: 1.2 }} className="truncate">
                         {scannedData.name}
                       </p>
                       {(scannedData.company || scannedData.title) && (
-                        <p style={{ color: t.textMuted, fontSize: 11, lineHeight: 1.2 }} className="truncate">
+                        <p style={{ color: t.textMuted, fontSize: 11, lineHeight: 1.3 }} className="truncate">
                           {[scannedData.title, scannedData.company].filter(Boolean).join(' · ')}
                         </p>
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                  <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
                     {autoCheckedIn && (
                       <div className="px-2 py-1 rounded-lg inline-flex items-center gap-1"
                         style={{ background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.3)' }}>
@@ -753,12 +755,8 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
                     </button>
                   </div>
                 </div>
-              </div>
 
-              {/* ── Scrollable form body ── */}
-              <div className="flex-1 overflow-y-auto px-5 py-3 space-y-3">
-
-                {/* Unrecognized badge warning (compact) */}
+                {/* Unrecognized badge warning */}
                 {scannedData.unrecognized && (
                   <div className="px-3 py-2 rounded-xl flex items-center gap-2"
                     style={{ background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.35)' }}>
@@ -849,23 +847,7 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
                   />
                 </div>
 
-                {/* Badge code chip — compact, at the bottom of the scroll area */}
-                <div className="pb-1">
-                  <div className="px-2.5 py-1 rounded-lg inline-flex items-center gap-1.5"
-                    style={{ background: t.surface2, border: `1px solid ${t.border}` }}>
-                    <ScanLine style={{ width: 11, height: 11, color: t.accentSoft }} />
-                    <span style={{ color: t.textMuted, fontSize: 10, fontFamily: 'monospace', letterSpacing: '0.06em' }}>
-                      {scannedData.code}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* ── Pinned footer: always-visible Save button ── */}
-              <div
-                className="flex-shrink-0 px-5 py-3"
-                style={{ borderTop: `1px solid ${t.border}` }}
-              >
+                {/* Save — redirects to My Leads via onSaved() */}
                 <button
                   onClick={handleSave}
                   disabled={isSaving}
@@ -884,6 +866,17 @@ export const SponsorScannerPage: React.FC<{ onSaved?: () => void }> = ({ onSaved
                     </>
                   )}
                 </button>
+
+                {/* Badge code — subtle footer info */}
+                <div className="flex justify-center">
+                  <div className="px-2.5 py-1 rounded-lg inline-flex items-center gap-1.5"
+                    style={{ background: t.surface2, border: `1px solid ${t.border}` }}>
+                    <ScanLine style={{ width: 11, height: 11, color: t.accentSoft }} />
+                    <span style={{ color: t.textMuted, fontSize: 10, fontFamily: 'monospace', letterSpacing: '0.06em' }}>
+                      {scannedData.code}
+                    </span>
+                  </div>
+                </div>
               </div>
             </motion.div>
           </>
