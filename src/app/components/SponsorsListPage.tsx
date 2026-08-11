@@ -428,32 +428,16 @@ const SponsorReviewsSection: React.FC<{ companyId: number; companyName: string }
         </div>
       )}
 
-      {/* Other reviews */}
-      {otherReviews.length === 0 && !myReview && (
+      {/* Empty state — only shown when the current user has no review yet */}
+      {!myReview && (
         <div className="rounded-2xl px-4 py-4 flex items-center gap-3"
           style={{ background: t.surface, border: `1px solid ${t.border}` }}>
           <MessageSquare style={{ width: 16, height: 16, color: t.emptyIcon }} />
-          <p style={{ color: t.textMuted, fontSize: 13 }}>No reviews yet — be the first to share your feedback.</p>
-        </div>
-      )}
-
-      {otherReviews.length > 0 && (
-        <div className="space-y-2.5">
-          {otherReviews.map(r => (
-            <div key={r.id} className="rounded-2xl px-4 py-3"
-              style={{ background: t.surface, border: `1px solid ${t.border}` }}>
-              <div className="flex items-center justify-between gap-2 mb-1.5">
-                <span style={{ color: t.text, fontSize: 13, fontWeight: 700 }}>{r.authorName}</span>
-                <span style={{ color: t.textMuted, fontSize: 11 }}>{timeAgo(r.createdAt)}</span>
-              </div>
-              <div className="mb-1.5">
-                <StarRating value={r.rating} readOnly size={14} />
-              </div>
-              {r.comment && (
-                <p style={{ color: t.textSec, fontSize: 13, lineHeight: 1.55 }}>{r.comment}</p>
-              )}
-            </div>
-          ))}
+          <p style={{ color: t.textMuted, fontSize: 13 }}>
+            {isSponsorRep
+              ? 'Attendee reviews are private.'
+              : "You haven't reviewed this sponsor yet — share your feedback above."}
+          </p>
         </div>
       )}
     </div>
