@@ -13,6 +13,8 @@ import {
   Crown,
   ArrowRight,
   Users,
+  ClipboardList,
+  BarChart3,
 } from "lucide-react";
 import { useApp } from "@/app/context/AppContext";
 import { useTheme } from "@/app/context/ThemeContext";
@@ -309,6 +311,78 @@ export const HomePage: React.FC<HomePageProps> = ({ onNavigate }) => {
           </div>
         </div>
       </div>
+
+      {/* ── Quick-action shortcuts ──────────────────────────────────────── */}
+      {(() => {
+        const shortcuts = [
+          eventConfig.modulesEnabled.surveys && {
+            label: 'Take a Survey',
+            icon: <ClipboardList size={22} color="#fff" />,
+            grad: 'linear-gradient(135deg,#7c3aed,#4f46e5)',
+            glow: 'rgba(124,58,237,0.25)',
+            page: 'engage-surveys',
+          },
+          eventConfig.modulesEnabled.polls && {
+            label: 'Vote for Poll',
+            icon: <BarChart3 size={22} color="#fff" />,
+            grad: 'linear-gradient(135deg,#0ea5e9,#6366f1)',
+            glow: 'rgba(14,165,233,0.25)',
+            page: 'engage-polls',
+          },
+          eventConfig.modulesEnabled.sponsors && user.role !== 'sponsor' && {
+            label: 'Reviews',
+            icon: <Star size={22} color="#fff" fill="#fff" />,
+            grad: 'linear-gradient(135deg,#f59e0b,#f97316)',
+            glow: 'rgba(245,158,11,0.25)',
+            page: 'engage-sponsors',
+          },
+        ].filter(Boolean) as { label: string; icon: React.ReactNode; grad: string; glow: string; page: string }[];
+
+        if (shortcuts.length === 0) return null;
+
+        return (
+          <div className="px-4 pt-4">
+            <div
+              className="grid gap-3"
+              style={{ gridTemplateColumns: `repeat(${shortcuts.length}, 1fr)` }}
+            >
+              {shortcuts.map(s => (
+                <button
+                  key={s.page}
+                  onClick={() => onNavigate(s.page)}
+                  className="flex flex-col items-center justify-center gap-2 rounded-2xl active:scale-[0.96] transition-all"
+                  style={{
+                    background: t.surface,
+                    border: `1px solid ${t.border}`,
+                    aspectRatio: '1',
+                    boxShadow: `0 4px 16px ${s.glow}`,
+                  }}
+                >
+                  <div
+                    className="w-12 h-12 rounded-xl flex items-center justify-center"
+                    style={{ background: s.grad }}
+                  >
+                    {s.icon}
+                  </div>
+                  <span
+                    style={{
+                      color: t.text,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      textAlign: 'center',
+                      lineHeight: 1.25,
+                      paddingLeft: 8,
+                      paddingRight: 8,
+                    }}
+                  >
+                    {s.label}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Points summary card ─────────────────────────────────────────── */}
       {/* <div className="px-4 pt-3">
