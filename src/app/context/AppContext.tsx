@@ -719,7 +719,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           //   • local-only winners appear (offline / endpoint-missing);
           //   • a winner present in both isn't double-counted.
           const winnersByGiveaway = loadGiveawayWinners(eventId);
-          const normalized = res.data.map(g => {
+          const serverRows: SponsorGiveaway[] = res.data.map(g => {
               const local = winnersByGiveaway[g.id] ?? [];
               const fromServer = Array.isArray(g.winners) ? g.winners : [];
               if (local.length === 0 && fromServer.length === 0) return g;
@@ -745,7 +745,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               }
               return { ...g, winners: merged };
             });
-          setSponsorGiveaways(normalized);
+          // Merge instead of hard-replace: this fetch is triggered on mount
+          // and can resolve *after* the sponsor has already added a giveaway
+          // (the POST + optimistic insert happen while the slow initial GET is
+          // still in flight). A plain setSponsorGiveaways(serverRows) would
+          // wipe any item that isn't in the server's response yet, causing the
+          // newly-added prize to vanish immediately.
+          //
+          // Strategy:
+          //   • Any in-memory row whose id the server didn't return is kept as-
+          //     is at the front (it may just be a timing lag — the same item
+          //     was POSTed while this GET was in flight).
+          //   • For rows the server did return, ownership fields
+          //     (sponsorName / sponsorId / addedByName) are preserved from the
+          //     in-memory copy when the server's response omits them, so the
+          //     visibility filter in SponsorGiveawaysPage stays correct.
+          setSponsorGiveaways(current => {
+            const localOwnership = new Map(
+              current.map(g => [
+                g.id,
+                { sponsorName: g.sponsorName, sponsorId: g.sponsorId, addedByName: g.addedByName },
+              ]),
+            );
+            const serverIds = new Set(serverRows.map(g => g.id));
+            const localOnly = current.filter(g => !serverIds.has(g.id));
+            const withOwnership = serverRows.map(g => {
+              const own = localOwnership.get(g.id);
+              return own
+                ? {
+                    ...g,
+                    sponsorName: g.sponsorName || own.sponsorName,
+                    sponsorId:   g.sponsorId   || own.sponsorId,
+                    addedByName: g.addedByName  || own.addedByName,
+                  }
+                : g;
+            });
+            return [...localOnly, ...withOwnership];
+          });
         }
         // On NOT_IMPLEMENTED / network error: silently keep current state.
         // The sponsor UI still works locally; reconciliation picks up
