@@ -576,9 +576,14 @@ let drawEndpointMissing = false;
 function isMissingDrawRouteError(error: { code?: string; message?: string } | undefined): boolean {
   if (!error) return false;
   const code = String(error.code ?? '');
-  // 404 = no such route. 405 = wrong verb (Laravel reports allowed methods).
-  // 500 with the int-cast TypeError = "draw" matched `/leads/{scanId int}`.
+  // Numeric HTTP status codes the proxy or our apiClient may surface.
   if (code === '404' || code === '405') return true;
+  // Laravel exception class names: the API client parses the `exception` or
+  // `code` field from the JSON error envelope and forwards the PHP class name.
+  // NotFoundHttpException  = route doesn't exist (HTTP 404).
+  // MethodNotAllowedHttpException = wrong verb on an existing route (HTTP 405).
+  if (code === 'NotFoundHttpException' || code === 'MethodNotAllowedHttpException') return true;
+  // 500 with the int-cast TypeError = "draw" matched `/leads/{scanId int}`.
   const msg = (error.message ?? '').toLowerCase();
   if (msg.includes('leadsupdate') && msg.includes('int')) return true;
   if (msg.includes('method is not supported') && msg.includes('leads/draw')) return true;

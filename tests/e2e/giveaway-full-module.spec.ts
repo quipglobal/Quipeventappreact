@@ -207,9 +207,12 @@ async function installMocks(page: Page, cfg: MockConfig) {
     if (/\/giveaways\/[^/]+\/winners/.test(p) && method === 'POST')
       return ok({ success: true, data: { id: 1, message: 'Winner recorded.' } }, 201);
 
-    // ── Lucky Draw endpoint (not deployed → 405 → client picks locally) ─────
+    // ── Lucky Draw endpoint (not deployed → Laravel NotFoundHttpException) ───
+    // The real backend wraps the PHP exception class name in an `error` object.
+    // parseResponse sees `success: false` (boolean) → returns the body as-is
+    // → res.error = { code: 'NotFoundHttpException', message: 'Server error' }.
     if (p === `/api/v1/events/${EVENT_ID}/leads/draw` && method === 'POST')
-      return ok({ message: 'Method Not Allowed' }, 405);
+      return ok({ success: false, error: { code: 'NotFoundHttpException', message: 'Server error' } }, 404);
 
     // ── Leads (draw pool) ────────────────────────────────────────────────────
     if (p.startsWith(`/api/v1/events/${EVENT_ID}/my-leads`) || p.startsWith(`/api/v1/events/${EVENT_ID}/leads`))
