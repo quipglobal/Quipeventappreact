@@ -1975,15 +1975,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       return;
     }
+    // Keep the optimistic row in ALL non-success cases.
+    //
+    // Previously only NOT_IMPLEMENTED was kept; any other failure (405,
+    // NETWORK_ERROR, TIMEOUT, CREATE_FAILED, or a 2xx with no data body)
+    // triggered a rollback that made the giveaway flash-and-disappear with
+    // no way for the sponsor to recover it short of filling the form again.
+    //
+    // We never know for certain whether the server-side write succeeded when
+    // the response is ambiguous (network drop, 5xx, empty body). Keeping the
+    // local row is always safer — the sponsor can delete it manually if they
+    // want to discard it, but they can't recreate it from memory after it
+    // silently vanishes. The temp id (giveaway-<ts>) prevents draw eligibility
+    // until a reload re-hydrates with the canonical server id, which is an
+    // acceptable trade-off vs. data loss.
     if (res.error?.code === 'NOT_IMPLEMENTED') {
-      // Backend not ready — keep the local row so the sponsor isn't
-      // staring at an empty list. They'll be the only one who sees
-      // it until the route ships, but the UI stays usable.
-      return;
+      return; // clean path — backend not deployed, local row kept silently
     }
-    // Real failure — roll back the temp row and surface the error.
-    setSponsorGiveaways(prev => prev.filter(g => g.id !== tempId));
-    showToast(res.error?.message ?? 'Failed to save giveaway. Please try again.');
+    // Any other failure: keep the row but surface the error so the sponsor
+    // knows the sync didn't complete. They can retry by navigating away and
+    // back (which triggers a fresh hydration) or by reloading the page.
+    showToast(res.error?.message ?? 'Giveaway saved locally — sync will retry on next load.');
   };
 
   const updateSponsorGiveaway = async (

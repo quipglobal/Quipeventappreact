@@ -245,9 +245,18 @@ export async function createGiveaway(
   };
   const res = await apiPost<unknown>(`/api/v1/events/${eventId}/giveaways`, body, HEADERS);
   if (!res.success || !res.data) {
-    if (res.error?.code === '404') {
+    // 404 = route not registered; 405 = route exists but POST verb not mapped.
+    // Both mean the endpoint isn't ready — fall back to local-only rather than
+    // rolling back the optimistic row (mirrors how `updateGiveaway` handles 405).
+    if (res.error?.code === '404' || res.error?.code === '405') {
       createEndpointMissing = true;
       return { success: false, error: { code: 'NOT_IMPLEMENTED', message: 'Giveaway create endpoint not deployed.' } };
+    }
+    // Backend accepted the request (2xx) but returned no `data` body — the row
+    // was likely created server-side; we just can't do the id swap. Surface as
+    // NOT_IMPLEMENTED so the caller keeps the optimistic row with the temp id.
+    if (res.success && !res.data) {
+      return { success: false, error: { code: 'NOT_IMPLEMENTED', message: 'Giveaway create endpoint returned no data body.' } };
     }
     return { success: false, error: res.error ?? { code: 'CREATE_FAILED', message: 'Failed to save giveaway.' } };
   }
