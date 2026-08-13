@@ -105,8 +105,19 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack, initia
   // event switch and no longer contains it) — keeping a stale object
   // in `selectedGiveaway` would let the rep click "Pick a Winner!"
   // against a giveaway that no longer exists.
+  //
+  // IMPORTANT: skip the reset on the very first render so that
+  // `initialGiveaway` (passed by SponsorGiveawaysPage when the rep
+  // clicks "Run Lucky Draw" on a specific card) is preserved.
+  // Without this guard the effect fires on mount before the user has
+  // had any chance to interact, immediately clearing the pre-selection.
   const activeEventId = eventConfig?.eventId ?? null;
+  const isInitialMountRef = useRef(true);
   useEffect(() => {
+    if (isInitialMountRef.current) {
+      isInitialMountRef.current = false;
+      return;
+    }
     setSelectedGiveaway(null);
     setDrawHistory([]);
     setWinner(null);
