@@ -495,7 +495,9 @@ export const SponsorGiveawaysPage: React.FC<{
   // is swapped for the canonical server row.
   const visibleGiveaways = sponsorGiveaways.filter(g => {
     if (myCompanyKey && g.sponsorName === myCompanyKey) return true;
-    if (myUserId && g.sponsorId && g.sponsorId === myUserId) return true;
+    // Use String() so a numeric sponsorId (from the JS number user.id stored
+    // in the optimistic temp row) still matches the string myUserId.
+    if (myUserId && g.sponsorId && String(g.sponsorId) === myUserId) return true;
     return false;
   });
 

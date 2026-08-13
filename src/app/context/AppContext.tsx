@@ -1817,6 +1817,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...giveaway,
       id: tempId,
       createdAt: new Date(),
+      // Coerce to string so the visibleGiveaways sponsorId === myUserId
+      // comparison (which uses String(user.id)) never fails due to a
+      // number-vs-string type mismatch on the optimistic temp row.
+      sponsorId: String(giveaway.sponsorId ?? ''),
     };
     setSponsorGiveaways(prev => [tempRow, ...prev]);
     showToast('Giveaway added successfully');
@@ -1826,7 +1830,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       numberOfItems: giveaway.numberOfItems,
       image: giveaway.image,
       sponsorName: giveaway.sponsorName,
-      sponsorId: giveaway.sponsorId,
+      sponsorId: String(giveaway.sponsorId ?? ''),
+      addedByName: giveaway.addedByName,
     });
 
     // Side-effects that MUST run regardless of whether the active
@@ -1901,7 +1906,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               { sponsorName: g.sponsorName, sponsorId: g.sponsorId, addedByName: g.addedByName },
             ]),
           );
-          return refreshRes.data!.map(g => {
+          const serverIds = new Set(refreshRes.data!.map(g => g.id));
+          // Rows that are in memory but the server didn't return yet (e.g. a
+          // recently-created item that hasn't propagated through the backend's
+          // read path yet). Keep them at the front so they stay visible
+          // instead of disappearing until the next hydration cycle.
+          const localOnly = current.filter(g => !serverIds.has(g.id));
+          const serverRows = refreshRes.data!.map(g => {
             const own = localOwnership.get(g.id);
             const withOwnership: SponsorGiveaway = own
               ? {
@@ -1922,6 +1933,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               ],
             };
           });
+          // In-memory-only rows go first (most recently added); server rows follow.
+          return [...localOnly, ...serverRows];
         });
       });
       return;
@@ -1981,10 +1994,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setSponsorGiveaways(prev =>
         prev.map(g => {
           if (g.id !== id) return g;
+          // Preserve ownership fields (sponsorName / sponsorId / addedByName)
+          // that the update endpoint commonly omits from its response — without
+          // this merge the giveaway loses its sponsor identity and immediately
+          // disappears from the visibleGiveaways filter in SponsorGiveawaysPage.
+          const merged: SponsorGiveaway = {
+            ...saved,
+            sponsorName: saved.sponsorName || before!.sponsorName,
+            sponsorId:   saved.sponsorId   || before!.sponsorId,
+            addedByName: saved.addedByName  || before!.addedByName,
+          };
           // Preserve any in-memory winners — the update endpoint
           // doesn't (yet) know about them.
           const carried = g.winners ?? saved.winners ?? [];
-          return carried.length > 0 ? { ...saved, winners: carried } : saved;
+          return carried.length > 0 ? { ...merged, winners: carried } : merged;
         }),
       );
       showToast('Giveaway updated');
@@ -2137,7 +2160,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (myCompany && g.sponsorName === myCompany) return true;
     // Fallback: user-ID match — catches rows where the server echoed
     // sponsor_id but not sponsor_name (common with some backend shapes).
-    if (myId && g.sponsorId && g.sponsorId === myId) return true;
+    // Use String() on g.sponsorId so a numeric value stored in the temp
+    // row (user.id can be a number) still matches the string myId.
+    if (myId && g.sponsorId && String(g.sponsorId) === myId) return true;
     return false;
   };
 
