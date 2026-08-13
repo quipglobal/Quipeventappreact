@@ -270,9 +270,9 @@ export function useCreateGiveaway() {
         await migrateGiveawayWinnersKey(ctx.eventId, ctx.tempId, saved.id);
         // Swap temp row → saved row. Preserve sponsorId / sponsor from the
         // payload when the server's POST response omits those ownership fields
-        // — without this, the post-invalidate refetch returns the server row
-        // (which may have empty sponsorId) and the manager's ownership filter
-        // hides the freshly-created giveaway.
+        // — without this, a refetch returns the server row (which may have
+        // empty sponsorId) and the manager's ownership filter hides the
+        // freshly-created giveaway.
         queryClient.setQueryData<ApiResponse<Giveaway[]>>(key, (prev) => ({
           success: true,
           data: (prev?.data ?? []).map((g) =>
@@ -286,17 +286,41 @@ export function useCreateGiveaway() {
               : g,
           ),
         }));
-        // Trigger a background refetch so every other screen (including the
-        // attendee-facing "Giveaways & Offers" view) picks up the server state
-        // immediately — without waiting for a focus event or next mount.
-        queryClient.invalidateQueries({ queryKey: key });
+        // ── Fix B ────────────────────────────────────────────────────────────
+        // Do NOT call invalidateQueries here. An immediate full GET refetch
+        // replaces the React Query cache with whatever the server returns at
+        // that instant. If the backend hasn't indexed the new row yet (write
+        // propagation lag), the cache reverts to the old list and the
+        // just-created giveaway disappears.
+        //
+        // The 30 s refetchInterval on useGiveaways already keeps every other
+        // screen (attendee "Giveaways & Offers", partner view, etc.) in sync;
+        // that single reconciliation path is enough and carries no race risk.
         return;
       }
-      if (res.error?.code === 'NOT_IMPLEMENTED') return; // keep local row
-      if (ctx.previous) queryClient.setQueryData(key, ctx.previous);
+      // ── Fix A ──────────────────────────────────────────────────────────────
+      // Keep the optimistic row for ALL non-success outcomes — including
+      // NOT_IMPLEMENTED (backend not deployed), network errors surfaced as
+      // onSuccess (apiClient collapses some transport failures to a !success
+      // result), and unexpected server errors (4xx/5xx).
+      //
+      // Previously only NOT_IMPLEMENTED was kept; any other failure rolled
+      // back ctx.previous, making the new giveaway flash and disappear with
+      // no way for the sponsor to recover it. Now that the backend TenantScope
+      // fix means real errors (422, 500) can surface instead of always 404,
+      // rolling back on those would cause the same flash-and-disappear.
+      //
+      // The optimistic temp row stays visible until the next 30 s poll
+      // reconciles with the server — at which point a canonical server id
+      // either replaces it (if the POST succeeded) or it is dropped (if not),
+      // and the user can manually delete it in the latter case.
     },
-    onError: (_err, _payload, ctx) => {
-      if (ctx?.previous) queryClient.setQueryData(key, ctx.previous);
+    onError: (_err, _payload, _ctx) => {
+      // ── Fix A ──────────────────────────────────────────────────────────────
+      // Do NOT restore ctx.previous. A network error or timeout means the
+      // POST may have reached the server (fire-and-forget semantics); rolling
+      // back the optimistic row would silently discard a giveaway the backend
+      // might have created. Keeping it is always safer than losing it.
     },
   });
 }
@@ -328,14 +352,23 @@ export function useUpdateGiveaway() {
           ),
         }));
         // Background refetch so other devices pick up the edit immediately.
+        // Update invalidation is safe — the canonical id already exists on the
+        // server, so the refetch will include the updated row rather than
+        // omitting it (unlike create, where the row may not be indexed yet).
         queryClient.invalidateQueries({ queryKey: key });
         return;
       }
-      if (res.error?.code === 'NOT_IMPLEMENTED') return; // keep optimistic edit
-      if (ctx.previous) queryClient.setQueryData(key, ctx.previous);
+      // ── Fix A ──────────────────────────────────────────────────────────────
+      // Keep the optimistic edit for all non-success outcomes (NOT_IMPLEMENTED,
+      // network errors, server errors). The 30 s polling interval will
+      // reconcile with the server's state; rolling back here would immediately
+      // discard the sponsor's edit with no indication of what happened.
     },
-    onError: (_err, _vars, ctx) => {
-      if (ctx?.previous) queryClient.setQueryData(key, ctx.previous);
+    onError: (_err, _vars, _ctx) => {
+      // ── Fix A ──────────────────────────────────────────────────────────────
+      // Do NOT restore ctx.previous. A transport failure doesn't tell us
+      // whether the server applied the update; keeping the optimistic edit
+      // avoids silently discarding the sponsor's changes.
     },
   });
 }
