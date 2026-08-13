@@ -417,9 +417,9 @@ test('Issue 3 — attendee view: giveaways added by sponsor appear in Giveaways 
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TEST 4 — Draw button disabled ("Saving Giveaway…") while save is in flight
+// TEST 4 — Unsynced giveaway: draw is allowed with a local-save notice
 // ─────────────────────────────────────────────────────────────────────────────
-test('Issue 1 — draw guard: button shows "Saving Giveaway…" while giveaway POST is in flight', async ({ page }) => {
+test('Issue 1 — unsynced giveaway: "Pick a Winner!" is enabled with a local-save notice', async ({ page }) => {
   test.setTimeout(150_000);
 
   // POST never responds during the test (simulates a slow / stalled save).
@@ -446,7 +446,7 @@ test('Issue 1 — draw guard: button shows "Saving Giveaway…" while giveaway P
 
   await loginAndJoinEvent(page, 'rukmint@cxo.inc');
 
-  // Manage Giveaways — form is blank (no existing giveaways)
+  // Manage Giveaways
   await page.getByRole('button', { name: /^More$/i }).click();
   await page.getByRole('button', { name: /^Manage Giveaways$/i }).click();
   await expect(page.getByPlaceholder(/Win a MacBook/i)).toBeVisible({ timeout: 10_000 });
@@ -455,28 +455,24 @@ test('Issue 1 — draw guard: button shows "Saving Giveaway…" while giveaway P
   await page.getByPlaceholder(/Win a MacBook/i).fill('Pending Prize');
   await page.locator('input[type="number"]').first().fill('1');
   await page.getByRole('button', { name: /^Add Giveaway$/i }).click();
-
-  // Optimistic row visible in list
   await expect(page.getByText('Pending Prize').first()).toBeVisible({ timeout: 8_000 });
 
-  // Click "Run Lucky Draw" — navigates to draw page with the pending giveaway
-  // pre-selected (initial-mount pre-selection fix is now in place)
+  // Navigate to Lucky Draw — giveaway is pre-selected (initial-mount fix)
   const runDrawBtn = page.getByRole('button', { name: /run lucky draw/i }).first();
   await expect(runDrawBtn).toBeVisible({ timeout: 6_000 });
   await runDrawBtn.click();
 
-  // Draw page loads
   await expect(page.getByText('Lucky Draw', { exact: true }).first()).toBeVisible({ timeout: 10_000 });
 
-  // The draw button must show "Saving Giveaway…" (disabled) — not "Pick a Winner!"
-  // This is the guard that prevents running a draw against an unsaved giveaway.
-  const guardBtn = page.getByRole('button', { name: /Saving Giveaway/i });
-  await expect(guardBtn).toBeVisible({ timeout: 10_000 });
-  await expect(guardBtn).toBeDisabled();
+  // "Pick a Winner!" must be ENABLED — the block on synthetic ids is removed.
+  // Sponsors should always be able to run a draw; winner is saved locally.
+  const pickBtn = page.getByRole('button', { name: /Pick a Winner!/i });
+  await expect(pickBtn).toBeVisible({ timeout: 10_000 });
+  await expect(pickBtn).toBeEnabled();
 
-  // "Pick a Winner!" must NOT be present
-  await expect(page.getByRole('button', { name: /Pick a Winner!/i })).not.toBeVisible();
+  // A notice warning about local-only storage must be visible
+  await expect(page.getByText(/hasn't synced/i).first()).toBeVisible({ timeout: 5_000 });
 
-  // Allow the test to clean up by resolving the pending POST
+  // Allow test cleanup
   resolvePost?.();
 });

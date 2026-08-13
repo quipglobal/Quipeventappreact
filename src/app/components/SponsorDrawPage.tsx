@@ -213,15 +213,11 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack, initia
   const startDraw = async () => {
     if (eligiblePool.length === 0) return;
     if (drawInFlightRef.current) return;
-    // Block draws against giveaways that were never successfully persisted
-    // to the backend (synthetic local id starting with "giveaway-"). The
-    // winner POST would be silently skipped for synthetic ids, and the
-    // draw result would be lost after the next page reload or list re-hydration.
-    // Prompt the rep to wait for the backend save to complete first.
-    if (selectedGiveaway?.id.startsWith('giveaway-')) {
-      showToast('This giveaway is still being saved — please wait a moment and try again.');
-      return;
-    }
+    // Note: we no longer block on synthetic ids here. If the giveaway hasn't
+    // synced to the backend yet, `saveGiveawayWinner` degrades gracefully to
+    // local-only storage (it already returns NOT_IMPLEMENTED for "giveaway-<ts>"
+    // ids). The draw result is always preserved locally; the backend winner
+    // record lands as soon as the giveaway receives a canonical id (next sync).
     drawInFlightRef.current = true;
     setPhase('spinning');
     setWinner(null);
@@ -700,12 +696,21 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack, initia
               </div>
 
               {/* Draw button */}
+              {/* Inline notice for giveaways that haven't synced yet */}
+              {selectedGiveaway?.id.startsWith('giveaway-') && (
+                <div className="mb-3 px-4 py-2.5 rounded-xl flex items-start gap-2"
+                  style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)' }}>
+                  <span style={{ fontSize: 14, color: '#f59e0b', flexShrink: 0 }}>⚠</span>
+                  <p style={{ color: 'rgba(245,158,11,0.85)', fontSize: 12, lineHeight: 1.4 }}>
+                    This giveaway hasn't synced to the server yet. You can still draw — the winner will be saved on this device and uploaded once the giveaway syncs.
+                  </p>
+                </div>
+              )}
               <button
                 onClick={startDraw}
                 disabled={
                   eligiblePool.length === 0 ||
-                  (drawableGiveaways.length > 0 && !selectedGiveaway) ||
-                  !!selectedGiveaway?.id.startsWith('giveaway-')
+                  (drawableGiveaways.length > 0 && !selectedGiveaway)
                 }
                 className="w-full py-4 rounded-2xl text-white flex items-center justify-center gap-2.5 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden"
                 style={{
@@ -717,9 +722,7 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack, initia
                 <span style={{ fontSize: 16, fontWeight: 800 }}>
                   {drawableGiveaways.length > 0 && !selectedGiveaway
                     ? 'Select a Giveaway First'
-                    : selectedGiveaway?.id.startsWith('giveaway-')
-                      ? 'Saving Giveaway…'
-                      : 'Pick a Winner!'}
+                    : 'Pick a Winner!'}
                 </span>
               </button>
             </motion.div>
