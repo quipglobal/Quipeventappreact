@@ -32,9 +32,11 @@
  *     Body:    { notes?, tags?, priority? }
  *     Returns: { success, data: Lead }
  *
- *   POST /api/v1/events/:eventId/leads/draw
- *     Body:    { giveawayId?, excludeIds? }
- *     Returns: { success, data: DrawWinner }
+ * Lucky Draw (server-side):
+ *   POST /api/v1/events/:eventId/giveaways/:giveawayId/draw
+ *     No body required — server picks randomly from the giveaway's entry list.
+ *     Returns: { success, data: <full giveaway row with winner populated> }
+ *   Falls back to client-side random pick when the route is absent.
  *
  * Headers: X-Tenant-ID (from VITE_TENANT_ID, default '1') + Bearer token
  *          (handled by client.ts).
@@ -87,11 +89,23 @@ export interface ListLeadsResponse {
 }
 
 export interface DrawWinner {
+  /** When the server picked the winner via /draw, this is the user_id (integer
+   *  as string). When the client picked locally from the leads pool it is the
+   *  lead scan_id — `userId` below holds the actual user account id in that
+   *  case and should be used for the POST /giveaways/:id/winners call. */
   id: string;
   name: string;
   company: string;
   title: string;
   avatar: string;
+  /**
+   * The backend user_id of the winner — the value to send as `winner_user_id`
+   * to POST /giveaways/:id/winners. Equal to `id` when the server picked the
+   * winner (both are the user_id). Set from `Lead.userId` in the client-side
+   * fallback path so the /winners call gets the right integer even when `id`
+   * holds a scan_id.
+   */
+  userId?: string;
 }
 
 export interface LuckyDrawResponse {
@@ -225,8 +239,21 @@ function normalizeLead(raw: any): Lead {
     ? String(idCandidate)
     : `lead-fallback-${Date.now()}-${++leadIdFallbackCounter}`;
 
+  // Extract the backend user account id separately from the scan id.
+  // `id` above may be a lead_scan primary key; `userId` is the attendee's
+  // user account id — needed for POST /giveaways/:id/winners (winner_user_id).
+  // We prefer the explicit user_id/member_id fields over profile.id which
+  // might be the same as the scan id on some serialisation shapes.
+  const userIdRaw =
+    raw?.user_id ?? raw?.member_id ?? raw?.scanner_user_id_target ??
+    raw?.attendee?.user_id ?? raw?.member?.user_id ?? profile?.user_id;
+  const userId = userIdRaw != null && String(userIdRaw).trim() !== ''
+    ? String(userIdRaw)
+    : undefined;
+
   return {
     id,
+    userId,
     code: String(raw?.code ?? raw?.badge_code ?? profile?.badge_code ?? ''),
     name,
     company,
@@ -558,48 +585,35 @@ export async function updateLeadApi(
 // ─── Lucky Draw ─────────────────────────────────────────────────────────────
 
 /**
- * Session-scoped short-circuit: the live Laravel backend doesn't have a
- * dedicated `/leads/draw` route. POST returns 405 (the only registered
- * verb for `/leads/{scanId}` is PATCH), and PATCH crashes inside
- * `MobileEventController::leadsUpdate` because Laravel matches the
- * literal string "draw" against the typed `int $scanId` route param
- * ("Argument #3 ($scanId) must be of type int, string given").
- *
- * Until the backend ships an actual draw endpoint, we detect any of
- * those signatures on the first call and remember it for the rest of
- * the session, so subsequent draws skip the round-trip and go straight
- * to the client-side fallback in `SponsorDrawPage`.
+ * Session-scoped short-circuit: if the first draw attempt for a given event
+ * returns "route not found", skip the network round-trip for subsequent draws
+ * in the same session — SponsorDrawPage falls back to a local random pick.
  */
 let drawEndpointMissing = false;
 
-/** A heuristic check: does this error look like "the draw route doesn't exist"? */
+/** True when the error indicates the draw route isn't deployed on this backend. */
 function isMissingDrawRouteError(error: { code?: string; message?: string } | undefined): boolean {
   if (!error) return false;
   const code = String(error.code ?? '');
-  // Numeric HTTP status codes the proxy or our apiClient may surface.
+  // Numeric HTTP status codes.
   if (code === '404' || code === '405') return true;
-  // Laravel exception class names: the API client parses the `exception` or
-  // `code` field from the JSON error envelope and forwards the PHP class name.
-  // NotFoundHttpException  = route doesn't exist (HTTP 404).
-  // MethodNotAllowedHttpException = wrong verb on an existing route (HTTP 405).
+  // Laravel PHP exception class names (what the API client surfaces from the
+  // JSON error envelope when the framework raises an HTTP exception).
   if (code === 'NotFoundHttpException' || code === 'MethodNotAllowedHttpException') return true;
-  // 500 with the int-cast TypeError = "draw" matched `/leads/{scanId int}`.
-  const msg = (error.message ?? '').toLowerCase();
-  if (msg.includes('leadsupdate') && msg.includes('int')) return true;
-  if (msg.includes('method is not supported') && msg.includes('leads/draw')) return true;
-  if (msg.includes('route') && msg.includes('leads/draw') && msg.includes('not')) return true;
   return false;
 }
 
 /**
- * POST /api/v1/events/:eventId/leads/draw
+ * POST /api/v1/events/:eventId/giveaways/:giveawayId/draw
  *
- * Server-side draw is OPTIONAL per BACKEND_SCAN_ENDPOINTS.md, and the
- * live backend hasn't shipped it yet. We still attempt the call so the
- * draw is server-arbitrated the moment the backend gains the route, but
- * we degrade gracefully on the well-known "missing route" signatures
- * (see `isMissingDrawRouteError`) by returning a typed `NOT_IMPLEMENTED`
- * response — `SponsorDrawPage` interprets that as "do the draw locally".
+ * Asks the server to randomly pick a winner from this giveaway's entry list.
+ * The server records the draw and returns the updated giveaway row (with the
+ * `winner` object populated). If the route isn't deployed yet, we return
+ * NOT_IMPLEMENTED — SponsorDrawPage falls back to a local random pick from
+ * the lead pool and then posts the chosen winner to /winners.
+ *
+ * When no giveawayId is supplied (ad-hoc draw without a linked prize) we
+ * return NOT_IMPLEMENTED immediately so the page uses the local fallback.
  */
 export async function triggerLuckyDraw(
   eventId: string | number,
@@ -615,36 +629,61 @@ export async function triggerLuckyDraw(
     return {
       success: true,
       data: {
-        id: winner.id,
+        id: winner.userId ?? winner.id,
         name: winner.name,
         company: winner.company,
         title: winner.title,
         avatar: winner.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(winner.name)}&background=7c3aed&color=fff`,
+        userId: winner.userId ?? winner.id,
       },
     };
   }
 
-  if (drawEndpointMissing) {
-    return {
-      success: false,
-      error: { code: 'NOT_IMPLEMENTED', message: 'Draw endpoint not deployed.' },
-    };
+  // Ad-hoc draw (no linked giveaway) → local fallback immediately.
+  if (!params.giveawayId) {
+    return { success: false, error: { code: 'NOT_IMPLEMENTED', message: 'No giveaway selected — draw locally.' } };
   }
 
-  const res = await apiPost<DrawWinner>(
-    `/api/v1/events/${eventId}/leads/draw`,
-    params,
+  if (drawEndpointMissing) {
+    return { success: false, error: { code: 'NOT_IMPLEMENTED', message: 'Draw endpoint not deployed.' } };
+  }
+
+  // POST /api/v1/events/:eventId/giveaways/:giveawayId/draw
+  // The server picks a random entry, marks the giveaway DRAWN, and returns
+  // the full updated giveaway row (same shape as PUT/POST success).
+  const res = await apiPost<unknown>(
+    `/api/v1/events/${eventId}/giveaways/${params.giveawayId}/draw`,
+    {},   // no body required; server uses the giveaway's entry list
     HEADERS,
   );
   if (!res.success || !res.data) {
     if (isMissingDrawRouteError(res.error)) {
       drawEndpointMissing = true;
-      return {
-        success: false,
-        error: { code: 'NOT_IMPLEMENTED', message: 'Draw endpoint not deployed.' },
-      };
+      return { success: false, error: { code: 'NOT_IMPLEMENTED', message: 'Draw endpoint not deployed.' } };
     }
     return { success: false, error: res.error ?? { code: 'DRAW_FAILED', message: 'Failed to select a winner.' } };
   }
-  return { success: true, data: res.data };
+
+  // The response is the full giveaway row; the winner is in `data.winner`
+  // (object shape: { id, name, email, company }). Fall back to treating
+  // `data` itself as the winner object in case a future backend version
+  // returns a slimmer shape.
+  const row = res.data as any;
+  const w = row?.winner ?? row;
+  if (!w?.id && !w?.name) {
+    return { success: false, error: { code: 'DRAW_FAILED', message: 'Server draw returned no winner.' } };
+  }
+  const userId = String(w.id ?? '');
+  return {
+    success: true,
+    data: {
+      id: userId,          // user_id from server — also used as winner_user_id
+      userId,              // explicit field for POST /winners
+      name: String(w.name ?? ''),
+      company: String(w.company ?? w.company_name ?? ''),
+      title: String(w.title ?? w.job_title ?? ''),
+      avatar: String(w.avatar ?? w.avatar_url ?? '') ||
+        `https://ui-avatars.com/api/?name=${encodeURIComponent(w.name ?? 'Winner')}&background=7c3aed&color=fff`,
+    },
+  };
 }

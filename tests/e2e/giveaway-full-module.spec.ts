@@ -106,6 +106,8 @@ const SAVED_GIVEAWAY = {
 const LEADS = [
   {
     id: 'lead-stl-001',
+    // user_id is the backend user account id — used as winner_user_id for /winners
+    user_id: 1001,
     name: 'Alice Johnson',
     email: 'alice@techcorp.com',
     company: 'TechCorp',
@@ -122,6 +124,7 @@ const LEADS = [
   },
   {
     id: 'lead-stl-002',
+    user_id: 1002,
     name: 'Bob Martinez',
     email: 'bob@startup.io',
     company: 'StartupIO',
@@ -207,11 +210,11 @@ async function installMocks(page: Page, cfg: MockConfig) {
     if (/\/giveaways\/[^/]+\/winners/.test(p) && method === 'POST')
       return ok({ success: true, data: { id: 1, message: 'Winner recorded.' } }, 201);
 
-    // ── Lucky Draw endpoint (not deployed → Laravel NotFoundHttpException) ───
-    // The real backend wraps the PHP exception class name in an `error` object.
-    // parseResponse sees `success: false` (boolean) → returns the body as-is
-    // → res.error = { code: 'NotFoundHttpException', message: 'Server error' }.
-    if (p === `/api/v1/events/${EVENT_ID}/leads/draw` && method === 'POST')
+    // ── Lucky Draw endpoint — POST /giveaways/:id/draw ────────────────────────
+    // Real URL (backend agent confirmed): POST /events/:id/giveaways/:id/draw
+    // The live backend may not have this route yet — return NOT_IMPLEMENTED so
+    // the client falls back to a local random pick from the lead pool.
+    if (/\/giveaways\/[^/]+\/draw$/.test(p) && method === 'POST')
       return ok({ success: false, error: { code: 'NotFoundHttpException', message: 'Server error' } }, 404);
 
     // ── Leads (draw pool) ────────────────────────────────────────────────────

@@ -84,6 +84,13 @@ interface User {
 
 export interface Lead {
   id: string;
+  /**
+   * The backend user account id (integer stored as string). Distinct from `id`
+   * which is the lead scan_id (primary key of the lead_scans table). Used as
+   * `winner_user_id` when recording a Lucky Draw winner via
+   * POST /events/:id/giveaways/:id/winners.
+   */
+  userId?: string;
   code: string;
   name: string;
   company: string;
@@ -1867,6 +1874,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       image: giveaway.image,
       sponsorName: giveaway.sponsorName,
       sponsorId: String(giveaway.sponsorId ?? ''),
+      // company_id is the canonical backend field for sponsor identity.
+      // user.companyId is set from the profile fetch after sign-in.
+      companyId: user?.companyId ?? null,
       addedByName: giveaway.addedByName,
     });
 
@@ -2157,7 +2167,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // visible in the dev console without surfacing as a UI toast.
     if (targetEventId) {
       void saveGiveawayWinnerApi(targetEventId, resolvedId, {
-        id: winner.id,
+        // userId is the backend user_id integer (as string) — the only field
+        // the /winners endpoint accepts (as winner_user_id). Falls back to id
+        // when userId wasn't set (e.g. ad-hoc draws or older code paths).
+        userId: winner.userId ?? winner.id,
         name: winner.name,
         company: winner.company,
         title: winner.title,

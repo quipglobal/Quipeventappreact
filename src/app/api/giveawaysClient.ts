@@ -85,14 +85,54 @@ function normalizeWinner(raw: any): { id: string; name: string; company?: string
 function normalizeGiveaway(raw: any): SponsorGiveaway {
   const tsSource = raw?.created_at ?? raw?.createdAt ?? raw?.created ?? raw?.timestamp;
   const createdAt = tsSource ? new Date(tsSource) : new Date();
-  // Backend may return winners under any of these keys depending on
-  // how the API resource is shaped. We map them once here so the
-  // AppContext merge can rely on `g.winners` being a real array.
+
+  // ── Winners ──────────────────────────────────────────────────────────────
+  // The admin/sponsor endpoint returns a single `winner` object (non-null once
+  // drawn) plus a flat `winner_name` string.  Older/custom shapes may use
+  // plural arrays (`winners`, `winner_list`, etc.).  We normalise all shapes
+  // into the same `winners` array that AppContext expects.
   const rawWinners: unknown =
     raw?.winners ?? raw?.winner_list ?? raw?.winnersList ?? raw?.draws ?? raw?.draw_history;
-  const winners = Array.isArray(rawWinners)
-    ? (rawWinners.map(normalizeWinner).filter(Boolean) as Array<{ id: string; name: string; company?: string; title?: string; avatar?: string; drawnAt: string }>)
-    : [];
+  let winners: Array<{ id: string; name: string; company?: string; title?: string; avatar?: string; drawnAt: string; userId?: string }> = [];
+  if (Array.isArray(rawWinners)) {
+    winners = rawWinners.map(normalizeWinner).filter(Boolean) as typeof winners;
+  } else if (raw?.winner && typeof raw.winner === 'object' && raw.winner.id) {
+    // Single winner object from the admin endpoint (non-null once DRAWN).
+    const w = raw.winner;
+    winners = [{
+      id:      String(w.id),
+      userId:  String(w.id),   // winner.id IS the user_id from the backend
+      name:    String(w.name ?? raw.winner_name ?? ''),
+      company: w.company ? String(w.company) : undefined,
+      title:   w.title   ? String(w.title)   : undefined,
+      avatar:  w.avatar  ? String(w.avatar)  : undefined,
+      drawnAt: String(raw?.drawn_at ?? raw?.drawnAt ?? new Date().toISOString()),
+    }];
+  } else if (raw?.winner_name && raw?.winner_user_id) {
+    // Flat winner fields without a nested object.
+    winners = [{
+      id:      String(raw.winner_user_id),
+      userId:  String(raw.winner_user_id),
+      name:    String(raw.winner_name),
+      drawnAt: String(raw?.drawn_at ?? raw?.drawnAt ?? new Date().toISOString()),
+    }];
+  }
+
+  // ── Sponsor / company identity ────────────────────────────────────────────
+  // The admin endpoint returns `company_id` + `company_name`; older shapes
+  // used `sponsor_id` / `sponsor_name`.  Prefer the new canonical fields.
+  const sponsorId = String(
+    raw?.company_id ?? raw?.sponsorId ?? raw?.sponsor_id ??
+    raw?.sponsor?.id ?? raw?.created_by_user_id ?? raw?.user_id ?? raw?.created_by ?? '',
+  );
+  const sponsorName = pickString(
+    raw?.company_name,
+    raw?.sponsorName,
+    raw?.sponsor_name,
+    raw?.sponsor?.name,
+    raw?.sponsor?.company_name,
+  );
+
   return {
     id: String(raw?.id ?? raw?.giveaway_id ?? raw?.uuid ?? `giveaway-${Date.now()}`),
     title: pickString(raw?.title, raw?.name, raw?.prize, raw?.label),
@@ -116,15 +156,8 @@ function normalizeGiveaway(raw: any): SponsorGiveaway {
     ),
     image: pickString(raw?.image, raw?.image_url, raw?.imageUrl, raw?.photo, raw?.photo_url),
     createdAt: isNaN(createdAt.getTime()) ? new Date() : createdAt,
-    sponsorName: pickString(
-      raw?.sponsorName,
-      raw?.sponsor_name,
-      raw?.sponsor?.name,
-      raw?.sponsor?.company_name,
-    ),
-    sponsorId: String(
-      raw?.sponsorId ?? raw?.sponsor_id ?? raw?.sponsor?.id ?? raw?.user_id ?? raw?.created_by ?? '',
-    ),
+    sponsorName,
+    sponsorId,
     addedByName: pickString(
       raw?.addedByName,
       raw?.added_by_name,
@@ -192,6 +225,11 @@ export interface CreateGiveawayPayload {
   image: string;
   sponsorName: string;
   sponsorId: string;
+  /**
+   * The integer company id of the sponsoring company — what the backend stores
+   * as `company_id`. Required for sponsor reps (admins may omit it).
+   */
+  companyId?: number | null;
   /** Display name of the rep who added this giveaway. */
   addedByName?: string;
 }
@@ -211,29 +249,15 @@ export async function createGiveaway(
   if (createEndpointMissing) {
     return { success: false, error: { code: 'NOT_IMPLEMENTED', message: 'Giveaway create endpoint not deployed.' } };
   }
-  // Send every known field-name variant for the item count so the
-  // backend can accept whichever column name its migration defined
-  // (number_of_items, quantity, total_count, count, etc.).
+  // company_id is the canonical field the backend requires for sponsor reps.
+  // We also send the legacy sponsor_id / sponsorId aliases for older backend
+  // versions that haven't migrated to the company-based model yet.
   const itemCount = payload.numberOfItems;
-  const body = {
+  const companyIdVal = payload.companyId != null ? Number(payload.companyId) : undefined;
+  const body: Record<string, unknown> = {
     title: payload.title,
-    // snake_case variants
-    number_of_items: itemCount,
-    total_count:     itemCount,
-    prize_count:     itemCount,
-    items_count:     itemCount,
-    total_items:     itemCount,
-    // camelCase variants
-    numberOfItems:   itemCount,
-    totalCount:      itemCount,
-    prizeCount:      itemCount,
-    itemsCount:      itemCount,
-    totalItems:      itemCount,
-    // bare "quantity" / "count" fallback
-    quantity:        itemCount,
-    count:           itemCount,
-    image: payload.image,
-    image_url: payload.image,
+    // Company / sponsor identity — canonical field first.
+    ...(companyIdVal != null ? { company_id: companyIdVal } : {}),
     sponsor_name: payload.sponsorName,
     sponsorName: payload.sponsorName,
     sponsor_id: payload.sponsorId,
@@ -242,6 +266,21 @@ export async function createGiveaway(
     addedByName: payload.addedByName ?? '',
     creator_name: payload.addedByName ?? '',
     creatorName: payload.addedByName ?? '',
+    // Item count — every known field-name variant.
+    number_of_items: itemCount,
+    total_count:     itemCount,
+    prize_count:     itemCount,
+    items_count:     itemCount,
+    total_items:     itemCount,
+    numberOfItems:   itemCount,
+    totalCount:      itemCount,
+    prizeCount:      itemCount,
+    itemsCount:      itemCount,
+    totalItems:      itemCount,
+    quantity:        itemCount,
+    count:           itemCount,
+    image: payload.image,
+    image_url: payload.image,
   };
   const res = await apiPost<unknown>(`/api/v1/events/${eventId}/giveaways`, body, HEADERS);
   if (!res.success || !res.data) {
@@ -342,13 +381,23 @@ export async function updateGiveaway(
 // ─── Winners ────────────────────────────────────────────────────────────────
 
 export interface SaveWinnerPayload {
-  /** Lead/attendee id of the chosen winner. */
-  id: string;
+  /**
+   * The backend user account id (integer as string) of the chosen winner —
+   * sent as `winner_user_id` to the backend. This is the only field the
+   * /winners endpoint accepts; the server resolves name/company from its own
+   * user table.
+   *
+   * When the server picked the winner via /draw this is `DrawWinner.id`
+   * (both are the same user_id). When the client picked locally from the leads
+   * pool this should be `Lead.userId` (the user account id, NOT the scan_id).
+   */
+  userId: string;
+  /** Display name — used only for local overlay; not sent to the server. */
   name: string;
   company?: string;
   title?: string;
   avatar?: string;
-  /** ISO 8601 timestamp of when the draw resolved. */
+  /** ISO 8601 timestamp of when the draw resolved — local only. */
   drawnAt: string;
 }
 
@@ -360,57 +409,35 @@ export interface SaveWinnerResponse {
 /**
  * POST /api/v1/events/:eventId/giveaways/:giveawayId/winners
  *
- * Notifies the backend that a winner has been picked for this giveaway
- * (typically by `SponsorDrawPage` after a Lucky Draw resolves — either
- * server-arbitrated or, while `/leads/draw` is missing, the client-side
- * fallback). The backend is expected to:
- *   • persist the winner row (so back-office reports include it);
- *   • surface it on subsequent `GET /events/:id/giveaways` responses
- *     under each giveaway's `winners` array — the frontend already
- *     unions that field with its local overlay so admin- and rep-side
- *     picks converge on every device.
+ * Records a winner on the backend. Contract (from backend agent):
+ *   • Only accepts `{ winner_user_id: integer }`.
+ *   • winner_user_id must already have an entry in the giveaway
+ *     (created automatically via scan when auto_enter_on_scan is true,
+ *     or via manual entry). Returns 422 NO_ENTRY if not.
+ *   • Idempotent: if the giveaway is already DRAWN, returns 200 with
+ *     was_already_drawn: true and the existing winner rather than an error.
  *
- * This endpoint isn't documented in `BACKEND_SCAN_ENDPOINTS.md` yet;
- * it's a forward-looking call. If the backend hasn't shipped it (404
- * or 405), we set a session-scoped flag and surface NOT_IMPLEMENTED so
- * the caller can degrade silently — winners still live in the per-event
- * localStorage overlay, the on-screen UX is unaffected.
+ * Failures are non-fatal — the localStorage overlay is the source of
+ * truth for this device and the UX never blocks on this call.
  *
  * Synthetic giveaway ids (created locally, never round-tripped through
- * the backend) skip the call entirely, the same way `updateGiveaway`
- * does — there's no canonical row to attach a winner to yet.
+ * the backend) skip the call — there's no canonical row to attach to yet.
  */
 export async function saveGiveawayWinner(
   eventId: string | number,
   giveawayId: string,
   winner: SaveWinnerPayload,
 ): Promise<SaveWinnerResponse> {
-  // No session-scoped blocking flag here: lucky draws are infrequent (one per
-  // draw, not a polling loop), so the cost of always hitting the network is
-  // negligible. A session-flag would silently drop a second giveaway's winner
-  // POST if the first one 404'd — which is exactly the "winner not posted to
-  // backend" bug. Each draw independently retries so a newly-deployed endpoint
-  // is picked up immediately without requiring a page reload.
   if (giveawayId.startsWith('giveaway-')) {
     return { success: false, error: { code: 'NOT_IMPLEMENTED', message: 'Giveaway is local-only — backend create did not complete.' } };
   }
-  // Send both camelCase and snake_case so either backend convention
-  // works without a contract change here. Mirrors `createGiveaway` /
-  // `updateGiveaway`.
-  const body: Record<string, unknown> = {
-    id: winner.id,
-    winner_id: winner.id,
-    winnerId: winner.id,
-    lead_id: winner.id,
-    leadId: winner.id,
-    name: winner.name,
-    company: winner.company ?? '',
-    title: winner.title ?? '',
-    avatar: winner.avatar ?? '',
-    avatar_url: winner.avatar ?? '',
-    drawn_at: winner.drawnAt,
-    drawnAt: winner.drawnAt,
-  };
+  const winnerUserId = parseInt(winner.userId, 10);
+  if (!winnerUserId || isNaN(winnerUserId)) {
+    // No valid integer user id — can't satisfy the backend contract.
+    // The localStorage overlay still has the win; just skip the API call.
+    return { success: false, error: { code: 'NO_USER_ID', message: 'Winner has no backend user id — cannot POST to /winners.' } };
+  }
+  const body = { winner_user_id: winnerUserId };
   const res = await apiPost<unknown>(
     `/api/v1/events/${eventId}/giveaways/${giveawayId}/winners`,
     body,
@@ -418,12 +445,89 @@ export async function saveGiveawayWinner(
   );
   if (!res.success) {
     const code = String(res.error?.code ?? '');
-    if (code === '404' || code === '405') {
+    if (code === '404' || code === '405' || code === 'NotFoundHttpException' || code === 'MethodNotAllowedHttpException') {
       return { success: false, error: { code: 'NOT_IMPLEMENTED', message: 'Save-winner endpoint not deployed.' } };
+    }
+    if (code === '422' || code === 'NO_ENTRY') {
+      // Winner has no entry in the giveaway — log and degrade gracefully.
+      if (typeof console !== 'undefined') {
+        console.warn('[saveGiveawayWinner] winner_user_id', winnerUserId, 'has no entry in giveaway', giveawayId, '— 422 NO_ENTRY');
+      }
+      return { success: false, error: { code: 'NO_ENTRY', message: 'Winner has no entry in this giveaway.' } };
     }
     return { success: false, error: res.error ?? { code: 'SAVE_WINNER_FAILED', message: 'Failed to save winner.' } };
   }
   return { success: true };
+}
+
+// ─── Attendee giveaway list ───────────────────────────────────────────────────
+
+export interface AttendeeGiveaway {
+  id: string;
+  title: string;
+  description?: string;
+  prize?: string;
+  numberOfItems: number;
+  image?: string;
+  status: 'OPEN' | 'CLOSED' | 'DRAWN' | string;
+  companyId?: number | null;
+  companyName?: string;
+  entryCount: number;
+  hasEntered: boolean;
+  isWinner: boolean;
+  isDrawn: boolean;
+  winner?: { id: number; name: string; email?: string; company?: string } | null;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  drawnAt?: string | null;
+}
+
+export interface ListAttendeeGiveawaysResponse {
+  success: boolean;
+  data?: AttendeeGiveaway[];
+  error?: { code: string; message: string };
+}
+
+/**
+ * GET /api/v1/events/:eventId/mobile-giveaways
+ *
+ * Attendee-facing giveaway list. Returns OPEN, CLOSED, and DRAWN giveaways
+ * with attendee-specific flags (has_entered, is_winner, is_drawn, winner).
+ * DRAFT giveaways are never returned. Behind event.member middleware — any
+ * authenticated event member can call it.
+ */
+export async function listAttendeeGiveaways(eventId: string | number): Promise<ListAttendeeGiveawaysResponse> {
+  const res = await apiGet<unknown>(`/api/v1/events/${eventId}/mobile-giveaways`, HEADERS);
+  if (!res.success || !res.data) {
+    return { success: false, error: res.error ?? { code: 'LIST_FAILED', message: 'Failed to fetch giveaways.' } };
+  }
+  const data = res.data as any;
+  let raw: any[] | null = null;
+  if (Array.isArray(data)) raw = data;
+  else if (Array.isArray(data?.data)) raw = data.data;
+  if (!raw) {
+    return { success: false, error: { code: 'LIST_FAILED', message: 'Unexpected giveaways response.' } };
+  }
+  const normalized: AttendeeGiveaway[] = raw.map((r: any) => ({
+    id:           String(r.id ?? ''),
+    title:        String(r.title ?? ''),
+    description:  r.description ? String(r.description) : undefined,
+    prize:        r.prize       ? String(r.prize)       : undefined,
+    numberOfItems: Number(r.number_of_items ?? r.numberOfItems ?? 0),
+    image:        r.image_url   ? String(r.image_url)   : undefined,
+    status:       String(r.status ?? 'OPEN'),
+    companyId:    r.company_id  != null ? Number(r.company_id) : null,
+    companyName:  r.company_name ? String(r.company_name) : undefined,
+    entryCount:   Number(r.entry_count ?? 0),
+    hasEntered:   Boolean(r.has_entered),
+    isWinner:     Boolean(r.is_winner),
+    isDrawn:      Boolean(r.is_drawn ?? r.status === 'DRAWN'),
+    winner:       r.winner ?? null,
+    startsAt:     r.starts_at   ?? null,
+    endsAt:       r.ends_at     ?? null,
+    drawnAt:      r.drawn_at    ?? null,
+  }));
+  return { success: true, data: normalized };
 }
 
 /**

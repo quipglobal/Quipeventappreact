@@ -29,6 +29,14 @@ export interface GiveawayWinner {
   avatar?: string;
   /** ISO 8601 timestamp of when the draw resolved. */
   drawnAt: string;
+  /**
+   * The backend user_id (integer, stored as string) of the winner — required
+   * by POST /giveaways/:id/winners as `winner_user_id`. May differ from `id`
+   * when the draw was done locally and `id` holds a lead scan_id rather than
+   * a user account id. When the server picks the winner via the draw endpoint
+   * both fields are the same (both are the user_id from the winner object).
+   */
+  userId?: string;
 }
 
 /** Map of giveawayId -> ordered list of winners (oldest first). */

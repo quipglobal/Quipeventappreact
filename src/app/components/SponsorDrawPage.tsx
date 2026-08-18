@@ -14,6 +14,13 @@ import { getCached, setCached } from '@/app/lib/pageCache';
 
 interface DrawParticipant {
   id: string;
+  /**
+   * The backend user account id — forwarded from Lead.userId.
+   * Used as `winner_user_id` when recording the draw result via
+   * POST /giveaways/:id/winners.  May be undefined for leads that
+   * were captured before the userId field existed.
+   */
+  userId?: string;
   name: string;
   company: string;
   title: string;
@@ -190,10 +197,13 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack, initia
     });
   }, [selectedGiveaway?.id, sponsorGiveaways]);
 
-  // Convert backend leads to common DrawParticipant format
+  // Convert backend leads to common DrawParticipant format.
+  // userId is preserved from Lead.userId so the local-fallback path in
+  // startDraw can pass a valid integer user_id to POST /giveaways/:id/winners.
   const basePool: DrawParticipant[] = useMemo(() => {
     return poolLeads.map(l => ({
       id: l.id,
+      userId: l.userId,   // backend user account id (for /winners API)
       name: l.name,
       company: l.company,
       title: l.title,
@@ -256,7 +266,11 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack, initia
         return {
           success: true as const,
           data: {
-            id: w.id,
+            // Use the backend user_id (w.userId) so recordGiveawayWinner can
+            // POST { winner_user_id } to /giveaways/:id/winners. Falls back to
+            // w.id (scan_id) for display/dedup when userId isn't available.
+            id: w.userId ?? w.id,
+            userId: w.userId,
             name: w.name,
             company: w.company,
             title: w.title,

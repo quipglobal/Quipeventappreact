@@ -11,3 +11,4 @@
 - [Screenshot Tool Fresh Navigation](screenshot-tool-fresh-navigation.md) — app_preview screenshots reload fresh each call; can't observe timed transitions (splash, toasts) this way — use runTest instead
 - [Lead sync contract](lead-sync-contract.md) — scan_id probe fix, uppercase priority on wire, overlay retirement via clearLeadEdit, syncPending retry pattern
 - [Path B check-in toast race](path-b-checkin-toast-race.md) — void checkInMemberApi inside .then() resolves before Playwright polls, overwriting attendee-points toast; fix: skip check-in toast when attendeePoints > 0
+- [Giveaway API contracts](giveaway-api-contracts.md) — exact endpoint URLs, /winners body (winner_user_id only), /draw URL fix, DrawParticipant userId chain, attendee mobile-giveaways endpoint
