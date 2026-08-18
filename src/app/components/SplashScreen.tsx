@@ -8,15 +8,23 @@ interface SplashScreenProps {
 export const SplashScreen: React.FC<SplashScreenProps> = ({ onComplete }) => {
   const [phase, setPhase] = useState<'enter' | 'hold' | 'exit'>('enter');
 
+  // Hold the callback in a ref so the animation timers start exactly once on
+  // mount and are never reset by a parent re-render (AppContext fires several
+  // setState calls during initialisation which would otherwise recreate the
+  // inline arrow function reference and reset the timers before they fire).
+  const onCompleteRef = React.useRef(onComplete);
+  useEffect(() => { onCompleteRef.current = onComplete; });
+
   useEffect(() => {
     // eslint-disable-next-line local/no-raw-timers -- UI animation: splash-screen phase sequence, no auth gate needed
     const t1 = setTimeout(() => setPhase('hold'), 400);
     // eslint-disable-next-line local/no-raw-timers -- UI animation: splash-screen phase sequence, no auth gate needed
     const t2 = setTimeout(() => setPhase('exit'), 1900);
     // eslint-disable-next-line local/no-raw-timers -- UI animation: splash-screen phase sequence, no auth gate needed
-    const t3 = setTimeout(() => onComplete(), 2400);
+    const t3 = setTimeout(() => onCompleteRef.current(), 2400);
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
-  }, [onComplete]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally run once on mount only
+  }, []);
 
   return (
     <div
