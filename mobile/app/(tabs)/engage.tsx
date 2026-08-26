@@ -19,7 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
 import { useEvent } from '@/context/EventContext';
-import { useChallenges, useCompleteChallenge, usePolls, useVotePoll, useSurveys, useGetSurveyDetail, useSubmitSurvey, useGiveaways, useCreateGiveaway, useUpdateGiveaway, useRemoveGiveaway, useRecordGiveawayWinner } from '@/hooks/useEngage';
+import { useChallenges, useCompleteChallenge, usePolls, useVotePoll, useSurveys, useGetSurveyDetail, useSubmitSurvey, useGiveaways, useCreateGiveaway, useUpdateGiveaway, useRemoveGiveaway } from '@/hooks/useEngage';
 import { useLeaderboard } from '@/hooks/useAudience';
 import { useLeads, useLuckyDraw, useSubmitScan, leadsQueryKey } from '@/hooks/useLeads';
 import { useEvents } from '@/hooks/useEvents';
@@ -28,7 +28,7 @@ import { BadgeCameraScanner } from '@/components/BadgeCameraScanner';
 import { SponsorReviews } from '@/components/SponsorReviews';
 import { colors, spacing, radius } from '@/constants/theme';
 import { submitScan } from '@/lib/api/leads';
-import type { ApiResponse, LeaderboardEntry, Lead, Giveaway, GiveawayWinner, Survey, SurveyQuestion } from '@/lib/api/types';
+import type { ApiResponse, LeaderboardEntry, Lead, Giveaway, Survey, SurveyQuestion } from '@/lib/api/types';
 
 function BadgeScanPanel({ onScanPress }: { onScanPress: () => void }) {
   return (
@@ -1048,11 +1048,13 @@ function AttendeeEngage() {
 function GiveawaysManager({
   sponsorName,
   sponsorId,
+  companyId,
   onBack,
   onRunDraw,
 }: {
   sponsorName: string;
   sponsorId: string;
+  companyId?: number | null;
   onBack: () => void;
   onRunDraw?: (giveaway: Giveaway) => void;
 }) {
@@ -1063,7 +1065,7 @@ function GiveawaysManager({
     // server hasn't returned sponsor_id for this event's giveaways yet).
     if (!g.sponsorId && !g.sponsor) return true;
     // Primary: user-ID match — most reliable.
-    if (sponsorId && g.sponsorId === sponsorId) return true;
+    if (companyId != null && g.sponsorId === String(companyId)) return true;
     // Fallback: company/sponsor name match — catches rows where the server
     // echoed sponsor_name but not sponsor_id (or returned a different ID
     // format), so a freshly-created giveaway isn't hidden after the
@@ -1071,7 +1073,7 @@ function GiveawaysManager({
     if (sponsorName && g.sponsor === sponsorName) return true;
     return false;
   });
-  const { mutate: createGiveaway } = useCreateGiveaway();
+  const { mutateAsync: createGiveaway, isPending: isCreating } = useCreateGiveaway();
   const { mutate: updateGiveaway } = useUpdateGiveaway();
   const { mutate: removeGiveaway } = useRemoveGiveaway();
 
@@ -1081,22 +1083,27 @@ function GiveawaysManager({
   const [editTitle, setEditTitle] = useState('');
   const [editItems, setEditItems] = useState('1');
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     const trimmed = title.trim();
     const count = parseInt(items, 10);
     if (!trimmed) {
       Alert.alert('Missing title', 'Enter a name for the giveaway prize.');
       return;
     }
-    createGiveaway({
+    const res = await createGiveaway({
       title: trimmed,
       numberOfItems: Number.isFinite(count) && count > 0 ? count : 1,
       image: '',
       sponsorName,
       sponsorId,
+      companyId,
     });
-    setTitle('');
-    setItems('1');
+    if (res.success) {
+      setTitle('');
+      setItems('1');
+      return;
+    }
+    Alert.alert('Could not save giveaway', res.error?.message ?? 'Please try again.');
   };
 
   const startEdit = (g: Giveaway) => {
@@ -1168,10 +1175,10 @@ function GiveawaysManager({
             placeholderTextColor={colors.textMuted}
             keyboardType="number-pad"
           />
-          <TouchableOpacity style={styles.gmAddBtn} onPress={handleCreate}>
+          <TouchableOpacity style={[styles.gmAddBtn, isCreating && { opacity: 0.6 }]} onPress={handleCreate} disabled={isCreating}>
             <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.gmAddBtnGrad}>
               <Ionicons name="add" size={18} color="#fff" />
-              <Text style={styles.gmAddBtnText}>Add Giveaway</Text>
+              <Text style={styles.gmAddBtnText}>{isCreating ? 'Saving…' : 'Add Giveaway'}</Text>
             </LinearGradient>
           </TouchableOpacity>
         </View>
@@ -1271,7 +1278,7 @@ function GiveawaysManager({
           <>
             <Text style={[styles.gmSectionLabel, { marginTop: spacing.xl }]}>ALL EVENT GIVEAWAYS</Text>
             {allGiveaways.map((g) => (
-              <View key={g.id} style={[styles.gmCard, { backgroundColor: colors.surface2 }]}>
+              <View key={g.id} style={[styles.gmCard, { backgroundColor: colors.bgElevated }]}>
                 <Text style={styles.gmCardTitle}>{g.title}</Text>
                 <Text style={styles.gmCardMeta}>
                   {(g.numberOfItems ?? 1)} item{(g.numberOfItems ?? 1) !== 1 ? 's' : ''}
@@ -1320,10 +1327,12 @@ function SponsorEngage() {
   const { data: leadsData = [], refetch: refetchLeads } = useLeads();
   const { data: allGiveaways = [] } = useGiveaways();
   const giveawaysForDraw = allGiveaways.filter(
-    (g) => !g.sponsorId || g.sponsorId === String(user?.id ?? ''),
+    (g) =>
+      !g.sponsorId ||
+      (user?.companyId != null && g.sponsorId === String(user.companyId)) ||
+      (!!user?.company && g.sponsor === user.company),
   );
   const { mutate: triggerDraw, isPending: drawPending } = useLuckyDraw();
-  const recordWinner = useRecordGiveawayWinner();
   const leads = leadsData;
 
   const drawBusy = drawPending || drawShuffling;
@@ -1331,7 +1340,7 @@ function SponsorEngage() {
   // Reveal a winner: brief shuffle animation cycling through candidate
   // names, then settle on the chosen winner and persist the result.
   const revealWinner = (
-    winner: { id: string; name: string; company?: string; title?: string; avatar?: string },
+    winner: { id: string; userId?: string; name: string; company?: string; title?: string; avatar?: string },
     pool: Lead[],
   ) => {
     const candidates = pool.length > 0 ? pool : [{ id: winner.id, name: winner.name } as Lead];
@@ -1346,55 +1355,28 @@ function SponsorEngage() {
         clearInterval(interval);
         setDrawWinner(winner);
         setDrawShuffling(false);
-        if (selectedGiveaway) {
-          const gw: GiveawayWinner = {
-            id: winner.id,
-            name: winner.name,
-            company: winner.company,
-            title: winner.title,
-            avatar: winner.avatar,
-            drawnAt: new Date().toISOString(),
-          };
-          void recordWinner(selectedGiveaway.id, gw);
-        }
       }
     }, 80);
   };
 
-  // Client-side fallback pick used when the backend `/leads/draw`
-  // route isn't deployed (NOT_IMPLEMENTED) — mirrors the web
-  // SponsorDrawPage fallback of choosing a random eligible lead.
-  const pickLocalWinner = () => {
-    const pool = leads;
-    if (pool.length === 0) {
-      Alert.alert('No participants', 'Scan some leads before running a draw.');
+  const runDraw = () => {
+    if (drawBusy || !selectedGiveaway || selectedGiveaway.id.startsWith('giveaway-')) {
+      Alert.alert('Select a saved giveaway', 'Wait for the giveaway to save, then select it before drawing a winner.');
       return;
     }
-    const chosen = pool[Math.floor(Math.random() * pool.length)];
-    revealWinner(
-      { id: String(chosen.id), name: chosen.name ?? 'Unknown', company: chosen.company, title: chosen.title },
-      pool,
-    );
-  };
-
-  const runDraw = () => {
-    if (drawBusy) return;
     triggerDraw(selectedGiveaway?.id, {
       onSuccess: (res) => {
         const w = res.data?.winner;
         if (res.success && w) {
           revealWinner(
-            { id: String(w.id), name: w.name ?? 'Unknown', company: w.company, title: w.title },
+            { id: String(w.id), userId: w.userId ? String(w.userId) : String(w.id), name: w.name ?? 'Unknown', company: w.company, title: w.title },
             leads,
           );
           return;
         }
-        // Backend route missing (NOT_IMPLEMENTED) or a not-found style
-        // failure — fall back to a client-side random pick from the
-        // captured leads so the draw still works offline / pre-deploy.
-        pickLocalWinner();
+        Alert.alert('Could not run draw', res.error?.message ?? 'The server did not confirm a winner. Please try again.');
       },
-      onError: () => pickLocalWinner(),
+      onError: () => Alert.alert('Could not run draw', 'Please check your connection and try again.'),
     });
   };
 
@@ -1416,6 +1398,7 @@ function SponsorEngage() {
       <GiveawaysManager
         sponsorName={user?.company || user?.name || ''}
         sponsorId={user?.id ?? ''}
+          companyId={user?.companyId}
         onBack={() => setMode('tools')}
         onRunDraw={(g) => {
           setInitialDrawGiveaway(g);
@@ -1464,19 +1447,13 @@ function SponsorEngage() {
               onPress={() => setShowGiveawayPicker(v => !v)}
             >
               <Text style={styles.giveawayPickerLabel}>
-                {selectedGiveaway ? selectedGiveaway.title : 'Select giveaway (optional)'}
+                {selectedGiveaway ? selectedGiveaway.title : 'Select a saved giveaway'}
               </Text>
               <Ionicons name={showGiveawayPicker ? 'chevron-up' : 'chevron-down'} size={16} color={colors.textMuted} />
             </TouchableOpacity>
           )}
           {showGiveawayPicker && (
             <View style={styles.giveawayPickerList}>
-              <TouchableOpacity
-                style={styles.giveawayPickerItem}
-                onPress={() => { setSelectedGiveaway(null); setShowGiveawayPicker(false); }}
-              >
-                <Text style={[styles.giveawayPickerItemText, !selectedGiveaway && { color: colors.primary }]}>None</Text>
-              </TouchableOpacity>
               {giveawaysForDraw.map(g => (
                 <TouchableOpacity
                   key={g.id}
@@ -1506,13 +1483,13 @@ function SponsorEngage() {
           </LinearGradient>
 
           <TouchableOpacity
-            style={[styles.drawBtn, drawBusy && { opacity: 0.6 }]}
+            style={[styles.drawBtn, (drawBusy || !selectedGiveaway) && { opacity: 0.6 }]}
             onPress={runDraw}
-            disabled={drawBusy}
+            disabled={drawBusy || !selectedGiveaway}
           >
             <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.drawBtnGrad}>
               <Ionicons name="shuffle" size={18} color="#fff" />
-              <Text style={styles.drawBtnText}>{drawBusy ? 'Picking...' : drawWinner ? 'Draw Again' : 'Pick Winner'}</Text>
+              <Text style={styles.drawBtnText}>{drawBusy ? 'Picking...' : !selectedGiveaway ? 'Select a Giveaway' : drawWinner ? 'Draw Again' : 'Pick Winner'}</Text>
             </LinearGradient>
           </TouchableOpacity>
         </View>

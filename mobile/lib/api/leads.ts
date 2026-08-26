@@ -127,6 +127,15 @@ function normalizeLead(raw: any, index = 0): Lead {
     : [];
   return {
     id,
+    userId: raw?.user_id != null
+      ? String(raw.user_id)
+      : raw?.userId != null
+      ? String(raw.userId)
+      : profile?.user_id != null
+      ? String(profile.user_id)
+      : profile?.id != null
+      ? String(profile.id)
+      : undefined,
     name,
     title,
     company,
@@ -524,21 +533,41 @@ export async function updateLead(leadId: string, updates: LeadEdits): Promise<Ap
 }
 
 /**
- * POST /api/v1/events/:eventId/leads/draw
- * Picks a random winner from the current event's leads (optional giveawayId scopes the pool).
- * Matches BACKEND_SCAN_ENDPOINTS.md §5.
+ * POST /api/v1/events/:eventId/giveaways/:giveawayId/draw
+ *
+ * The giveaway service, not the client, chooses and persists the winner. The
+ * previous /leads/draw route was not a valid backend contract and made mobile
+ * draws appear to complete without a persisted giveaway winner.
  */
 export async function triggerLuckyDraw(giveawayId?: string): Promise<ApiResponse<{ winner: Lead }>> {
   const eventId = getEventId();
   if (__DEV__) console.log(`[Leads] triggerLuckyDraw eventId=${eventId} giveawayId=${giveawayId}`);
   if (!eventId) return { success: false, error: { code: 'NO_EVENT', message: 'No active event' } };
-  const body: Record<string, unknown> = {};
-  if (giveawayId) {
-    body.giveaway_id = giveawayId;
-    body.giveawayId  = giveawayId;
+  if (!giveawayId || giveawayId.startsWith('giveaway-')) {
+    return { success: false, error: { code: 'NO_GIVEAWAY', message: 'Select a saved giveaway before drawing.' } };
   }
-  return request<{ winner: Lead }>(`/api/v1/events/${eventId}/leads/draw`, {
+  const res = await request<any>(`/api/v1/events/${eventId}/giveaways/${giveawayId}/draw`, {
     method: 'POST',
-    body: JSON.stringify(body),
   });
+  if (!res.success) return res as ApiResponse<{ winner: Lead }>;
+  const row = res.data?.data ?? res.data;
+  const rawWinner = row?.winner ?? row;
+  if (!rawWinner?.id || !rawWinner?.name) {
+    return { success: false, error: { code: 'DRAW_FAILED', message: 'Server draw returned no winner.' } };
+  }
+  return {
+    success: true,
+    data: {
+      winner: {
+        id: String(rawWinner.id),
+        userId: String(rawWinner.user_id ?? rawWinner.userId ?? rawWinner.id),
+        name: String(rawWinner.name),
+        title: String(rawWinner.title ?? rawWinner.job_title ?? ''),
+        company: String(rawWinner.company ?? rawWinner.company_name ?? ''),
+        scannedAt: '',
+        color: ACCENT_COLORS[0],
+        status: 'warm',
+      },
+    },
+  };
 }

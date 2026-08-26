@@ -1,17 +1,58 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { ArrowLeft, Gift, Sparkles, Tag, Ticket, Trophy } from 'lucide-react';
-import { useApp } from '@/app/context/AppContext';
+import { SponsorGiveaway, useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
+import { listAttendeeGiveaways } from '@/app/api/giveawaysClient';
 
 interface GiveawaysPageProps {
   onBack: () => void;
 }
 
 export const GiveawaysPage: React.FC<GiveawaysPageProps> = ({ onBack }) => {
-  const { sponsorGiveaways } = useApp();
+  const { eventConfig } = useApp();
   const { t } = useTheme();
+  const [giveaways, setGiveaways] = useState<SponsorGiveaway[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const giveaways = sponsorGiveaways;
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
+    listAttendeeGiveaways(eventConfig.eventId).then(res => {
+      if (cancelled) return;
+      if (!res.success || !res.data) {
+        setGiveaways([]);
+        setLoadError(res.error?.message ?? 'Could not load giveaways.');
+        setLoading(false);
+        return;
+      }
+      setGiveaways(res.data.map(g => ({
+        id: g.id,
+        title: g.title,
+        numberOfItems: g.numberOfItems,
+        image: g.image ?? '',
+        createdAt: g.startsAt ? new Date(g.startsAt) : new Date(),
+        sponsorName: g.companyName ?? 'Sponsor',
+        sponsorId: String(g.companyId ?? ''),
+        winners: g.winner ? [{
+          id: String(g.winner.id),
+          userId: String(g.winner.id),
+          name: g.winner.name,
+          company: g.winner.company,
+          drawnAt: g.drawnAt ?? new Date().toISOString(),
+        }] : undefined,
+      })));
+      setLoading(false);
+    }).catch(() => {
+      if (!cancelled) {
+        setGiveaways([]);
+        setLoadError('Could not load giveaways.');
+        setLoading(false);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [eventConfig.eventId]);
 
   return (
     <div className="pb-24 min-h-screen" style={{ background: t.bgPage }}>
@@ -91,7 +132,17 @@ export const GiveawaysPage: React.FC<GiveawaysPageProps> = ({ onBack }) => {
 
       {/* ── Giveaway Cards ────────────────────────────────────────── */}
       <div className="px-5 pt-5 space-y-4 pb-6">
-        {giveaways.length === 0 && (
+        {loading && (
+          <div className="text-center py-12" style={{ color: t.textSec, fontSize: 14 }}>
+            Loading giveaways…
+          </div>
+        )}
+        {loadError && (
+          <div className="text-center py-8 rounded-2xl" style={{ color: '#dc2626', background: t.surface, border: `1px solid ${t.border}` }}>
+            {loadError}
+          </div>
+        )}
+        {!loading && !loadError && giveaways.length === 0 && (
           <div
             className="text-center py-16 rounded-2xl"
             style={{

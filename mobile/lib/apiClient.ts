@@ -505,6 +505,7 @@ export interface AuthUser {
   name: string;
   email: string;
   company: string;
+  companyId?: number | null;
   title: string;
   avatar: string;
   role: 'attendee' | 'sponsor';
@@ -547,6 +548,7 @@ function normalizeAuthUser(raw: any): AuthUser {
     name,
     email: raw.email ?? '',
     company: raw.company ?? raw.organization ?? raw.company_name ?? '',
+    companyId: raw.company_id != null ? Number(raw.company_id) : raw.companyId != null ? Number(raw.companyId) : null,
     title: raw.title ?? raw.job_title ?? raw.position ?? '',
     avatar:
       raw.avatar ??

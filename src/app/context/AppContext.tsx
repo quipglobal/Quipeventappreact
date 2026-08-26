@@ -297,7 +297,7 @@ interface AppContextType extends AppState {
     giveawayId: string,
     winner: GiveawayWinner,
     eventIdAtDrawStart?: string,
-  ) => void;
+  ) => Promise<boolean>;
   sendConnectionRequest: (toUser: ConnectionRequest['fromUser'], message?: string) => Promise<void>;
   acceptConnection: (requestId: string) => void;
   declineConnection: (requestId: string) => void;
@@ -1866,7 +1866,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       sponsorId: String(giveaway.sponsorId ?? ''),
     };
     setSponsorGiveaways(prev => [tempRow, ...prev]);
-    showToast('Giveaway added successfully');
+    showToast('Saving giveaway…');
 
     const res = await createGiveawayApi(eventIdAtCall, {
       title: giveaway.title,
@@ -1985,27 +1985,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       return;
     }
-    // Keep the optimistic row in ALL non-success cases.
-    //
-    // Previously only NOT_IMPLEMENTED was kept; any other failure (405,
-    // NETWORK_ERROR, TIMEOUT, CREATE_FAILED, or a 2xx with no data body)
-    // triggered a rollback that made the giveaway flash-and-disappear with
-    // no way for the sponsor to recover it short of filling the form again.
-    //
-    // We never know for certain whether the server-side write succeeded when
-    // the response is ambiguous (network drop, 5xx, empty body). Keeping the
-    // local row is always safer — the sponsor can delete it manually if they
-    // want to discard it, but they can't recreate it from memory after it
-    // silently vanishes. The temp id (giveaway-<ts>) prevents draw eligibility
-    // until a reload re-hydrates with the canonical server id, which is an
-    // acceptable trade-off vs. data loss.
-    if (res.error?.code === 'NOT_IMPLEMENTED') {
-      return; // clean path — backend not deployed, local row kept silently
-    }
-    // Any other failure: keep the row but surface the error so the sponsor
-    // knows the sync didn't complete. They can retry by navigating away and
-    // back (which triggers a fresh hydration) or by reloading the page.
-    showToast(res.error?.message ?? 'Giveaway saved locally — sync will retry on next load.');
+    // A prize cannot be drawn or shown to attendees until the backend
+    // confirms the POST and gives us its canonical id. Roll back the temporary
+    // row for every non-success response instead of presenting a local row as
+    // a saved giveaway.
+    setSponsorGiveaways(prev => prev.filter(g => g.id !== tempId));
+    showToast(res.error?.message ?? 'Could not save giveaway. Please try again.');
   };
 
   const updateSponsorGiveaway = async (
@@ -2118,24 +2103,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast(res.error?.message ?? 'Failed to remove giveaway. Please try again.');
   };
 
-  const recordGiveawayWinner = (
+  const recordGiveawayWinner = async (
     giveawayId: string,
     winner: GiveawayWinner,
     eventIdAtDrawStart?: string,
-  ) => {
+  ): Promise<boolean> => {
     // Persist to the event the draw was *started* under, falling
     // back to the currently-active event if the caller didn't
     // snapshot one. This prevents a mid-draw `switchEvent` from
     // routing the winner into the wrong event's overlay.
     const targetEventId =
       eventIdAtDrawStart ?? activeEventConfig?.eventId ?? undefined;
+    if (!targetEventId) {
+      showToast('Could not save winner. Please try again.');
+      return false;
+    }
     // If the draw was started against an optimistic temp id but
     // the create response has since landed, write under the
     // canonical id so the merge in `listGiveaways` finds it.
     const resolvedId = resolveGiveawayId(targetEventId, giveawayId);
-    // Mirror to localStorage first so a quick reload still surfaces
-    // the win even if the React state update gets blown away by a
-    // mid-flight giveaways re-hydration.
+    const persistResult = await saveGiveawayWinnerApi(targetEventId, resolvedId, {
+      userId: winner.userId ?? winner.id,
+      name: winner.name,
+      company: winner.company,
+      title: winner.title,
+      avatar: winner.avatar,
+      drawnAt: winner.drawnAt,
+    });
+    if (!persistResult.success) {
+      if (activeEventIdRef.current === targetEventId) {
+        showToast(persistResult.error?.message ?? 'Could not save winner. Please try again.');
+      }
+      return false;
+    }
+
+    // Store the server-confirmed winner locally only after the backend accepts
+    // it, so a reload can never turn a failed winner request into a persistent
+    // local result.
     appendGiveawayWinner(targetEventId, resolvedId, winner);
     // Only mutate the visible giveaway list if we're STILL in the
     // event the draw started in. After a switch, the list belongs
@@ -2153,41 +2157,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         ),
       );
     }
-    // Best-effort push to the backend so the win is persisted to the
-    // DB and other devices / the back-office can see it on the next
-    // giveaway-list hydration. Fire-and-forget on purpose:
-    //   • the localStorage overlay above is already the source of
-    //     truth for THIS device, so the UX never depends on this
-    //     succeeding;
-    //   • the endpoint may not be deployed yet — `saveGiveawayWinner`
-    //     short-circuits to NOT_IMPLEMENTED in that case;
-    //   • we don't want a slow / failed request to block the winner
-    //     reveal animation that's already running on screen.
-    // Real failures are logged at warn level so a regression is still
-    // visible in the dev console without surfacing as a UI toast.
-    if (targetEventId) {
-      void saveGiveawayWinnerApi(targetEventId, resolvedId, {
-        // userId is the backend user_id integer (as string) — the only field
-        // the /winners endpoint accepts (as winner_user_id). Falls back to id
-        // when userId wasn't set (e.g. ad-hoc draws or older code paths).
-        userId: winner.userId ?? winner.id,
-        name: winner.name,
-        company: winner.company,
-        title: winner.title,
-        avatar: winner.avatar,
-        drawnAt: winner.drawnAt,
-      })
-        .then(res => {
-          if (!res.success && res.error?.code !== 'NOT_IMPLEMENTED' && typeof console !== 'undefined') {
-            console.warn('[recordGiveawayWinner] backend save failed:', res.error);
-          }
-        })
-        .catch(err => {
-          if (typeof console !== 'undefined') {
-            console.warn('[recordGiveawayWinner] backend save threw:', err);
-          }
-        });
-    }
+    return true;
   };
 
   // Should the current rep see edit/delete affordances on this

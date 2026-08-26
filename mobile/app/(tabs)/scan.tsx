@@ -21,7 +21,6 @@ import { useGiveaways } from '@/hooks/useEngage';
 import { BadgeCameraScanner } from '@/components/BadgeCameraScanner';
 import { colors, spacing, radius } from '@/constants/theme';
 import { submitScan } from '@/lib/api/leads';
-import { saveGiveawayWinner } from '@/lib/api/engage';
 import type { ApiResponse, Lead, Giveaway } from '@/lib/api/types';
 
 type Mode = 'home' | 'scanner' | 'leads' | 'draw';
@@ -189,22 +188,30 @@ export default function ScanBadgeScreen() {
   const { data: leadsData = [], refetch: refetchLeads } = useLeads();
   const { data: allGiveaways = [] } = useGiveaways();
   const giveawaysForDraw = allGiveaways.filter(
-    (g) => !g.sponsorId || g.sponsorId === String(user?.id ?? ''),
+    (g) =>
+      !g.sponsorId ||
+      (user?.companyId != null && g.sponsorId === String(user.companyId)) ||
+      (!!user?.company && g.sponsor === user.company),
   );
   const { mutate: triggerDraw, isPending: drawPending } = useLuckyDraw();
+  const canDraw = !!selectedGiveaway && !selectedGiveaway.id.startsWith('giveaway-');
 
   const runDraw = () => {
-    triggerDraw(selectedGiveaway?.id, {
+    if (!canDraw) {
+      Alert.alert('Select a saved giveaway', 'Choose a saved giveaway before picking a winner.');
+      return;
+    }
+    triggerDraw(selectedGiveaway.id, {
       onSuccess: (res) => {
         const w = res.data?.winner;
-        if (!w) return;
+        if (!res.success || !w) {
+          Alert.alert('Draw Failed', res.error?.message ?? 'The server did not confirm a winner. Please try again.');
+          return;
+        }
         const winner = { id: String(w.id), name: w.name ?? 'Unknown', company: w.company };
         setDrawWinner(winner);
-        if (selectedGiveaway) {
-          saveGiveawayWinner(selectedGiveaway.id, {
-            id: winner.id, name: winner.name, company: winner.company, drawnAt: new Date().toISOString(),
-          }).catch(() => {});
-        }
+        // The server draw endpoint persists the winner before returning it.
+        // Do not write a second local-only winner record here.
       },
       onError: () => Alert.alert('Draw Failed', 'Could not pick a winner. Try again.'),
     });
@@ -238,25 +245,18 @@ export default function ScanBadgeScreen() {
           <Text style={styles.drawTitle}>Lucky Draw</Text>
           <Text style={styles.drawSubtitle}>{leadsData.length} participants</Text>
 
-          {giveawaysForDraw.length > 0 && (
-            <TouchableOpacity
-              style={styles.giveawayPickerBtn}
-              onPress={() => setShowGiveawayPicker((v) => !v)}
-            >
-              <Text style={styles.giveawayPickerLabel}>
-                {selectedGiveaway ? selectedGiveaway.title : 'Select giveaway (optional)'}
-              </Text>
-              <Ionicons name={showGiveawayPicker ? 'chevron-up' : 'chevron-down'} size={16} color={colors.textMuted} />
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity
+            style={styles.giveawayPickerBtn}
+            onPress={() => giveawaysForDraw.length > 0 && setShowGiveawayPicker((v) => !v)}
+            disabled={giveawaysForDraw.length === 0}
+          >
+            <Text style={styles.giveawayPickerLabel}>
+              {selectedGiveaway ? selectedGiveaway.title : giveawaysForDraw.length > 0 ? 'Select a saved giveaway' : 'No saved giveaways'}
+            </Text>
+            <Ionicons name={showGiveawayPicker ? 'chevron-up' : 'chevron-down'} size={16} color={colors.textMuted} />
+          </TouchableOpacity>
           {showGiveawayPicker && (
             <View style={styles.giveawayList}>
-              <TouchableOpacity
-                style={styles.giveawayItem}
-                onPress={() => { setSelectedGiveaway(null); setShowGiveawayPicker(false); }}
-              >
-                <Text style={[styles.giveawayItemText, !selectedGiveaway && { color: colors.primary }]}>None</Text>
-              </TouchableOpacity>
               {giveawaysForDraw.map((g) => (
                 <TouchableOpacity
                   key={g.id}
@@ -288,14 +288,14 @@ export default function ScanBadgeScreen() {
           </LinearGradient>
 
           <TouchableOpacity
-            style={[styles.drawBtn, drawPending && { opacity: 0.6 }]}
+            style={[styles.drawBtn, (drawPending || !canDraw) && { opacity: 0.6 }]}
             onPress={runDraw}
-            disabled={drawPending}
+            disabled={drawPending || !canDraw}
           >
             <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.drawBtnGrad}>
               <Ionicons name="shuffle" size={18} color="#fff" />
               <Text style={styles.drawBtnText}>
-                {drawPending ? 'Picking...' : drawWinner ? 'Draw Again' : 'Pick Winner'}
+                {drawPending ? 'Picking...' : !canDraw ? 'Select a Giveaway' : drawWinner ? 'Draw Again' : 'Pick Winner'}
               </Text>
             </LinearGradient>
           </TouchableOpacity>

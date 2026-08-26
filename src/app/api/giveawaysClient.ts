@@ -57,7 +57,7 @@ function pickNumber(...candidates: unknown[]): number {
  * id+name — silently dropping malformed rows is safer than spraying
  * unnamed cards into the UI.
  */
-function normalizeWinner(raw: any): { id: string; name: string; company?: string; title?: string; avatar?: string; drawnAt: string } | null {
+function normalizeWinner(raw: any): { id: string; userId?: string; name: string; company?: string; title?: string; avatar?: string; drawnAt: string } | null {
   if (!raw || typeof raw !== 'object') return null;
   const lead = raw.lead ?? raw.attendee ?? raw.user ?? null;
   const id = String(
@@ -74,6 +74,7 @@ function normalizeWinner(raw: any): { id: string; name: string; company?: string
   const drawnAt = drawnSource ? new Date(drawnSource) : new Date();
   return {
     id,
+    userId: String(raw.user_id ?? raw.userId ?? raw.winner_user_id ?? raw.winnerId ?? lead?.user_id ?? lead?.id ?? id),
     name,
     company: pickString(raw.company, raw.company_name, raw.companyName, lead?.company, lead?.company_name) || undefined,
     title: pickString(raw.title, raw.job_title, raw.jobTitle, lead?.title, lead?.job_title) || undefined,
@@ -101,7 +102,7 @@ function normalizeGiveaway(raw: any): SponsorGiveaway {
     const w = raw.winner;
     winners = [{
       id:      String(w.id),
-      userId:  String(w.id),   // winner.id IS the user_id from the backend
+      userId:  String(w.user_id ?? w.userId ?? w.id),
       name:    String(w.name ?? raw.winner_name ?? ''),
       company: w.company ? String(w.company) : undefined,
       title:   w.title   ? String(w.title)   : undefined,
@@ -516,8 +517,8 @@ export async function listAttendeeGiveaways(eventId: string | number): Promise<L
     numberOfItems: Number(r.number_of_items ?? r.numberOfItems ?? 0),
     image:        r.image_url   ? String(r.image_url)   : undefined,
     status:       String(r.status ?? 'OPEN'),
-    companyId:    r.company_id  != null ? Number(r.company_id) : null,
-    companyName:  r.company_name ? String(r.company_name) : undefined,
+    companyId:    r.company_id ?? r.sponsor_id ?? null,
+    companyName:  pickString(r.company_name, r.sponsor_name, r.sponsorName) || undefined,
     entryCount:   Number(r.entry_count ?? 0),
     hasEntered:   Boolean(r.has_entered),
     isWinner:     Boolean(r.is_winner),

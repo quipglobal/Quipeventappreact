@@ -188,6 +188,8 @@ export interface SurveyDetail extends Omit<Survey, 'questions'> {
 
 export interface GiveawayWinner {
   id: string;
+  /** Canonical backend user id used by the strict winner_user_id contract. */
+  userId?: string;
   name: string;
   company?: string;
   title?: string;
@@ -213,11 +215,18 @@ export interface Giveaway {
   sponsorId?: string;
   /** ISO 8601 creation timestamp, when the backend returns it. */
   createdAt?: string;
+  /** Attendee-facing state returned by GET /mobile-giveaways. */
+  status?: 'OPEN' | 'CLOSED' | 'DRAWN' | string;
+  hasEntered?: boolean;
+  isWinner?: boolean;
+  isDrawn?: boolean;
   winners?: GiveawayWinner[];
 }
 
 export interface Lead {
   id: string;
+  /** Backend account id of the attendee, distinct from the lead scan id. */
+  userId?: string;
   name: string;
   title: string;
   company: string;

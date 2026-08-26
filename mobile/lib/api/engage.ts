@@ -174,7 +174,7 @@ export async function listGiveaways(): Promise<ApiResponse<Giveaway[]>> {
   if (__DEV__) console.log(`[Engage] listGiveaways eventId=${eventId}`);
   if (!eventId) return { success: true, data: [] };
   const res = await request<any>(`/api/v1/events/${eventId}/giveaways`);
-  if (!res.success) return { success: true, data: [] };
+  if (!res.success) return res as ApiResponse<Giveaway[]>;
   // Probe the same response shapes the web client supports (bare
   // array, { data: [...] }, or { giveaways: [...] }) so a Laravel
   // resource collection wrapped under a named key still parses.
@@ -206,6 +206,7 @@ export async function listGiveaways(): Promise<ApiResponse<Giveaway[]>> {
         const drawnAt = drawnSrc ? new Date(drawnSrc) : new Date();
         return {
           id,
+          userId: String(w.user_id ?? w.userId ?? w.winner_user_id ?? w.winnerId ?? lead?.user_id ?? lead?.id ?? id),
           name,
           company: w.company ?? w.company_name ?? lead?.company ?? lead?.company_name ?? undefined,
           title: w.title ?? w.job_title ?? lead?.title ?? undefined,
@@ -218,12 +219,13 @@ export async function listGiveaways(): Promise<ApiResponse<Giveaway[]>> {
       g.number_of_items ?? g.numberOfItems ?? g.quantity ?? g.total ?? g.total_available ?? 0,
     );
     const image = g.image ?? g.image_url ?? g.imageUrl ?? g.photo ?? g.photo_url ?? '';
-    const sponsorId = String(g.sponsor_id ?? g.sponsorId ?? g.sponsor?.id ?? g.user_id ?? g.created_by ?? '');
+    const sponsorId = String(g.company_id ?? g.sponsor_id ?? g.sponsorId ?? g.sponsor?.id ?? g.user_id ?? g.created_by ?? '');
     const createdSrc = g.created_at ?? g.createdAt ?? g.created;
     return {
       id: String(g.id ?? g.giveaway_id ?? g.uuid ?? `g-${i}`),
       title: g.title ?? g.name ?? g.prize ?? g.label ?? '',
       sponsor:
+        g.company_name ??
         g.sponsor ??
         g.sponsor_name ??
         g.sponsorName ??
@@ -244,8 +246,65 @@ export async function listGiveaways(): Promise<ApiResponse<Giveaway[]>> {
   return { success: true, data: giveaways };
 }
 
+/**
+ * The attendee contract deliberately differs from the sponsor/admin list:
+ * it returns only published giveaways plus this attendee's entry and winner
+ * state. Never substitute the admin list here — it can expose drafts and
+ * misses attendee-specific flags after a fresh login.
+ */
+export async function listAttendeeGiveaways(): Promise<ApiResponse<Giveaway[]>> {
+  const eventId = getEventId();
+  if (!eventId) return { success: true, data: [] };
+  const res = await request<any>(`/api/v1/events/${eventId}/mobile-giveaways`);
+  if (!res.success) return res as ApiResponse<Giveaway[]>;
+  const raw: any[] = Array.isArray(res.data)
+    ? res.data
+    : Array.isArray(res.data?.data)
+    ? res.data.data
+    : [];
+  const COLORS = ['#7c3aed', '#06b6d4', '#10b981', '#f59e0b', '#ec4899'];
+  return {
+    success: true,
+    data: raw.map((g, index) => {
+      const winner = g.winner && typeof g.winner === 'object' ? g.winner : null;
+      const winnerId = winner?.id ?? winner?.user_id ?? g.winner_user_id;
+      const winnerName = winner?.name ?? winner?.full_name ?? g.winner_name;
+      const winnerRow: GiveawayWinner[] =
+        winnerId != null && winnerName
+          ? [{
+              id: String(winnerId),
+              userId: String(winner?.user_id ?? winnerId),
+              name: String(winnerName),
+              company: winner?.company ?? winner?.company_name,
+              title: winner?.title ?? winner?.job_title,
+              avatar: winner?.avatar ?? winner?.avatar_url,
+              drawnAt: String(g.drawn_at ?? g.drawnAt ?? new Date().toISOString()),
+            }]
+          : [];
+      return {
+        id: String(g.id ?? g.giveaway_id ?? ''),
+        title: String(g.title ?? g.name ?? g.prize ?? ''),
+        sponsor: String(g.company_name ?? g.sponsor_name ?? g.sponsorName ?? 'Sponsor'),
+        sponsorId: String(g.company_id ?? g.sponsor_id ?? ''),
+        entries: Number(g.entry_count ?? g.entries ?? 0),
+        ends: g.ends_at ? new Date(g.ends_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '',
+        color: g.color ?? COLORS[index % COLORS.length],
+        entered: Boolean(g.has_entered ?? g.entered ?? false),
+        hasEntered: Boolean(g.has_entered ?? g.entered ?? false),
+        isWinner: Boolean(g.is_winner ?? false),
+        isDrawn: Boolean(g.is_drawn ?? String(g.status ?? '').toUpperCase() === 'DRAWN'),
+        status: String(g.status ?? 'OPEN').toUpperCase(),
+        numberOfItems: Number(g.number_of_items ?? g.numberOfItems ?? g.quantity ?? 0) || undefined,
+        image: g.image ?? g.image_url ?? undefined,
+        createdAt: g.created_at ?? g.createdAt ?? undefined,
+        winners: winnerRow.length > 0 ? winnerRow : undefined,
+      };
+    }),
+  };
+}
+
 export interface SaveWinnerPayload {
-  id: string;
+  userId: string;
   name: string;
   company?: string;
   title?: string;
@@ -259,7 +318,7 @@ export interface SaveWinnerPayload {
  * Records the winner of a lucky draw against the specific giveaway so the
  * backend persists it and returns it in subsequent GET giveaways responses —
  * ensuring web, mobile, and any back-office view all show the same winner.
- * Sends both camelCase and snake_case variants for backend compatibility.
+ * The backend accepts only `{ winner_user_id: integer }`.
  */
 export async function saveGiveawayWinner(
   giveawayId: string,
@@ -269,20 +328,11 @@ export async function saveGiveawayWinner(
   if (!eventId) return { success: false, error: { code: 'NO_EVENT', message: 'No active event' } };
   if (!giveawayId) return { success: false, error: { code: 'NO_GIVEAWAY', message: 'No giveaway selected' } };
   if (__DEV__) console.log(`[Engage] saveGiveawayWinner giveawayId=${giveawayId} winner=${winner.name}`);
-  const body = {
-    id: winner.id,
-    winner_id: winner.id,
-    winnerId: winner.id,
-    lead_id: winner.id,
-    leadId: winner.id,
-    name: winner.name,
-    company: winner.company ?? '',
-    title: winner.title ?? '',
-    avatar: winner.avatar ?? '',
-    avatar_url: winner.avatar ?? '',
-    drawn_at: winner.drawnAt,
-    drawnAt: winner.drawnAt,
-  };
+  const winnerUserId = Number.parseInt(winner.userId, 10);
+  if (!Number.isInteger(winnerUserId) || winnerUserId <= 0) {
+    return { success: false, error: { code: 'NO_USER_ID', message: 'Winner has no valid backend user id.' } };
+  }
+  const body = { winner_user_id: winnerUserId };
   const res = await request<any>(`/api/v1/events/${eventId}/giveaways/${giveawayId}/winners`, {
     method: 'POST',
     body: JSON.stringify(body),
@@ -307,6 +357,7 @@ export interface CreateGiveawayPayload {
   image: string;
   sponsorName: string;
   sponsorId: string;
+  companyId?: number | null;
 }
 
 /**
@@ -356,12 +407,12 @@ function mapGiveawayRow(raw: any, fallbackTitle = '', fallbackSponsor = ''): Giv
     raw?.number_of_items ?? raw?.numberOfItems ?? raw?.quantity ?? raw?.total ?? 0,
   );
   const image = raw?.image ?? raw?.image_url ?? raw?.imageUrl ?? '';
-  const sponsorId = String(raw?.sponsor_id ?? raw?.sponsorId ?? raw?.sponsor?.id ?? raw?.user_id ?? '');
+  const sponsorId = String(raw?.company_id ?? raw?.sponsor_id ?? raw?.sponsorId ?? raw?.sponsor?.id ?? raw?.user_id ?? '');
   const createdSrc = raw?.created_at ?? raw?.createdAt ?? raw?.created;
   return {
     id: String(raw?.id ?? raw?.giveaway_id ?? raw?.uuid ?? ''),
     title: raw?.title ?? raw?.name ?? raw?.prize ?? fallbackTitle,
-    sponsor: raw?.sponsor ?? raw?.sponsor_name ?? raw?.sponsorName ?? fallbackSponsor,
+    sponsor: raw?.company_name ?? raw?.sponsor ?? raw?.sponsor_name ?? raw?.sponsorName ?? fallbackSponsor,
     entries: Number(raw?.entries ?? raw?.entry_count ?? 0),
     ends: raw?.ends_at ? new Date(raw.ends_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : raw?.ends ?? '',
     color: raw?.color ?? COLORS[0],
@@ -381,6 +432,7 @@ export async function createGiveaway(payload: CreateGiveawayPayload): Promise<Ap
   }
   const body = {
     title: payload.title,
+    ...(payload.companyId != null ? { company_id: Number(payload.companyId) } : {}),
     number_of_items: payload.numberOfItems,
     numberOfItems: payload.numberOfItems,
     quantity: payload.numberOfItems,
@@ -390,16 +442,6 @@ export async function createGiveaway(payload: CreateGiveawayPayload): Promise<Ap
     sponsorName: payload.sponsorName,
     sponsor_id: payload.sponsorId,
     sponsorId: payload.sponsorId,
-    // Ensure the backend stores the giveaway as active immediately.
-    // Laravel models often use `status` (string), `is_active` (bool),
-    // or a `status_id` integer (1=draft, 2=active/open). Send all
-    // common shapes so whichever column the controller reads picks
-    // up the active/open intent — no manual backend publish step needed.
-    status: 'active',
-    status_id: 2,
-    is_active: true,
-    is_published: true,
-    published: true,
   };
   const res = await request<any>(`/api/v1/events/${eventId}/giveaways`, {
     method: 'POST',

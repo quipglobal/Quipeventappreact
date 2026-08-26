@@ -205,17 +205,21 @@ async function installMocks(page: Page, cfg: MockConfig) {
         return ok({ message: 'Internal Server Error' }, 500);
       }
     }
+    if (p === `/api/v1/events/${EVENT_ID}/mobile-giveaways` && method === 'GET') {
+      const giveaways = cfg.initialGiveaways ?? [EXISTING_GIVEAWAY];
+      return ok({ success: true, data: giveaways });
+    }
 
-    // ── Giveaway winners ─────────────────────────────────────────────────────
-    if (/\/giveaways\/[^/]+\/winners/.test(p) && method === 'POST')
-      return ok({ success: true, data: { id: 1, message: 'Winner recorded.' } }, 201);
-
-    // ── Lucky Draw endpoint — POST /giveaways/:id/draw ────────────────────────
-    // Real URL (backend agent confirmed): POST /events/:id/giveaways/:id/draw
-    // The live backend may not have this route yet — return NOT_IMPLEMENTED so
-    // the client falls back to a local random pick from the lead pool.
+    // ── Lucky Draw endpoint — server arbitrates and persists the winner ───────
     if (/\/giveaways\/[^/]+\/draw$/.test(p) && method === 'POST')
-      return ok({ success: false, error: { code: 'NotFoundHttpException', message: 'Server error' } }, 404);
+      return ok({
+        success: true,
+        data: {
+          ...EXISTING_GIVEAWAY,
+          status: 'DRAWN',
+          winner: { id: 1001, name: 'Alice Johnson', company: 'TechCorp', title: 'CTO' },
+        },
+      });
 
     // ── Leads (draw pool) ────────────────────────────────────────────────────
     if (p.startsWith(`/api/v1/events/${EVENT_ID}/my-leads`) || p.startsWith(`/api/v1/events/${EVENT_ID}/leads`))
@@ -317,26 +321,31 @@ test('Issue 2 — giveaway syncs to backend: POST returns canonical id and item 
 // ─────────────────────────────────────────────────────────────────────────────
 // TEST 2 — Sponsor runs Lucky Draw and picks winner
 // ─────────────────────────────────────────────────────────────────────────────
-test('Issue 1 — lucky draw: sponsor picks a winner and backend winner POST is called', async ({ page }) => {
+test('lucky draw uses the persisted server draw response', async ({ page }) => {
   test.setTimeout(180_000);
-  let winnerPostCalled = false;
-  let winnerPostGiveawayId = '';
+  let drawRequestCalled = false;
 
   await installMocks(page, {
     role: 'sponsor',
     initialGiveaways: [EXISTING_GIVEAWAY],  // canonical id — draw allowed
   });
 
-  // Intercept the winner POST so we can verify it fires after the draw.
-  await page.route(`**/api/v1/events/${EVENT_ID}/giveaways/*/winners`, async route => {
-    winnerPostCalled = true;
+  await page.route(`**/api/v1/events/${EVENT_ID}/giveaways/*/draw`, async route => {
+    drawRequestCalled = true;
     const parts = new URL(route.request().url()).pathname.split('/');
-    winnerPostGiveawayId = parts[parts.length - 2] ?? '';
+    expect(parts[parts.length - 2]).toBe(EXISTING_GIVEAWAY.id);
     await route.fulfill({
-      status: 201,
+      status: 200,
       contentType: 'application/json',
       headers: { 'Access-Control-Allow-Origin': '*' },
-      body: JSON.stringify({ success: true, data: { id: 1, message: 'Winner recorded.' } }),
+      body: JSON.stringify({
+        success: true,
+        data: {
+          ...EXISTING_GIVEAWAY,
+          status: 'DRAWN',
+          winner: { id: 1001, name: 'Alice Johnson', company: 'TechCorp', title: 'CTO' },
+        },
+      }),
     });
   });
 
@@ -365,10 +374,8 @@ test('Issue 1 — lucky draw: sponsor picks a winner and backend winner POST is 
   // The eligible pool heading confirms leads were fetched
   await expect(page.getByText(/Eligible Pool \(\d+ leads?\)/i).first()).toBeVisible({ timeout: 8_000 });
 
-  // Run the draw — animation ~5 s (30 fast + 10 slow cycles).
-  // Set up the request waiter BEFORE clicking so we don't miss it.
-  const winnerPostPromise = page.waitForRequest(
-    req => req.url().includes('/giveaways/') && req.url().includes('/winners') && req.method() === 'POST',
+  const drawPromise = page.waitForRequest(
+    req => req.url().includes(`/giveaways/${EXISTING_GIVEAWAY.id}/draw`) && req.method() === 'POST',
     { timeout: 30_000 },
   );
 
@@ -382,10 +389,9 @@ test('Issue 1 — lucky draw: sponsor picks a winner and backend winner POST is 
     page.getByText(/Alice Johnson|Bob Martinez/).first()
   ).toBeVisible({ timeout: 5_000 });
 
-  // Confirm the winner POST actually fired — this resolves once the request is seen.
-  const winnerReq = await winnerPostPromise;
-  expect(winnerReq.url()).toContain(EXISTING_GIVEAWAY.id);
-  expect(winnerReq.method()).toBe('POST');
+  const drawReq = await drawPromise;
+  expect(drawReq.method()).toBe('POST');
+  expect(drawRequestCalled).toBe(true);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -425,21 +431,15 @@ test('Issue 3 — attendee view: giveaways added by sponsor appear in Giveaways 
 // ─────────────────────────────────────────────────────────────────────────────
 // TEST 4 — Unsynced giveaway: draw is allowed with a local-save notice
 // ─────────────────────────────────────────────────────────────────────────────
-test('Issue 1 — unsynced giveaway: "Pick a Winner!" is enabled with a local-save notice', async ({ page }) => {
+test('failed giveaway save is surfaced and never becomes drawable', async ({ page }) => {
   test.setTimeout(150_000);
 
-  // POST never responds during the test (simulates a slow / stalled save).
-  let resolvePost: (() => void) | null = null;
-  const postPending = new Promise<void>(r => { resolvePost = r; });
+  await installMocks(page, { role: 'sponsor', initialGiveaways: [], postSucceeds: false });
 
-  await installMocks(page, { role: 'sponsor', initialGiveaways: [], postSucceeds: true });
-
-  // Override giveaways route: hold the POST indefinitely so the optimistic
-  // row keeps its synthetic id `giveaway-<ts>`.
+  // Override giveaways route with a definite backend rejection.
   await page.route(`**/api/v1/events/${EVENT_ID}/giveaways`, async route => {
     if (route.request().method() === 'POST') {
-      await postPending;
-      await route.fulfill({ status: 201, contentType: 'application/json', body: '{}' });
+      await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'Unable to save prize' }) });
     } else {
       await route.fulfill({
         status: 200,
@@ -457,28 +457,10 @@ test('Issue 1 — unsynced giveaway: "Pick a Winner!" is enabled with a local-sa
   await page.getByRole('button', { name: /^Manage Giveaways$/i }).click();
   await expect(page.getByPlaceholder(/Win a MacBook/i)).toBeVisible({ timeout: 10_000 });
 
-  // Add giveaway; POST stays pending → optimistic row has synthetic id
+  // Add giveaway; the server rejection must not leave a local-only card.
   await page.getByPlaceholder(/Win a MacBook/i).fill('Pending Prize');
   await page.locator('input[type="number"]').first().fill('1');
   await page.getByRole('button', { name: /^Add Giveaway$/i }).click();
-  await expect(page.getByText('Pending Prize').first()).toBeVisible({ timeout: 8_000 });
-
-  // Navigate to Lucky Draw — giveaway is pre-selected (initial-mount fix)
-  const runDrawBtn = page.getByRole('button', { name: /run lucky draw/i }).first();
-  await expect(runDrawBtn).toBeVisible({ timeout: 6_000 });
-  await runDrawBtn.click();
-
-  await expect(page.getByText('Lucky Draw', { exact: true }).first()).toBeVisible({ timeout: 10_000 });
-
-  // "Pick a Winner!" must be ENABLED — the block on synthetic ids is removed.
-  // Sponsors should always be able to run a draw; winner is saved locally.
-  const pickBtn = page.getByRole('button', { name: /Pick a Winner!/i });
-  await expect(pickBtn).toBeVisible({ timeout: 10_000 });
-  await expect(pickBtn).toBeEnabled();
-
-  // A notice warning about local-only storage must be visible
-  await expect(page.getByText(/hasn't synced/i).first()).toBeVisible({ timeout: 5_000 });
-
-  // Allow test cleanup
-  resolvePost?.();
+  await expect(page.getByText(/Unable to save prize|Could not save giveaway/i).first()).toBeVisible({ timeout: 8_000 });
+  await expect(page.getByText('Pending Prize')).toHaveCount(0);
 });

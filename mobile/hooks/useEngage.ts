@@ -7,12 +7,12 @@ import {
   listChallenges, completeChallenge as apiCompleteChallenge,
   listPolls, votePoll,
   listSurveys, getSurveyDetail, submitSurvey,
-  listGiveaways, enterGiveaway,
+  listGiveaways, listAttendeeGiveaways, enterGiveaway,
   createGiveaway, updateGiveaway, removeGiveaway, saveGiveawayWinner,
   type CreateGiveawayPayload, type UpdateGiveawayPayload,
 } from '@/lib/api/engage';
 import {
-  loadGiveawayWinners, appendGiveawayWinner, migrateGiveawayWinnersKey,
+  loadGiveawayWinners, appendGiveawayWinner,
 } from '@/lib/giveawayWinnersStorage';
 import type { ApiResponse, Giveaway, GiveawayWinner } from '@/lib/api/types';
 
@@ -167,10 +167,18 @@ function mergeWinners(
 
 export function useGiveaways() {
   const { currentEventId } = useEvent();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
+  const isSponsor = user?.role === 'sponsor';
+  const audience = isSponsor ? 'sponsor' : 'attendee';
+  const key = ['giveaways', currentEventId, audience] as const;
   const query = useAuthedQuery({
-    queryKey: ['giveaways', currentEventId],
-    queryFn: listGiveaways,
+    queryKey: key,
+    queryFn: async () => {
+      const res = await (isSponsor ? listGiveaways() : listAttendeeGiveaways());
+      if (!res.success) throw new Error(res.error?.message ?? 'Failed to load giveaways.');
+      return res;
+    },
     select: (res) => res.data ?? [],
     enabled: !!currentEventId,
     // Poll every 30 s so users already on the screen see new/updated
@@ -198,7 +206,7 @@ export function useGiveaways() {
       if (cancelled) return;
       if (Object.keys(overlay).length === 0) return;
       queryClient.setQueryData<ApiResponse<Giveaway[]>>(
-        ['giveaways', currentEventId],
+        key,
         (prev) => {
           if (!prev?.data) return prev;
           let changed = false;
@@ -215,7 +223,7 @@ export function useGiveaways() {
       );
     });
     return () => { cancelled = true; };
-  }, [currentEventId, dataUpdatedAt, queryClient]);
+  }, [currentEventId, audience, dataUpdatedAt, queryClient]);
 
   return query;
 }
@@ -238,89 +246,21 @@ export function useEnterGiveaway() {
 export function useCreateGiveaway() {
   const { currentEventId } = useEvent();
   const queryClient = useQueryClient();
-  const key = ['giveaways', currentEventId];
+  const key = ['giveaways', currentEventId, 'sponsor'];
   return useMutation({
     mutationFn: (payload: CreateGiveawayPayload) => createGiveaway(payload),
-    onMutate: async (payload: CreateGiveawayPayload) => {
-      await queryClient.cancelQueries({ queryKey: key });
-      const previous = queryClient.getQueryData<ApiResponse<Giveaway[]>>(key);
-      const tempId = `giveaway-${Date.now()}`;
-      const tempRow: Giveaway = {
-        id: tempId,
-        title: payload.title,
-        sponsor: payload.sponsorName,
-        entries: 0,
-        ends: '',
-        color: '#7c3aed',
-        entered: false,
-        numberOfItems: payload.numberOfItems,
-        sponsorId: payload.sponsorId,
-        createdAt: new Date().toISOString(),
-      };
-      queryClient.setQueryData<ApiResponse<Giveaway[]>>(key, (prev) => ({
-        success: true,
-        data: [tempRow, ...(prev?.data ?? [])],
-      }));
-      return { previous, tempId, eventId: currentEventId };
-    },
-    onSuccess: async (res, payload, ctx) => {
-      if (!ctx) return;
+    onSuccess: async (res, payload) => {
       if (res.success && res.data) {
         const saved = res.data;
-        await migrateGiveawayWinnersKey(ctx.eventId, ctx.tempId, saved.id);
-        // Swap temp row → saved row. Preserve sponsorId / sponsor from the
-        // payload when the server's POST response omits those ownership fields
-        // — without this, a refetch returns the server row (which may have
-        // empty sponsorId) and the manager's ownership filter hides the
-        // freshly-created giveaway.
         queryClient.setQueryData<ApiResponse<Giveaway[]>>(key, (prev) => ({
           success: true,
-          data: (prev?.data ?? []).map((g) =>
-            g.id === ctx.tempId
-              ? {
-                  ...saved,
-                  sponsorId: saved.sponsorId || payload.sponsorId,
-                  sponsor:   saved.sponsor   || payload.sponsorName,
-                  winners: g.winners,
-                }
-              : g,
-          ),
+          data: [{
+            ...saved,
+            sponsorId: saved.sponsorId || payload.sponsorId,
+            sponsor: saved.sponsor || payload.sponsorName,
+          }, ...(prev?.data ?? []).filter(g => g.id !== saved.id)],
         }));
-        // ── Fix B ────────────────────────────────────────────────────────────
-        // Do NOT call invalidateQueries here. An immediate full GET refetch
-        // replaces the React Query cache with whatever the server returns at
-        // that instant. If the backend hasn't indexed the new row yet (write
-        // propagation lag), the cache reverts to the old list and the
-        // just-created giveaway disappears.
-        //
-        // The 30 s refetchInterval on useGiveaways already keeps every other
-        // screen (attendee "Giveaways & Offers", partner view, etc.) in sync;
-        // that single reconciliation path is enough and carries no race risk.
-        return;
       }
-      // ── Fix A ──────────────────────────────────────────────────────────────
-      // Keep the optimistic row for ALL non-success outcomes — including
-      // NOT_IMPLEMENTED (backend not deployed), network errors surfaced as
-      // onSuccess (apiClient collapses some transport failures to a !success
-      // result), and unexpected server errors (4xx/5xx).
-      //
-      // Previously only NOT_IMPLEMENTED was kept; any other failure rolled
-      // back ctx.previous, making the new giveaway flash and disappear with
-      // no way for the sponsor to recover it. Now that the backend TenantScope
-      // fix means real errors (422, 500) can surface instead of always 404,
-      // rolling back on those would cause the same flash-and-disappear.
-      //
-      // The optimistic temp row stays visible until the next 30 s poll
-      // reconciles with the server — at which point a canonical server id
-      // either replaces it (if the POST succeeded) or it is dropped (if not),
-      // and the user can manually delete it in the latter case.
-    },
-    onError: (_err, _payload, _ctx) => {
-      // ── Fix A ──────────────────────────────────────────────────────────────
-      // Do NOT restore ctx.previous. A network error or timeout means the
-      // POST may have reached the server (fire-and-forget semantics); rolling
-      // back the optimistic row would silently discard a giveaway the backend
-      // might have created. Keeping it is always safer than losing it.
     },
   });
 }
@@ -415,9 +355,18 @@ export function useRemoveGiveaway() {
 export function useRecordGiveawayWinner() {
   const { currentEventId } = useEvent();
   const queryClient = useQueryClient();
-  return async (giveawayId: string, winner: GiveawayWinner) => {
-    if (!giveawayId) return;
+  return async (giveawayId: string, winner: GiveawayWinner): Promise<ApiResponse<true>> => {
+    if (!giveawayId) return { success: false, error: { code: 'NO_GIVEAWAY', message: 'No giveaway selected.' } };
     const key = ['giveaways', currentEventId];
+    const res = await saveGiveawayWinner(giveawayId, {
+      userId: winner.userId ?? winner.id,
+      name: winner.name,
+      company: winner.company,
+      title: winner.title,
+      avatar: winner.avatar,
+      drawnAt: winner.drawnAt,
+    });
+    if (!res.success) return res;
     await appendGiveawayWinner(currentEventId, giveawayId, winner);
     queryClient.setQueryData<ApiResponse<Giveaway[]>>(key, (prev) => {
       if (!prev?.data) return prev;
@@ -430,19 +379,6 @@ export function useRecordGiveawayWinner() {
         ),
       };
     });
-    saveGiveawayWinner(giveawayId, {
-      id: winner.id,
-      name: winner.name,
-      company: winner.company,
-      title: winner.title,
-      avatar: winner.avatar,
-      drawnAt: winner.drawnAt,
-    }).then((res) => {
-      if (__DEV__ && !res.success && res.error?.code !== 'NOT_IMPLEMENTED') {
-        console.warn('[useRecordGiveawayWinner] backend save failed:', res.error);
-      }
-    }).catch((err) => {
-      if (__DEV__) console.warn('[useRecordGiveawayWinner] backend save threw:', err);
-    });
+    return res;
   };
 }

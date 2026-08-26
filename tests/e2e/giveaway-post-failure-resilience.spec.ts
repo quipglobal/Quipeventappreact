@@ -1,21 +1,16 @@
 /**
- * E2E regression guard — giveaway survives backend POST failures
+ * E2E regression guard — failed giveaway POSTs never become local-only prizes
  *
- * Before this fix, ANY non-NOT_IMPLEMENTED failure from the backend POST
- * caused the optimistic giveaway row to be rolled back (flash-and-disappear).
- * This happened for:
+ * Creation uses a short-lived saving state. Any rejected or ambiguous backend
+ * response must remove that state, rather than leaving the sponsor a prize
+ * that cannot be drawn or seen by attendees. This covers:
  *   - HTTP 405  (endpoint registered but POST verb not mapped)
  *   - HTTP 500  (server error)
  *   - { success: true } with no `data` body (backend accepted but returned no id)
  *   - Network / timeout errors
  *
- * After the fix:
- *   - 405 → treated as NOT_IMPLEMENTED → local row kept silently
- *   - { success: true } + no data → treated as NOT_IMPLEMENTED → local row kept
- *   - 500 / network error → local row kept, warning toast shown
- *
- * In every case the giveaway must remain visible in "My Giveaways" so the
- * sponsor isn't left staring at a blank list with no explanation.
+ * In every case the prize must disappear after the request settles and be
+ * unavailable to Lucky Draw. The UI surfaces the error instead.
  *
  * Every /api/v1/** call is stubbed — no live backend required.
  */
@@ -178,66 +173,42 @@ async function addGiveaway(page: Page, titleInput: ReturnType<Page['getByPlaceho
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-test('giveaway stays visible when backend POST returns 405 (wrong verb)', async ({ page }) => {
+async function expectFailedGiveawayRolledBack(page: Page) {
+  await expect(page.getByText(GIVEAWAY_TITLE).first()).not.toBeVisible({ timeout: 8_000 });
+}
+
+test('giveaway is removed when backend POST returns 405 (wrong verb)', async ({ page }) => {
   test.setTimeout(120_000);
   await installMocksWithPostBehaviour(page, { kind: 'status', code: 405 });
   const titleInput = await loginAndNavigateToManageGiveaways(page);
   await addGiveaway(page, titleInput);
 
-  // Optimistic insert — giveaway appears immediately
-  await expect(page.getByText(/Acme Corp Giveaways\s*\(1\)/i)).toBeVisible({ timeout: 8_000 });
-
-  // Allow time for POST response to settle
-  await page.waitForTimeout(1_500);
-
-  // Giveaway must still be visible (pre-fix: 405 caused rollback)
-  await expect(page.getByText(/Acme Corp Giveaways\s*\(1\)/i)).toBeVisible({ timeout: 5_000 });
-  const section = page.locator('div').filter({ hasText: /Acme Corp Giveaways\s*\(1\)/i }).first();
-  await expect(section.getByText(GIVEAWAY_TITLE).first()).toBeVisible();
+  await expectFailedGiveawayRolledBack(page);
 });
 
-test('giveaway stays visible when backend POST returns { success: true } with no data body', async ({ page }) => {
+test('giveaway is removed when backend POST returns success without a giveaway id', async ({ page }) => {
   test.setTimeout(120_000);
   await installMocksWithPostBehaviour(page, { kind: 'emptySuccess' });
   const titleInput = await loginAndNavigateToManageGiveaways(page);
   await addGiveaway(page, titleInput);
 
-  await expect(page.getByText(/Acme Corp Giveaways\s*\(1\)/i)).toBeVisible({ timeout: 8_000 });
-  await page.waitForTimeout(1_500);
-
-  // Giveaway must still be visible (pre-fix: empty body caused rollback)
-  await expect(page.getByText(/Acme Corp Giveaways\s*\(1\)/i)).toBeVisible({ timeout: 5_000 });
-  const section = page.locator('div').filter({ hasText: /Acme Corp Giveaways\s*\(1\)/i }).first();
-  await expect(section.getByText(GIVEAWAY_TITLE).first()).toBeVisible();
+  await expectFailedGiveawayRolledBack(page);
 });
 
-test('giveaway stays visible when backend POST returns 500', async ({ page }) => {
+test('giveaway is removed when backend POST returns 500', async ({ page }) => {
   test.setTimeout(120_000);
   await installMocksWithPostBehaviour(page, { kind: 'status', code: 500 });
   const titleInput = await loginAndNavigateToManageGiveaways(page);
   await addGiveaway(page, titleInput);
 
-  await expect(page.getByText(/Acme Corp Giveaways\s*\(1\)/i)).toBeVisible({ timeout: 8_000 });
-  await page.waitForTimeout(1_500);
-
-  // Giveaway must still be visible (pre-fix: 500 caused rollback)
-  await expect(page.getByText(/Acme Corp Giveaways\s*\(1\)/i)).toBeVisible({ timeout: 5_000 });
-  const section = page.locator('div').filter({ hasText: /Acme Corp Giveaways\s*\(1\)/i }).first();
-  await expect(section.getByText(GIVEAWAY_TITLE).first()).toBeVisible();
+  await expectFailedGiveawayRolledBack(page);
 });
 
-test('giveaway stays visible when backend POST is dropped (network error)', async ({ page }) => {
+test('giveaway is removed when backend POST is dropped (network error)', async ({ page }) => {
   test.setTimeout(120_000);
   await installMocksWithPostBehaviour(page, { kind: 'networkDrop' });
   const titleInput = await loginAndNavigateToManageGiveaways(page);
   await addGiveaway(page, titleInput);
 
-  await expect(page.getByText(/Acme Corp Giveaways\s*\(1\)/i)).toBeVisible({ timeout: 8_000 });
-  // Network drops may trigger retries — allow a bit more time
-  await page.waitForTimeout(3_000);
-
-  // Giveaway must still be visible (pre-fix: network error caused rollback)
-  await expect(page.getByText(/Acme Corp Giveaways\s*\(1\)/i)).toBeVisible({ timeout: 5_000 });
-  const section = page.locator('div').filter({ hasText: /Acme Corp Giveaways\s*\(1\)/i }).first();
-  await expect(section.getByText(GIVEAWAY_TITLE).first()).toBeVisible();
+  await expectFailedGiveawayRolledBack(page);
 });

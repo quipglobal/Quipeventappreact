@@ -48,7 +48,7 @@ interface SponsorDrawPageProps {
 }
 
 export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack, initialGiveaway }) => {
-  const { sponsorGiveaways, user, showToast, eventConfig, recordGiveawayWinner, isMyGiveaway } = useApp();
+  const { sponsorGiveaways, user, showToast, eventConfig, isMyGiveaway } = useApp();
   const { t, isDark } = useTheme();
   const [poolLeads, setPoolLeads] = useState<Lead[]>([]);
 
@@ -223,11 +223,10 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack, initia
   const startDraw = async () => {
     if (eligiblePool.length === 0) return;
     if (drawInFlightRef.current) return;
-    // Note: we no longer block on synthetic ids here. If the giveaway hasn't
-    // synced to the backend yet, `saveGiveawayWinner` degrades gracefully to
-    // local-only storage (it already returns NOT_IMPLEMENTED for "giveaway-<ts>"
-    // ids). The draw result is always preserved locally; the backend winner
-    // record lands as soon as the giveaway receives a canonical id (next sync).
+    if (!selectedGiveaway || selectedGiveaway.id.startsWith('giveaway-')) {
+      showToast('Wait for the giveaway to save before running a draw.');
+      return;
+    }
     drawInFlightRef.current = true;
     setPhase('spinning');
     setWinner(null);
@@ -240,45 +239,9 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack, initia
     const giveawayIdAtDrawStart = selectedGiveaway?.id;
 
     const excludeIds = drawHistory.map(d => d.winner.id);
-    // Snapshot the eligible pool BEFORE we kick off the network call —
-    // we need it as the source for the local-fallback random pick when
-    // the backend has no `/leads/draw` endpoint deployed (the resolver
-    // returns NOT_IMPLEMENTED). Picking later from the live `eligiblePool`
-    // ref would race the shuffle animation's `setShuffleIndex` updates.
-    const localPool = eligiblePool;
     const drawPromise = triggerLuckyDraw(eventIdAtDrawStart, {
       giveawayId: giveawayIdAtDrawStart,
       excludeIds: excludeWon ? excludeIds : undefined,
-    }).then(res => {
-      // Backend doesn't ship a draw endpoint yet (see leadsClient.ts
-      // for the full Laravel route-collision write-up). Substitute a
-      // client-side random pick so the UX still completes — the result
-      // is persisted to the per-event winners overlay below, exactly
-      // the same way a server-arbitrated winner would have been.
-      if (!res.success && res.error?.code === 'NOT_IMPLEMENTED') {
-        if (localPool.length === 0) {
-          return {
-            success: false as const,
-            error: { code: 'EMPTY_POOL', message: 'No eligible participants in the draw pool.' },
-          };
-        }
-        const w = localPool[Math.floor(Math.random() * localPool.length)];
-        return {
-          success: true as const,
-          data: {
-            // Use the backend user_id (w.userId) so recordGiveawayWinner can
-            // POST { winner_user_id } to /giveaways/:id/winners. Falls back to
-            // w.id (scan_id) for display/dedup when userId isn't available.
-            id: w.userId ?? w.id,
-            userId: w.userId,
-            name: w.name,
-            company: w.company,
-            title: w.title,
-            avatar: w.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(w.name)}&background=7c3aed&color=fff`,
-          },
-        };
-      }
-      return res;
     });
 
     let count = 0;
@@ -328,6 +291,7 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack, initia
                 }
                 const selectedWinner: DrawParticipant = {
                   id: res.data.id,
+                  userId: res.data.userId,
                   name: res.data.name,
                   company: res.data.company,
                   title: res.data.title,
@@ -347,27 +311,8 @@ export const SponsorDrawPage: React.FC<SponsorDrawPageProps> = ({ onBack, initia
                   },
                   ...prev,
                 ]);
-                // Persist the winner against the selected giveaway so
-                // the public Giveaways screen can show their name.
-                // Only record when the rep actually picked a giveaway
-                // (we still allow ad-hoc draws when no giveaway exists).
-                // We pass `giveawayIdAtDrawStart` and the snapshotted
-                // event id so a mid-draw selection change or event
-                // switch can't reroute the win.
-                if (giveawayIdAtDrawStart) {
-                  recordGiveawayWinner(
-                    giveawayIdAtDrawStart,
-                    {
-                      id: selectedWinner.id,
-                      name: selectedWinner.name,
-                      company: selectedWinner.company,
-                      title: selectedWinner.title,
-                      avatar: selectedWinner.avatar,
-                      drawnAt: new Date().toISOString(),
-                    },
-                    eventIdAtDrawStart,
-                  );
-                }
+                // The /draw response is the server-confirmed persistence
+                // point. Do not create a second local-only winner write here.
                 // eslint-disable-next-line local/no-raw-timers -- UI animation: brief delay before showing winner, no auth gate needed
                 setTimeout(() => setPhase('winner'), 300);
                 drawInFlightRef.current = false;
