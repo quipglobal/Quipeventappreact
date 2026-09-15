@@ -143,7 +143,6 @@ externalPort = 9000
 [deployment]
 deploymentTarget = "autoscale"
 build = ["sh", "-c", "npm ci && npm run build"]
-publicDir = "dist"
 run = ["node", "server.js"]
 
 [userenv]
