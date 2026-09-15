@@ -86,7 +86,8 @@ export function usePreloader(
       // user taps a row.
       listEventPollsApi(eid).then(async r => {
         if (!r.success || !r.data) return;
-        setCached('polls', eid, r.data);
+        // Never let a transient empty response replace known poll data.
+        if (r.data.length > 0) setCached('polls', eid, r.data);
         const actionable = r.data
           .filter(p => p.status === 'LIVE' || p.status === 'CLOSED')
           .slice(0, POLL_DETAIL_PREFETCH_LIMIT);

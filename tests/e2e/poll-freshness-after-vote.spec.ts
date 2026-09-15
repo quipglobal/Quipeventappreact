@@ -116,7 +116,10 @@ const POLL_DETAIL_VOTED = {
  * `voteSubmitted` flips to true once POST /vote is fulfilled; subsequent
  * detail fetches return POLL_DETAIL_VOTED so Phase 2 serves updated data.
  */
-async function installMocks(page: Page): Promise<{ getDetailCount: () => number }> {
+async function installMocks(
+  page: Page,
+  options: { primaryPollListEmpty?: boolean } = {},
+): Promise<{ getDetailCount: () => number }> {
   let detailCallCount = 0;
   let voteSubmitted = false;
 
@@ -171,6 +174,13 @@ async function installMocks(page: Page): Promise<{ getDetailCount: () => number 
 
     // ── Polls — list ───────────────────────────────────────────────────────
     if (m === 'GET' && p === `/api/v1/events/${EVENT.id}/polls`)
+      return ok({
+        success: true,
+        data: options.primaryPollListEmpty ? [] : [voteSubmitted
+          ? { ...POLL_SUMMARY_UNVOTED, user_voted_option_id: OPTION_A_ID }
+          : POLL_SUMMARY_UNVOTED],
+      });
+    if (m === 'GET' && p === `/api/v1/events/${EVENT.id}/mobile-polls`)
       return ok({
         success: true,
         data: [voteSubmitted
@@ -246,6 +256,14 @@ async function loginAndOpenPolls(page: Page) {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 test.describe('PollsListPage — results freshness after voting', () => {
+
+  test('shows an existing poll on the first visit when the primary list is temporarily empty', async ({ page }) => {
+    await installMocks(page, { primaryPollListEmpty: true });
+    await loginAndOpenPolls(page);
+
+    await expect(page.getByText('Which feature should we ship next?')).toBeVisible();
+    await expect(page.getByText(/No polls are available yet/i)).not.toBeVisible();
+  });
 
   test('shows updated percentage after voting and preserves it on return', async ({ page }) => {
     const { getDetailCount } = await installMocks(page);

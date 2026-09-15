@@ -150,11 +150,33 @@ export interface PollVoteResult {
 export async function listEventPollsApi(
   eventId: string | number
 ): Promise<{ success: boolean; data?: BackendPollSummary[]; error?: { code?: string; message: string } }> {
-  // Primary: /polls  |  Fallback: /mobile-polls (same path the mobile app uses)
-  let res = await apiGet<any>(`/api/v1/events/${eventId}/polls`);
-  if (!res.success) res = await apiGet<any>(`/api/v1/events/${eventId}/mobile-polls`);
-  // Both paths failed — degrade to empty list rather than surfacing a raw backend error.
-  if (!res.success) return { success: true, data: [] };
+  const readList = (value: any): any[] | null => {
+    if (Array.isArray(value)) return value;
+    if (Array.isArray(value?.data)) return value.data;
+    return null;
+  };
+
+  // Primary: /polls. If it fails or unexpectedly returns an empty list, also
+  // check /mobile-polls — the attendee endpoint can already contain a newly
+  // published poll while the general listing endpoint is catching up.
+  const primary = await apiGet<any>(`/api/v1/events/${eventId}/polls`);
+  const primaryList = primary.success ? readList(primary.data) : null;
+  let res = primary;
+  if (!primary.success || primaryList?.length === 0) {
+    const fallback = await apiGet<any>(`/api/v1/events/${eventId}/mobile-polls`);
+    const fallbackList = fallback.success ? readList(fallback.data) : null;
+    if (fallback.success && fallbackList) {
+      res = fallback;
+    } else if (!primary.success) {
+      return {
+        success: false,
+        error: fallback.error ?? primary.error ?? { code: 'POLL_LIST_FAILED', message: 'Failed to load polls.' },
+      };
+    }
+  }
+  if (!res.success) {
+    return { success: false, error: res.error ?? { code: 'POLL_LIST_FAILED', message: 'Failed to load polls.' } };
+  }
   // Normalise both envelope shapes: bare array OR { data: [...] }.
   const raw: any = res.data;
   const list: any[] = Array.isArray(raw) ? raw : (raw?.data ?? []);

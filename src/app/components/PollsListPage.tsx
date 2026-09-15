@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowLeft, CheckCircle, TrendingUp, Loader2 } from 'lucide-react';
+import { ArrowLeft, CheckCircle, TrendingUp, Loader2, RefreshCw } from 'lucide-react';
 import { useApp } from '@/app/context/AppContext';
 import { useTheme } from '@/app/context/ThemeContext';
 import {
@@ -33,6 +33,7 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
   const [polls, setPolls] = useState<PollState[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
   const [selectedOptions, setSelectedOptions] = useState<Record<number, number>>({});
   const [submittingPollId, setSubmittingPollId] = useState<number | null>(null);
   /** Poll id currently in "change vote" mode — options become selectable again. */
@@ -73,7 +74,7 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
     (async () => {
       // ── Phase 1: serve from cache immediately (instant render) ──────────
       const cachedSummaries = getCached<BackendPollSummary[]>('polls', eventId);
-      if (cachedSummaries) {
+      if (cachedSummaries && cachedSummaries.length > 0) {
         const live = cachedSummaries.filter(p => p.status === 'LIVE' || p.status === 'CLOSED');
         const detailResults = await Promise.all(
           live.map(p => {
@@ -97,14 +98,16 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
       const listRes = await listEventPollsApi(eventId);
       if (stale) return;
       if (!listRes.success || !listRes.data) {
-        if (!cachedSummaries) {
+         if (!cachedSummaries || cachedSummaries.length === 0) {
           setLoadError(listRes.error?.message ?? 'Failed to load polls.');
           setLoading(false);
         }
         return;
       }
       const freshSummaries = listRes.data;
-      setCached('polls', eventId, freshSummaries);
+      // Keep a known non-empty cache from being overwritten by a transient
+      // empty response from a concurrently running preload.
+      if (freshSummaries.length > 0) setCached('polls', eventId, freshSummaries);
 
       // Seed server-confirmed votes into local state so a fresh session
       // immediately shows the user's prior selections. Never overwrite a
@@ -135,12 +138,18 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
 
       // Merge server-seeded votes into the combined map used for buildPolls.
       const mergedVoted = { ...votedPolls, ...voteUpdates };
-      setPolls(buildPolls(detailResults, mergedVoted, savedPollResults));
+      const builtPolls = buildPolls(detailResults, mergedVoted, savedPollResults);
+      setPolls(builtPolls);
+      if (live.length > 0 && builtPolls.length === 0) {
+        setLoadError('Polls were found, but their details could not be loaded.');
+      } else {
+        setLoadError(null);
+      }
       setLoading(false);
     })();
 
     return () => { stale = true; };
-  }, [eventId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [eventId, reloadToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
    * Submit a vote. When `isRevote` is true (user is changing an existing vote)
@@ -207,12 +216,32 @@ export const PollsListPage: React.FC<PollsListPageProps> = ({ onBack }) => {
         )}
 
         {!loading && loadError && (
-          <div className="rounded-2xl p-5" style={{ background: t.errorBg, color: t.errorText, fontSize: 13 }}>{loadError}</div>
+          <div className="rounded-2xl p-5 text-center" style={{ background: t.errorBg, color: t.errorText, fontSize: 13 }}>
+            <div>{loadError}</div>
+            <button
+              type="button"
+              onClick={() => setReloadToken(value => value + 1)}
+              className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-xl"
+              style={{ background: t.surface, color: t.text, border: `1px solid ${t.border}`, fontWeight: 700 }}
+            >
+              <RefreshCw style={{ width: 16, height: 16 }} />
+              Refresh polls
+            </button>
+          </div>
         )}
 
         {!loading && !loadError && polls.length === 0 && (
           <div className="rounded-2xl p-10 text-center" style={{ background: t.surface, color: t.textMuted, border: `1px solid ${t.border}` }}>
-            No polls are available yet.
+            <div>No polls are available yet.</div>
+            <button
+              type="button"
+              onClick={() => setReloadToken(value => value + 1)}
+              className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-xl"
+              style={{ background: t.bgPage, color: t.text, border: `1px solid ${t.border}`, fontWeight: 700 }}
+            >
+              <RefreshCw style={{ width: 16, height: 16 }} />
+              Refresh polls
+            </button>
           </div>
         )}
 

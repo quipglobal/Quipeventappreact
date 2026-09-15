@@ -34,7 +34,7 @@ export const EngagePage: React.FC<EngagePageProps> = ({ onNavigate }) => {
 
     Promise.all([
       cs ? Promise.resolve({ success: true as const, data: cs }) : listEventSurveysApi(eventId),
-      cp ? Promise.resolve({ success: true as const, data: cp }) : listEventPollsApi(eventId),
+      listEventPollsApi(eventId),
       listEventChallengesApi(eventId), // always fresh — no cache
     ]).then(([sRes, pRes, cRes]) => {
       if (stale) return;
@@ -42,9 +42,9 @@ export const EngagePage: React.FC<EngagePageProps> = ({ onNavigate }) => {
         setSurveyIds(sRes.data.filter(s => s.status === 'PUBLISHED' || s.status === 'OPEN').map(s => String(s.id)));
         setCached('surveys', eventId, sRes.data);
       }
-      if (!cp && pRes.success && pRes.data) {
+      if (pRes.success && pRes.data) {
         setLivePollIds(pRes.data.filter(p => p.status === 'LIVE').map(p => String(p.id)));
-        setCached('polls', eventId, pRes.data);
+        if (pRes.data.length > 0) setCached('polls', eventId, pRes.data);
       }
       // Only show challenges where is_active === true — toggled server-side via PUT.
       if (cRes.success && cRes.data) {
