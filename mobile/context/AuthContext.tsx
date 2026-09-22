@@ -79,7 +79,18 @@ async function getCachedEventRole(
   try {
     const raw = await AsyncStorage.getItem(eventRoleCacheKey(userId, eventId));
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as { role: 'sponsor' | 'attendee'; resolvedAt: number };
+    const parsed = JSON.parse(raw) as {
+      role: 'sponsor' | 'attendee';
+      eventId: string;
+      resolvedAt: number;
+    };
+    if (
+      String(parsed.eventId) !== String(eventId) ||
+      (parsed.role !== 'sponsor' && parsed.role !== 'attendee') ||
+      !Number.isFinite(parsed.resolvedAt)
+    ) {
+      return null;
+    }
     if (Date.now() - parsed.resolvedAt > EVENT_ROLE_CACHE_TTL_MS) return null;
     return parsed.role;
   } catch {
@@ -95,7 +106,7 @@ async function setCachedEventRole(
   try {
     await AsyncStorage.setItem(
       eventRoleCacheKey(userId, eventId),
-      JSON.stringify({ role, resolvedAt: Date.now() }),
+      JSON.stringify({ role, eventId, resolvedAt: Date.now() }),
     );
   } catch {}
 }
@@ -118,6 +129,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       _setUserState(u);
     }
   }, []);
+  const refreshEventRoleInBackground = useCallback(async (
+    eventId: string,
+    userId: string,
+    badgeCode?: string,
+  ) => {
+    try {
+      const freshRole = await getMyEventRole(eventId, userId, badgeCode);
+      await setCachedEventRole(userId, eventId, freshRole);
+
+      // A role refresh can finish after the user has switched events. Do not
+      // apply the old event's role to the newly selected event.
+      const activeEventId = await AsyncStorage.getItem('cxo_current_event_id');
+      if (String(activeEventId) !== String(eventId)) return;
+
+      setUserState((latest) => {
+        if (!latest || String(latest.id) !== String(userId) || latest.role === freshRole) {
+          return latest;
+        }
+        const updated = { ...latest, role: freshRole };
+        AsyncStorage.setItem(CACHED_USER_KEY, JSON.stringify(updated)).catch(() => {});
+        return updated;
+      });
+    } catch {}
+  }, [setUserState]);
   const [token, setTokenState] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isOffline, setIsOffline] = useState(false);
@@ -176,9 +211,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             let eventRole: 'sponsor' | 'attendee';
             if (cachedRole !== null) {
               eventRole = cachedRole;
-              getMyEventRole(cachedEventId, freshUser.id, freshUser.badgeCode)
-                .then((fresh) => setCachedEventRole(freshUser.id, cachedEventId, fresh))
-                .catch(() => {});
+              void refreshEventRoleInBackground(cachedEventId, freshUser.id, freshUser.badgeCode);
             } else {
               eventRole = await getMyEventRole(cachedEventId, freshUser.id, freshUser.badgeCode);
               setCachedEventRole(freshUser.id, cachedEventId, eventRole).catch(() => {});
@@ -270,9 +303,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               eventRole = cachedRole;
               // Refresh in the background so a role change (e.g. attendee →
               // sponsor rep) takes effect without blocking the current launch.
-              getMyEventRole(cachedEventId, freshUser.id, freshUser.badgeCode)
-                .then((fresh) => setCachedEventRole(freshUser.id, cachedEventId, fresh))
-                .catch(() => {});
+              void refreshEventRoleInBackground(cachedEventId, freshUser.id, freshUser.badgeCode);
             } else {
               // Cache miss (first launch for this event) — resolve synchronously
               // and persist the result so future launches are instant.
@@ -349,6 +380,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const current = userRef.current;
     if (!current?.id) return;
     // Pass badgeCode as primary lookup key (single-record search, faster).
+    // Explicit role refreshes invalidate the old event-scoped value first.
+    await AsyncStorage.removeItem(eventRoleCacheKey(current.id, eventId)).catch(() => {});
     const role = await getMyEventRole(eventId, current.id, current.badgeCode);
     // Persist the freshly resolved role so the next app launch is instant.
     setCachedEventRole(current.id, eventId, role).catch(() => {});
