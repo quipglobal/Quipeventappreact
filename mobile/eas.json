@@ -5,6 +5,7 @@
   },
   "build": {
     "development": {
+      "node": "20.20.0",
       "developmentClient": true,
       "distribution": "internal",
       "env": {
@@ -22,6 +23,7 @@
       }
     },
     "preview": {
+      "node": "20.20.0",
       "distribution": "internal",
       "channel": "preview",
       "ios": {
@@ -36,6 +38,7 @@
       }
     },
     "production": {
+      "node": "20.20.0",
       "distribution": "store",
       "channel": "production",
       "ios": {

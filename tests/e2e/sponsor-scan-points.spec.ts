@@ -25,6 +25,7 @@
  */
 
 import { test, expect, type Page } from '@playwright/test';
+import { openManualScanner, scannerPointsBadge } from './helpers/scanner';
 
 // ── Shared fixtures ──────────────────────────────────────────────────────────
 
@@ -186,13 +187,7 @@ async function loginAndOpenScanner(page: Page) {
   await expect(sideMenuDrawer.getByRole('button', { name: /^Scan Badge$/i })).toBeVisible({ timeout: 8_000 });
   await sideMenuDrawer.getByRole('button', { name: /^Scan Badge$/i }).click();
 
-  const scannerHeader = page.locator('div.sticky, [class*="sticky"]').filter({
-    hasText: /badges scanned/,
-  });
-  await expect(scannerHeader).toBeVisible({ timeout: 8_000 });
-
-  await scannerHeader.locator('button').last().click();
-  await expect(page.getByPlaceholder(/ATT-/i)).toBeVisible({ timeout: 5_000 });
+  await openManualScanner(page);
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -226,7 +221,7 @@ test.describe('SponsorScannerPage — scan points', () => {
     await loginAndOpenScanner(page);
 
     // Snapshot the scanner's header points — must stay unchanged after scan.
-    const headerBadge = page.locator('span.text-violet-400').filter({ hasText: /pts/ }).first();
+    const headerBadge = scannerPointsBadge(page);
     await expect(headerBadge).toBeVisible({ timeout: 8_000 });
     const beforeText = await headerBadge.textContent();
     const beforePoints = parseInt(beforeText!.trim(), 10);
@@ -235,7 +230,7 @@ test.describe('SponsorScannerPage — scan points', () => {
     await page.getByRole('button', { name: /find attendee/i }).click();
 
     // Attendee profile card appears.
-    await expect(page.getByText('Alex Rivera')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Alex Rivera', { exact: true })).toBeVisible({ timeout: 10_000 });
 
     // ── Assert attendee points toast ───────────────────────────────────────
     // showToast("Attendee earned 25 pts") renders a plain text toast — no
@@ -289,7 +284,7 @@ test.describe('SponsorScannerPage — scan points', () => {
 
     await loginAndOpenScanner(page);
 
-    const headerBadge = page.locator('span.text-violet-400').filter({ hasText: /pts/ }).first();
+    const headerBadge = scannerPointsBadge(page);
     await expect(headerBadge).toBeVisible({ timeout: 8_000 });
     const beforeText = await headerBadge.textContent();
     const beforePoints = parseInt(beforeText!.trim(), 10);
@@ -346,7 +341,7 @@ test.describe('SponsorScannerPage — scan points', () => {
 
     await loginAndOpenScanner(page);
 
-    const headerBadge = page.locator('span.text-violet-400').filter({ hasText: /pts/ }).first();
+    const headerBadge = scannerPointsBadge(page);
     await expect(headerBadge).toBeVisible({ timeout: 8_000 });
     const beforeText = await headerBadge.textContent();
     const beforePoints = parseInt(beforeText!.trim(), 10);
@@ -354,7 +349,7 @@ test.describe('SponsorScannerPage — scan points', () => {
     await page.getByPlaceholder(/ATT-/i).fill('ATT-9001');
     await page.getByRole('button', { name: /find attendee/i }).click();
 
-    await expect(page.getByText('Alex Rivera')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Alex Rivera', { exact: true })).toBeVisible({ timeout: 10_000 });
 
     // No toasts.
     await expect(page.getByText(/attendee earned/i)).not.toBeVisible({ timeout: 2_000 });
@@ -405,7 +400,7 @@ test.describe('SponsorScannerPage — scan points', () => {
 
     await loginAndOpenScanner(page);
 
-    const headerBadge = page.locator('span.text-violet-400').filter({ hasText: /pts/ }).first();
+    const headerBadge = scannerPointsBadge(page);
     await expect(headerBadge).toBeVisible({ timeout: 8_000 });
     const beforeText = await headerBadge.textContent();
     const beforePoints = parseInt(beforeText!.trim(), 10);
@@ -450,7 +445,7 @@ test.describe('SponsorScannerPage — scan points', () => {
 
     await loginAndOpenScanner(page);
 
-    const headerBadge = page.locator('span.text-violet-400').filter({ hasText: /pts/ }).first();
+    const headerBadge = scannerPointsBadge(page);
     await expect(headerBadge).toBeVisible({ timeout: 8_000 });
     const beforeText = await headerBadge.textContent();
     const beforePoints = parseInt(beforeText!.trim(), 10);
@@ -458,7 +453,7 @@ test.describe('SponsorScannerPage — scan points', () => {
     await page.getByPlaceholder(/ATT-/i).fill('ATT-9001');
     await page.getByRole('button', { name: /find attendee/i }).click();
 
-    await expect(page.getByText('Alex Rivera')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Alex Rivera', { exact: true })).toBeVisible({ timeout: 10_000 });
 
     // Attendee toast confirms the attendee earned points.
     await expect(page.getByText(/attendee earned 25 pts/i)).toBeVisible({ timeout: 6_000 });

@@ -30,6 +30,7 @@
  */
 
 import { test, expect, type Page, type Route } from '@playwright/test';
+import { openManualScanner } from './helpers/scanner';
 
 // ── Shared fixtures ───────────────────────────────────────────────────────────
 
@@ -185,7 +186,7 @@ async function installMocks(
 
 /**
  * Log in as sponsor, join the event, and open the Scan Badge page in
- * manual-entry mode (Type icon).
+ * manual-entry mode.
  */
 async function loginAndOpenScanner(page: Page) {
   await page.goto('/');
@@ -208,14 +209,7 @@ async function loginAndOpenScanner(page: Page) {
   await expect(sideMenuDrawer.getByRole('button', { name: /^Scan Badge$/i })).toBeVisible({ timeout: 8_000 });
   await sideMenuDrawer.getByRole('button', { name: /^Scan Badge$/i }).click();
 
-  const scannerHeader = page.locator('div.sticky, [class*="sticky"]').filter({
-    hasText: /badges scanned/,
-  });
-  await expect(scannerHeader).toBeVisible({ timeout: 8_000 });
-
-  // Switch to manual-entry mode (the "Type" / keyboard icon — last button in the mode toggle).
-  await scannerHeader.locator('button').last().click();
-  await expect(page.getByPlaceholder(/ATT-/i)).toBeVisible({ timeout: 5_000 });
+  await openManualScanner(page);
 }
 
 /**
@@ -307,7 +301,7 @@ test.describe('Lead notes → server (admin CSV export guard)', () => {
     // Enter badge code and resolve the attendee.
     await page.getByPlaceholder(/ATT-/i).fill('ATT-9001');
     await page.getByRole('button', { name: /find attendee/i }).click();
-    await expect(page.getByText('Alex Rivera')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Alex Rivera', { exact: true })).toBeVisible({ timeout: 10_000 });
 
     // Set priority to Hot (priority selector appears before tags in the form).
     await page.getByRole('button', { name: /^Hot$/i }).click();
@@ -378,7 +372,7 @@ test.describe('Lead notes → server (admin CSV export guard)', () => {
     // Enter badge code and resolve the attendee.
     await page.getByPlaceholder(/ATT-/i).fill('ATT-9001');
     await page.getByRole('button', { name: /find attendee/i }).click();
-    await expect(page.getByText('Alex Rivera')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Alex Rivera', { exact: true })).toBeVisible({ timeout: 10_000 });
 
     // ── Assert form is pre-filled with server-echoed inherited values ─────────
 
@@ -400,7 +394,7 @@ test.describe('Lead notes → server (admin CSV export guard)', () => {
 
     // An inherited-notes banner must be shown so the rep knows the context.
     await expect(
-      page.getByText(/notes from a previous event/i),
+      page.getByText('From a previous event — edit to update.', { exact: true }),
     ).toBeVisible({ timeout: 5_000 });
   });
 
@@ -556,7 +550,7 @@ test.describe('Lead notes → server (admin CSV export guard)', () => {
     // Enter badge code — backend resolves the attendee and returns a leadId.
     await page.getByPlaceholder(/ATT-/i).fill('ATT-9001');
     await page.getByRole('button', { name: /find attendee/i }).click();
-    await expect(page.getByText('Alex Rivera')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Alex Rivera', { exact: true })).toBeVisible({ timeout: 10_000 });
 
     // Confirm the scan POST fired exactly once so far (at badge-detection time).
     expect(scanPostCount, 'POST /leads/scan must fire exactly once at badge-detection time').toBe(1);
@@ -621,7 +615,7 @@ test.describe('Lead notes → server (admin CSV export guard)', () => {
 
     await page.getByPlaceholder(/ATT-/i).fill('ATT-9001');
     await page.getByRole('button', { name: /find attendee/i }).click();
-    await expect(page.getByText('Alex Rivera')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Alex Rivera', { exact: true })).toBeVisible({ timeout: 10_000 });
 
     // Leave priority at the Warm default and just add notes.
     const notesArea = page.locator('textarea').first();
@@ -694,7 +688,7 @@ test.describe('Lead notes → server (admin CSV export guard)', () => {
     await loginAndOpenLeadsPage(page);
 
     // The leads list should show the existing lead.
-    await expect(page.getByText('Alex Rivera')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Alex Rivera', { exact: true })).toBeVisible({ timeout: 10_000 });
 
     // Open the lead detail via the aria-labeled button on the lead card.
     await page.getByRole('button', { name: /open alex rivera/i }).click({ timeout: 8_000 });
@@ -801,7 +795,7 @@ test.describe('Lead notes → server (admin CSV export guard)', () => {
 
     await loginAndOpenLeadsPage(page);
 
-    await expect(page.getByText('Alex Rivera')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Alex Rivera', { exact: true })).toBeVisible({ timeout: 10_000 });
 
     // Open the lead detail.
     await page.getByRole('button', { name: /open alex rivera/i }).click({ timeout: 8_000 });
@@ -904,7 +898,7 @@ test.describe('Lead notes → server (admin CSV export guard)', () => {
 
     // ── 1. Navigate to the leads page and open the existing lead ─────────────
     await loginAndOpenLeadsPage(page);
-    await expect(page.getByText('Alex Rivera')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Alex Rivera', { exact: true })).toBeVisible({ timeout: 10_000 });
 
     await page.getByRole('button', { name: /open alex rivera/i }).click({ timeout: 8_000 });
     await expect(page.locator('h1').filter({ hasText: 'Alex Rivera' })).toBeVisible({ timeout: 8_000 });
@@ -1055,16 +1049,19 @@ test.describe('Lead notes → server (admin CSV export guard)', () => {
 
     await page.getByPlaceholder(/ATT-/i).fill('ATT-9001');
     await page.getByRole('button', { name: /find attendee/i }).click();
-    await expect(page.getByText('Alex Rivera')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Alex Rivera', { exact: true })).toBeVisible({ timeout: 10_000 });
 
     expect(scanPostCount, 'First scan must fire POST /leads/scan').toBe(1);
 
     // ── 2. Navigate away to Home — component unmounts, in-memory state is lost ─
-    // The bottom-nav "Home" button is always visible.
-    await page.getByRole('button', { name: /^Home$/i }).click({ timeout: 8_000 });
+    // Exercise keyboard navigation: the full-screen lead sheet overlaps the
+    // bottom nav's pointer area, but Home remains keyboard-accessible.
+    const homeButton = page.getByRole('button', { name: /^Home$/i });
+    await homeButton.focus();
+    await homeButton.press('Enter');
 
     // Confirm the scanner form is gone (navigated away).
-    await expect(page.getByText('Alex Rivera')).not.toBeVisible({ timeout: 8_000 });
+    await expect(page.getByText('Alex Rivera', { exact: true })).not.toBeVisible({ timeout: 8_000 });
 
     // Brief pause to let the component fully unmount.
     await page.waitForTimeout(300);
@@ -1075,22 +1072,12 @@ test.describe('Lead notes → server (admin CSV export guard)', () => {
     await expect(sideMenuBack.getByRole('button', { name: /^Scan Badge$/i })).toBeVisible({ timeout: 8_000 });
     await sideMenuBack.getByRole('button', { name: /^Scan Badge$/i }).click();
 
-    // After the first scan `leads.length` is 1 so the header reads
-    // "1 badge scanned" (singular). Use a flexible regex that matches both
-    // "badge scanned" and "badges scanned".
-    const scannerHeader2 = page.locator('div.sticky, [class*="sticky"]').filter({
-      hasText: /badge.*scanned/,
-    });
-    await expect(scannerHeader2).toBeVisible({ timeout: 8_000 });
-
-    // Switch to manual-entry mode on the remounted scanner.
-    await scannerHeader2.locator('button').last().click();
-    await expect(page.getByPlaceholder(/ATT-/i)).toBeVisible({ timeout: 5_000 });
+    await openManualScanner(page);
 
     // ── 4. Re-scan the same badge — leadId recovered from the new response ──
     await page.getByPlaceholder(/ATT-/i).fill('ATT-9001');
     await page.getByRole('button', { name: /find attendee/i }).click();
-    await expect(page.getByText('Alex Rivera')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Alex Rivera', { exact: true })).toBeVisible({ timeout: 10_000 });
 
     expect(scanPostCount, 'Re-scan must fire a second POST /leads/scan').toBe(2);
 
@@ -1242,7 +1229,7 @@ test.describe('Lead notes → server (admin CSV export guard)', () => {
 
     await loginAndOpenLeadsPage(page);
 
-    await expect(page.getByText('Alex Rivera')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Alex Rivera', { exact: true })).toBeVisible({ timeout: 10_000 });
 
     await page.getByRole('button', { name: /open alex rivera/i }).click({ timeout: 8_000 });
     await expect(page.locator('h1').filter({ hasText: 'Alex Rivera' })).toBeVisible({ timeout: 8_000 });

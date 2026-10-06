@@ -58,7 +58,7 @@ async function installMocks(page: Page) {
       { id: 's2', title: 'AI in Enterprise', speaker: 'John Smith', starts_at: '2026-07-20T10:30:00Z', ends_at: '2026-07-20T11:30:00Z', location: 'Room A',    track: 'Tech' },
     ]});
     if (p.startsWith('/api/v1/events/21/speakers'))    return ok({ success: true, data: [{ id: 'sp1', name: 'Jane Doe', title: 'CEO', company: 'Visionary Inc', bio: 'Keynote speaker', photo: '' }] });
-    if (p.startsWith('/api/v1/events/21/giveaways') && m === 'GET') return ok({ success: true, data: [{ id: 'g1', title: 'MacBook Pro Raffle', number_of_items: 3, numberOfItems: 3, sponsor_name: 'Acme Corp', sponsor_id: 's1' }] });
+    if ((p === '/api/v1/events/21/mobile-giveaways' || p === '/api/v1/events/21/giveaways') && m === 'GET') return ok({ success: true, data: [{ id: 'g1', title: 'MacBook Pro Raffle', number_of_items: 3, numberOfItems: 3, sponsor_name: 'Acme Corp', sponsor_id: 's1' }] });
     if (p.startsWith('/api/v1/events/21/leaderboard')) return ok({ success: true, data: [
       { rank: 1, name: 'Alice Tester', points: 250, tier: 'Silver', id: 'u1' },
       { rank: 2, name: 'Bob Smith',    points: 180, tier: 'Bronze', id: 'a1' },

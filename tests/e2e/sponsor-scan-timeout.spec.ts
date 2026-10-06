@@ -24,6 +24,7 @@
  */
 
 import { test, expect, type Page } from '@playwright/test';
+import { openManualScanner, scannerPointsBadge } from './helpers/scanner';
 
 // ── Shared fixtures ───────────────────────────────────────────────────────────
 
@@ -184,13 +185,7 @@ async function loginAndOpenScanner(page: Page) {
   await expect(sideMenuDrawer.getByRole('button', { name: /^Scan Badge$/i })).toBeVisible({ timeout: 8_000 });
   await sideMenuDrawer.getByRole('button', { name: /^Scan Badge$/i }).click();
 
-  const scannerHeader = page.locator('div.sticky, [class*="sticky"]').filter({
-    hasText: /badges scanned/,
-  });
-  await expect(scannerHeader).toBeVisible({ timeout: 8_000 });
-
-  await scannerHeader.locator('button').last().click();
-  await expect(page.getByPlaceholder(/ATT-/i)).toBeVisible({ timeout: 5_000 });
+  await openManualScanner(page);
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -236,7 +231,7 @@ test.describe('SponsorScannerPage — slow network / timeout guard', () => {
 
       await loginAndOpenScanner(page);
 
-      const headerBadge = page.locator('span.text-violet-400').filter({ hasText: /pts/ }).first();
+      const headerBadge = scannerPointsBadge(page);
       await expect(headerBadge).toBeVisible({ timeout: 8_000 });
       const beforeText = await headerBadge.textContent();
       const beforePoints = parseInt(beforeText!.trim(), 10);
@@ -301,7 +296,7 @@ test.describe('SponsorScannerPage — slow network / timeout guard', () => {
 
       await loginAndOpenScanner(page);
 
-      const headerBadge = page.locator('span.text-violet-400').filter({ hasText: /pts/ }).first();
+      const headerBadge = scannerPointsBadge(page);
       await expect(headerBadge).toBeVisible({ timeout: 8_000 });
       const beforeText = await headerBadge.textContent();
       const beforePoints = parseInt(beforeText!.trim(), 10);
@@ -441,7 +436,7 @@ test.describe('SponsorScannerPage — slow network / timeout guard', () => {
 
       await loginAndOpenScanner(page);
 
-      const headerBadge = page.locator('span.text-violet-400').filter({ hasText: /pts/ }).first();
+      const headerBadge = scannerPointsBadge(page);
       await expect(headerBadge).toBeVisible({ timeout: 8_000 });
       const beforeText = await headerBadge.textContent();
       const beforePoints = parseInt(beforeText!.trim(), 10);
@@ -499,7 +494,7 @@ test.describe('SponsorScannerPage — slow network / timeout guard', () => {
 
       await loginAndOpenScanner(page);
 
-      const headerBadge = page.locator('span.text-violet-400').filter({ hasText: /pts/ }).first();
+      const headerBadge = scannerPointsBadge(page);
       await expect(headerBadge).toBeVisible({ timeout: 8_000 });
       const beforeText = await headerBadge.textContent();
       const beforePoints = parseInt(beforeText!.trim(), 10);

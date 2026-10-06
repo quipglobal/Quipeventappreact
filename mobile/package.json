@@ -2,13 +2,16 @@
   "name": "cxo-events-mobile",
   "version": "1.0.0",
   "main": "expo-router/entry",
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
-    "postinstall": "node scripts/patch-cors.js && node scripts/patch-cache.js && node scripts/patch-gradle.js",
-    "eas-build-post-install": "node scripts/patch-gradle.js"
+    "postinstall": "node scripts/patch-security-deps.js && node scripts/patch-cors.js && node scripts/patch-cache.js && node scripts/patch-gradle.js",
+    "eas-build-post-install": "node scripts/patch-security-deps.js && node scripts/patch-gradle.js"
   },
   "dependencies": {
     "@expo-google-fonts/inter": "^0.2.3",
@@ -49,12 +52,24 @@
     "@types/react": "~18.3.12",
     "http-proxy-middleware": "^4.2.0",
     "patch-package": "^8.0.1",
-    "sharp": "^0.35.3",
+    "sharp": "^0.35.5",
     "typescript": "^5.3.0"
   },
   "overrides": {
-    "@xmldom/xmldom": "^0.9.10",
-    "brace-expansion": "^5.0.8"
+    "@xmldom/xmldom": "^0.9.12",
+    "brace-expansion": "^5.0.12",
+    "ajv": "^8.20.0",
+    "baseline-browser-mapping": "^2.11.27",
+    "browserslist": "^4.29.3",
+    "decode-uri-component": "^0.5.0",
+    "fast-uri": "^3.1.8",
+    "image-size": "^2.0.3",
+    "js-yaml@^3": "^3.15.2",
+    "js-yaml@^4": "^4.3.2",
+    "nanoid": "^3.3.20",
+    "postcss": "^8.5.29",
+    "tar": "^7.5.22",
+    "uuid": "^11.1.1"
   },
   "expo": {
     "install": {

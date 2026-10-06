@@ -7,7 +7,8 @@
 - [EAS Android Compose Resolution](eas-android-compose-resolution.md) — expo-dev-launcher releaseCompileOnly 1.9.0 vs runtime 1.7.x Gradle consistent-resolution conflict; fix: eachDependency + releaseRuntimeOnly
 - [EAS API Build Trigger](eas-api-build-trigger.md) — how to trigger EAS builds via GraphQL when EAS CLI hangs; tarball structure + GCS upload pattern
 - [Expo Replit Dev Server Setup](expo-replit-dev-server.md) — --go + REACT_NATIVE_PACKAGER_HOSTNAME required for Replit emulator/QR; never use --web (gets stuck at 98.8%)
-- [EAS Yarn Lock Replit Firewall](eas-yarn-lock-replit-firewall.md) — yarn.lock entries from Replit have package-firewall.replit.local URLs; must sed-replace before EAS upload
+- [Mobile dependency compatibility](mobile-dependency-compatibility.md) — npm is canonical for EAS; retain SDK 52 with tested security adapters rather than an incidental native SDK migration.
+- [EAS prebuild persistence](eas-yarn-lock-replit-firewall.md) — native directory edits are overwritten by cloud prebuild; durable build fixes must survive regeneration.
 - [Screenshot Tool Fresh Navigation](screenshot-tool-fresh-navigation.md) — app_preview screenshots reload fresh each call; can't observe timed transitions (splash, toasts) this way — use runTest instead
 - [Lead sync contract](lead-sync-contract.md) — scan_id probe fix, uppercase priority on wire, overlay retirement via clearLeadEdit, syncPending retry pattern
 - [Path B check-in toast race](path-b-checkin-toast-race.md) — void checkInMemberApi inside .then() resolves before Playwright polls, overwriting attendee-points toast; fix: skip check-in toast when attendeePoints > 0
