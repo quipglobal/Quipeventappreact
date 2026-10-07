@@ -57,3 +57,14 @@ test('mobile has one canonical npm lockfile for local and EAS installs', () => {
     assert.ok(!pkg.resolved?.includes('package-firewall.replit.local'));
   }
 });
+
+test('web publishing cannot restore the firewall-blocked proxy-addr version', () => {
+  const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+  const entries = Object.entries(lock.packages)
+    .filter(([location]) => location.endsWith('node_modules/proxy-addr'));
+  assert.ok(entries.length > 0, 'Express must resolve proxy-addr');
+  for (const [location, pkg] of entries) {
+    assert.ok(atLeast(pkg.version, '2.0.8'), `${location}: ${pkg.version} must be >= 2.0.8`);
+    assert.ok(!pkg.resolved?.includes('package-firewall.replit.'), 'Use the install environment registry, not a workspace-only URL');
+  }
+});
