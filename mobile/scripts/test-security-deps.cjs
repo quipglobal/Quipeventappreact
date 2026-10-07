@@ -6,10 +6,69 @@ const { test } = require('node:test');
 const { execFileSync } = require('node:child_process');
 const { createRequire } = require('node:module');
 const requireMobile = createRequire(path.join(__dirname, '..', 'package.json'));
+const requireMicromatch = createRequire(requireMobile.resolve('micromatch'));
 
 test('compatibility patches are idempotent', () => {
   execFileSync(process.execPath, [path.join(__dirname, 'patch-security-deps.js')]);
   execFileSync(process.execPath, [path.join(__dirname, 'patch-security-deps.js')]);
+});
+
+test('all locked braces consumers resolve the pinned depth-guard backport', () => {
+  const lock = requireMobile('./package-lock.json');
+  const entries = Object.entries(lock.packages).filter(([key]) => /(^|\/)node_modules\/braces$/.test(key));
+  assert.ok(entries.length > 0);
+  for (const [, entry] of entries) {
+    assert.equal(entry.name, '@dieub/braces-depth-guard');
+    assert.equal(entry.version, '3.0.3-pn.3');
+  }
+  const braces = requireMicromatch('braces');
+  assert.deepEqual(braces.expand('assets/{icons,fonts}/*.{png,ttf}'), [
+    'assets/icons/*.png', 'assets/icons/*.ttf', 'assets/fonts/*.png', 'assets/fonts/*.ttf'
+  ]);
+  assert.deepEqual(braces.expand('file{01..03}.png'), ['file01.png', 'file02.png', 'file03.png']);
+  assert.deepEqual(braces.expand('{a,{b,c}}'), ['a', 'b', 'c']);
+  assert.equal(braces.compile('{a,b}'), '(a|b)');
+  assert.equal(braces.stringify(braces.parse('{a,b}')), '{a,b}');
+  assert.deepEqual(braces.expand('\\{literal\\}'), ['{literal}']);
+});
+
+test('deep braces, parentheses, and caller-supplied ASTs fail before stack exhaustion', () => {
+  const braces = requireMicromatch('braces');
+  for (const [open, close] of [['{', '}'], ['(', ')'], ['{(', ')}']]) {
+    const pattern = open.repeat(1500) + 'a,b' + close.repeat(1500);
+    for (const method of ['parse', 'compile', 'expand', 'stringify']) {
+      for (const maxDepth of [undefined, Infinity, NaN, 100000]) {
+        assert.throws(() => braces[method](pattern, { maxDepth }), /exceeds max depth/);
+      }
+    }
+  }
+  assert.doesNotThrow(() => braces.parse('{'.repeat(100) + 'a,b' + '}'.repeat(100)));
+  assert.throws(() => braces.parse('{'.repeat(101) + 'a,b' + '}'.repeat(101)), /exceeds max depth/);
+  assert.deepEqual(braces.expand('"{literal}"'), ['{literal}']);
+  let ast = { type: 'text', value: 'a' };
+  for (let i = 0; i < 1500; i++) ast = { type: 'paren', nodes: [ast] };
+  ast = { type: 'root', nodes: [ast] };
+  for (const method of ['compile', 'expand', 'stringify']) {
+    assert.throws(() => braces[method](ast), /exceeds max depth/);
+  }
+});
+
+test('Metro watchers and Expo Updates globs retain normal matching behavior', async () => {
+  const { includedByGlob } = requireMobile('metro-file-map/src/watchers/common');
+  assert.equal(includedByGlob('f', ['**/*.{js,tsx}'], false, 'app/index.tsx'), true);
+  assert.equal(includedByGlob('f', ['**/*.{js,tsx}'], false, 'assets/logo.png'), false);
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'expo-glob-security-'));
+  try {
+    await fs.writeFile(path.join(dir, 'one.png'), '');
+    await fs.writeFile(path.join(dir, 'two.ttf'), '');
+    await fs.writeFile(path.join(dir, 'ignored.txt'), '');
+    assert.deepEqual(
+      (await requireMobile('fast-glob')('*.{png,ttf}', { cwd: dir })).sort(),
+      ['one.png', 'two.ttf']
+    );
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 });
 
 test('Metro reads image dimensions from buffers and filesystem paths', async () => {
