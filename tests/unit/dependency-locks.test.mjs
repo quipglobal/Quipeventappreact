@@ -68,3 +68,44 @@ test('web publishing cannot restore the firewall-blocked proxy-addr version', ()
     assert.ok(!pkg.resolved?.includes('package-firewall.replit.'), 'Use the install environment registry, not a workspace-only URL');
   }
 });
+
+test('web locks patched source maps and compatible brace-expansion branches', () => {
+  const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+  const expected = {
+    'brace-expansion': { 1: '1.1.21', 5: '5.0.12' },
+    'source-map-js': { 1: '1.2.2' },
+  };
+  const seen = new Set();
+  for (const [location, pkg] of Object.entries(lock.packages)) {
+    if (!location.includes('node_modules/')) continue;
+    const name = location.split('node_modules/').at(-1);
+    if (!expected[name]) continue;
+    seen.add(name);
+    const major = Number(pkg.version.split('.')[0]);
+    const floor = expected[name][major];
+    assert.ok(floor, `${location}: unexpected major ${major}; check API compatibility`);
+    assert.ok(atLeast(pkg.version, floor), `${location}: ${pkg.version} must be >= ${floor}`);
+    assert.ok(!pkg.resolved?.includes('package-firewall.replit.'), `${location}: registry URL must be portable`);
+  }
+  assert.deepEqual([...seen].sort(), Object.keys(expected).sort());
+});
+
+test('web excludes the unused, vulnerable middleware chain without replacing its proxies', () => {
+  const manifest = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+  const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+  for (const name of ['http-proxy-middleware', 'micromatch', 'braces']) {
+    assert.equal(manifest.dependencies[name], undefined);
+    assert.equal(manifest.devDependencies[name], undefined);
+    assert.ok(!Object.keys(lock.packages).some(location => location.endsWith(`node_modules/${name}`)),
+      `${name} must not return to the web dependency tree`);
+  }
+  // Both web proxies are independent of http-proxy-middleware. Keep the
+  // production mounts and Vite targets when removing the unused dependency.
+  const server = fs.readFileSync('server.js', 'utf8');
+  const vite = fs.readFileSync('vite.config.ts', 'utf8');
+  assert.match(server, /transport\.request\(options/);
+  for (const prefix of ['/api', '/storage']) {
+    assert.ok(server.includes(`proxyTo('${prefix}')`));
+    assert.ok(vite.includes(`'${prefix}': {`));
+  }
+});
