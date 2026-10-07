@@ -460,6 +460,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // user's leads.
   const [leads, setLeads] = useState<Lead[]>([]);
   const [sponsorGiveaways, setSponsorGiveaways] = useState<SponsorGiveaway[]>([]);
+  // Keep deletion tombstones for this provider session: even a successful
+  // DELETE can complete before an older GET delivers its stale snapshot.
+  // Scope by account and event so unrelated lists are never filtered.
+  const deletedGiveawayIdsRef = useRef(new Map<string, Set<string>>());
+  const giveawayDeletionScope = (userId: string | null, eventId: string) =>
+    JSON.stringify([userId, eventId]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
   const [leaderboardPeriod, setLeaderboardPeriod] = useState<LeaderboardPeriod>('overall');
@@ -776,7 +782,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             );
             const serverIds = new Set(serverRows.map(g => g.id));
             const localOnly = current.filter(g => !serverIds.has(g.id));
-            const withOwnership = serverRows.map(g => {
+            const deletedIds = deletedGiveawayIdsRef.current.get(
+              giveawayDeletionScope(user?.id ?? null, eventId),
+            );
+            const withOwnership = serverRows.filter(g => !deletedIds?.has(g.id)).map(g => {
               const own = localOwnership.get(g.id);
               return own
                 ? {
@@ -1937,7 +1946,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // without waiting for the next event-change hydration.
       listGiveawaysApi(eventIdAtCall).then(refreshRes => {
         if (!refreshRes.success || !refreshRes.data) return;
-        if (activeEventIdRef.current !== eventIdAtCall) return;
+        if (activeEventIdRef.current !== eventIdAtCall || userIdRef.current !== userIdAtCall) return;
         const winnersByGiveaway = loadGiveawayWinners(eventIdAtCall);
         // Use the functional form of setSponsorGiveaways so we can read the
         // current in-memory list and preserve ownership fields
@@ -1958,7 +1967,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           // read path yet). Keep them at the front so they stay visible
           // instead of disappearing until the next hydration cycle.
           const localOnly = current.filter(g => !serverIds.has(g.id));
-          const serverRows = refreshRes.data!.map(g => {
+          const deletedIds = deletedGiveawayIdsRef.current.get(
+            giveawayDeletionScope(userIdAtCall, eventIdAtCall),
+          );
+          const serverRows = refreshRes.data!.filter(g => !deletedIds?.has(g.id)).map(g => {
             const own = localOwnership.get(g.id);
             const withOwnership: SponsorGiveaway = own
               ? {
@@ -2074,6 +2086,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const removed = sponsorGiveaways.find(g => g.id === id);
     if (!removed) return;
 
+    const deletionScope = eventIdAtCall
+      ? giveawayDeletionScope(userIdAtCall, eventIdAtCall)
+      : null;
+    if (deletionScope) {
+      let deletedIds = deletedGiveawayIdsRef.current.get(deletionScope);
+      if (!deletedIds) {
+        deletedIds = new Set();
+        deletedGiveawayIdsRef.current.set(deletionScope, deletedIds);
+      }
+      deletedIds.add(id);
+    }
     setSponsorGiveaways(prev => prev.filter(g => g.id !== id));
     showToast('Giveaway removed');
 
@@ -2085,6 +2108,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const res = await removeGiveawayApi(eventIdAtCall, id);
 
+    // A rejected deletion must be visible again, including when the user
+    // returns to this event after the request completed in another scope.
+    if (!res.success && res.error?.code !== 'NOT_IMPLEMENTED' && deletionScope) {
+      deletedGiveawayIdsRef.current.get(deletionScope)?.delete(id);
+    }
     // If the active event or user changed while DELETE was in flight,
     // a stale rollback would resurrect a row inside the wrong
     // event's list — bail before touching state.

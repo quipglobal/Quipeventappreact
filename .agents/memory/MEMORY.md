@@ -13,4 +13,5 @@
 - [Lead sync contract](lead-sync-contract.md) — scan_id probe fix, uppercase priority on wire, overlay retirement via clearLeadEdit, syncPending retry pattern
 - [Path B check-in toast race](path-b-checkin-toast-race.md) — void checkInMemberApi inside .then() resolves before Playwright polls, overwriting attendee-points toast; fix: skip check-in toast when attendeePoints > 0
 - [Giveaway API contracts](giveaway-api-contracts.md) — exact endpoint URLs, /winners body (winner_user_id only), /draw URL fix, DrawParticipant userId chain, attendee mobile-giveaways endpoint
+- [Giveaway read/delete ordering](giveaway-delete-ordering.md) — stale GETs can finish after successful DELETE; preserve account/event-scoped deletion intent until failure or session end.
 - [Publishing dependency firewall](publish-package-firewall.md) — cached installs can pass while a clean publish rejects a newly vulnerable locked dependency; inspect the latest terminal error.

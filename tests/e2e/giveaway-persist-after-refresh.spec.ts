@@ -116,8 +116,18 @@ const BACKGROUND_GET_LIST_WITHOUT_OWNERSHIP = [
 
 // ── Mock installer ────────────────────────────────────────────────────────────
 
-async function installMocks(page: Page) {
+function gate() {
+  let release!: () => void;
+  const promise = new Promise<void>(resolve => { release = resolve; });
+  return { promise, release };
+}
+
+async function installMocks(page: Page, race?: { rejectDelete?: boolean }) {
   let postFired = false;
+  const refreshStarted = gate();
+  const refresh = gate();
+  const deleteStarted = gate();
+  const deletion = gate();
 
   await page.route('**/api/v1/**', async (route) => {
     const url = new URL(route.request().url());
@@ -159,11 +169,27 @@ async function installMocks(page: Page) {
 
     // Giveaways — the critical stub
     if (p.startsWith(`/api/v1/events/${EVENT.id}/giveaways`)) {
+      if (m === 'DELETE' && race) {
+        expect(p).toBe(`/api/v1/events/${EVENT.id}/giveaways/g-new-999`);
+        deleteStarted.release();
+        await deletion.promise;
+        return race.rejectDelete
+          ? ok({ success: false, error: { message: 'Delete rejected' } }, 500)
+          : ok({ success: true });
+      }
       if (m === 'POST') {
         postFired = true;
         return ok({ success: true, data: NEW_GIVEAWAY_POST_RESPONSE }, 201);
       }
       if (m === 'GET') {
+        if (postFired && race) {
+          // Capture the pre-deletion snapshot and hold it until the test
+          // explicitly releases it, independent of DELETE completion.
+          const staleList = [EXISTING_GIVEAWAY, NEW_GIVEAWAY_POST_RESPONSE];
+          refreshStarted.release();
+          await refresh.promise;
+          return ok({ success: true, data: staleList });
+        }
         // Before the POST: only the pre-existing giveaway.
         // After the POST: both giveaways, but the new one is missing
         // sponsor_name / sponsor_id to simulate the regression trigger.
@@ -186,6 +212,7 @@ async function installMocks(page: Page) {
 
     return ok({ success: true, data: null });
   });
+  return { refreshStarted, refresh, deleteStarted, deletion };
 }
 
 // ── Test ──────────────────────────────────────────────────────────────────────
@@ -290,3 +317,81 @@ test('newly-added giveaway stays in My Giveaways section after background list r
     .first();
   await expect(managedSectionAfterNav.getByText(NEW_GIVEAWAY_TITLE).first()).toBeVisible();
 });
+
+for (const order of ['GET before DELETE', 'DELETE before GET', 'rejected DELETE'] as const) {
+  test(`deleted giveaway stays absent during stale refresh: ${order}`, async ({ page }) => {
+    const control = await installMocks(page, { rejectDelete: order === 'rejected DELETE' });
+    try {
+      await page.goto('/');
+      await page.getByRole('button', { name: /sign in/i }).click();
+      await page.getByPlaceholder('you@example.com').fill('sam@acme.com');
+      await page.getByRole('button', { name: /^Continue$/i }).click();
+      const otp = page.locator('div[aria-label="Sign in"] input[inputmode="numeric"]');
+      await expect(otp.first()).toBeVisible();
+      await otp.first().focus();
+      await page.keyboard.type('123456', { delay: 30 });
+      await page.getByRole('button', { name: /looks good,?\s*continue/i }).click();
+      await page.getByRole('button', { name: /^Events$/i }).click();
+      await page.getByText(EVENT.name).first().click();
+      await page.getByRole('button', { name: /^More$/i }).click();
+      await page.getByRole('button', { name: /^Manage Giveaways$/i }).click();
+      await expect(page.getByText(/Acme Corp Giveaways\s*\(1\)/i)).toBeVisible();
+
+      await page.getByPlaceholder(/Win a MacBook/i).fill(NEW_GIVEAWAY_TITLE);
+      await page.locator('input[type="number"]').first().fill(NEW_GIVEAWAY_QTY);
+      await page.getByRole('button', { name: /^Add Giveaway$/i }).click();
+      await control.refreshStarted.promise;
+      await expect(page.getByText(/Acme Corp Giveaways\s*\(2\)/i)).toBeVisible();
+
+      const card = page.getByRole('heading', { name: NEW_GIVEAWAY_TITLE, exact: true }).first()
+        .locator('xpath=ancestor::div[.//button[@aria-label="Delete giveaway"]][1]');
+      await card.getByRole('button', { name: 'Delete giveaway', exact: true }).click();
+      await card.getByRole('button', { name: 'Delete', exact: true }).click();
+      await control.deleteStarted.promise;
+      await expect(page.getByText(NEW_GIVEAWAY_TITLE, { exact: true })).toHaveCount(0);
+
+      // Catch even a transient reinsertion, not only the final DOM state.
+      await page.evaluate(title => {
+        const state = { reappeared: false };
+        (window as any).__giveawayDeletionWatch = state;
+        new MutationObserver(() => {
+          if ([...document.querySelectorAll('h3')].some(h => h.textContent === title)) {
+            state.reappeared = true;
+          }
+        }).observe(document.body, { subtree: true, childList: true });
+      }, NEW_GIVEAWAY_TITLE);
+
+      const staleResponse = page.waitForResponse(r =>
+        r.url().endsWith(`/events/${EVENT.id}/giveaways`) && r.request().method() === 'GET');
+      const deleteResponse = page.waitForResponse(r => r.request().method() === 'DELETE' &&
+        r.url().endsWith('/giveaways/g-new-999'));
+      if (order === 'DELETE before GET') {
+        control.deletion.release();
+        await (await deleteResponse).finished();
+      }
+      control.refresh.release();
+      await (await staleResponse).finished();
+      await page.evaluate(() => new Promise<void>(resolve =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+      await expect(page.getByText(NEW_GIVEAWAY_TITLE, { exact: true })).toHaveCount(0);
+      expect(await page.evaluate(() => (window as any).__giveawayDeletionWatch.reappeared)).toBe(false);
+      await expect(page.getByText(/Acme Corp Giveaways\s*\(1\)/i)).toBeVisible();
+      await expect(page.getByText(EXISTING_GIVEAWAY.title).first()).toBeVisible();
+      await expect(page.getByText('3 items available', { exact: true })).toBeVisible();
+
+      if (order !== 'DELETE before GET') {
+        control.deletion.release();
+        await (await deleteResponse).finished();
+      }
+      if (order === 'rejected DELETE') {
+        await expect(page.getByText(/Acme Corp Giveaways\s*\(2\)/i)).toBeVisible();
+        await expect(page.getByText(NEW_GIVEAWAY_TITLE).first()).toBeVisible();
+      } else {
+        await expect(page.getByText(NEW_GIVEAWAY_TITLE, { exact: true })).toHaveCount(0);
+      }
+    } finally {
+      control.refresh.release();
+      control.deletion.release();
+    }
+  });
+}
