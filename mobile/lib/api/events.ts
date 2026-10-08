@@ -2,6 +2,7 @@ import { request } from '@/lib/apiClient';
 import { getEventId } from '@/lib/eventStore';
 import type { ApiResponse, Event, Session } from '@/lib/api/types';
 import { resolveEventMembership, type EventIdentity } from '@/lib/eventMembership';
+import { normalizeEventJoinResponse } from '@/lib/eventJoinResult';
 
 /**
  * Derive a short timezone abbreviation (e.g. "CST") from an IANA timezone
@@ -251,23 +252,14 @@ export async function joinByCode(
     return res as ApiResponse<Event & { autoCheckedIn: boolean; membershipId?: number }>;
   }
 
-  const raw = res.data?.data ?? res.data ?? res;
-  const autoCheckedIn: boolean = Boolean(raw.auto_checked_in);
-  // Extract membership_id — backend may return it as a number or a string.
-  const _rawMembId = raw.membership_id ?? raw.member_id;
-  const membershipId: number | undefined =
-    typeof _rawMembId === 'number' ? _rawMembId :
-    typeof _rawMembId === 'string' && _rawMembId ? (Number(_rawMembId) || undefined) :
-    undefined;
+  const { eventId, event: inlineEvent, autoCheckedIn, membershipId } = normalizeEventJoinResponse(res);
   if (__DEV__) console.log(`[Events] joinByCode auto_checked_in=${autoCheckedIn} membershipId=${membershipId}`);
 
   // Resolve Event — try inline event object first, then event_id fetch, then code lookup.
-  const inlineEvent = raw.event ?? raw.data?.event ?? null;
   if (inlineEvent) {
     return { success: true, data: { ...normalizeEvent(inlineEvent), autoCheckedIn, membershipId } };
   }
 
-  const eventId = raw.event_id ?? raw.data?.event_id ?? null;
   if (eventId) {
     const evRes = await getEvent(String(eventId));
     if (evRes.success && evRes.data) {

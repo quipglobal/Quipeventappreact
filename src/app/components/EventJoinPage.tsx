@@ -567,8 +567,23 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
     const res = await joinEventWithCode(eventKey.trim());
     setIsJoiningEvent(false);
     if (res.success) {
-      if (res.data?.eventId && res.data.eventId !== gateEvent.id) {
+      const joinedEventId = res.data?.eventId;
+      const submittedKey = eventKey.trim().toUpperCase();
+      if (joinedEventId && String(joinedEventId) !== String(gateEvent.id)) {
         setKeyError('That key belongs to a different event. Please enter the key for this event.');
+        return;
+      }
+      // Some successful joins return only a membership id. A matching key
+      // plus backend join success identifies this event; never compare the
+      // membership id to the event id. Otherwise verify the selected event.
+      if (!joinedEventId && submittedKey !== (gateEvent.code ?? '').trim().toUpperCase()) {
+        const verified = await checkEventAccess(gateEvent.id, { id: user?.id, email: user?.email });
+        if (!verified.success || !verified.data?.is_member) {
+          setKeyError('Joined successfully, but we could not confirm access to this selected event. Please refresh the event list.');
+          return;
+        }
+        setGateEvent(null);
+        enterEvent(gateEvent, verified.data.role);
         return;
       }
       setGateEvent(null);

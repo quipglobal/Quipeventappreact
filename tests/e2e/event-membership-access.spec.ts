@@ -6,11 +6,12 @@ const event = { id: 21, name: 'Membership Summit', code: 'MEM-26',
 const user = { id: 'member-42', name: 'Casey Member', first_name: 'Casey', last_name: 'Member',
   email: 'casey@example.test', company: 'Example Co', title: 'Director', role: 'attendee',
   email_verified: true, profile_complete: true, points: 0, interests: [] };
-type Scenario = 'audience' | 'sponsor_rep' | 'has_access' | 'outsider' | 'revoked' | 'new_member';
+type Scenario = 'audience' | 'sponsor_rep' | 'has_access' | 'outsider' | 'revoked' | 'new_member'
+  | 'membership_only' | 'nested_membership' | 'different_event';
 
 async function setup(page: Page, scenario: Scenario) {
   let joins = 0;
-  let registered = scenario !== 'outsider' && scenario !== 'new_member';
+  let registered = ['audience', 'sponsor_rep', 'has_access', 'revoked'].includes(scenario);
   await page.route('**/api/v1/**', async route => {
     const p = new URL(route.request().url()).pathname;
     const method = route.request().method();
@@ -25,10 +26,17 @@ async function setup(page: Page, scenario: Scenario) {
     if (p === '/api/v1/events') return ok({ success: true, data: { data: [event] } });
     if (p === '/api/v1/events/join' && method === 'POST') {
       joins++;
-      if (scenario === 'new_member') {
+      if (scenario === 'different_event') {
+        return ok({ success: true, data: { event_id: 22, membership_id: 900 } }, 201);
+      }
+      if (['new_member', 'membership_only', 'nested_membership'].includes(scenario)) {
         expect(route.request().postDataJSON()).toEqual({ event_code: 'MEM-26', code: 'MEM-26' });
         registered = true;
-        return ok({ success: true, event_id: 21, membership_id: 900, auto_checked_in: true }, 201);
+        if (scenario === 'membership_only') return ok({ success: true,
+          data: { id: 900, membership_id: 900, auto_checked_in: true } }, 201);
+        if (scenario === 'nested_membership') return ok({ success: true,
+          data: { id: 900, membership: { id: 900, event_id: 21 } } }, 201);
+        return ok({ success: true, event_id: 21, data: { id: 900, membership_id: 900 }, auto_checked_in: true }, 201);
       }
       return ok({ success: false, error: { code: 'INVALID_CODE', message: 'Invalid event key' } }, 404);
     }
@@ -101,4 +109,26 @@ test('a valid key registers a new member and preserves punctuation in the key', 
   expect(joins()).toBe(1);
   await page.getByRole('button', { name: /^Audience$/i }).click();
   await expect(page.getByText(user.name).first()).toBeVisible();
+});
+
+for (const scenario of ['membership_only', 'nested_membership'] as const) {
+  test(`correct key joins and adds attendee when the response contains ${scenario}`, async ({ page }) => {
+    const joins = await setup(page, scenario);
+    await expect(page.getByText('Access Required', { exact: true })).toBeVisible();
+    await page.getByPlaceholder(event.code).fill(event.code);
+    await page.getByRole('button', { name: /^Join Event$/i }).click();
+    await expect(page.getByRole('button', { name: /^Home$/i })).toBeVisible();
+    await expect(page.getByText('That key belongs to a different event.', { exact: false })).toHaveCount(0);
+    expect(joins()).toBe(1);
+    await page.getByRole('button', { name: /^Audience$/i }).click();
+    await expect(page.getByText(user.name).first()).toBeVisible();
+  });
+}
+
+test('a key explicitly belonging to another event remains blocked', async ({ page }) => {
+  await setup(page, 'different_event');
+  await page.getByPlaceholder(event.code).fill('OTHER-26');
+  await page.getByRole('button', { name: /^Join Event$/i }).click();
+  await expect(page.getByText('That key belongs to a different event. Please enter the key for this event.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Home$/i })).toHaveCount(0);
 });

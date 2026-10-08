@@ -9,6 +9,7 @@
 
 import { apiGet, apiPost, apiPut } from './client';
 import { resolveEventMembership, type EventIdentity } from '../../../mobile/lib/eventMembership';
+import { normalizeEventJoinResponse } from '../../../mobile/lib/eventJoinResult';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -233,18 +234,8 @@ export async function joinEventByCodeApi(code: string): Promise<JoinEventRespons
     EVENTS_TENANT_HEADERS,
   );
   if (res.success) {
-    const body = (res.data ?? res) as Record<string, unknown>;
-    const raw = (body.data ?? body) as Record<string, unknown>;
-    const membership = raw.membership as Record<string, unknown> | undefined;
-    const eventId = String(
-      (raw.event as Record<string, unknown>)?.id ?? raw.event_id ?? raw.eventId ?? raw.id ?? '',
-    );
-    const _rawMembId = raw.membership_id ?? raw.member_id ?? membership?.id;
-    const membershipId: number | undefined =
-      typeof _rawMembId === 'number' ? _rawMembId :
-      typeof _rawMembId === 'string' && _rawMembId ? (Number(_rawMembId) || undefined) :
-      undefined;
-    return { success: true, data: { eventId, message: String(raw.message ?? 'Successfully joined event!'), membershipId } };
+    const { eventId, message, membershipId } = normalizeEventJoinResponse(res);
+    return { success: true, data: { eventId, message, membershipId } };
   }
   return { success: false, error: { code: res.error?.code ?? 'INVALID_CODE', message: res.error?.message ?? 'Event not found. Please check your code.' } };
 }

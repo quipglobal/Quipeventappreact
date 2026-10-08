@@ -8,13 +8,14 @@ function load(path, dependencies = {}) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
   const module = { exports: {} };
-  new Function('require', 'module', 'exports', code)(name => {
+  new Function('require', 'module', 'exports', '__DEV__', code)(name => {
     assert.ok(name in dependencies, `Unexpected dependency ${name}`);
     return dependencies[name];
-  }, module, module.exports);
+  }, module, module.exports, false);
   return module.exports;
 }
 const resolver = load('mobile/lib/eventMembership.ts');
+const joinParser = load('mobile/lib/eventJoinResult.ts');
 const identity = { id: '42', email: 'member@example.test' };
 const ok = data => ({ success: true, data });
 const unavailable = { success: false, error: { code: '404', message: 'Missing endpoint' } };
@@ -102,11 +103,13 @@ for (const app of ['web', 'mobile']) {
       ? load('src/app/api/eventsClient.ts', {
         './client': { apiGet: request },
         '../../../mobile/lib/eventMembership': resolver,
+        '../../../mobile/lib/eventJoinResult': joinParser,
       })
       : load('mobile/lib/api/events.ts', {
         '@/lib/apiClient': { request },
         '@/lib/eventStore': {},
         '@/lib/eventMembership': resolver,
+        '@/lib/eventJoinResult': joinParser,
       });
     const res = await api.checkEventAccess('21', identity);
     assert.equal(res.data.is_member, true);
@@ -115,3 +118,55 @@ for (const app of ['web', 'mobile']) {
       '/api/v1/events/21/members?per_page=100&page=1&checked_in_only=false']);
   });
 }
+
+test('a membership resource id is never interpreted as an event id', () => {
+  const joined = joinParser.normalizeEventJoinResponse({ success: true, data: { id: 900, membership_id: 900 } });
+  assert.equal(joined.eventId, '');
+  assert.equal(joined.membershipId, 900);
+});
+
+test('explicit event identity survives nested membership resources and outer envelope fields', () => {
+  for (const response of [
+    { success: true, data: { id: 900, membership: { id: 900, event_id: 21 } } },
+    { success: true, event_id: 21, data: { id: 900, membership_id: 900 } },
+    { success: true, data: { data: { id: 900, eventId: '21', membership_id: '900' } } },
+    { success: true, data: { membership: { id: 900, event: { id: 21 } } } },
+  ]) {
+    const joined = joinParser.normalizeEventJoinResponse(response);
+    assert.equal(joined.eventId, '21');
+    assert.equal(joined.membershipId, 900);
+  }
+});
+
+test('the web join adapter does not reject a correct key because the response id belongs to membership', async () => {
+  const api = load('src/app/api/eventsClient.ts', {
+    './client': { apiPost: async () => ({ success: true, data: { id: 900, membership_id: 900 } }) },
+    '../../../mobile/lib/eventMembership': resolver,
+    '../../../mobile/lib/eventJoinResult': joinParser,
+  });
+  const joined = await api.joinEventWithCode('MEM-26');
+  assert.equal(joined.success, true);
+  assert.equal(joined.data.eventId, '');
+  assert.equal(joined.data.membershipId, 900);
+});
+
+test('mobile resolves the event reference inside a membership instead of fetching the membership as an event', async () => {
+  const calls = [];
+  const api = load('mobile/lib/api/events.ts', {
+    '@/lib/apiClient': { request: async path => {
+      calls.push(path);
+      if (path === '/api/v1/events/join') return { success: true,
+        data: { id: 900, membership: { id: 900, event_id: 21 } } };
+      assert.equal(path, '/api/v1/events/21');
+      return { success: true, data: { id: 21, name: 'Membership Summit' } };
+    } },
+    '@/lib/eventStore': {},
+    '@/lib/eventMembership': resolver,
+    '@/lib/eventJoinResult': joinParser,
+  });
+  const joined = await api.joinByCode('MEM-26');
+  assert.equal(joined.success, true);
+  assert.equal(joined.data.id, '21');
+  assert.equal(joined.data.membershipId, 900);
+  assert.deepEqual(calls, ['/api/v1/events/join', '/api/v1/events/21']);
+});
