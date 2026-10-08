@@ -1,6 +1,7 @@
 import { request } from '@/lib/apiClient';
 import { getEventId } from '@/lib/eventStore';
 import type { ApiResponse, Event, Session } from '@/lib/api/types';
+import { resolveEventMembership, type EventIdentity } from '@/lib/eventMembership';
 
 /**
  * Derive a short timezone abbreviation (e.g. "CST") from an IANA timezone
@@ -245,18 +246,12 @@ export async function joinByCode(
   });
 
   if (!res.success) {
-    // 409 = user is already a member — treat as success and resolve event from code.
-    const is409 =
-      res.error?.code === '409' ||
-      res.error?.code === 'CONFLICT' ||
-      res.error?.message?.toLowerCase().includes('already');
-    if (!is409) {
-      return res as ApiResponse<Event & { autoCheckedIn: boolean; membershipId?: number }>;
-    }
-    if (__DEV__) console.log(`[Events] joinByCode 409/already-member for code=${upper} — resolving event`);
+    // The UI verifies existing membership independently. A conflict or text
+    // containing "already" must not grant access solely from a listed code.
+    return res as ApiResponse<Event & { autoCheckedIn: boolean; membershipId?: number }>;
   }
 
-  const raw = res.data ?? {};
+  const raw = res.data?.data ?? res.data ?? res;
   const autoCheckedIn: boolean = Boolean(raw.auto_checked_in);
   // Extract membership_id — backend may return it as a number or a string.
   const _rawMembId = raw.membership_id ?? raw.member_id;
@@ -301,21 +296,27 @@ export async function joinByCode(
 /**
  * GET /api/v1/events/{eventId}/access
  * Returns whether the current user is a member of the event.
- * Always returns 200 — never blocks.
- * Cache the result locally once is_member is true.
+ * If access is missing/inconsistent, verify this account in the member or
+ * attendee roster. Local join history must not authorize a different account.
  */
 export async function checkEventAccess(
   eventId: string,
+  identity?: EventIdentity,
 ): Promise<ApiResponse<{ is_member: boolean; role: string | null; event: any }>> {
   const res = await request<any>(`/api/v1/events/${eventId}/access`);
-  if (!res.success) return res;
+  const resolved = await resolveEventMembership(res, identity, page => request<any>(
+    `/api/v1/events/${eventId}/members?per_page=100&page=${page}&checked_in_only=false`,
+  ), page => request<any>(
+    `/api/v1/events/${eventId}/attendees?per_page=100&page=${page}&checked_in_only=false`,
+  ));
+  if (!resolved.success) return { success: false, error: resolved.error };
   const raw = res.data ?? {};
   const data = raw?.data ?? raw;
   return {
     success: true,
     data: {
-      is_member: Boolean(data?.is_member),
-      role: data?.role ?? null,
+      is_member: resolved.data!.is_member,
+      role: resolved.data!.role,
       event: data?.event ?? null,
     },
   };

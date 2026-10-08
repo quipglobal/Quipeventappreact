@@ -17,3 +17,4 @@
 - [Giveaway save ordering](giveaway-save-ordering.md) — a list refresh can discover a saved prize before its POST acknowledgement; tests must cover that order.
 - [Publishing dependency firewall](publish-package-firewall.md) — cached installs can pass while a clean publish rejects a newly vulnerable locked dependency; inspect the latest terminal error.
 - [Mobile focus refresh stability](mobile-focus-refresh-stability.md) — query updates must not recreate navigation focus callbacks, or a single visit can repeatedly refetch.
+- [Existing event membership](event-membership-access.md) — audience members and sponsor reps bypass rejoin prompts only on backend-confirmed membership; preserve event-specific role privileges.

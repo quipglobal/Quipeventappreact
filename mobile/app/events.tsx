@@ -22,10 +22,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '@/context/AuthContext';
 import { useEvent } from '@/context/EventContext';
-import { listEventsByTenant, findEventByCode, joinByCode, checkEventAccess, selfCheckIn } from '@/lib/api/events';
+import { listEventsByTenant, joinByCode, checkEventAccess, selfCheckIn } from '@/lib/api/events';
 import {
   fetchGlobalVideoFeeds,
   fetchGlobalArticles,
@@ -39,7 +38,6 @@ import { colors, spacing, radius } from '@/constants/theme';
 import type { Event } from '@/lib/api/types';
 
 const TENANT_ID = '3';
-const JOINED_EVENTS_KEY = 'cxo:joined_events:v1';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 function formatDate(start: string, end: string) {
@@ -217,15 +215,7 @@ export default function EventsScreen() {
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [popupCode, setPopupCode] = useState('');
   const [eventsTab, setEventsTab] = useState<'upcoming' | 'past'>('upcoming');
-  const [joinedEventIds, setJoinedEventIds] = useState<string[]>([]);
   const [silentJoiningId, setSilentJoiningId] = useState<string | null>(null);
-
-  // Load persisted joined-event IDs so card taps skip the code gate
-  useEffect(() => {
-    AsyncStorage.getItem(JOINED_EVENTS_KEY).then((raw) => {
-      if (raw) { try { setJoinedEventIds(JSON.parse(raw)); } catch {} }
-    });
-  }, []);
 
   const firstName = user?.name?.split(' ')[0] ?? 'there';
 
@@ -297,77 +287,58 @@ export default function EventsScreen() {
 
   const goToFeed = useCallback(() => router.replace('/(tabs)/feed'), []);
 
-  // Persist membership, award check-in points, and fire-and-forget backend self check-in.
+  // Award check-in points and fire-and-forget backend self check-in after entry.
   // Uses POST /events/:id/self-check-in (idempotent, no membership ID needed).
   const saveJoinedEvent = useCallback(async (eventId: string) => {
     // Always mark locally first so points are awarded immediately.
     markEventCheckedIn(eventId);
-    setJoinedEventIds((prev) => {
-      if (prev.includes(eventId)) return prev;
-      const next = [...prev, eventId];
-      AsyncStorage.setItem(JOINED_EVENTS_KEY, JSON.stringify(next)).catch(() => {});
-      return next;
-    });
     // Best-effort backend self check-in — idempotent, safe to call even if already checked in.
     selfCheckIn(eventId).catch(() => {});
   }, [markEventCheckedIn]);
 
-  // Handle event card tap — three-strategy flow:
-  // 1. Local cache hit → go straight to feed (instant, no network).
-  // 2. Backend membership check (GET /events/:id/access) → if is_member, cache + enter.
-  // 3. Silent re-join with event's own code (idempotent for existing members) → if ok, enter.
-  // 4. All checks failed → show code-entry popup as last resort.
+  // Verify membership for this account, not a device-wide join cache.
+  // Both audience members and sponsor reps can enter without submitting a key.
   const handleCardPress = useCallback(async (ev: Event) => {
-    // ── Strategy 1: local cache ──────────────────────────────────────────────
-    if (joinedEventIds.includes(String(ev.id))) {
-      setCurrentEventId(ev.id);
-      refreshEventRole(ev.id);
-      router.replace('/(tabs)/feed');
-      return;
-    }
-
     setSilentJoiningId(ev.id);
 
-    // ── Strategy 2: backend access check ────────────────────────────────────
+    // ── Backend access and roster verification ────────────────────────────
     try {
-      const accessRes = await checkEventAccess(ev.id);
+      const accessRes = await checkEventAccess(ev.id, { id: user?.id, email: user?.email });
       if (accessRes.success && accessRes.data?.is_member) {
         setCurrentEventId(ev.id);
-        await refreshEventRole(ev.id);
+        await refreshEventRole(ev.id, accessRes.data.role === 'sponsor' ? 'sponsor' :
+          accessRes.data.role === 'attendee' ? 'attendee' : undefined);
         await saveJoinedEvent(ev.id);
         setSilentJoiningId(null);
         router.replace('/(tabs)/feed');
         return;
       }
+      if (!accessRes.success) {
+        Alert.alert('Unable to verify access', accessRes.error?.message ?? 'Please try again.');
+      }
     } catch {}
-
-    // ── Strategy 3: silent join with event's own code (idempotent) ──────────
-    // Catches the case where checkEventAccess is not yet deployed or returns
-    // is_member: false even though the user joined (e.g. field-name mismatch).
-    if (ev.code) {
-      try {
-        const joinRes = await joinByCode(ev.code);
-        if (joinRes.success && joinRes.data) {
-          const targetId = joinRes.data.id ?? ev.id;
-          setCurrentEventId(targetId);
-          await refreshEventRole(targetId);
-          await saveJoinedEvent(targetId);
-          setSilentJoiningId(null);
-          router.replace('/(tabs)/feed');
-          return;
-        }
-      } catch {}
-    }
 
     setSilentJoiningId(null);
     // ── Fallback: show code-entry popup ──────────────────────────────────────
     setSelectedEvent(ev);
     setPopupCode('');
-  }, [joinedEventIds, setCurrentEventId, refreshEventRole, saveJoinedEvent]);
+  }, [user?.id, user?.email, setCurrentEventId, refreshEventRole, saveJoinedEvent]);
 
   const handleJoin = useCallback(async (code: string) => {
     const c = code.trim().toUpperCase();
     if (!c) { Alert.alert('Enter a code', 'Please type an event code first.'); return; }
+    if (selectedEvent) {
+      const access = await checkEventAccess(selectedEvent.id, { id: user?.id, email: user?.email });
+      if (access.success && access.data?.is_member) {
+        setCurrentEventId(selectedEvent.id);
+        await refreshEventRole(selectedEvent.id, access.data.role === 'sponsor' ? 'sponsor' :
+          access.data.role === 'attendee' ? 'attendee' : undefined);
+        await saveJoinedEvent(selectedEvent.id);
+        setSelectedEvent(null);
+        goToFeed();
+        return;
+      }
+    }
     // Always call the backend join endpoint — it returns membership_id which we
     // use for the check-in step. It is idempotent for already-members.
     findAndJoin(c, {
@@ -389,27 +360,32 @@ export default function EventsScreen() {
         }
         Alert.alert('Joined!', `You've joined "${ev.name}".`, [{ text: 'Enter Event', onPress: goToFeed }]);
       },
-      onError: (err) => {
-        // If the join API fails (e.g. network), fall back to local event list —
-        // but only for the exact event whose popup is open (match by code, not ID).
+      onError: async (err) => {
         const local = allEvents.find((e) => (e.code ?? '').toUpperCase() === c);
-        if (local && (!selectedEvent || String(local.id) === String(selectedEvent.id))) {
+        const target = selectedEvent ?? local;
+        const access = target
+          ? await checkEventAccess(target.id, { id: user?.id, email: user?.email })
+          : null;
+        if (target && access?.success && access.data?.is_member) {
           setSelectedEvent(null);
-          setCurrentEventId(local.id);
-          refreshEventRole(local.id);
-          saveJoinedEvent(local.id);
-          Alert.alert('Joined!', `You've joined "${local.name}".`, [{ text: 'Enter Event', onPress: goToFeed }]);
+          setCurrentEventId(target.id);
+          await refreshEventRole(target.id, access.data.role === 'sponsor' ? 'sponsor' :
+            access.data.role === 'attendee' ? 'attendee' : undefined);
+          await saveJoinedEvent(target.id);
+          goToFeed();
         } else if (local && selectedEvent && String(local.id) !== String(selectedEvent.id)) {
           Alert.alert(
             'Wrong Code',
             `That code is for a different event. Please enter the correct code for "${selectedEvent.name}".`,
           );
         } else {
-          Alert.alert('Not Found', err instanceof Error ? err.message : `No event found for "${c}".`);
+          Alert.alert('Unable to join', access && !access.success
+            ? access.error?.message ?? 'Unable to verify event access. Please try again.'
+            : err instanceof Error ? err.message : `No event found for "${c}".`);
         }
       },
     });
-  }, [allEvents, findAndJoin, setCurrentEventId, goToFeed, refreshEventRole, saveJoinedEvent, selectedEvent]);
+  }, [allEvents, findAndJoin, setCurrentEventId, goToFeed, refreshEventRole, saveJoinedEvent, selectedEvent, user?.id, user?.email]);
 
   const activeCats = feedSubTab === 'videos' ? videoCats : articleCats;
   const activeCat = feedSubTab === 'videos' ? selectedVideoCat : selectedArticleCat;

@@ -8,6 +8,7 @@
  */
 
 import { apiGet, apiPost, apiPut } from './client';
+import { resolveEventMembership, type EventIdentity } from '../../../mobile/lib/eventMembership';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -218,7 +219,7 @@ export async function getEventApi(id: string): Promise<EventDetailResponse> {
 }
 
 /**
- * POST /api/v1/events/join-by-code
+ * POST /api/v1/events/join
  * Join an event by access code (Globex tenant).
  * Backend auto-creates a checkin record (auto_checked_in) so the attendee
  * appears in the audience list immediately — no separate check-in step needed.
@@ -231,8 +232,9 @@ export async function joinEventByCodeApi(code: string): Promise<JoinEventRespons
     { event_code: normalizedCode, code: normalizedCode },
     EVENTS_TENANT_HEADERS,
   );
-  if (res.success && res.data) {
-    const raw = res.data as Record<string, unknown>;
+  if (res.success) {
+    const body = (res.data ?? res) as Record<string, unknown>;
+    const raw = (body.data ?? body) as Record<string, unknown>;
     const membership = raw.membership as Record<string, unknown> | undefined;
     const eventId = String(
       (raw.event as Record<string, unknown>)?.id ?? raw.event_id ?? raw.eventId ?? raw.id ?? '',
@@ -252,44 +254,28 @@ export async function joinEventByCodeApi(code: string): Promise<JoinEventRespons
  * Check whether the current user is a member of the given event.
  * Always returns 200 — never blocks.
  */
-export async function checkEventAccess(eventId: string): Promise<EventAccessResponse> {
+export async function checkEventAccess(eventId: string, identity?: EventIdentity): Promise<EventAccessResponse> {
   const res = await apiGet<unknown>(`/api/v1/events/${eventId}/access`, EVENTS_TENANT_HEADERS);
-  if (!res.success) {
-    return { success: false, error: res.error as { code: string; message: string } ?? { code: 'ERROR', message: 'Access check failed.' } };
-  }
+  const resolved = await resolveEventMembership(res, identity, page => apiGet<unknown>(
+    `/api/v1/events/${eventId}/members?per_page=100&page=${page}&checked_in_only=false`,
+    EVENTS_TENANT_HEADERS,
+  ), page => apiGet<unknown>(
+    `/api/v1/events/${eventId}/attendees?per_page=100&page=${page}&checked_in_only=false`,
+    EVENTS_TENANT_HEADERS,
+  ));
+  if (!resolved.success) return { success: false, error: resolved.error };
   const raw = res.data as Record<string, unknown>;
-  const data = (raw?.data ?? raw) as EventAccessData;
+  const data = { ...((raw?.data ?? raw) as EventAccessData), ...resolved.data };
   return { success: true, data };
 }
 
 /**
- * POST /api/v1/events/join-by-code
+ * POST /api/v1/events/join
  * Join event using an attendee invite code.
  * Body: { code: "ABC12" }
  * 201 → newly joined (auto_checked_in: true); 200 → already a member (idempotent); 404 → invalid code
  * Backend auto-creates a checkin record — no separate check-in step needed.
  */
 export async function joinEventWithCode(eventCode: string): Promise<JoinEventResponse> {
-  const upper = eventCode.trim().toUpperCase();
-  const res = await apiPost<unknown>(
-    '/api/v1/events/join',
-    // Send both field names so it works regardless of which one the backend expects.
-    { event_code: upper, code: upper },
-    EVENTS_TENANT_HEADERS,
-  );
-  if (res.success && res.data) {
-    const raw = res.data as Record<string, unknown>;
-    const membership = raw.membership as Record<string, unknown> | undefined;
-    const eventId = String(
-      (raw.event as Record<string, unknown>)?.id ?? raw.event_id ?? raw.eventId ?? raw.id ?? '',
-    );
-    const _rawMembId = raw.membership_id ?? raw.member_id ?? membership?.id;
-    const membershipId: number | undefined =
-      typeof _rawMembId === 'number' ? _rawMembId :
-      typeof _rawMembId === 'string' && _rawMembId ? (Number(_rawMembId) || undefined) :
-      undefined;
-    return { success: true, data: { eventId, message: (raw.message as string) ?? 'Successfully joined event!', membershipId } };
-  }
-  const msg = res.error?.message ?? 'Invalid event key. Please try again.';
-  return { success: false, error: { code: res.error?.code ?? 'INVALID_CODE', message: msg } };
+  return joinEventByCodeApi(eventCode);
 }

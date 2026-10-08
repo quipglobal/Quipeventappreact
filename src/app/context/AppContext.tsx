@@ -24,7 +24,7 @@ import {
 } from '@/app/lib/messageCrypto';
 import { fetchPointsFromBackend, scheduleSyncPoints, cancelPendingSyncPoints } from '@/app/api/pointsClient';
 import { getUserPointsApi } from '@/app/api/userClient';
-import { getMyEventRoleApi } from '@/app/api/audienceClient';
+import { checkEventAccess } from '@/app/api/eventsClient';
 import { invalidateEvent } from '@/app/lib/pageCache';
 import { loadLeadsFromStorage, saveLeadsToStorage, clearLeadsStorage } from '@/app/lib/leadsStorage';
 import { saveLeadEdit } from '@/app/lib/leadEditsStorage';
@@ -682,11 +682,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     if (!user?.email || !activeEventConfig?.eventId) return;
     let cancelled = false;
-    getMyEventRoleApi(activeEventConfig.eventId, user.email).then(result => {
-      if (cancelled || !result.ok) return;
-      const desired: 'sponsor' | 'attendee' = result.found
-        ? (result.role.toLowerCase() === 'sponsor' ? 'sponsor' : 'attendee')
-        : 'attendee';
+    checkEventAccess(activeEventConfig.eventId, { id: user.id, email: user.email }).then(result => {
+      if (cancelled || !result.success || !result.data?.is_member) return;
+      const desired: 'sponsor' | 'attendee' = result.data.role === 'sponsor' ? 'sponsor' : 'attendee';
       setUser(prev => {
         if (!prev) return prev;
         if (prev.role === desired) return prev;

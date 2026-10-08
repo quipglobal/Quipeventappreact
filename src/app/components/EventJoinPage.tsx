@@ -458,26 +458,27 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
   const handleSubmitCode = async (e: React.FormEvent) => {
     e.preventDefault();
     setCodeError('');
-    const code = eventCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-    if (code.length < 4) { setCodeError('Please enter a valid event code'); return; }
+    const code = eventCode.trim().toUpperCase();
+    if (!code) { setCodeError('Please enter your event key'); return; }
     setIsJoining(true);
 
     // Always call the backend join endpoint — it is idempotent for already-members
     // and returns membership_id needed to check in the user in the audience list.
     const res = await joinEventByCodeApi(code);
     if (!res.success) {
-      // Fallback: if API fails, check if it's a locally-known event so the user
-      // can still enter (same pattern as mobile app).
-      const matched = events.find(ev =>
-        (ev.code ?? '').toUpperCase() === code ||
-        ev.title.toUpperCase().replace(/\s+/g, '').includes(code)
-      );
+      const matched = events.find(ev => (ev.code ?? '').toUpperCase() === code);
       if (matched) {
-        switchEvent(eventToConfig(matched));
-        joinEvent();
-        setIsJoining(false);
-        onJoinEvent();
-        return;
+        const access = await checkEventAccess(matched.id, { id: user?.id, email: user?.email });
+        if (access.success && access.data?.is_member) {
+          enterEvent(matched, access.data.role);
+          setIsJoining(false);
+          return;
+        }
+        if (!access.success) {
+          setCodeError(access.error?.message ?? 'Unable to verify event access. Please try again.');
+          setIsJoining(false);
+          return;
+        }
       }
       setCodeError(res.error?.message ?? 'Event not found. Please check your code and try again.');
       setIsJoining(false);
@@ -490,34 +491,32 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
       selfCheckInApi(res.data.eventId).catch(() => {});
     }
 
-    // Navigate to the joined event — use eventId from response if present,
-    // otherwise refresh the list and pick the first event (newly joined events
-    // appear at the top after a list refresh).
+    // Navigate only to the event confirmed by the join response.
     if (res.data?.eventId) {
       const evRes = await getEventApi(res.data.eventId);
       if (evRes.success && evRes.data) {
-        switchEvent(eventToConfig(evRes.data));
-        joinEvent();
+        enterEvent(evRes.data);
         setIsJoining(false);
-        onJoinEvent();
         return;
       }
     }
 
-    // Fallback: refresh list and navigate to first available event.
+    // Resolve only the event actually joined, never an arbitrary first event.
     const listRes = await listEventsApi();
-    const firstEv = listRes.data?.[0];
+    const firstEv = listRes.data?.find(ev =>
+      res.data?.eventId ? ev.id === res.data.eventId : (ev.code ?? '').toUpperCase() === code);
     if (listRes.success && firstEv) {
-      switchEvent(eventToConfig(firstEv));
-      joinEvent();
-      onJoinEvent();
+      enterEvent(firstEv);
     } else {
       setCodeError('Joined successfully but could not load the event. Please refresh the page.');
     }
     setIsJoining(false);
   };
 
-  const enterEvent = (ev: OrganizerEvent) => {
+  const enterEvent = (ev: OrganizerEvent, role?: string | null) => {
+    // Never carry sponsor privileges from a previous event into a membership
+    // whose event-specific sponsor role has not been confirmed.
+    if (user) setUser({ ...user, role: role === 'sponsor' ? 'sponsor' : 'attendee' });
     switchEvent(eventToConfig(ev));
     joinEvent();
     // Auto check-in so the user appears in the audience list immediately.
@@ -525,55 +524,28 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
     onJoinEvent();
   };
 
-  // Three-strategy flow:
-  // 1. Backend membership check (GET /events/:id/access) → if is_member, enter directly.
-  // 2. If the access-check endpoint errored (not "confirmed non-member"), try a silent
-  //    idempotent join with ev.code. A 409 (already member) or 200 success means the
-  //    user can enter without typing their code again. This is safe: ev.code comes from
-  //    the authenticated event list, not user input.
-  // 3. All strategies failed → show the key-entry gate modal so the user can supply
-  //    their code. We pre-fill the input with ev.code (if known) so they only need to
-  //    tap "Join Event" rather than retype a code they already have.
+  // Existing attendees and sponsor reps enter through confirmed membership,
+  // including roster verification when the access endpoint is inconsistent.
+  // Non-members must submit a key; a public event listing is not membership.
   const handleEventCardClick = async (ev: OrganizerEvent) => {
     setCheckingEventId(ev.id);
     try {
       // Strategy 1: backend membership check.
       // apiGet never throws — it always returns { success } regardless of HTTP status.
-      const accessRes = await checkEventAccess(ev.id);
+      const accessRes = await checkEventAccess(ev.id, { id: user?.id, email: user?.email });
       if (accessRes.success) {
         if (accessRes.data?.is_member) {
           // Confirmed member → enter directly.
-          enterEvent(ev);
+          enterEvent(ev, accessRes.data.role);
           return;
         }
-        // Confirmed non-member → skip Strategy 2, go straight to gate.
-      } else {
-        // Backend errored (500 / network / parse) — we cannot trust the result.
-        // Try a silent idempotent join with the event's own code so that existing
-        // members whose session is valid don't get blocked by a temporarily-broken
-        // access-check endpoint.
-        if (ev.code) {
-          const joinRes = await joinEventWithCode(ev.code);
-          const is409 =
-            !joinRes.success &&
-            (joinRes.error?.code === '409' ||
-              (joinRes.error?.message ?? '').toLowerCase().includes('already'));
-          if (joinRes.success || is409) {
-            if (joinRes.success && joinRes.data?.eventId) {
-              selfCheckInApi(joinRes.data.eventId).catch(() => {});
-            }
-            enterEvent(ev);
-            return;
-          }
-        }
+        // Confirmed non-member → show the key gate.
       }
 
-      // Strategy 3: show the code-entry gate. Pre-fill the input with the event's
-      // known code (from the event list) so the user only needs to tap "Join Event"
-      // rather than retype a code they already have.
+      // Request a key only after membership verification has not admitted them.
       setGateEvent(ev);
-      setEventKey(ev.code ?? '');
-      setKeyError('');
+      setEventKey('');
+      setKeyError(accessRes.success ? '' : accessRes.error?.message ?? 'Unable to verify access. Please try again.');
     } finally {
       setCheckingEventId(null);
     }
@@ -583,21 +555,35 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
     if (!gateEvent || !eventKey.trim()) return;
     setKeyError('');
     setIsJoiningEvent(true);
+    // Membership can be assigned while this dialog is open. Existing members
+    // must not depend on a join code (or a failing join endpoint) to enter.
+    const access = await checkEventAccess(gateEvent.id, { id: user?.id, email: user?.email });
+    if (access.success && access.data?.is_member) {
+      enterEvent(gateEvent, access.data.role);
+      setGateEvent(null);
+      setIsJoiningEvent(false);
+      return;
+    }
     const res = await joinEventWithCode(eventKey.trim());
     setIsJoiningEvent(false);
-    // 409 = user is already a member — still enter the event
-    const is409 =
-      !res.success &&
-      (res.error?.code === '409' ||
-        (res.error?.message ?? '').toLowerCase().includes('already'));
-    if (res.success || is409) {
-      // Use eventId from response; fall back to the gate event's own id so
-      // self-check-in always fires even if the backend omits the field.
-      const checkInId = (res.success && res.data?.eventId) ? res.data.eventId : gateEvent.id;
-      selfCheckInApi(checkInId).catch(() => {});
+    if (res.success) {
+      if (res.data?.eventId && res.data.eventId !== gateEvent.id) {
+        setKeyError('That key belongs to a different event. Please enter the key for this event.');
+        return;
+      }
       setGateEvent(null);
       enterEvent(gateEvent);
     } else {
+      const verified = await checkEventAccess(gateEvent.id, { id: user?.id, email: user?.email });
+      if (verified.success && verified.data?.is_member) {
+        enterEvent(gateEvent, verified.data.role);
+        setGateEvent(null);
+        return;
+      }
+      if (!verified.success) {
+        setKeyError(verified.error?.message ?? 'Unable to verify event access. Please try again.');
+        return;
+      }
       const backendMsg = res.error?.message ?? '';
       const isNotAvailable = backendMsg.toLowerCase().includes('not available');
       const displayMsg = backendMsg ||
@@ -1486,7 +1472,7 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
               </div>
 
               <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 13, lineHeight: 1.55 }}>
-                You are not a member of this event. Enter your event key to gain access.
+                Existing attendees and sponsor reps enter automatically once access is verified. If you have not joined yet, enter your event key below.
               </p>
             </div>
 

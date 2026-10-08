@@ -16,7 +16,7 @@ interface AppContextValue {
   logout: () => Promise<void>;
   setUser: (user: AuthUser) => void;
   /** Re-fetch the user's event-scoped role and update user.role in context. */
-  refreshEventRole: (eventId: string) => Promise<void>;
+  refreshEventRole: (eventId: string, confirmedRole?: 'sponsor' | 'attendee') => Promise<void>;
   completedChallenges: string[];
   completeChallenge: (id: string) => void;
   bookmarkedSessions: string[];
@@ -375,14 +375,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.setItem(CACHED_USER_KEY, JSON.stringify(u)).catch(() => {});
   }, []);
 
-  const refreshEventRole = useCallback(async (eventId: string) => {
+  const refreshEventRole = useCallback(async (eventId: string, confirmedRole?: 'sponsor' | 'attendee') => {
     // Use userRef so this always sees the current user without stale closures.
     const current = userRef.current;
     if (!current?.id) return;
     // Pass badgeCode as primary lookup key (single-record search, faster).
     // Explicit role refreshes invalidate the old event-scoped value first.
     await AsyncStorage.removeItem(eventRoleCacheKey(current.id, eventId)).catch(() => {});
-    const role = await getMyEventRole(eventId, current.id, current.badgeCode);
+    const role = confirmedRole ?? await getMyEventRole(eventId, current.id, current.badgeCode);
     // Persist the freshly resolved role so the next app launch is instant.
     setCachedEventRole(current.id, eventId, role).catch(() => {});
     setUserState((latest) => {
