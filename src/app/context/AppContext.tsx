@@ -1928,18 +1928,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         sponsorId:    saved.sponsorId    || tempRow.sponsorId,
         addedByName:  saved.addedByName  || tempRow.addedByName,
       };
-      setSponsorGiveaways(prev =>
-        prev.map(g => {
+      setSponsorGiveaways(prev => {
+        // A teammate's refresh can discover this canonical id before our
+        // POST is acknowledged. Replace that server row and the temporary
+        // row with one owned row; duplicate ids otherwise let an empty
+        // ownership entry overwrite the canonical metadata on the next GET.
+        const discovered = prev.find(g => g.id === saved.id);
+        return prev.filter(g => g.id !== saved.id).map(g => {
           if (g.id !== tempId) return g;
           // Carry forward any in-memory winners as well, so the UI
           // doesn't briefly drop them between the swap and the
           // post-merge re-hydration.
-          const carried = g.winners ?? [];
-          return carried.length > 0
-            ? { ...canonical, winners: [...(canonical.winners ?? []), ...carried] }
-            : canonical;
-        }),
-      );
+          const winners = [...(canonical.winners ?? [])];
+          const seen = new Set(winners.map(w => w.id));
+          for (const winner of [...(g.winners ?? []), ...(discovered?.winners ?? [])]) {
+            if (seen.has(winner.id)) continue;
+            seen.add(winner.id);
+            winners.push(winner);
+          }
+          return winners.length > 0 ? { ...canonical, winners } : canonical;
+        });
+      });
       // Background re-fetch so the canonical server state (including any
       // ownership fields the backend persisted) replaces the local merge
       // above, and so other open tabs / devices see the new giveaway

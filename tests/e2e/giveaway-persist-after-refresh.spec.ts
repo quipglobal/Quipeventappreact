@@ -122,8 +122,35 @@ function gate() {
   return { promise, release };
 }
 
-async function installMocks(page: Page, race?: { rejectDelete?: boolean }) {
+const CONCURRENT_GIVEAWAYS = [
+  NEW_GIVEAWAY_POST_RESPONSE,
+  {
+    ...NEW_GIVEAWAY_POST_RESPONSE,
+    id: 'g-teammate-1000',
+    title: 'Teammate Travel Mug',
+    number_of_items: 2,
+    numberOfItems: 2,
+    added_by_name: 'Taylor Teammate',
+  },
+];
+
+function concurrentControls() {
+  return {
+    postStarted: [gate(), gate()],
+    posts: [gate(), gate()],
+    refreshStarted: [gate(), gate()],
+    refreshes: [gate(), gate()],
+  };
+}
+
+async function installMocks(
+  page: Page,
+  race?: { rejectDelete?: boolean },
+  concurrent?: ReturnType<typeof concurrentControls>,
+) {
   let postFired = false;
+  let postCount = 0;
+  let refreshCount = 0;
   const refreshStarted = gate();
   const refresh = gate();
   const deleteStarted = gate();
@@ -169,6 +196,34 @@ async function installMocks(page: Page, race?: { rejectDelete?: boolean }) {
 
     // Giveaways — the critical stub
     if (p.startsWith(`/api/v1/events/${EVENT.id}/giveaways`)) {
+      if (concurrent && m === 'POST') {
+        const index = postCount++;
+        expect(index).toBeLessThan(2);
+        const body = route.request().postDataJSON();
+        expect(body.title).toBe(CONCURRENT_GIVEAWAYS[index].title);
+        expect(body.sponsor_id).toBe(SPONSOR.id);
+        expect(body.sponsor_name).toBe(SPONSOR.company);
+        concurrent.postStarted[index].release();
+        await concurrent.posts[index].promise;
+        postFired = true;
+        return ok({ success: true, data: CONCURRENT_GIVEAWAYS[index] }, 201);
+      }
+      if (concurrent && m === 'GET' && postFired) {
+        const index = refreshCount++;
+        expect(index).toBeLessThan(2);
+        concurrent.refreshStarted[index].release();
+        await concurrent.refreshes[index].promise;
+        // Both saves belong to the same company / sponsorId. Strip ALL
+        // ownership so the user-id fallback cannot mask a broken merge.
+        // Distinct quantities acknowledge each refresh's React state commit.
+        const list = CONCURRENT_GIVEAWAYS.map((g, row) => ({
+          id: g.id,
+          title: g.title,
+          created_at: g.created_at,
+          number_of_items: 10 * (row + 1) + index,
+        }));
+        return ok({ success: true, data: [EXISTING_GIVEAWAY, ...list] });
+      }
       if (m === 'DELETE' && race) {
         expect(p).toBe(`/api/v1/events/${EVENT.id}/giveaways/g-new-999`);
         deleteStarted.release();
@@ -317,6 +372,79 @@ test('newly-added giveaway stays in My Giveaways section after background list r
     .first();
   await expect(managedSectionAfterNav.getByText(NEW_GIVEAWAY_TITLE).first()).toBeVisible();
 });
+
+for (const order of [[0, 1], [1, 0]]) {
+  test(`overlapping same-company giveaway saves survive acknowledgement order ${order.join(' then ')}`, async ({ page }) => {
+    test.setTimeout(30_000);
+    const control = concurrentControls();
+    await installMocks(page, undefined, control);
+    try {
+      await page.goto('/');
+      await page.getByRole('button', { name: /sign in/i }).click();
+      await page.getByPlaceholder('you@example.com').fill(SPONSOR.email);
+      await page.getByRole('button', { name: /^Continue$/i }).click();
+      const otp = page.locator('div[aria-label="Sign in"] input[inputmode="numeric"]');
+      await expect(otp.first()).toBeVisible();
+      await otp.first().focus();
+      await page.keyboard.type('123456', { delay: 30 });
+      await page.getByRole('button', { name: /looks good,?\s*continue/i }).click();
+      await page.getByRole('button', { name: /^Events$/i }).click();
+      await page.getByText(EVENT.name).first().click();
+      await page.getByRole('button', { name: /^More$/i }).click();
+      await page.getByRole('button', { name: /^Manage Giveaways$/i }).click();
+      await expect(page.getByText(/Acme Corp Giveaways\s*\(1\)/i)).toBeVisible();
+
+      // Submit twice without allowing either POST to finish: both calls to
+      // addSponsorGiveaway are in flight, not sequential completed saves.
+      for (const [index, giveaway] of CONCURRENT_GIVEAWAYS.entries()) {
+        await page.getByPlaceholder(/Win a MacBook/i).fill(giveaway.title);
+        await page.locator('input[type="number"]').first().fill(String(giveaway.number_of_items));
+        await page.getByRole('button', { name: /^Add Giveaway$/i }).click();
+        await control.postStarted[index].promise;
+      }
+      await expect(page.getByText(/Acme Corp Giveaways\s*\(3\)/i)).toBeVisible();
+
+      // Scope to the managed section only, excluding All Event Giveaways.
+      const managed = page.getByText(/Acme Corp Giveaways\s*\(3\)/i)
+        .locator('xpath=../..');
+      for (const [index, postIndex] of order.entries()) {
+        // The backend has saved both prizes, but acknowledge one POST at a
+        // time. The first GET returns the other prize while its optimistic
+        // row is still pending. GETs are deduplicated by the API client, so
+        // let this refresh finish before acknowledging the other POST.
+        control.posts[postIndex].release();
+        await control.refreshStarted[index].promise;
+        const response = page.waitForResponse(r =>
+          r.url().endsWith(`/events/${EVENT.id}/giveaways`) && r.request().method() === 'GET');
+        control.refreshes[index].release();
+        const refreshed = await response;
+        await refreshed.finished();
+        const payload = await refreshed.json();
+        expect(payload.data.slice(1)).toHaveLength(2);
+        for (const row of payload.data.slice(1)) {
+          expect(row).not.toHaveProperty('sponsor_name');
+          expect(row).not.toHaveProperty('sponsor_id');
+        }
+
+        // Wait on server-only values, not a timeout or the optimistic DOM:
+        // these quantities prove this exact refresh has been applied.
+        if (index === 0) {
+          await expect(managed.getByText(`${10 * (postIndex + 1)} items available`, { exact: true })).toBeVisible();
+        } else {
+          await expect(managed.getByText('11 items available', { exact: true })).toBeVisible();
+          await expect(managed.getByText('21 items available', { exact: true })).toBeVisible();
+        }
+        for (const giveaway of CONCURRENT_GIVEAWAYS) {
+          await expect(managed.getByRole('heading', { name: giveaway.title, exact: true })).toHaveCount(1);
+          await expect(managed.getByRole('heading', { name: giveaway.title, exact: true })).toBeVisible();
+        }
+        await expect(managed.getByRole('button', { name: 'Edit giveaway', exact: true })).toHaveCount(3);
+      }
+    } finally {
+      for (const g of [...control.posts, ...control.refreshes]) g.release();
+    }
+  });
+}
 
 for (const order of ['GET before DELETE', 'DELETE before GET', 'rejected DELETE'] as const) {
   test(`deleted giveaway stays absent during stale refresh: ${order}`, async ({ page }) => {
