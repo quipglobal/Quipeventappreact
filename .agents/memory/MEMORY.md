@@ -15,3 +15,4 @@
 - [Giveaway API contracts](giveaway-api-contracts.md) — exact endpoint URLs, /winners body (winner_user_id only), /draw URL fix, DrawParticipant userId chain, attendee mobile-giveaways endpoint
 - [Giveaway read/delete ordering](giveaway-delete-ordering.md) — stale GETs can finish after successful DELETE; preserve account/event-scoped deletion intent until failure or session end.
 - [Publishing dependency firewall](publish-package-firewall.md) — cached installs can pass while a clean publish rejects a newly vulnerable locked dependency; inspect the latest terminal error.
+- [Mobile focus refresh stability](mobile-focus-refresh-stability.md) — query updates must not recreate navigation focus callbacks, or a single visit can repeatedly refetch.

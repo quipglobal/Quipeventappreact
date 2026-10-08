@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useEvent } from '@/context/EventContext';
 import { listAttendees, getLeaderboard, listSpeakers } from '@/lib/api/users';
 import { useAuthedQuery } from '@/hooks/useAuthedQuery';
@@ -109,17 +109,19 @@ export function useAudience() {
   };
 }
 
-export function useLeaderboard() {
+export function useLeaderboard({ refetchOnMount }: { refetchOnMount?: 'always' } = {}) {
   const { currentEventId } = useEvent();
+  // Keep the focus callback stable across query-result renders; a new key
+  // array on every render would re-run the focus effect and invalidate again.
+  const queryKey = useMemo(() => ['leaderboard', currentEventId], [currentEventId]);
   return useAuthedQuery({
-    queryKey: ['leaderboard', currentEventId],
+    queryKey,
     queryFn: getLeaderboard,
     select: (res) => res.data ?? [],
     enabled: !!currentEventId,
-    // Leaderboard updates as users complete challenges, but sub-minute
-    // precision is not required. A 60-second cache avoids the leaderboard
-    // being the single most-fetched endpoint (it is mounted on feed,
-    // engage, and event-dashboard simultaneously).
+    // The full leaderboard opts into a fresh fetch on every mount. Previews
+    // on feed, engage, and event-dashboard retain their shared cache window.
+    ...(refetchOnMount ? { refetchOnMount } : {}),
     staleTime: 60_000,
   });
 }

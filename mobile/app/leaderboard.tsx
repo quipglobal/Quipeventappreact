@@ -34,7 +34,8 @@ const tierColorFor = (tier: string, fallback?: string): string => {
 export default function LeaderboardScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const { data: leaderboardData = [], isLoading, isError, refetch } = useLeaderboard();
+  const { data: leaderboardData = [], isLoading, isFetching, isError, refetch } =
+    useLeaderboard({ refetchOnMount: 'always' });
 
   const rows: Row[] = useMemo(
     () =>
@@ -96,13 +97,13 @@ export default function LeaderboardScreen() {
       )}
 
       <DataState
-        loading={isLoading && rows.length === 0}
+        loading={isFetching}
         error={isError ? 'Failed to load leaderboard.' : null}
         onRetry={refetch}
       />
 
       {/* Empty state */}
-      {!isLoading && !isError && rows.length === 0 && (
+      {!isLoading && !isFetching && !isError && rows.length === 0 && (
         <View style={styles.emptyState}>
           <Ionicons name="trophy-outline" size={44} color={colors.textMuted} />
           <Text style={styles.emptyTitle}>No rankings yet</Text>
