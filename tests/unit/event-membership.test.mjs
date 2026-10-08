@@ -170,3 +170,55 @@ test('mobile resolves the event reference inside a membership instead of fetchin
   assert.equal(joined.data.membershipId, 900);
   assert.deepEqual(calls, ['/api/v1/events/join', '/api/v1/events/21']);
 });
+
+for (const app of ['web', 'mobile']) {
+  test(`${app} sends the selected event id to disambiguate a reused invite key`, async () => {
+    const calls = [];
+    const post = async (path, body) => {
+      calls.push({ path, body });
+      return { success: true, data: { event_id: '3446', membership_id: 900 } };
+    };
+    const api = app === 'web'
+      ? load('src/app/api/eventsClient.ts', {
+        './client': { apiPost: post },
+        '../../../mobile/lib/eventMembership': resolver,
+        '../../../mobile/lib/eventJoinResult': joinParser,
+      })
+      : load('mobile/lib/api/events.ts', {
+        '@/lib/apiClient': { request: async (path, options) => options?.method === 'POST'
+          ? post(path, JSON.parse(options.body))
+          : { success: true, data: { id: '3446', name: 'Selected event' } } },
+        '@/lib/eventStore': {},
+        '@/lib/eventMembership': resolver,
+        '@/lib/eventJoinResult': joinParser,
+      });
+    const joined = app === 'web'
+      ? await api.joinEventWithCode(' shared-key ', '3446')
+      : await api.joinByCode(' shared-key ', '3446');
+    assert.equal(joined.success, true);
+    assert.equal(app === 'web' ? joined.data.eventId : joined.data.id, '3446');
+    assert.deepEqual(calls, [{
+      path: '/api/v1/events/join',
+      body: { event_code: 'SHARED-KEY', code: 'SHARED-KEY', event_id: '3446' },
+    }]);
+  });
+}
+
+test('mobile catalogue fallback cannot hide a returned different event id behind a shared key', async () => {
+  const api = load('mobile/lib/api/events.ts', {
+    '@/lib/apiClient': { request: async path => {
+      if (path === '/api/v1/events/join') return { success: true, data: { event_id: 3279 } };
+      if (path === '/api/v1/events/3279') return unavailable;
+      return { success: true, data: [
+        { id: 3446, name: 'Selected event', code: 'SHARED-KEY' },
+        { id: 3279, name: 'Returned event', code: 'SHARED-KEY' },
+      ] };
+    } },
+    '@/lib/eventStore': {},
+    '@/lib/eventMembership': resolver,
+    '@/lib/eventJoinResult': joinParser,
+  });
+  const joined = await api.joinByCode('SHARED-KEY', '3446');
+  assert.equal(joined.success, true);
+  assert.equal(joined.data.id, '3279');
+});

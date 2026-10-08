@@ -225,12 +225,16 @@ export async function getEventApi(id: string): Promise<EventDetailResponse> {
  * Backend auto-creates a checkin record (auto_checked_in) so the attendee
  * appears in the audience list immediately — no separate check-in step needed.
  */
-export async function joinEventByCodeApi(code: string): Promise<JoinEventResponse> {
+export async function joinEventByCodeApi(code: string, selectedEventId?: string): Promise<JoinEventResponse> {
   const normalizedCode = code.trim().toUpperCase();
   const res = await apiPost<unknown>(
     '/api/v1/events/join',
     // Send both field names so it works regardless of which one the backend expects.
-    { event_code: normalizedCode, code: normalizedCode },
+    {
+      event_code: normalizedCode,
+      code: normalizedCode,
+      ...(selectedEventId ? { event_id: selectedEventId } : {}),
+    },
     EVENTS_TENANT_HEADERS,
   );
   if (res.success) {
@@ -267,6 +271,6 @@ export async function checkEventAccess(eventId: string, identity?: EventIdentity
  * 201 → newly joined (auto_checked_in: true); 200 → already a member (idempotent); 404 → invalid code
  * Backend auto-creates a checkin record — no separate check-in step needed.
  */
-export async function joinEventWithCode(eventCode: string): Promise<JoinEventResponse> {
-  return joinEventByCodeApi(eventCode);
+export async function joinEventWithCode(eventCode: string, selectedEventId?: string): Promise<JoinEventResponse> {
+  return joinEventByCodeApi(eventCode, selectedEventId);
 }

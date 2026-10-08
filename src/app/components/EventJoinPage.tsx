@@ -564,7 +564,9 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
       setIsJoiningEvent(false);
       return;
     }
-    const res = await joinEventWithCode(eventKey.trim());
+    // Scope key validation and registration to the selected event. A code-only
+    // lookup can select another event when organisers reuse an invite key.
+    const res = await joinEventWithCode(eventKey.trim(), gateEvent.id);
     setIsJoiningEvent(false);
     if (res.success) {
       const joinedEventId = res.data?.eventId;

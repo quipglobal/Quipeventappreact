@@ -21,3 +21,9 @@ Mocked join tests do not establish that the external backend registered a real a
 **Why:** A repeat report persisted after parser and mocked-browser tests passed; the actual signed-in response was unavailable. A username alone cannot provide an authenticated session.
 
 **How to apply:** Distinguish client regression results from live registration verification. When a mismatch remains, obtain the selected and returned event references from the affected session rather than claiming the real account was fixed.
+
+Event-card joins must send the selected `event_id` together with the key.
+
+**Why:** A real first-time attendee report showed different selected and returned event references while the request carried only a key. Code-only lookup leaves event selection entirely to the external backend and cannot disambiguate reused keys.
+
+**How to apply:** Scope both clients' card/popup registration requests to the selected event, preserving standalone code-only entry. The external server must validate the key against that event before writing membership; an ignored `event_id` requires backend work, not an authorization bypass. Never conceal an explicit returned event reference by falling back to another catalogue match.

@@ -7,7 +7,8 @@ const user = { id: 'member-42', name: 'Casey Member', first_name: 'Casey', last_
   email: 'casey@example.test', company: 'Example Co', title: 'Director', role: 'attendee',
   email_verified: true, profile_complete: true, points: 0, interests: [] };
 type Scenario = 'audience' | 'sponsor_rep' | 'has_access' | 'outsider' | 'revoked' | 'new_member'
-  | 'membership_only' | 'nested_membership' | 'different_event' | 'mismatched_reference_registered';
+  | 'membership_only' | 'nested_membership' | 'different_event' | 'mismatched_reference_registered'
+  | 'scoped_duplicate_key';
 
 async function setup(page: Page, scenario: Scenario) {
   let joins = 0;
@@ -26,17 +27,26 @@ async function setup(page: Page, scenario: Scenario) {
     if (p === '/api/v1/events') return ok({ success: true, data: { data: [event] } });
     if (p === '/api/v1/events/join' && method === 'POST') {
       joins++;
+      expect(route.request().postDataJSON()).toEqual({
+        event_code: scenario === 'different_event' ? 'OTHER-26' : 'MEM-26',
+        code: scenario === 'different_event' ? 'OTHER-26' : 'MEM-26',
+        event_id: '21',
+      });
       if (scenario === 'different_event') {
         return ok({ success: true, data: { event_id: 22, membership_id: 900 } }, 201);
       }
       if (scenario === 'mismatched_reference_registered') {
-        expect(route.request().postDataJSON()).toEqual({ event_code: 'MEM-26', code: 'MEM-26' });
         registered = true;
         return ok({ success: true, data: { event_id: 22, membership_id: 900 } }, 201);
       }
-      if (['new_member', 'membership_only', 'nested_membership'].includes(scenario)) {
-        expect(route.request().postDataJSON()).toEqual({ event_code: 'MEM-26', code: 'MEM-26' });
+      if (['new_member', 'membership_only', 'nested_membership', 'scoped_duplicate_key'].includes(scenario)) {
         registered = true;
+        if (scenario === 'scoped_duplicate_key') {
+          // This backend fixture has another event with the same key. It must
+          // choose the requested event, not its first code-only match.
+          return ok({ success: true, data: { event_id: route.request().postDataJSON().event_id,
+            membership_id: 900, auto_checked_in: true } }, 201);
+        }
         if (scenario === 'membership_only') return ok({ success: true,
           data: { id: 900, membership_id: 900, auto_checked_in: true } }, 201);
         if (scenario === 'nested_membership') return ok({ success: true,
@@ -116,7 +126,7 @@ test('a valid key registers a new member and preserves punctuation in the key', 
   await expect(page.getByText(user.name).first()).toBeVisible();
 });
 
-for (const scenario of ['membership_only', 'nested_membership', 'mismatched_reference_registered'] as const) {
+for (const scenario of ['membership_only', 'nested_membership', 'mismatched_reference_registered', 'scoped_duplicate_key'] as const) {
   test(`correct key joins and adds attendee when the response contains ${scenario}`, async ({ page }) => {
     const joins = await setup(page, scenario);
     await expect(page.getByText('Access Required', { exact: true })).toBeVisible();

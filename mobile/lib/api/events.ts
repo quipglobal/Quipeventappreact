@@ -236,14 +236,19 @@ export async function joinEventByCode(code: string): Promise<ApiResponse<Event>>
  */
 export async function joinByCode(
   code: string,
+  selectedEventId?: string,
 ): Promise<ApiResponse<Event & { autoCheckedIn: boolean; membershipId?: number }>> {
   const upper = code.trim().toUpperCase();
-  if (__DEV__) console.log(`[Events] joinByCode(${upper}) — POST join-by-code`);
+  if (__DEV__) console.log('[Events] joinByCode — POST /events/join');
 
   const res = await request<any>('/api/v1/events/join', {
     method: 'POST',
     // Send both field names so it works regardless of which field the backend expects.
-    body: JSON.stringify({ event_code: upper, code: upper }),
+    body: JSON.stringify({
+      event_code: upper,
+      code: upper,
+      ...(selectedEventId ? { event_id: selectedEventId } : {}),
+    }),
   });
 
   if (!res.success) {
@@ -271,7 +276,9 @@ export async function joinByCode(
   const listRes = await listEvents();
   if (listRes.success) {
     const match = (listRes.data ?? []).find(
-      (e) => (e.code ?? '').toUpperCase() === upper || String(e.id) === upper,
+      (e) => eventId
+        ? String(e.id) === String(eventId)
+        : (!selectedEventId || String(e.id) === selectedEventId) && (e.code ?? '').toUpperCase() === upper,
     );
     if (match) return { success: true, data: { ...match, autoCheckedIn, membershipId } };
   }

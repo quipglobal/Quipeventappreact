@@ -279,7 +279,7 @@ export default function EventsScreen() {
     mutationFn: async (code: string) => {
       // Call the real join-by-code endpoint. The backend auto-creates a
       // checkin record (auto_checked_in) so no separate check-in step is needed.
-      const res = await joinByCode(code);
+      const res = await joinByCode(code, selectedEvent?.id);
       if (!res.success) throw new Error(res.error?.message ?? `No event found for "${code}".`);
       return res.data!;
     },
