@@ -7,7 +7,7 @@ const user = { id: 'member-42', name: 'Casey Member', first_name: 'Casey', last_
   email: 'casey@example.test', company: 'Example Co', title: 'Director', role: 'attendee',
   email_verified: true, profile_complete: true, points: 0, interests: [] };
 type Scenario = 'audience' | 'sponsor_rep' | 'has_access' | 'outsider' | 'revoked' | 'new_member'
-  | 'membership_only' | 'nested_membership' | 'different_event';
+  | 'membership_only' | 'nested_membership' | 'different_event' | 'mismatched_reference_registered';
 
 async function setup(page: Page, scenario: Scenario) {
   let joins = 0;
@@ -27,6 +27,11 @@ async function setup(page: Page, scenario: Scenario) {
     if (p === '/api/v1/events/join' && method === 'POST') {
       joins++;
       if (scenario === 'different_event') {
+        return ok({ success: true, data: { event_id: 22, membership_id: 900 } }, 201);
+      }
+      if (scenario === 'mismatched_reference_registered') {
+        expect(route.request().postDataJSON()).toEqual({ event_code: 'MEM-26', code: 'MEM-26' });
+        registered = true;
         return ok({ success: true, data: { event_id: 22, membership_id: 900 } }, 201);
       }
       if (['new_member', 'membership_only', 'nested_membership'].includes(scenario)) {
@@ -111,7 +116,7 @@ test('a valid key registers a new member and preserves punctuation in the key', 
   await expect(page.getByText(user.name).first()).toBeVisible();
 });
 
-for (const scenario of ['membership_only', 'nested_membership'] as const) {
+for (const scenario of ['membership_only', 'nested_membership', 'mismatched_reference_registered'] as const) {
   test(`correct key joins and adds attendee when the response contains ${scenario}`, async ({ page }) => {
     const joins = await setup(page, scenario);
     await expect(page.getByText('Access Required', { exact: true })).toBeVisible();
@@ -129,6 +134,6 @@ test('a key explicitly belonging to another event remains blocked', async ({ pag
   await setup(page, 'different_event');
   await page.getByPlaceholder(event.code).fill('OTHER-26');
   await page.getByRole('button', { name: /^Join Event$/i }).click();
-  await expect(page.getByText('That key belongs to a different event. Please enter the key for this event.', { exact: true })).toBeVisible();
+  await expect(page.getByText('The join response references a different event, and access to this event could not be confirmed. Selected event ID: 21; returned event ID: 22.', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /^Home$/i })).toHaveCount(0);
 });

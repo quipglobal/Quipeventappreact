@@ -346,9 +346,21 @@ export default function EventsScreen() {
         // If the popup was opened for a specific event, the code must match
         // exactly that event — reject codes that belong to a different event.
         if (selectedEvent && String(ev.id) !== String(selectedEvent.id)) {
+          // Join metadata can be inconsistent. Selected-event membership,
+          // verified for this account after registration, is authoritative.
+          const access = await checkEventAccess(selectedEvent.id, { id: user?.id, email: user?.email });
+          if (access.success && access.data?.is_member) {
+            setCurrentEventId(selectedEvent.id);
+            await refreshEventRole(selectedEvent.id, access.data.role === 'sponsor' ? 'sponsor' :
+              access.data.role === 'attendee' ? 'attendee' : undefined);
+            await saveJoinedEvent(selectedEvent.id);
+            setSelectedEvent(null);
+            goToFeed();
+            return;
+          }
           Alert.alert(
-            'Wrong Code',
-            `That code is for a different event. Please enter the correct code for "${selectedEvent.name}".`,
+            'Unable to confirm event access',
+            `The join response references a different event, and access to "${selectedEvent.name}" could not be confirmed. Selected event ID: ${selectedEvent.id}; returned event ID: ${ev.id}.`,
           );
           return;
         }

@@ -569,17 +569,16 @@ export const EventJoinPage: React.FC<EventJoinPageProps> = ({ onJoinEvent }) => 
     if (res.success) {
       const joinedEventId = res.data?.eventId;
       const submittedKey = eventKey.trim().toUpperCase();
-      if (joinedEventId && String(joinedEventId) !== String(gateEvent.id)) {
-        setKeyError('That key belongs to a different event. Please enter the key for this event.');
-        return;
-      }
+      const differentEvent = !!joinedEventId && String(joinedEventId) !== String(gateEvent.id);
       // Some successful joins return only a membership id. A matching key
       // plus backend join success identifies this event; never compare the
       // membership id to the event id. Otherwise verify the selected event.
-      if (!joinedEventId && submittedKey !== (gateEvent.code ?? '').trim().toUpperCase()) {
+      if (differentEvent || (!joinedEventId && submittedKey !== (gateEvent.code ?? '').trim().toUpperCase())) {
         const verified = await checkEventAccess(gateEvent.id, { id: user?.id, email: user?.email });
         if (!verified.success || !verified.data?.is_member) {
-          setKeyError('Joined successfully, but we could not confirm access to this selected event. Please refresh the event list.');
+          setKeyError(differentEvent
+            ? `The join response references a different event, and access to this event could not be confirmed. Selected event ID: ${gateEvent.id}; returned event ID: ${joinedEventId}.`
+            : 'Joined successfully, but we could not confirm access to this selected event. Please refresh the event list.');
           return;
         }
         setGateEvent(null);

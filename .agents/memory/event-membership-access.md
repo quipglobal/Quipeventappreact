@@ -14,4 +14,10 @@ Join responses can represent a membership rather than an event. A generic resour
 
 **Why:** The user reported a correct key producing a “different event” error after a successful join; the client had an ambiguous generic-ID fallback. Membership and event identities have separate meanings.
 
-**How to apply:** Resolve the joined event only from explicit event fields or an event object, retaining outer envelope fields when nested data contains a membership resource. If the backend does not identify the event, require a successful join with the selected event's exact key or verify its membership before entering.
+**How to apply:** Resolve the joined event only from explicit event fields or an event object, retaining outer envelope fields when nested data contains a membership resource. If the backend does not identify the event, require a successful join with the selected event's exact key or verify its membership before entering. If a successful join references a different event, recheck authenticated membership in the selected event before rejecting: independent backend-confirmed access remains valid despite inconsistent join metadata. Otherwise keep access blocked and report only selected/returned event IDs, never invite keys or account credentials.
+
+Mocked join tests do not establish that the external backend registered a real attendee.
+
+**Why:** A repeat report persisted after parser and mocked-browser tests passed; the actual signed-in response was unavailable. A username alone cannot provide an authenticated session.
+
+**How to apply:** Distinguish client regression results from live registration verification. When a mismatch remains, obtain the selected and returned event references from the affected session rather than claiming the real account was fixed.
