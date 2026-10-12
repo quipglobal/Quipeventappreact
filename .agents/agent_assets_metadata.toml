@@ -6,39 +6,60 @@ id = "Mfj55wmOBQR7UhHR8eEz7"
 uri = "file://builds/cxo-events-v2.9-vc28.tar.gz"
 type = "unspecified"
 title = "CXO Events v2.9 (versionCode 28) — signed Android production AAB"
+logical_id = "2bcb34db-6a8c-4d3d-b93d-d12fe10658a6"
 
 [[outputs]]
 id = "_dNQRofcDO-rfGnzoUxS1"
 uri = "file://builds/cxo-events-v2.10-vc29.tar.gz"
 type = "unspecified"
 title = "CXO Events v2.10 (versionCode 29) — signed Android AAB with network diagnostics"
+logical_id = "8c99eba5-4ca2-4318-9c0a-c2067503b912"
 
 [[outputs]]
 id = "YIEUWWkE0Gw3te5ruKKuB"
 uri = "file://builds/cxo-events-v2.11-vc30.tar.gz"
 type = "unspecified"
 title = "CXO Events v2.11 (versionCode 30) — signed AAB with embedded certificate trust fix"
+logical_id = "99de7604-eb3b-47e3-977d-b141c961a27a"
 
 [[outputs]]
 id = "VjNp2Hqs4IcezpdSKgZX8"
 uri = "file://builds/cxo-events-v2.12-vc31.tar.gz"
 type = "unspecified"
 title = "CXO Events v2.12 (versionCode 31) — domain-config + full native error diagnostics"
+logical_id = "2ba43264-1db0-4a71-8fd7-df7267331cc5"
 
 [[outputs]]
 id = "fi30K5or4VmbBN7OmkXua"
 uri = "file://builds/cxo-events-v2.13-vc32.tar.gz"
 type = "unspecified"
 title = "CXO Events v2.13 (versionCode 32) — correct backend host fix"
+logical_id = "89492f05-ea30-45e8-9910-7405903274e8"
 
 [[outputs]]
 id = "AaCEDKhv1wbYoDWTpDZYo"
 uri = "file://builds/cxo-events-v2.14-vc33.tar.gz"
 type = "unspecified"
 title = "CXO Events v2.14 (versionCode 33) — full web-app feature parity"
+logical_id = "3ff4a785-af47-4602-a835-17bec49a3779"
 
 [[outputs]]
 id = "IQDhJ-Gy99X1mGwThC3kQ"
 uri = "file://builds/cxo-events-v2.15-vc34.tar.gz"
 type = "unspecified"
 title = "CXO Events v2.15 (versionCode 34) — registration flow, welcome tabs, full attendee module"
+logical_id = "ec7b7ebd-79fa-4d91-8ad2-a54440644503"
+
+[[outputs]]
+id = "BcVAxsFP0AG66Ocoht_y-"
+uri = "file://generated-artifacts/event-join-backend-handoff.html"
+type = "html"
+title = "Laravel registration fix — download bundle"
+description = "Self-contained handoff with ZIP and controller-patch download buttons, 41 isolated PHP checks, and application/staging instructions. Nothing has been deployed."
+logical_id = "0e6e7e29-bd6c-444c-8e3a-dd83dd3ae9ba"
+content_hash = "sha256:e261d0518ce84c707dc95716abfecd95012383c7f6432052487eb9e7b8769c3d"
+size = 36207
+mtime_ms = 1791841787705
+storage_uri = "gcs://replit-rams-assets-worf/rams/assets/repl:2e6dbd10-51e2-410c-aab8-a6adea7b5c0b/0e6e7e29-bd6c-444c-8e3a-dd83dd3ae9ba/5a65214d-6cdc-4f51-b225-3ef17e4fede0"
+storage_version_token = "1791841902071816"
+content_type = "text/html"

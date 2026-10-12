@@ -5,3 +5,6 @@
 # Playwright
 /test-results/
 /playwright-report/
+
+# Downloadable handoffs and generated validation output
+/generated-artifacts/

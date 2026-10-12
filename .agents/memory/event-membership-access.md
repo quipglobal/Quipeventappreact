@@ -26,7 +26,7 @@ Event-card joins must send the selected `event_id` together with the key.
 
 **Why:** A real first-time attendee report showed different selected and returned event references while the request carried only a key. Code-only lookup leaves event selection entirely to the external backend and cannot disambiguate reused keys.
 
-**How to apply:** Scope both clients' card/popup registration requests to the selected event, preserving standalone code-only entry. The external server must validate the key against that event before writing membership; an ignored `event_id` requires backend work, not an authorization bypass. Never conceal an explicit returned event reference by falling back to another catalogue match.
+**How to apply:** Scope both clients' card/popup registration requests to the selected event, preserving standalone code-only entry. The external server must validate the key against that event before writing membership; an ignored `event_id` requires backend work, not an authorization bypass. A tenant header may narrow a query but must not replace authorized tenant context; retain tenant and soft-delete scopes and verify the real resolver before deployment. Never conceal an explicit returned event reference by falling back to another catalogue match.
 
 An event's `event_code` and an invitation's `invites.token` are separate identifiers.
 
