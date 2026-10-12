@@ -27,3 +27,9 @@ Event-card joins must send the selected `event_id` together with the key.
 **Why:** A real first-time attendee report showed different selected and returned event references while the request carried only a key. Code-only lookup leaves event selection entirely to the external backend and cannot disambiguate reused keys.
 
 **How to apply:** Scope both clients' card/popup registration requests to the selected event, preserving standalone code-only entry. The external server must validate the key against that event before writing membership; an ignored `event_id` requires backend work, not an authorization bypass. Never conceal an explicit returned event reference by falling back to another catalogue match.
+
+An event's `event_code` and an invitation's `invites.token` are separate identifiers.
+
+**Why:** The user supplied the external registration handoff: event-code joining creates membership and attempts automatic check-in; invitation acceptance uses a token and creates confirmed membership. The documented join aliases share the same handler.
+
+**How to apply:** Send an event key to the event-join endpoint, not to invite acceptance. Use invitation acceptance only with a genuine invitation token. Changing to a join alias does not establish that selected-event scoping is fixed; inspect the shared handler.
