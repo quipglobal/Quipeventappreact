@@ -18,9 +18,9 @@ Join responses can represent a membership rather than an event. A generic resour
 
 Mocked join tests do not establish that the external backend registered a real attendee.
 
-**Why:** A repeat report persisted after parser and mocked-browser tests passed; the actual signed-in response was unavailable. A username alone cannot provide an authenticated session.
+**Why:** A repeat report persisted after parser and mocked-browser tests passed; the actual signed-in response was unavailable. A username alone cannot provide an authenticated session. An update exported from the external project was explicitly client-only and undeployed, despite being described as a backend update.
 
-**How to apply:** Distinguish client regression results from live registration verification. When a mismatch remains, obtain the selected and returned event references from the affected session rather than claiming the real account was fixed.
+**How to apply:** Distinguish client regression results from live registration verification. Inspect exported bundles' manifests and stated scope before treating them as backend changes or deployment evidence. Reconcile client patches with current membership verification rather than overwriting newer files with older snapshots. When a mismatch remains, obtain the selected and returned event references from the affected session rather than claiming the real account was fixed.
 
 Event-card joins must send the selected `event_id` together with the key.
 
